@@ -1,0 +1,187 @@
+name: Hub CI/CD
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - 'hub/**'
+      - '.github/workflows/hub-ci.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'hub/**'
+  workflow_dispatch:
+
+concurrency:
+  group: hub-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: christ-roy/veridian-dashboard
+
+defaults:
+  run:
+    working-directory: hub
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+          cache-dependency-path: hub/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
+      - name: Lint
+        run: pnpm lint
+        continue-on-error: true
+      - name: Tests
+        run: pnpm test
+        env:
+          NODE_ENV: test
+      - name: Build check
+        run: pnpm build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: fake-anon-key
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_fake
+          NEXT_PUBLIC_SITE_URL: http://localhost:3000
+          NEXT_PUBLIC_TWENTY_URL: http://localhost:3001
+          NEXT_PUBLIC_NOTIFUSE_URL: http://localhost:3002
+          NEXT_PUBLIC_NOTIFUSE_API_URL: http://localhost:3003
+          SUPABASE_SERVICE_ROLE_KEY: fake-service-role-key
+          STRIPE_SECRET_KEY: sk_test_fake
+          STRIPE_WEBHOOK_SECRET: whsec_fake
+
+  docker:
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version
+        id: version
+        run: |
+          PACKAGE_NAME="veridian-dashboard"
+          EXISTING_TAGS=$(gh api \
+            -H "Accept: application/vnd.github+json" \
+            "/users/${{ github.repository_owner }}/packages/container/${PACKAGE_NAME}/versions" \
+            --jq '.[].metadata.container.tags[]' 2>/dev/null || echo "")
+          LATEST_TAG=$(echo "$EXISTING_TAGS" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -uV | tail -n 1)
+          if [ -z "$LATEST_TAG" ]; then
+            VERSION="v0.5.0"
+          else
+            VERSION_WITHOUT_V=${LATEST_TAG#v}
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION_WITHOUT_V"
+            PATCH=$((PATCH + 1))
+            VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "Building version: ${VERSION}"
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v5
+        with:
+          context: ./hub
+          file: ./hub/Dockerfile
+          target: runner
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+  deploy-staging:
+    needs: docker
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy staging
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY_DEV }}
+          DEV_HOST: ${{ vars.DEV_HOST }}
+          DEV_USER: ${{ vars.DEV_USER }}
+          PROD_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          PROD_HOST: ${{ vars.VPS_HOST }}
+          PROD_USER: ${{ vars.VPS_USER }}
+          COMPOSE_ID: ${{ vars.COMPOSE_ID_STAGING }}
+          DOKPLOY_KEY: ${{ secrets.DOKPLOY_API_KEY }}
+        run: |
+          if [ -z "$SSH_KEY" ] || [ -z "$DEV_HOST" ]; then
+            echo "Staging deploy not configured — skipping"
+            exit 0
+          fi
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H $DEV_HOST >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no $DEV_USER@$DEV_HOST \
+            "docker pull ghcr.io/christ-roy/veridian-dashboard:latest && echo 'Image pulled'"
+          if [ -n "$COMPOSE_ID" ] && [ -n "$DOKPLOY_KEY" ] && [ -n "$PROD_HOST" ]; then
+            echo "$PROD_SSH_KEY" > ~/.ssh/prod_key
+            chmod 600 ~/.ssh/prod_key
+            ssh-keyscan -H $PROD_HOST >> ~/.ssh/known_hosts 2>/dev/null
+            ssh -i ~/.ssh/prod_key -o StrictHostKeyChecking=no $PROD_USER@$PROD_HOST \
+              "curl -sf -X POST \
+                -H 'x-api-key: $DOKPLOY_KEY' \
+                -H 'Content-Type: application/json' \
+                -d '{\"json\":{\"composeId\":\"$COMPOSE_ID\"}}' \
+                http://localhost:3000/api/trpc/compose.redeploy && echo 'Staging redeploy triggered'" || echo "Dokploy failed (non-blocking)"
+          fi
+        working-directory: .
+
+  deploy-prod:
+    needs: docker
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy prod
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          VPS_HOST: ${{ vars.VPS_HOST }}
+          VPS_USER: ${{ vars.VPS_USER }}
+        run: |
+          if [ -z "$SSH_KEY" ] || [ -z "$VPS_HOST" ]; then
+            echo "Prod deploy not configured — skipping"
+            exit 0
+          fi
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H $VPS_HOST >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST bash -s << 'DEPLOY'
+            docker pull ghcr.io/christ-roy/veridian-dashboard:latest
+            DKEY=$(grep '^DOKPLOY_API_KEY=' ~/credentials/.all-creds.env | cut -d= -f2)
+            curl -sf -X POST \
+              -H "x-api-key: $DKEY" \
+              -H "Content-Type: application/json" \
+              -d '{"json":{"composeId":"Rnt_Jz4BhkcyEJ2D6Bugb"}}' \
+              http://localhost:3000/api/trpc/compose.redeploy && echo "Hub prod redeploy triggered"
+          DEPLOY
+          echo "Waiting for hub health..."
+          for i in $(seq 1 12); do
+            if curl -sf https://app.veridian.site/api/health | grep -q ok; then
+              echo "Hub prod healthy after ${i}0s"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "WARNING: hub health check timed out"
+        working-directory: .

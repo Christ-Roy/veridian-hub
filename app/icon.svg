@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <style>
+    /* Par défaut (Mode Clair) : Fond vert foncé, texte menthe */
+    .bg { fill: #1a3d2f; transition: fill 0.3s; }
+    .symbol { fill: #86efac; transition: fill 0.3s; }
+
+    /* Mode Sombre : On peut inverser ou changer si on veut */
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #86efac; } /* Fond menthe */
+      .symbol { fill: #1a3d2f; } /* Texte vert foncé */
+    }
+  </style>
+  
+  <rect class="bg" width="32" height="32" rx="10"/>
+  <text class="symbol" x="50%" y="58%" dominant-baseline="middle" text-anchor="middle" style="font-family: sans-serif; font-weight: 800; font-size: 20px;">V</text>
+</svg>

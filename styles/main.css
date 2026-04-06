@@ -1,0 +1,449 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ============================================================================
+   VERIDIAN DASHBOARD - CENTRALIZED STYLES
+   ============================================================================
+
+   🎨 HOW TO CUSTOMIZE YOUR THEME:
+
+   1. Change colors by modifying CSS variables below (in HSL format)
+   2. Light mode: Edit :root variables
+   3. Dark mode: Edit .dark variables
+   4. Paste templates from shadcn/ui, tailwindui, etc. - they work out of the box!
+
+   📚 RESOURCES:
+   - shadcn/ui themes: https://ui.shadcn.com/themes
+   - Tailwind colors: https://tailwindcss.com/docs/customizing-colors
+   - HSL Picker: https://hslpicker.com/
+
+   💡 TIP: All Tailwind classes like bg-primary, text-foreground use these variables!
+
+   ============================================================================ */
+
+@layer base {
+  /* ==========================================================================
+     COLOR SYSTEM - Light Mode (Default) - OKLCH Format (Green/Mint Theme)
+     ========================================================================== */
+  :root {
+    /* Base colors */
+    --background: oklch(0.9911 0 0);              /* Page background - White */
+    --foreground: oklch(0.2046 0 0);              /* Main text color - Dark */
+
+    /* Card colors */
+    --card: oklch(0.9911 0 0);                    /* Card background - White */
+    --card-foreground: oklch(0.2046 0 0);         /* Card text - Dark */
+
+    /* Popover colors */
+    --popover: oklch(0.9911 0 0);                 /* Popover background - White */
+    --popover-foreground: oklch(0.4386 0 0);      /* Popover text - Medium dark */
+
+    /* Primary colors (main brand color - Green/Mint) */
+    --primary: oklch(0.8348 0.1302 160.9080);     /* Primary - Green/Mint */
+    --primary-foreground: oklch(0.2626 0.0147 166.4589); /* Primary text - Dark green */
+
+    /* Secondary colors (subtle actions) */
+    --secondary: oklch(0.9940 0 0);               /* Secondary - Very light */
+    --secondary-foreground: oklch(0.2046 0 0);    /* Secondary text - Dark */
+
+    /* Muted colors (less emphasis) */
+    --muted: oklch(0.9461 0 0);                   /* Muted background - Light gray */
+    --muted-foreground: oklch(0.2435 0 0);        /* Muted text - Medium gray */
+
+    /* Accent colors (highlights) */
+    --accent: oklch(0.9461 0 0);                  /* Accent background - Light gray */
+    --accent-foreground: oklch(0.2435 0 0);       /* Accent text - Dark */
+
+    /* Destructive colors (errors, warnings) */
+    --destructive: oklch(0.5523 0.1927 32.7272);  /* Destructive - Red */
+    --destructive-foreground: oklch(0.9934 0.0032 17.2118); /* Destructive text - White */
+
+    /* Border and Input */
+    --border: oklch(0.9037 0 0);                  /* Border color - Light gray */
+    --input: oklch(0.9731 0 0);                   /* Input background - Light gray */
+    --ring: oklch(0.8348 0.1302 160.9080);        /* Focus ring - Green */
+
+    /* Chart colors (for data visualization) */
+    --chart-1: oklch(0.8348 0.1302 160.9080);     /* Green */
+    --chart-2: oklch(0.6231 0.1880 259.8145);     /* Purple */
+    --chart-3: oklch(0.6056 0.2189 292.7172);     /* Magenta */
+    --chart-4: oklch(0.7686 0.1647 70.0804);      /* Yellow */
+    --chart-5: oklch(0.6959 0.1491 162.4796);     /* Teal */
+
+    /* Sidebar colors (dashboard sidebar) */
+    --sidebar-background: oklch(0.9911 0 0);      /* Sidebar background - White */
+    --sidebar-foreground: oklch(0.5452 0 0);      /* Sidebar text - Medium gray */
+    --sidebar-primary: oklch(0.8348 0.1302 160.9080); /* Sidebar active - Green */
+    --sidebar-primary-foreground: oklch(0.2626 0.0147 166.4589); /* Sidebar active text */
+    --sidebar-accent: oklch(0.9461 0 0);          /* Sidebar hover - Light gray */
+    --sidebar-accent-foreground: oklch(0.2435 0 0); /* Sidebar hover text - Dark */
+    --sidebar-border: oklch(0.9037 0 0);          /* Sidebar border - Light */
+    --sidebar-ring: oklch(0.8348 0.1302 160.9080); /* Sidebar focus ring - Green */
+
+    /* Typography */
+    --font-sans: Outfit, sans-serif;
+    --font-serif: ui-serif, Georgia, Cambria, "Times New Roman", Times, serif;
+    --font-mono: monospace;
+
+    /* Border radius (roundness of elements) */
+    --radius: 0.5rem;                             /* Default radius - 8px */
+
+    /* Shadows */
+    --shadow-2xs: 0px 1px 3px 0px hsl(0 0% 0% / 0.09);
+    --shadow-xs: 0px 1px 3px 0px hsl(0 0% 0% / 0.09);
+    --shadow-sm: 0px 1px 3px 0px hsl(0 0% 0% / 0.17), 0px 1px 2px -1px hsl(0 0% 0% / 0.17);
+    --shadow: 0px 1px 3px 0px hsl(0 0% 0% / 0.17), 0px 1px 2px -1px hsl(0 0% 0% / 0.17);
+    --shadow-md: 0px 1px 3px 0px hsl(0 0% 0% / 0.17), 0px 2px 4px -1px hsl(0 0% 0% / 0.17);
+    --shadow-lg: 0px 1px 3px 0px hsl(0 0% 0% / 0.17), 0px 4px 6px -1px hsl(0 0% 0% / 0.17);
+    --shadow-xl: 0px 1px 3px 0px hsl(0 0% 0% / 0.17), 0px 8px 10px -1px hsl(0 0% 0% / 0.17);
+    --shadow-2xl: 0px 1px 3px 0px hsl(0 0% 0% / 0.43);
+
+    /* Letter spacing */
+    --tracking-normal: 0.025em;
+
+    /* Spacing (consistent padding/margins) */
+    --spacing-page: 2rem;                         /* Page container padding - 32px */
+    --spacing-section: 1rem;                      /* Section spacing - 16px */
+  }
+
+  /* ==========================================================================
+     COLOR SYSTEM - Dark Mode
+     ========================================================================== */
+  .dark {
+    /* Base colors */
+    --background: oklch(0.1822 0 0);              /* Page background - Very dark */
+    --foreground: oklch(0.9288 0.0126 255.5078);  /* Main text color - White */
+
+    /* Card colors */
+    --card: oklch(0.2046 0 0);                    /* Card background - Dark */
+    --card-foreground: oklch(0.9288 0.0126 255.5078); /* Card text - White */
+
+    /* Popover colors */
+    --popover: oklch(0.2603 0 0);                 /* Popover background - Medium dark */
+    --popover-foreground: oklch(0.7348 0 0);      /* Popover text - Light */
+
+    /* Primary colors (Green/Mint in dark mode) */
+    --primary: oklch(0.4365 0.1044 156.7556);     /* Primary - Dark green */
+    --primary-foreground: oklch(0.9213 0.0135 167.1556); /* Primary text - Light green */
+
+    /* Secondary colors */
+    --secondary: oklch(0.2603 0 0);               /* Secondary - Medium dark */
+    --secondary-foreground: oklch(0.9851 0 0);    /* Secondary text - White */
+
+    /* Muted colors */
+    --muted: oklch(0.2393 0 0);                   /* Muted background - Dark gray */
+    --muted-foreground: oklch(0.7122 0 0);        /* Muted text - Light gray */
+
+    /* Accent colors */
+    --accent: oklch(0.3132 0 0);                  /* Accent background - Medium dark */
+    --accent-foreground: oklch(0.9851 0 0);       /* Accent text - White */
+
+    /* Destructive colors */
+    --destructive: oklch(0.3123 0.0852 29.7877);  /* Destructive - Dark red */
+    --destructive-foreground: oklch(0.9368 0.0045 34.3092); /* Destructive text - White */
+
+    /* Border and Input */
+    --border: oklch(0.2809 0 0);                  /* Border color - Dark gray */
+    --input: oklch(0.2603 0 0);                   /* Input background - Medium dark */
+    --ring: oklch(0.8003 0.1821 151.7110);        /* Focus ring - Bright green */
+
+    /* Chart colors */
+    --chart-1: oklch(0.8003 0.1821 151.7110);     /* Bright green */
+    --chart-2: oklch(0.7137 0.1434 254.6240);     /* Purple */
+    --chart-3: oklch(0.7090 0.1592 293.5412);     /* Magenta */
+    --chart-4: oklch(0.8369 0.1644 84.4286);      /* Yellow */
+    --chart-5: oklch(0.7845 0.1325 181.9120);     /* Teal */
+
+    /* Sidebar colors */
+    --sidebar-background: oklch(0.1822 0 0);      /* Sidebar background - Very dark */
+    --sidebar-foreground: oklch(0.6301 0 0);      /* Sidebar text - Light gray */
+    --sidebar-primary: oklch(0.4365 0.1044 156.7556); /* Sidebar active - Green */
+    --sidebar-primary-foreground: oklch(0.9213 0.0135 167.1556); /* Sidebar active text */
+    --sidebar-accent: oklch(0.3132 0 0);          /* Sidebar hover - Medium dark */
+    --sidebar-accent-foreground: oklch(0.9851 0 0); /* Sidebar hover text - White */
+    --sidebar-border: oklch(0.2809 0 0);          /* Sidebar border - Dark gray */
+    --sidebar-ring: oklch(0.8003 0.1821 151.7110); /* Sidebar focus ring - Green */
+  }
+
+  /* ==========================================================================
+     GLOBAL ELEMENT STYLES
+     ========================================================================== */
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: Outfit, -apple-system, system-ui, BlinkMacSystemFont, 'Helvetica Neue', 'Helvetica', sans-serif;
+    letter-spacing: var(--tracking-normal);
+    text-rendering: optimizeLegibility;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@layer base {
+  *,
+  *:before,
+  *:after {
+    box-sizing: inherit;
+  }
+
+  html {
+    height: 100%;
+    box-sizing: border-box;
+    touch-action: manipulation;
+    font-feature-settings:
+      'case' 1,
+      'rlig' 1,
+      'calt' 0;
+  }
+
+  body {
+    position: relative;
+    min-height: 100%;
+    margin: 0;
+  }
+
+  a {
+    -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+  }
+
+  p a {
+    @apply hover:underline;
+  }
+}
+
+/* ============================================================================
+   CUSTOM COMPONENT CLASSES
+   ============================================================================
+
+   These classes replace hardcoded colors throughout the app.
+   Use these instead of hardcoding colors like bg-zinc-800, text-white, etc.
+
+   ============================================================================ */
+
+@layer components {
+  /* ==========================================================================
+     LAYOUT CLASSES
+     ========================================================================== */
+
+  /* Page container - Standard page layout with max width */
+  .page-container {
+    @apply mx-auto w-full max-w-6xl p-4 md:p-8;
+  }
+
+  /* Auth container - Centered login/signup forms */
+  .auth-container {
+    @apply flex min-h-screen items-center justify-center p-4 bg-background;
+  }
+
+  /* Section spacing - Consistent spacing between sections */
+  .section-spacing {
+    @apply space-y-6;
+  }
+
+  /* ==========================================================================
+     NAVIGATION CLASSES
+     ========================================================================== */
+
+  /* Navbar - Replaces hardcoded bg-black */
+  .navbar {
+    @apply sticky top-0 z-40 h-16 border-b bg-card transition-all duration-150 md:h-20;
+  }
+
+  /* Navbar inner container */
+  .navbar-container {
+    @apply relative mx-auto flex h-full max-w-7xl flex-col justify-between border-b px-6 bg-card;
+  }
+
+  /* Footer - Replaces hardcoded bg-zinc-900 */
+  .footer {
+    @apply mx-auto max-w-[1920px] border-t bg-card px-6;
+  }
+
+  /* Footer inner container */
+  .footer-container {
+    @apply grid grid-cols-1 gap-8 border-b py-12 transition-colors duration-150 lg:grid-cols-12 bg-card;
+  }
+
+  /* ==========================================================================
+     FORM CLASSES
+     ========================================================================== */
+
+  /* Input base - Replaces hardcoded input styles */
+  .input-base {
+    @apply flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  /* Form field wrapper */
+  .form-field {
+    @apply space-y-2;
+  }
+
+  /* Form label */
+  .form-label {
+    @apply text-sm font-medium text-foreground;
+  }
+
+  /* Form error message */
+  .form-error {
+    @apply text-sm text-destructive;
+  }
+
+  /* ==========================================================================
+     CARD CLASSES
+     ========================================================================== */
+
+  /* Card base - Already good, but here for reference */
+  .card-base {
+    @apply rounded-lg border bg-card text-card-foreground shadow-sm;
+  }
+
+  /* Feature card - For landing/marketing pages */
+  .feature-card {
+    @apply rounded-lg border bg-card p-6 shadow-sm transition-all hover:shadow-md;
+  }
+
+  /* Pricing card - For pricing page */
+  .pricing-card {
+    @apply flex flex-col rounded-lg border bg-card p-6 shadow-sm transition-all hover:border-primary;
+  }
+
+  /* ==========================================================================
+     BUTTON VARIANTS (Additional to shadcn)
+     ========================================================================== */
+
+  /* Link button - Styled link that looks like text */
+  .link-button {
+    @apply text-primary underline-offset-4 hover:underline;
+  }
+
+  /* Icon button - Small icon-only button */
+  .icon-button {
+    @apply inline-flex h-10 w-10 items-center justify-center rounded-md text-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50;
+  }
+
+  /* ==========================================================================
+     BANNER CLASSES
+     ========================================================================== */
+
+  /* Freemium banner - Replaces hardcoded bg-black */
+  .freemium-banner {
+    @apply border-b bg-card;
+  }
+
+  /* Alert banner - Generic alert/notification banner */
+  .alert-banner {
+    @apply border-b bg-muted px-4 py-3;
+  }
+
+  /* ==========================================================================
+     TEXT UTILITIES
+     ========================================================================== */
+
+  /* Page title */
+  .page-title {
+    @apply text-4xl font-bold tracking-tight text-foreground;
+  }
+
+  /* Section title */
+  .section-title {
+    @apply text-2xl font-semibold tracking-tight text-foreground;
+  }
+
+  /* Subsection title */
+  .subsection-title {
+    @apply text-lg font-medium text-foreground;
+  }
+
+  /* Muted text - For descriptions, captions */
+  .text-muted {
+    @apply text-sm text-muted-foreground;
+  }
+
+  /* ==========================================================================
+     UTILITY CLASSES
+     ========================================================================== */
+
+  /* Smooth transitions */
+  .transition-smooth {
+    @apply transition-all duration-200 ease-in-out;
+  }
+
+  /* Focus ring - Consistent focus states */
+  .focus-ring {
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2;
+  }
+
+  /* Hover lift - Subtle hover effect */
+  .hover-lift {
+    @apply transition-transform hover:-translate-y-0.5;
+  }
+
+  /* Gradient background - For hero sections */
+  .gradient-bg {
+    @apply bg-gradient-to-b from-background to-muted;
+  }
+
+  /* Glass effect - Frosted glass background */
+  .glass {
+    @apply bg-background/80 backdrop-blur-sm;
+  }
+}
+
+/* ============================================================================
+   TAILWIND UTILITIES LAYER
+   ============================================================================ */
+
+@layer utilities {
+  /* Animation helpers */
+  .animated {
+    -webkit-animation-duration: 1s;
+    animation-duration: 1s;
+    -webkit-animation-fill-mode: both;
+    animation-fill-mode: both;
+  }
+
+  /* Screen height helpers */
+  .height-screen-helper {
+    min-height: calc(100vh - 80px);
+  }
+
+  .min-h-screen-navbar {
+    min-height: calc(100vh - 5rem);
+  }
+
+  .min-h-screen-navbar-footer {
+    min-height: calc(100vh - 10rem);
+  }
+
+  /* Scrollbar styling (optional - works in Webkit browsers) */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--border)) transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 4px;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground));
+  }
+}
+
+::view-transition-old(root), ::view-transition-new(root) {
+    animation: none;
+    mix-blend-mode: normal;
+}

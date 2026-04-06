@@ -1,0 +1,207 @@
+{
+  "plans": [
+    {
+      "internal_id": "pro",
+      "name": "Pro",
+      "description": "Plan Pro - Idéal pour les équipes en croissance qui ont besoin de fonctionnalités avancées et d'un support prioritaire",
+      "type": "LICENSED",
+      "active": true,
+      "prices": [
+        {
+          "lookup_key": "veridian_pro_monthly_v3",
+          "amount": 2900,
+          "currency": "eur",
+          "interval": "month",
+          "interval_count": 1,
+          "trial_period_days": null,
+          "active": true,
+          "tax_behavior": "unspecified"
+        },
+        {
+          "lookup_key": "veridian_pro_yearly_v3",
+          "amount": 29000,
+          "currency": "eur",
+          "interval": "year",
+          "interval_count": 1,
+          "trial_period_days": null,
+          "active": true,
+          "tax_behavior": "unspecified"
+        },
+        {
+          "lookup_key": "veridian_pro_monthly_v2",
+          "amount": 2900,
+          "currency": "eur",
+          "interval": "month",
+          "interval_count": 1,
+          "trial_period_days": null,
+          "active": false,
+          "tax_behavior": "unspecified"
+        },
+        {
+          "lookup_key": "veridian_pro_yearly_v2",
+          "amount": 29000,
+          "currency": "eur",
+          "interval": "year",
+          "interval_count": 1,
+          "trial_period_days": null,
+          "active": false,
+          "tax_behavior": "unspecified"
+        }
+      ],
+      "stripe_metadata": {
+        "planKey": "PRO",
+        "priceUsageBased": "LICENSED",
+        "productKey": "BASE_PRODUCT"
+      },
+      "ui_metadata": {
+        "display_order": 1,
+        "features": [
+          "Utilisateurs illimités",
+          "Twenty CRM avancé",
+          "Notifuse sans limite",
+          "Workflows automatisés",
+          "Support email prioritaire",
+          "Analytics avancés"
+        ],
+        "cta_text": "Souscrire"
+      }
+    },
+    {
+      "internal_id": "enterprise",
+      "name": "Enterprise",
+      "description": "Plan Enterprise - Solution complète pour les grandes entreprises avec SSO, SLA garanti et support dédié 24/7",
+      "type": "LICENSED",
+      "active": true,
+      "prices": [
+        {
+          "lookup_key": "veridian_enterprise_monthly_v6",
+          "amount": 4900,
+          "currency": "eur",
+          "interval": "month",
+          "interval_count": 1,
+          "trial_period_days": null,
+          "active": true,
+          "tax_behavior": "exclusive"
+        },
+        {
+          "lookup_key": "veridian_enterprise_yearly_v6",
+          "amount": 49000,
+          "currency": "eur",
+          "interval": "year",
+          "interval_count": 1,
+          "trial_period_days": null,
+          "active": true,
+          "tax_behavior": "unspecified"
+        },
+        {
+          "lookup_key": "veridian_enterprise_monthly_v5",
+          "amount": 4900,
+          "currency": "eur",
+          "interval": "month",
+          "interval_count": 1,
+          "trial_period_days": null,
+          "active": false,
+          "tax_behavior": "exclusive"
+        },
+        {
+          "lookup_key": "veridian_enterprise_yearly_v5",
+          "amount": 49000,
+          "currency": "eur",
+          "interval": "year",
+          "interval_count": 1,
+          "trial_period_days": null,
+          "active": false,
+          "tax_behavior": "unspecified"
+        }
+      ],
+      "stripe_metadata": {
+        "planKey": "ENTERPRISE",
+        "priceUsageBased": "LICENSED",
+        "productKey": "BASE_PRODUCT"
+      },
+      "ui_metadata": {
+        "display_order": 2,
+        "badge": "POPULAR",
+        "highlighted": true,
+        "features": [
+          "Tout du plan Pro",
+          "Équipes multi-utilisateurs",
+          "SSO & SAML",
+          "SLA 99.9%",
+          "Support dédié 24/7",
+          "Onboarding personnalisé",
+          "API access illimité"
+        ],
+        "cta_text": "Souscrire"
+      }
+    }
+  ],
+  "metered": [
+    {
+      "internal_id": "pro_workflow",
+      "name": "Pro — Workflow Credits",
+      "description": "Crédits d'exécution de workflows pour le plan Pro (10 000/mois inclus)",
+      "meter_id": "mtr_61U7vcpDWfNLSXDYa41RgvfRggzUNE4e",
+      "active": true,
+      "prices": [
+        {
+          "lookup_key": "veridian_pro_workflow_monthly_v1",
+          "currency": "eur",
+          "interval": "month",
+          "included_credits": 10000,
+          "flat_amount": 0,
+          "overage_unit_amount_decimal": "100",
+          "active": true
+        },
+        {
+          "lookup_key": "veridian_pro_workflow_yearly_v1",
+          "currency": "eur",
+          "interval": "year",
+          "included_credits": 10000,
+          "flat_amount": 0,
+          "overage_unit_amount_decimal": "100",
+          "active": true
+        }
+      ],
+      "stripe_metadata": {
+        "planKey": "PRO",
+        "priceUsageBased": "METERED",
+        "productKey": "WORKFLOW_NODE_EXECUTION"
+      }
+    },
+    {
+      "internal_id": "enterprise_workflow",
+      "name": "Enterprise — Workflow Credits",
+      "description": "Crédits d'exécution de workflows pour le plan Enterprise (20 000/mois inclus)",
+      "meter_id": "mtr_61U7vcpDWfNLSXDYa41RgvfRggzUNE4e",
+      "active": true,
+      "prices": [
+        {
+          "lookup_key": "veridian_enterprise_workflow_monthly_v1",
+          "currency": "eur",
+          "interval": "month",
+          "included_credits": 20000,
+          "flat_amount": 0,
+          "overage_unit_amount_decimal": "80",
+          "active": true
+        },
+        {
+          "lookup_key": "veridian_enterprise_workflow_yearly_v1",
+          "currency": "eur",
+          "interval": "year",
+          "included_credits": 20000,
+          "flat_amount": 0,
+          "overage_unit_amount_decimal": "80",
+          "active": true
+        }
+      ],
+      "stripe_metadata": {
+        "planKey": "ENTERPRISE",
+        "priceUsageBased": "METERED",
+        "productKey": "WORKFLOW_NODE_EXECUTION"
+      }
+    }
+  ],
+  "namespace": "veridian",
+  "meterId": "mtr_61U7vcpDWfNLSXDYa41RgvfRggzUNE4e"
+}

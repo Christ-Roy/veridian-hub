@@ -1,0 +1,283 @@
+/**
+ * ACCOUNT PAGE - CSS MODIFIABLE
+ *
+ * Ce fichier contient tous les styles de la page /account.
+ * Tu peux modifier les couleurs, espacements, tailles, etc. sans toucher au code.
+ */
+
+/* ==========================================================================
+   Container & Layout
+   ========================================================================== */
+
+.pageContainer {
+  min-height: 100vh;
+  background: hsl(240 10% 3.9%); /* Noir comme landing page */
+  color: hsl(0 0% 98%); /* Blanc */
+  padding: 2rem 1rem;
+}
+
+.innerContainer {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* ==========================================================================
+   Header
+   ========================================================================== */
+
+.pageHeader {
+  text-align: center;
+  margin-bottom: 3rem;
+  padding: 2rem 0;
+}
+
+.pageTitle {
+  font-size: 3rem;
+  font-weight: 800;
+  margin-bottom: 1rem;
+  background: linear-gradient(to right, #fff, #a3a3a3);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.pageSubtitle {
+  font-size: 1.25rem;
+  color: hsl(0 0% 70%);
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+/* ==========================================================================
+   Tabs Navigation
+   ========================================================================== */
+
+.tabsContainer {
+  border-bottom: 1px solid hsl(240 3.7% 15.9%);
+  margin-bottom: 2rem;
+}
+
+.tabsList {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding: 0 0 1rem 0;
+}
+
+.tab {
+  padding: 0.75rem 1.5rem;
+  font-size: 0.95rem;
+  font-weight: 500;
+  color: hsl(0 0% 63.9%);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.tab:hover {
+  color: hsl(0 0% 98%);
+  background: hsl(240 3.7% 10%);
+  border-radius: 0.375rem 0.375rem 0 0;
+}
+
+.tabActive {
+  color: hsl(0 0% 98%);
+  border-bottom-color: hsl(142.1 76.2% 36.3%); /* Vert accent */
+}
+
+.tabIcon {
+  margin-right: 0.5rem;
+}
+
+/* ==========================================================================
+   Section Cards
+   ========================================================================== */
+
+.section {
+  background: hsl(240 5.9% 10%); /* Card background */
+  border: 1px solid hsl(240 3.7% 15.9%);
+  border-radius: 0.75rem;
+  padding: 2rem;
+  margin-bottom: 2rem;
+}
+
+.sectionHeader {
+  margin-bottom: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid hsl(240 3.7% 15.9%);
+}
+
+.sectionTitle {
+  font-size: 1.5rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
+}
+
+.sectionDescription {
+  font-size: 0.95rem;
+  color: hsl(0 0% 63.9%);
+}
+
+.sectionContent {
+  /* Contenu géré par les composants enfants */
+}
+
+/* ==========================================================================
+   Forms & Inputs (pour les POCs)
+   ========================================================================== */
+
+.formGroup {
+  margin-bottom: 1.5rem;
+}
+
+.label {
+  display: block;
+  font-size: 0.9rem;
+  font-weight: 500;
+  margin-bottom: 0.5rem;
+  color: hsl(0 0% 90%);
+}
+
+.input {
+  width: 100%;
+  padding: 0.75rem;
+  background: hsl(240 5.9% 10%);
+  border: 1px solid hsl(240 3.7% 15.9%);
+  border-radius: 0.5rem;
+  color: hsl(0 0% 98%);
+  font-size: 0.95rem;
+  transition: all 0.2s;
+}
+
+.input:focus {
+  outline: none;
+  border-color: hsl(142.1 76.2% 36.3%);
+  box-shadow: 0 0 0 2px hsla(142.1 76.2% 36.3% / 0.2);
+}
+
+.input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.button {
+  padding: 0.75rem 1.5rem;
+  background: hsl(142.1 76.2% 36.3%); /* Vert accent */
+  color: white;
+  border: none;
+  border-radius: 0.5rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.button:hover {
+  background: hsl(142.1 76.2% 30%);
+  transform: translateY(-1px);
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.buttonSecondary {
+  background: hsl(240 5.9% 20%);
+  color: hsl(0 0% 98%);
+}
+
+.buttonSecondary:hover {
+  background: hsl(240 5.9% 25%);
+}
+
+/* ==========================================================================
+   Result Cards (Success/Error)
+   ========================================================================== */
+
+.resultCard {
+  padding: 1.5rem;
+  border-radius: 0.5rem;
+  margin-top: 1.5rem;
+}
+
+.resultSuccess {
+  background: hsla(142.1 76.2% 36.3% / 0.1);
+  border: 1px solid hsl(142.1 76.2% 36.3%);
+}
+
+.resultError {
+  background: hsla(0 84.2% 60.2% / 0.1);
+  border: 1px solid hsl(0 84.2% 60.2%);
+}
+
+.resultTitle {
+  font-weight: 700;
+  margin-bottom: 0.75rem;
+}
+
+.resultContent {
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+/* ==========================================================================
+   Logs Panel
+   ========================================================================== */
+
+.logsPanel {
+  background: hsl(240 10% 3.9%);
+  border: 1px solid hsl(240 3.7% 15.9%);
+  border-radius: 0.5rem;
+  padding: 1rem;
+  max-height: 400px;
+  overflow-y: auto;
+  font-family: 'Courier New', monospace;
+  font-size: 0.85rem;
+}
+
+.logEntry {
+  padding: 0.5rem;
+  margin-bottom: 0.25rem;
+  border-left: 3px solid transparent;
+}
+
+.logInfo {
+  border-left-color: hsl(217 91% 60%);
+  color: hsl(217 91% 70%);
+}
+
+.logSuccess {
+  border-left-color: hsl(142.1 76.2% 36.3%);
+  color: hsl(142.1 76.2% 50%);
+}
+
+.logError {
+  border-left-color: hsl(0 84.2% 60.2%);
+  color: hsl(0 84.2% 70%);
+}
+
+/* ==========================================================================
+   Responsive
+   ========================================================================== */
+
+@media (max-width: 768px) {
+  .pageTitle {
+    font-size: 2rem;
+  }
+
+  .pageSubtitle {
+    font-size: 1rem;
+  }
+
+  .section {
+    padding: 1.5rem;
+  }
+
+  .tabsList {
+    justify-content: flex-start;
+  }
+}

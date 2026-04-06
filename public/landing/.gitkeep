@@ -1,0 +1,8 @@
+# Ce fichier permet de versionner le dossier /landing dans Git même s'il est vide
+#
+# Ajoute tes 3 images ici:
+# - hero-dashboard.png
+# - crm-interface.png
+# - mail-automation-interface.png
+#
+# Voir README.md dans ce dossier pour les specs détaillées
