@@ -2,7 +2,7 @@ name: Hub CI/CD
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main, staging]
     paths:
       - 'hub/**'
       - '.github/workflows/hub-ci.yml'
@@ -62,7 +62,7 @@ jobs:
   docker:
     needs: test
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, veridian]
     permissions:
       contents: read
       packages: write
