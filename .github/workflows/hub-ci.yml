@@ -112,41 +112,32 @@ jobs:
 
   deploy-staging:
     needs: docker
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, veridian]
     steps:
-      - name: Deploy staging
+      - name: Pull image and redeploy staging
         env:
-          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY_DEV }}
-          DEV_HOST: ${{ vars.DEV_HOST }}
-          DEV_USER: ${{ vars.DEV_USER }}
-          PROD_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          PROD_HOST: ${{ vars.VPS_HOST }}
-          PROD_USER: ${{ vars.VPS_USER }}
+          SSH_KEY_PROD: ${{ secrets.DEPLOY_SSH_KEY }}
+          VPS_HOST: ${{ vars.VPS_HOST }}
+          VPS_USER: ${{ vars.VPS_USER }}
           COMPOSE_ID: ${{ vars.COMPOSE_ID_STAGING }}
           DOKPLOY_KEY: ${{ secrets.DOKPLOY_API_KEY }}
         run: |
-          if [ -z "$SSH_KEY" ] || [ -z "$DEV_HOST" ]; then
-            echo "Staging deploy not configured — skipping"
-            exit 0
-          fi
-          mkdir -p ~/.ssh
-          echo "$SSH_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H $DEV_HOST >> ~/.ssh/known_hosts 2>/dev/null
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no $DEV_USER@$DEV_HOST \
-            "docker pull ghcr.io/christ-roy/veridian-dashboard:latest && echo 'Image pulled'"
-          if [ -n "$COMPOSE_ID" ] && [ -n "$DOKPLOY_KEY" ] && [ -n "$PROD_HOST" ]; then
-            echo "$PROD_SSH_KEY" > ~/.ssh/prod_key
+          # Self-hosted runner IS on dev server — pull locally (no SSH needed)
+          docker pull ghcr.io/christ-roy/veridian-dashboard:latest && echo "Image pulled locally"
+
+          # Trigger redeploy via Dokploy on prod VPS
+          if [ -n "$COMPOSE_ID" ] && [ -n "$DOKPLOY_KEY" ] && [ -n "$VPS_HOST" ]; then
+            mkdir -p ~/.ssh
+            echo "$SSH_KEY_PROD" > ~/.ssh/prod_key
             chmod 600 ~/.ssh/prod_key
-            ssh-keyscan -H $PROD_HOST >> ~/.ssh/known_hosts 2>/dev/null
-            ssh -i ~/.ssh/prod_key -o StrictHostKeyChecking=no $PROD_USER@$PROD_HOST \
+            ssh-keyscan -H $VPS_HOST >> ~/.ssh/known_hosts 2>/dev/null
+            ssh -i ~/.ssh/prod_key -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST \
               "curl -sf -X POST \
                 -H 'x-api-key: $DOKPLOY_KEY' \
                 -H 'Content-Type: application/json' \
                 -d '{\"json\":{\"composeId\":\"$COMPOSE_ID\"}}' \
-                http://localhost:3000/api/trpc/compose.redeploy && echo 'Staging redeploy triggered'" || echo "Dokploy failed (non-blocking)"
+                http://localhost:3000/api/trpc/compose.redeploy && echo 'Staging redeploy triggered'"
           fi
-        working-directory: .
 
   deploy-prod:
     needs: docker
