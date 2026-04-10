@@ -8,10 +8,12 @@ RUN apk add --no-cache libc6-compat
 
 WORKDIR /app
 
-# Copy package files
+# Copy package files + Prisma schema (needed by postinstall → prisma generate)
 COPY package.json pnpm-lock.yaml* ./
+COPY prisma ./prisma
 
 # Install pnpm and dependencies
+# postinstall triggers `prisma generate` which requires prisma/schema.prisma
 RUN corepack enable && corepack prepare pnpm@latest --activate
 RUN pnpm install --frozen-lockfile
 
