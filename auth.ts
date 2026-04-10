@@ -7,6 +7,7 @@
 import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 import { PrismaAdapter } from '@auth/prisma-adapter';
+import type { Account } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 
@@ -52,7 +53,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
 
         // Trouver un account "credentials" avec password hash stocké dans
         // access_token (simple bridge, pas un vrai token OAuth).
-        const credsAccount = user.accounts.find((a) => a.provider === 'credentials');
+        const credsAccount = user.accounts.find((a: Account) => a.provider === 'credentials');
         if (!credsAccount?.access_token) {
           return null;
         }
