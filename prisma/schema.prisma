@@ -1,0 +1,193 @@
+// Prisma schema du Hub Veridian
+// Cible : veridian-core-db (Postgres 16 dédié), schema `hub_app`
+//
+// Conventions :
+// - Toutes les tables vivent dans le schema `hub_app` (pas de `public`)
+// - Chaque teammate ajoute UNIQUEMENT ses modèles. Le schéma est partagé :
+//   * hub-auth-builder (P1.4) : User, Account, Session, VerificationToken, MfaCode
+//   * hub-members-builder (P1.5) : WorkspaceMember, Invitation
+// - Les conflits de merge sur ce fichier sont arbitrés par le lead.
+
+// La connection URL est déclarée dans ../prisma.config.ts (Prisma 7)
+// via l'adapter Postgres. Ne PAS rajouter `url = env("DATABASE_URL")` ici.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  schemas  = ["hub_app"]
+}
+
+// ============================================================================
+// Auth.js v5 core models (P1.4 — hub-auth-builder)
+// Conformes au schéma attendu par @auth/prisma-adapter.
+// https://authjs.dev/getting-started/adapters/prisma
+// ============================================================================
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime? @map("email_verified")
+  image         String?
+
+  // 2FA email opt-in
+  mfaEnabled Boolean @default(false) @map("mfa_enabled")
+
+  // Legacy bridge — quand un user Supabase existant se login via Auth.js,
+  // on stocke ici son auth.users.id (uuid stringifié) pour corrélation.
+  supabaseUserId String? @unique @map("supabase_user_id")
+
+  accounts Account[]
+  sessions Session[]
+  mfaCodes MfaCode[]
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("users")
+  @@schema("hub_app")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String  @map("user_id")
+  type              String
+  provider          String
+  providerAccountId String  @map("provider_account_id")
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("accounts")
+  @@schema("hub_app")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique @map("session_token")
+  userId       String   @map("user_id")
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+  @@schema("hub_app")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+  @@schema("hub_app")
+}
+
+// ============================================================================
+// 2FA email opt-in (P1.4 — hub-auth-builder)
+// ============================================================================
+//
+// Flow :
+// 1. User active le toggle MFA dans /dashboard/settings/security
+// 2. À chaque login (nouvelle session, cookie absent), on génère un code 6
+//    chiffres, on le hash (bcrypt), on le stocke ici avec expiresAt = +10min
+// 3. On envoie le code au mail user via Brevo / SMTP Lark
+// 4. User tape le code sur /auth/mfa, on vérifie (constant-time), on marque
+//    consumedAt et on autorise la création de la session Auth.js
+// 5. Les codes expirés ou consommés sont purgés via un cron (P2+)
+
+model MfaCode {
+  id         String    @id @default(cuid())
+  userId     String    @map("user_id")
+  codeHash   String    @map("code_hash")
+  expiresAt  DateTime  @map("expires_at")
+  consumedAt DateTime? @map("consumed_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@map("mfa_codes")
+  @@schema("hub_app")
+}
+
+// ============================================================================
+// Workspace membres + invitations (P1.5 — hub-members-builder)
+// ============================================================================
+//
+// Flow invitation :
+// 1. OWNER ou ADMIN POST /api/workspace/invite (email + role)
+// 2. Création Invitation (token random, expiresAt +7j), email Brevo envoyé
+// 3. Destinataire clique /invite/[token] → login si besoin → acceptation
+// 4. Création WorkspaceMember + Invitation.acceptedAt renseigné
+//
+// Un seul workspace par tenant au lancement. Multi-workspace en P3+.
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+  VIEWER
+
+  @@schema("hub_app")
+}
+
+model Workspace {
+  id        String    @id @default(cuid())
+  name      String
+  ownerId   String    @map("owner_id")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  members     WorkspaceMember[]
+  invitations Invitation[]
+
+  @@map("workspaces")
+  @@schema("hub_app")
+}
+
+model WorkspaceMember {
+  id          String        @id @default(cuid())
+  workspaceId String        @map("workspace_id")
+  userId      String        @map("user_id")
+  role        WorkspaceRole
+  invitedAt   DateTime      @default(now()) @map("invited_at")
+  joinedAt    DateTime?     @map("joined_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@unique([workspaceId, userId])
+  @@map("workspace_members")
+  @@schema("hub_app")
+}
+
+model Invitation {
+  id          String        @id @default(cuid())
+  workspaceId String        @map("workspace_id")
+  email       String
+  role        WorkspaceRole
+  token       String        @unique
+  expiresAt   DateTime      @map("expires_at")
+  acceptedAt  DateTime?     @map("accepted_at")
+  createdAt   DateTime      @default(now()) @map("created_at")
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id])
+
+  @@index([email, workspaceId])
+  @@map("invitations")
+  @@schema("hub_app")
+}
