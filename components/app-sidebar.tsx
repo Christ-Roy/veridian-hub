@@ -7,6 +7,7 @@ import {
   HelpCircleIcon,
   LayoutDashboardIcon,
   SettingsIcon,
+  Users2Icon,
   ZapIcon,
 } from "lucide-react"
 
@@ -36,6 +37,11 @@ const navMain = [
     url: "/dashboard/integration",
     icon: ZapIcon,
     disabled: true,
+  },
+  {
+    title: "Membres",
+    url: "/dashboard/workspace/members",
+    icon: Users2Icon,
   },
   {
     title: "Billing",
