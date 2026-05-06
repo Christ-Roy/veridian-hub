@@ -3,8 +3,9 @@
  * Crée automatiquement les tenants Twenty + Notifuse au signup
  */
 
-import { createHmac } from 'crypto';
 import { logProvisionStart, logProvisionEnd, logStep, logError } from './debug';
+import { NotifuseClient } from '@/lib/notifuse/client';
+import { NotifuseError } from '@/lib/notifuse/types';
 
 // Import correct Supabase admin client (handles URLs and auth properly)
 // Using getSupabaseAdmin() from utils/supabase/admin.ts instead of direct createClient
@@ -13,21 +14,10 @@ import { logProvisionStart, logProvisionEnd, logStep, logError } from './debug';
 const TWENTY_API_URL = process.env.TWENTY_GRAPHQL_URL!;
 const TWENTY_METADATA_URL = process.env.TWENTY_METADATA_URL!;
 const TWENTY_FRONTEND_URL = process.env.TWENTY_FRONTEND_URL!;
-const NOTIFUSE_API_URL = process.env.NOTIFUSE_API_URL!;
-const NOTIFUSE_ROOT_EMAIL = process.env.NOTIFUSE_ROOT_EMAIL!;
-const NOTIFUSE_SECRET_KEY = process.env.NOTIFUSE_SECRET_KEY!;
 
 // ============================================================
 // Helpers
 // ============================================================
-
-/**
- * Génère une signature HMAC-SHA256 pour l'authentification Notifuse rootSignin
- */
-function generateHmacSignature(email: string, timestamp: number, secretKey: string): string {
-  const message = `${email}:${timestamp}`;
-  return createHmac('sha256', secretKey).update(message).digest('hex');
-}
 
 async function graphqlRequest(
   url: string,
@@ -59,42 +49,6 @@ async function graphqlRequest(
   }
 
   return data.data;
-}
-
-async function notifuseRequest(
-  endpoint: string,
-  method: string = 'GET',
-  body: any = null,
-  token: string | null = null
-) {
-  const headers: any = {
-    'Content-Type': 'application/json',
-  };
-
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  const options: RequestInit = {
-    method,
-    headers,
-  };
-
-  if (body && method !== 'GET') {
-    options.body = JSON.stringify(body);
-  }
-
-  const fullUrl = `${NOTIFUSE_API_URL}${endpoint}`;
-
-  const response = await fetch(fullUrl, options);
-  const data = await response.json();
-
-  if (data.error) {
-    console.error(`[Notifuse] ${method} ${endpoint} failed:`, data.error);
-    throw new Error(data.error);
-  }
-
-  return data;
 }
 
 function sleep(ms: number) {
@@ -468,10 +422,19 @@ export async function provisionNotifuseTenant(
   success: boolean;
   workspaceId?: string;
   apiKey?: string;
+  magicLink?: string;
   error?: string;
 }> {
   try {
-    console.log('[Notifuse Provision] Starting for:', email);
+    const apiUrl = process.env.NOTIFUSE_API_URL;
+    const hubSecret = process.env.NOTIFUSE_HUB_API_SECRET;
+    if (!apiUrl || !hubSecret) {
+      throw new Error(
+        'Notifuse client not configured (NOTIFUSE_API_URL / NOTIFUSE_HUB_API_SECRET)',
+      );
+    }
+
+    logStep('NOTIFUSE', '🚀 Starting provisioning', { email, userId });
 
     const workspaceId = email
       .split('@')[0]
@@ -481,111 +444,16 @@ export async function provisionNotifuseTenant(
 
     const workspaceName = email.split('@')[0].slice(0, 32);
 
-    // Step 1: Authenticate as root using rootSignin API (no email needed)
-    logStep('NOTIFUSE', '1️⃣ Authenticating as root...');
-    const timestamp = Math.floor(Date.now() / 1000);
-    const signature = generateHmacSignature(
-      NOTIFUSE_ROOT_EMAIL,
-      timestamp,
-      NOTIFUSE_SECRET_KEY
-    );
+    const client = new NotifuseClient({ apiUrl, hubSecret });
+    const result = await client.provisionWorkspace({
+      tenantId: workspaceId,
+      ownerEmail: email,
+      workspaceName,
+      plan: 'free',
+    });
 
-    const signinData = await notifuseRequest(
-      '/api/user.rootSignin',
-      'POST',
-      {
-        email: NOTIFUSE_ROOT_EMAIL,
-        timestamp: timestamp,
-        signature: signature,
-      }
-    );
+    logStep('NOTIFUSE', result.created ? '✅ Workspace created' : '✅ Workspace already existed');
 
-    if (!signinData.token) {
-      throw new Error('No JWT token received from rootSignin');
-    }
-
-    const adminToken = signinData.token;
-    logStep('NOTIFUSE', '✅ Root authentication successful');
-
-    // Step 3: Create workspace
-    try {
-      await notifuseRequest(
-        '/api/workspaces.create',
-        'POST',
-        {
-          id: workspaceId,
-          name: workspaceName,
-          settings: { timezone: 'UTC' },
-        },
-        adminToken
-      );
-      console.log('[Notifuse Provision] Workspace created');
-    } catch (error: any) {
-      if (error.message?.includes('already exists')) {
-        console.log('[Notifuse Provision] Workspace already exists, continuing...');
-      } else {
-        throw error;
-      }
-    }
-
-    // Step 4: Generate API key
-    const emailPrefix = `api${Date.now()}`;
-    const apiKeyData = await notifuseRequest(
-      '/api/workspaces.createAPIKey',
-      'POST',
-      {
-        workspace_id: workspaceId,
-        email_prefix: emailPrefix,
-      },
-      adminToken
-    );
-
-    if (!apiKeyData.token) {
-      throw new Error('No API key received');
-    }
-
-    const apiKeyToken = apiKeyData.token;
-    logStep('NOTIFUSE', '✅ API key created');
-    logStep('NOTIFUSE', '📧 Workspace ready - User needs to accept invitation via email');
-
-    // Step 5: Complete the setup wizard using Playwright (if available)
-    const notifuseConsoleUrl = process.env.NEXT_PUBLIC_NOTIFUSE_URL || 'https://notifuse.dev.veridian.site';
-    const setupWizardUrl = `${notifuseConsoleUrl}/console/setup`;
-
-    try {
-      logStep('NOTIFUSE', '🤖 Attempting to complete setup wizard automatically...');
-
-      // Try to use Playwright if available
-      const { exec } = await import('child_process');
-
-      const playwrightCommand = `node scripts/playwright/complete-notifuse-wizard.mjs "${setupWizardUrl}"`;
-
-      // Run in background, don't block
-      exec(playwrightCommand, {
-        cwd: process.cwd(),
-        timeout: 30000,
-        env: {
-          ...process.env,
-          NODE_ENV: 'development',
-        },
-      }, (error) => {
-        if (error) {
-          console.log('[NOTIFUSE] ⚠️  Auto-completion failed (non-blocking):', error.message);
-          console.log('[NOTIFUSE] 💡 Manual action required: Visit', setupWizardUrl);
-        } else {
-          console.log('[NOTIFUSE] ✅ Setup wizard completed automatically!');
-        }
-      });
-
-      logStep('NOTIFUSE', '🔄 Wizard automation running in background...');
-    } catch (error) {
-      // Playwright not available or failed - not blocking
-      logStep('NOTIFUSE', '⚠️  Wizard automation skipped (Playwright not available)');
-      logStep('NOTIFUSE', '💡 Manual action required: Visit ' + setupWizardUrl);
-    }
-
-    // Step 6: Store in Supabase
-    // Use correct admin client that handles Docker internal URLs
     const { getSupabaseAdmin } = await import('@/utils/supabase/admin');
     const supabase = getSupabaseAdmin();
 
@@ -596,11 +464,11 @@ export async function provisionNotifuseTenant(
       .maybeSingle();
 
     const tenantData = {
-      notifuse_workspace_slug: workspaceId,
-      notifuse_api_key: apiKeyToken,
+      notifuse_workspace_slug: result.workspace_id,
+      notifuse_api_key: result.api_key,
       notifuse_user_email: email,
       metadata: {
-        api_key_email_prefix: emailPrefix,
+        api_key_email: result.api_key_email,
         workspace_created_at: new Date().toISOString(),
       },
     };
@@ -612,21 +480,17 @@ export async function provisionNotifuseTenant(
         .eq('id', existingTenant.id);
 
       if (updateError) {
-        console.error('[Notifuse] Error updating tenant:', updateError);
         throw new Error(`Failed to update tenant: ${updateError.message}`);
       }
     } else {
-      // Si pas de tenant Twenty créé avant, créer une nouvelle ligne
       const slug = email.split('@')[0].replace(/[^a-z0-9]/gi, '').toLowerCase();
-
-      // Calculate trial end date (15 days from now)
       const trialEndsAt = new Date();
       trialEndsAt.setDate(trialEndsAt.getDate() + 15);
 
       const { error: insertError } = await supabase.from('tenants').insert({
         user_id: userId,
         name: workspaceName,
-        slug: slug,
+        slug,
         status: 'active' as const,
         ...tenantData,
         provisioned_at: new Date().toISOString(),
@@ -634,23 +498,27 @@ export async function provisionNotifuseTenant(
       });
 
       if (insertError) {
-        console.error('[Notifuse] Error inserting tenant:', insertError);
         throw new Error(`Failed to insert tenant: ${insertError.message}`);
       }
     }
 
-    console.log('[Notifuse Provision] Stored in Supabase');
+    logStep('NOTIFUSE', '✅ Stored in Supabase');
 
     return {
       success: true,
-      workspaceId,
-      apiKey: apiKeyToken,
+      workspaceId: result.workspace_id,
+      apiKey: result.api_key,
+      magicLink: result.magic_link,
     };
   } catch (error: any) {
-    console.error('[Notifuse Provision] Error:', error);
+    const message =
+      error instanceof NotifuseError
+        ? `${error.message} (HTTP ${error.code})`
+        : error.message;
+    console.error('[Notifuse Provision] Error:', message);
     return {
       success: false,
-      error: error.message,
+      error: message,
     };
   }
 }

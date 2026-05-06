@@ -205,7 +205,8 @@ export default async function DashboardPage() {
           configured={!!tenantData?.notifuse_workspace_slug}
           available={notifuseAvailable}
           slug={tenantData?.notifuse_workspace_slug || undefined}
-          invitationSent={!!tenantData?.notifuse_invitation_sent_at}
+          tenantId={tenantData?.id}
+          userEmail={user.email || undefined}
         />
 
         <ProspectionCard
