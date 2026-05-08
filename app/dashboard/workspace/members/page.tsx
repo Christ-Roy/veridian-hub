@@ -1,4 +1,3 @@
-import { createClient } from '@/utils/supabase/server';
 import { redirect } from 'next/navigation';
 import { Users } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -6,90 +5,62 @@ import { InviteModal } from '@/components/workspace/InviteModal';
 import { MembersTable } from '@/components/workspace/MembersTable';
 import type { WorkspaceMember, WorkspaceRole } from '@/types/workspace';
 import { canInviteMembers } from '@/types/workspace';
-
-// TODO(P1.5): Quand Prisma hub est initialisé :
-// - Remplacer getMockData() par des vraies requêtes Prisma
-// - Récupérer le workspace lié au tenant de l'utilisateur
-// - Récupérer les membres et le rôle de l'acteur
-
-const PRISMA_READY = false;
-
-// Données de démo — à supprimer quand Prisma est dispo
-function getMockData(userId: string): {
-  workspace: { id: string; name: string };
-  members: WorkspaceMember[];
-  actorRole: WorkspaceRole;
-} {
-  return {
-    workspace: { id: 'ws_demo', name: 'Mon Workspace' },
-    actorRole: 'OWNER',
-    members: [
-      {
-        id: 'mem_1',
-        workspaceId: 'ws_demo',
-        userId,
-        email: 'vous@example.com',
-        name: 'Vous (démo)',
-        role: 'OWNER',
-        invitedAt: new Date().toISOString(),
-        joinedAt: new Date().toISOString(),
-      },
-      {
-        id: 'mem_2',
-        workspaceId: 'ws_demo',
-        userId: 'user_demo_2',
-        email: 'admin@example.com',
-        name: 'Admin Démo',
-        role: 'ADMIN',
-        invitedAt: new Date(Date.now() - 5 * 86400_000).toISOString(),
-        joinedAt: new Date(Date.now() - 4 * 86400_000).toISOString(),
-      },
-      {
-        id: 'mem_3',
-        workspaceId: 'ws_demo',
-        userId: 'user_demo_3',
-        email: 'invite@example.com',
-        role: 'MEMBER',
-        invitedAt: new Date(Date.now() - 86400_000).toISOString(),
-        joinedAt: null,
-      },
-    ],
-  };
-}
+import { getCurrentUser } from '@/lib/auth/get-user';
+import { prisma } from '@/lib/prisma';
 
 export default async function WorkspaceMembersPage() {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-
+  const user = await getCurrentUser();
   if (!user) {
     redirect('/login');
   }
 
-  let workspace: { id: string; name: string };
-  let members: WorkspaceMember[];
-  let actorRole: WorkspaceRole;
+  // Récupérer le premier workspace dont l'utilisateur est membre.
+  // Mono-workspace au lancement (multi-workspace en P3+).
+  const dbWorkspace = await prisma.workspace.findFirst({
+    where: {
+      members: { some: { userId: user.id } },
+      deletedAt: null,
+    },
+    include: {
+      members: {
+        orderBy: { invitedAt: 'asc' },
+      },
+    },
+  });
 
-  if (!PRISMA_READY) {
-    // Mode démo jusqu'à l'activation de Prisma
-    const mock = getMockData(user.id);
-    workspace = mock.workspace;
-    members = mock.members;
-    actorRole = mock.actorRole;
-  } else {
-    // TODO: implémentation Prisma
-    // const prisma = getPrismaClient();
-    // const dbWorkspace = await prisma.workspace.findFirst({
-    //   where: { members: { some: { userId: user.id } }, deletedAt: null },
-    //   include: {
-    //     members: {
-    //       include: { user: { select: { email: true, name: true } } },
-    //     },
-    //   },
-    // });
-    // if (!dbWorkspace) redirect('/dashboard');
-    // ...
+  if (!dbWorkspace) {
+    // Aucun workspace : on renvoie au dashboard pour l'instant. À terme,
+    // un workspace par défaut sera provisionné lors du signup (LOT B).
     redirect('/dashboard');
   }
+
+  // Le user lui-même est-il membre ? (on s'attend à oui d'après la query)
+  const actorMember = dbWorkspace.members.find((m) => m.userId === user.id);
+  const actorRole: WorkspaceRole = (actorMember?.role as WorkspaceRole) || 'MEMBER';
+
+  // Hydrater les membres avec leurs emails / noms (jointure manuelle pour
+  // éviter d'imposer une relation Prisma forte côté User.workspaceMembers
+  // qui n'existe pas encore — cf prisma/schema.prisma).
+  const memberUserIds = dbWorkspace.members.map((m) => m.userId);
+  const users = await prisma.user.findMany({
+    where: { id: { in: memberUserIds } },
+    select: { id: true, email: true, name: true },
+  });
+  const userMap = new Map(users.map((u) => [u.id, u]));
+
+  const members: WorkspaceMember[] = dbWorkspace.members.map((m) => {
+    const u = userMap.get(m.userId);
+    return {
+      id: m.id,
+      workspaceId: m.workspaceId,
+      userId: m.userId,
+      email: u?.email ?? '',
+      name: u?.name ?? null,
+      role: m.role as WorkspaceRole,
+      invitedAt: m.invitedAt.toISOString(),
+      joinedAt: m.joinedAt ? m.joinedAt.toISOString() : null,
+    };
+  });
 
   const userCanInvite = canInviteMembers(actorRole);
 
@@ -102,7 +73,7 @@ export default async function WorkspaceMembersPage() {
         </div>
         <p className="text-muted-foreground">
           Gérez les membres et les accès de votre workspace{' '}
-          <strong>{workspace.name}</strong>.
+          <strong>{dbWorkspace.name}</strong>.
         </p>
       </div>
 
@@ -115,7 +86,7 @@ export default async function WorkspaceMembersPage() {
             </CardDescription>
           </div>
           {userCanInvite && (
-            <InviteModal workspaceId={workspace.id} />
+            <InviteModal workspaceId={dbWorkspace.id} />
           )}
         </CardHeader>
         <CardContent>
@@ -126,13 +97,6 @@ export default async function WorkspaceMembersPage() {
           />
         </CardContent>
       </Card>
-
-      {!PRISMA_READY && (
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
-          <strong>Mode démo</strong> — La fonctionnalité membres est en cours de déploiement.
-          Les données affichées sont fictives.
-        </div>
-      )}
     </div>
   );
 }

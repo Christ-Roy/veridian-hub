@@ -104,17 +104,20 @@ export function TenantCard({
       });
       const data = await res.json();
 
-      if (!res.ok || !data.magicLink) {
+      // Préférer auto_login_url (auto-connect via /veridian/auto-login + localStorage,
+      // pas de saisie de code requise). Fallback magic_link puis URL console nue.
+      const targetUrl = data.autoLoginUrl || data.magicLink;
+      if (!res.ok || !targetUrl) {
         const fallback = (env.NEXT_PUBLIC_NOTIFUSE_URL || 'https://notifuse.app.veridian.site') + '/console';
         window.open(fallback, '_blank');
-        toast.error('Magic link unavailable', {
+        toast.error('Auto-login unavailable', {
           description: data.error || 'Opening console without auto-login.',
           duration: 5000,
         });
         return;
       }
 
-      window.open(data.magicLink, '_blank');
+      window.open(targetUrl, '_blank');
     } catch (error: any) {
       console.error('Error opening service:', error);
       toast.error('Error opening service', {

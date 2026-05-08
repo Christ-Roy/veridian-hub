@@ -2,37 +2,42 @@
  * Hub admin — Overview dashboard.
  * Stats globaux sur les tenants, plans, signups récents.
  */
-import { createServiceClient } from "@/utils/supabase/server-service";
+import { prisma } from '@/lib/prisma';
 
 export default async function AdminOverviewPage() {
-  const supabase = createServiceClient();
+  // Récupérer tous les tenants (le layout admin a déjà gate sur isPlatformAdmin)
+  const tenants = await prisma.tenant.findMany({
+    select: {
+      id: true,
+      createdAt: true,
+      trialEndsAt: true,
+      prospectionPlan: true,
+      metadata: true,
+    },
+  });
 
-  // Récupérer tous les tenants
-  const { data: tenants } = await supabase.from("tenants").select("*");
-  const tenantList = tenants ?? [];
-
-  const total = tenantList.length;
-  const byPlan = tenantList.reduce<Record<string, number>>((acc, t) => {
-    const plan = (t as { plan?: string }).plan ?? "unknown";
+  const total = tenants.length;
+  const byPlan = tenants.reduce<Record<string, number>>((acc, t) => {
+    // Le plan effectif vient de prospectionPlan (synced via webhook Stripe).
+    // Fallback "unknown" si null.
+    const plan = t.prospectionPlan ?? 'unknown';
     acc[plan] = (acc[plan] ?? 0) + 1;
     return acc;
   }, {});
 
   const oneWeekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const signupsLastWeek = tenantList.filter((t) => {
-    const created = (t as { created_at?: string }).created_at;
-    return created && new Date(created).getTime() >= oneWeekAgo;
+  const signupsLastWeek = tenants.filter((t) => {
+    return t.createdAt && new Date(t.createdAt).getTime() >= oneWeekAgo;
   }).length;
 
-  const activeTrials = tenantList.filter((t) => {
-    const end = (t as { trial_ends_at?: string }).trial_ends_at;
-    return end && new Date(end).getTime() > Date.now();
+  const activeTrials = tenants.filter((t) => {
+    return t.trialEndsAt && new Date(t.trialEndsAt).getTime() > Date.now();
   }).length;
 
   const cards = [
-    { label: "Tenants total", value: total },
-    { label: "Signups 7 derniers jours", value: signupsLastWeek },
-    { label: "Trials actifs", value: activeTrials },
+    { label: 'Tenants total', value: total },
+    { label: 'Signups 7 derniers jours', value: signupsLastWeek },
+    { label: 'Trials actifs', value: activeTrials },
   ];
 
   return (

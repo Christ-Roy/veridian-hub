@@ -14,7 +14,7 @@ COPY prisma ./prisma
 
 # Install pnpm and dependencies
 # postinstall triggers `prisma generate` which requires prisma/schema.prisma
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 RUN pnpm install --frozen-lockfile
 
 # ============================================================================
@@ -29,7 +29,7 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 # Enable pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 
 # ============================================================================
 # BUILD ARGUMENTS - RUNTIME CONFIGURATION
@@ -125,7 +125,7 @@ WORKDIR /app
 RUN apk add --no-cache libc6-compat wget
 
 # Enable pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 
 # Copy package files and install dependencies in the image
 # This avoids reinstalling everything on every container start

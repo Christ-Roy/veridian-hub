@@ -19,7 +19,7 @@
  */
 
 import Stripe from 'stripe';
-import { createClient } from '@supabase/supabase-js';
+import { withPg } from '../lib/db.mjs';
 import { writeFile, readFile } from 'fs/promises';
 import { existsSync } from 'fs';
 
@@ -34,9 +34,8 @@ const isDryRun = args.includes('--dry-run');
 const STRIPE_TEST_KEY = process.env.STRIPE_SECRET_KEY;
 const STRIPE_LIVE_KEY = process.env.STRIPE_SECRET_KEY_LIVE;
 
-// Supabase (pour sync DB après import)
-const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+// Postgres direct (pour sync DB hub_app.* après import)
+const DATABASE_URL = process.env.DATABASE_URL;
 
 // ============================================================================
 // Validation
@@ -267,50 +266,79 @@ async function importProducts() {
 }
 
 // ============================================================================
-// Synchronisation Supabase
+// Synchronisation hub_app (Postgres direct)
 // ============================================================================
 
 async function syncSupabase(stripe) {
-  const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-
-  // Clear existing products/prices
-  await supabase.from('prices').delete().neq('id', '');
-  await supabase.from('products').delete().neq('id', '');
-
-  // Fetch from Stripe
-  const products = await stripe.products.list({ limit: 100 });
-  const prices = await stripe.prices.list({ limit: 100 });
-
-  // Insert products
-  for (const product of products.data) {
-    await supabase.from('products').upsert({
-      id: product.id,
-      active: product.active,
-      name: product.name,
-      description: product.description || null,
-      image: product.images?.[0] || null,
-      metadata: product.metadata,
-    });
+  if (!DATABASE_URL) {
+    console.warn('⚠️  DATABASE_URL non défini, skip sync DB');
+    return;
   }
 
-  // Insert prices
-  for (const price of prices.data) {
-    await supabase.from('prices').upsert({
-      id: price.id,
-      product_id: typeof price.product === 'string' ? price.product : price.product.id,
-      active: price.active,
-      currency: price.currency,
-      description: price.nickname || null,
-      type: price.type,
-      unit_amount: price.unit_amount || null,
-      interval: price.recurring?.interval || null,
-      interval_count: price.recurring?.interval_count || null,
-      trial_period_days: price.recurring?.trial_period_days || 0,
-      metadata: price.metadata || null,
-    });
-  }
+  await withPg(async (client) => {
+    // Clear existing products/prices (cascade délègue rien — on TRUNCATE-like)
+    await client.query('DELETE FROM hub_app.prices');
+    await client.query('DELETE FROM hub_app.products');
 
-  console.log(`✅ Supabase synchronisé : ${products.data.length} produits, ${prices.data.length} prix`);
+    const products = await stripe.products.list({ limit: 100 });
+    const prices = await stripe.prices.list({ limit: 100 });
+
+    for (const product of products.data) {
+      await client.query(
+        `INSERT INTO hub_app.products (id, active, name, description, image, metadata)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (id) DO UPDATE SET
+           active = EXCLUDED.active,
+           name = EXCLUDED.name,
+           description = EXCLUDED.description,
+           image = EXCLUDED.image,
+           metadata = EXCLUDED.metadata`,
+        [
+          product.id,
+          product.active,
+          product.name,
+          product.description || null,
+          product.images?.[0] || null,
+          JSON.stringify(product.metadata ?? {}),
+        ],
+      );
+    }
+
+    for (const price of prices.data) {
+      await client.query(
+        `INSERT INTO hub_app.prices (
+           id, product_id, active, currency, description, type,
+           unit_amount, interval, interval_count, trial_period_days, metadata
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         ON CONFLICT (id) DO UPDATE SET
+           product_id = EXCLUDED.product_id,
+           active = EXCLUDED.active,
+           currency = EXCLUDED.currency,
+           description = EXCLUDED.description,
+           type = EXCLUDED.type,
+           unit_amount = EXCLUDED.unit_amount,
+           interval = EXCLUDED.interval,
+           interval_count = EXCLUDED.interval_count,
+           trial_period_days = EXCLUDED.trial_period_days,
+           metadata = EXCLUDED.metadata`,
+        [
+          price.id,
+          typeof price.product === 'string' ? price.product : price.product.id,
+          price.active,
+          price.currency,
+          price.nickname || null,
+          price.type,
+          price.unit_amount || null,
+          price.recurring?.interval || null,
+          price.recurring?.interval_count || null,
+          price.recurring?.trial_period_days || 0,
+          JSON.stringify(price.metadata ?? {}),
+        ],
+      );
+    }
+
+    console.log(`✅ DB synchronisée : ${products.data.length} produits, ${prices.data.length} prix`);
+  });
 }
 
 // ============================================================================

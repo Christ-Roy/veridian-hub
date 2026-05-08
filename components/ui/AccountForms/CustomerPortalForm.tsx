@@ -6,17 +6,14 @@ import { useState } from 'react';
 import { createStripePortal } from '@/utils/stripe/server';
 import Link from 'next/link';
 import CardWrapper from '@/components/ui/card-wrapper';
-import { Tables } from '@/types_db';
-
-type Subscription = Tables<'subscriptions'>;
-type Price = Tables<'prices'>;
-type Product = Tables<'products'>;
-
-type SubscriptionWithPriceAndProduct = Subscription & {
+type SubscriptionWithPriceAndProduct = {
   prices:
-    | (Price & {
-        products: Product | null;
-      })
+    | {
+        currency: string | null;
+        unit_amount: number | null;
+        interval: string | null;
+        products: { name: string | null } | null;
+      }
     | null;
 };
 

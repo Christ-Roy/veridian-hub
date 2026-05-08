@@ -1,17 +1,24 @@
 import Navlinks from './Navlinks';
-import { createClient } from '@/utils/supabase/server';
+import { auth } from '@/auth';
 
+/**
+ * Navbar — Server Component qui résout la session via Auth.js v5,
+ * puis passe `user` au Client Component `Navlinks` pour le menu.
+ */
 export default async function Navbar() {
-  const supabase = createClient();
-
-  let user = null;
+  let user: { id?: string; email?: string | null; name?: string | null; image?: string | null } | null = null;
   try {
-    const {
-      data: { user: fetchedUser }
-    } = await supabase.auth.getUser();
-    user = fetchedUser;
+    const session = await auth();
+    if (session?.user) {
+      user = {
+        id: session.user.id,
+        email: session.user.email,
+        name: session.user.name,
+        image: session.user.image,
+      };
+    }
   } catch (error) {
-    // Si le token est invalide, on affiche la navbar sans user (mode déconnecté)
+    // Session invalide ou erreur de fetch -> mode déconnecté
     console.warn('Auth error in Navbar:', error);
   }
 

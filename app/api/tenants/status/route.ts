@@ -1,86 +1,76 @@
-import { createClient } from '@/utils/supabase/server';
+import { requireUser, userUuid } from '@/lib/auth/get-user';
+import { prisma } from '@/lib/prisma';
+
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 export async function GET() {
-  const supabase = createClient();
-
   try {
-    // Vérifier auth
-    const {
-      data: { user },
-      error: authError,
-    } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    let user;
+    try {
+      user = await requireUser();
+    } catch (err) {
+      if (err instanceof Response) return err;
+      throw err;
     }
 
-    // Type pour le tenant
-    type TenantData = {
-      id: string;
-      name: string;
-      status: string;
-      twenty_workspace_id: string | null;
-      twenty_subdomain: string | null;
-      twenty_login_token: string | null;
-      twenty_login_token_created_at: string | null;
-      notifuse_workspace_slug: string | null;
-    };
+    const uuid = userUuid(user);
 
-    // Récupérer tenant
-    const { data: tenant, error } = await supabase
-      .from('tenants')
-      .select(
-        `
-        id,
-        name,
-        status,
-        twenty_workspace_id,
-        twenty_subdomain,
-        twenty_login_token,
-        twenty_login_token_created_at,
-        notifuse_workspace_slug
-      `
-      )
-      .eq('user_id', user.id)
-      .maybeSingle<TenantData>();
-
-    if (error) {
-      // Les erreurs DB sont toujours loggées
-      console.error('[Tenants Status] DB Error:', error);
-      return Response.json({ error: error.message }, { status: 500 });
-    }
-
-    const tenantData = tenant;
-
-    // Calculer si loginToken encore valide (15min - 1min de marge)
-    const twentyTokenValid =
-      tenantData?.twenty_login_token &&
-      tenantData?.twenty_login_token_created_at &&
-      new Date().getTime() -
-        new Date(tenantData.twenty_login_token_created_at).getTime() <
-        14 * 60 * 1000; // 14 minutes
-
-    return Response.json({
-      tenant_id: tenantData?.id,
-      name: tenantData?.name,
-      status: tenantData?.status,
-      twenty: {
-        configured: !!tenantData?.twenty_workspace_id,
-        subdomain: tenantData?.twenty_subdomain,
-        workspace_id: tenantData?.twenty_workspace_id,
-        login_token_valid: twentyTokenValid,
-        login_token: twentyTokenValid ? tenantData.twenty_login_token : null,
-      },
-      notifuse: {
-        configured: !!tenantData?.notifuse_workspace_slug,
-        slug: tenantData?.notifuse_workspace_slug,
+    const tenant = await prisma.tenant.findFirst({
+      where: { userId: uuid },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        twentyWorkspaceId: true,
+        twentySubdomain: true,
+        twentyLoginToken: true,
+        twentyLoginTokenCreatedAt: true,
+        notifuseWorkspaceSlug: true,
+        provisioningLogs: {
+          orderBy: { createdAt: 'desc' },
+          take: 50,
+          select: {
+            id: true,
+            level: true,
+            message: true,
+            service: true,
+            metadata: true,
+            createdAt: true,
+          },
+        },
       },
     });
-  } catch (error: any) {
-    console.error('[Tenants Status] Error:', error);
-    return Response.json(
-      { error: 'Internal server error' },
-      { status: 500 }
+
+    // Calculer si loginToken encore valide (15min - 1min de marge)
+    const tokenCreatedAt = tenant?.twentyLoginTokenCreatedAt
+      ? new Date(tenant.twentyLoginTokenCreatedAt).getTime()
+      : null;
+    const twentyTokenValid = !!(
+      tenant?.twentyLoginToken &&
+      tokenCreatedAt &&
+      Date.now() - tokenCreatedAt < 14 * 60 * 1000
     );
+
+    return Response.json({
+      tenant_id: tenant?.id,
+      name: tenant?.name,
+      status: tenant?.status,
+      twenty: {
+        configured: !!tenant?.twentyWorkspaceId,
+        subdomain: tenant?.twentySubdomain,
+        workspace_id: tenant?.twentyWorkspaceId,
+        login_token_valid: twentyTokenValid,
+        login_token: twentyTokenValid ? tenant?.twentyLoginToken : null,
+      },
+      notifuse: {
+        configured: !!tenant?.notifuseWorkspaceSlug,
+        slug: tenant?.notifuseWorkspaceSlug,
+      },
+      logs: tenant?.provisioningLogs ?? [],
+    });
+  } catch (error: unknown) {
+    console.error('[Tenants Status] Error:', error);
+    return Response.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

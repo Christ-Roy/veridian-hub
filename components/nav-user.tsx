@@ -1,7 +1,8 @@
 "use client"
 
 import Link from "next/link"
-import { usePathname, useRouter } from "next/navigation"
+import { usePathname } from "next/navigation"
+import { signOut } from "next-auth/react"
 import {
   BellIcon,
   CreditCardIcon,
@@ -30,9 +31,6 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar"
-import { SignOut } from "@/utils/auth-helpers/server"
-import { handleRequest } from "@/utils/auth-helpers/client"
-import { getRedirectMethod } from "@/utils/auth-helpers/settings"
 
 export function NavUser({
   user,
@@ -44,17 +42,18 @@ export function NavUser({
   }
 }) {
   const { isMobile } = useSidebar()
-  const router = getRedirectMethod() === 'client' ? useRouter() : null
   const pathname = usePathname()
 
   // Générer initiales dynamiquement
   const getInitials = (name: string) => {
-    return name
-      .split(' ')
-      .map(n => n[0])
-      .join('')
-      .toUpperCase()
-      .slice(0, 2) || 'U'
+    return (
+      name
+        .split(' ')
+        .map((n) => n[0])
+        .join('')
+        .toUpperCase()
+        .slice(0, 2) || 'U'
+    )
   }
 
   return (
@@ -121,15 +120,16 @@ export function NavUser({
               </DropdownMenuItem>
             </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <form onSubmit={(e) => handleRequest(e, SignOut, router)}>
-              <input type="hidden" name="pathName" value={pathname} />
-              <DropdownMenuItem className="cursor-pointer" asChild>
-                <button type="submit" className="w-full flex items-start">
-                  <LogOutIcon />
-                  Log out
-                </button>
-              </DropdownMenuItem>
-            </form>
+            <DropdownMenuItem
+              className="cursor-pointer"
+              onSelect={(e) => {
+                e.preventDefault();
+                void signOut({ callbackUrl: pathname || '/' });
+              }}
+            >
+              <LogOutIcon />
+              Log out
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </SidebarMenuItem>

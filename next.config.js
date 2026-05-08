@@ -13,13 +13,6 @@ const nextConfig = {
     ],
   },
 
-  // Disable static optimization during build
-  // This prevents Next.js from trying to pre-render pages that call Twenty/Notifuse APIs
-  // Those pages will be rendered on-demand (SSR) instead
-  experimental: {
-    missingSuspenseWithCSRBailout: false,
-  },
-
   // Allow cross-origin requests in dev mode (behind Traefik reverse proxy)
   allowedDevOrigins: ['https://dev.veridian.site'],
 

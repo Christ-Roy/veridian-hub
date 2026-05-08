@@ -191,3 +191,219 @@ model Invitation {
   @@map("invitations")
   @@schema("hub_app")
 }
+
+// ============================================================================
+// Migration Supabase → Prisma (2026-05-08)
+// Tables legacy déplacées depuis Supabase public.* vers hub_app.*
+// IDs UUID préservés depuis l'ancienne source pour ne pas casser les FK et
+// les références externes (Stripe, Twenty workspaceId, etc.).
+// ============================================================================
+
+enum SubscriptionStatus {
+  trialing
+  active
+  past_due
+  canceled
+  incomplete
+  incomplete_expired
+  unpaid
+
+  @@schema("hub_app")
+}
+
+enum TenantStatus {
+  pending
+  active
+  suspended
+  deleted
+
+  @@schema("hub_app")
+}
+
+enum LogLevel {
+  info
+  success
+  warning
+  error
+
+  @@schema("hub_app")
+}
+
+enum PricingType {
+  one_time
+  recurring
+
+  @@schema("hub_app")
+}
+
+enum PricingPlanInterval {
+  day
+  week
+  month
+  year
+
+  @@schema("hub_app")
+}
+
+model Profile {
+  id              String   @id @db.Uuid
+  email           String   @unique
+  fullName        String?  @map("full_name")
+  avatarUrl       String?  @map("avatar_url")
+  companyName     String?  @map("company_name")
+  billingAddress  Json?    @map("billing_address")
+  paymentMethod   Json?    @map("payment_method")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("profiles")
+  @@schema("hub_app")
+}
+
+model Product {
+  id          String  @id
+  active      Boolean?
+  name        String?
+  description String?
+  image       String?
+  metadata    Json?
+
+  prices Price[]
+
+  @@map("products")
+  @@schema("hub_app")
+}
+
+model Price {
+  id              String                @id
+  productId       String?               @map("product_id")
+  active          Boolean?
+  description     String?
+  unitAmount      BigInt?               @map("unit_amount")
+  currency        String?
+  type            PricingType?
+  interval        PricingPlanInterval?
+  intervalCount   Int?                  @map("interval_count")
+  trialPeriodDays Int?                  @map("trial_period_days")
+  metadata        Json?
+
+  product       Product?       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  subscriptions Subscription[]
+
+  @@map("prices")
+  @@schema("hub_app")
+}
+
+model Subscription {
+  id                   String              @id @default(uuid()) @db.Uuid
+  userId               String              @map("user_id") @db.Uuid
+  stripeCustomerId     String              @unique @map("stripe_customer_id")
+  stripeSubscriptionId String?             @unique @map("stripe_subscription_id")
+  stripePriceId        String?             @map("stripe_price_id")
+  priceId              String?             @map("price_id")
+  status               SubscriptionStatus  @default(incomplete)
+  trialStart           DateTime?           @map("trial_start") @db.Timestamptz(6)
+  trialEnd             DateTime?           @map("trial_end") @db.Timestamptz(6)
+  currentPeriodStart   DateTime?           @map("current_period_start") @db.Timestamptz(6)
+  currentPeriodEnd     DateTime?           @map("current_period_end") @db.Timestamptz(6)
+  cancelAtPeriodEnd    Boolean?            @default(false) @map("cancel_at_period_end")
+  cancelAt             DateTime?           @map("cancel_at") @db.Timestamptz(6)
+  canceledAt           DateTime?           @map("canceled_at") @db.Timestamptz(6)
+  endedAt              DateTime?           @map("ended_at") @db.Timestamptz(6)
+  created              DateTime?           @db.Timestamptz(6)
+  planName             String?             @map("plan_name")
+  quantity             Int?                @default(1)
+  metadata             Json?
+  createdAt            DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime            @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  price   Price?   @relation(fields: [priceId], references: [id])
+  tenants Tenant[]
+
+  @@index([userId])
+  @@index([stripeCustomerId])
+  @@index([status])
+  @@map("subscriptions")
+  @@schema("hub_app")
+}
+
+model Tenant {
+  id                              String       @id @default(uuid()) @db.Uuid
+  userId                          String       @map("user_id") @db.Uuid
+  subscriptionId                  String?      @map("subscription_id") @db.Uuid
+  name                            String
+  slug                            String       @unique
+  status                          TenantStatus @default(pending)
+  twentyWorkspaceId               String?      @map("twenty_workspace_id") @db.Uuid
+  twentySubdomain                 String?      @map("twenty_subdomain")
+  twentyApiKey                    String?      @map("twenty_api_key")
+  twentyUserEmail                 String?      @map("twenty_user_email")
+  twentyUserPassword              String?      @map("twenty_user_password")
+  twentyLoginToken                String?      @map("twenty_login_token")
+  twentyLoginTokenCreatedAt       DateTime?    @map("twenty_login_token_created_at") @db.Timestamptz(6)
+  notifuseWorkspaceSlug           String?      @map("notifuse_workspace_slug")
+  notifuseApiKey                  String?      @map("notifuse_api_key")
+  notifuseUserEmail               String?      @map("notifuse_user_email")
+  notifuseInvitationSentAt        DateTime?    @map("notifuse_invitation_sent_at") @db.Timestamptz(6)
+  prospectionApiKey               String?      @map("prospection_api_key")
+  prospectionLoginToken           String?      @map("prospection_login_token")
+  prospectionLoginTokenUsed       Boolean?     @default(false) @map("prospection_login_token_used")
+  prospectionLoginTokenCreatedAt  DateTime?    @map("prospection_login_token_created_at") @db.Timestamptz(6)
+  prospectionPlan                 String?      @default("freemium") @map("prospection_plan")
+  prospectionConfig               Json?        @map("prospection_config")
+  prospectionProvisionedAt        DateTime?    @map("prospection_provisioned_at") @db.Timestamptz(6)
+  metadata                        Json?
+  provisionedAt                   DateTime?    @map("provisioned_at") @db.Timestamptz(6)
+  lastActivityAt                  DateTime?    @map("last_activity_at") @db.Timestamptz(6)
+  leadScore                       Int?         @default(0) @map("lead_score")
+  trialEndsAt                     DateTime?    @map("trial_ends_at") @db.Timestamptz(6)
+  deletedAt                       DateTime?    @map("deleted_at") @db.Timestamptz(6)
+  cleanupNotifiedAt               DateTime?    @map("cleanup_notified_at") @db.Timestamptz(6)
+  createdAt                       DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                       DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  subscription      Subscription?      @relation(fields: [subscriptionId], references: [id])
+  provisioningLogs  ProvisioningLog[]
+  usageMetrics      UsageMetric[]
+
+  @@index([userId])
+  @@index([slug])
+  @@index([status])
+  @@index([deletedAt])
+  @@index([twentyLoginTokenCreatedAt])
+  @@map("tenants")
+  @@schema("hub_app")
+}
+
+model ProvisioningLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  level     LogLevel
+  message   String
+  service   String?
+  metadata  Json?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@index([level])
+  @@map("provisioning_logs")
+  @@schema("hub_app")
+}
+
+model UsageMetric {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  metricType String   @map("metric_type")
+  value      BigInt
+  timestamp  DateTime @db.Timestamptz(6)
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, metricType, timestamp(sort: Desc)])
+  @@map("usage_metrics")
+  @@schema("hub_app")
+}

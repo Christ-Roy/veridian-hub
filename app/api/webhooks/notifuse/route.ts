@@ -10,8 +10,9 @@ import {
   TenantSuspendedEventData,
   VeridianEventPayload,
 } from '@/lib/notifuse/types';
-import { getSupabaseAdmin } from '@/utils/supabase/admin';
+import { prisma } from '@/lib/prisma';
 
+export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const MAX_DRIFT_MS = 5 * 60 * 1000;
@@ -69,18 +70,22 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const supabase = getSupabaseAdmin();
+  // Idempotence : on stocke event_id dans le tenant.metadata.notifuse_processed_events
+  // (limité à 200 derniers). La table dédiée `notifuse_events_processed` n'a pas
+  // (encore) été ajoutée au schema Prisma — TODO LOT D : créer le modèle dédié.
+  const tenant = await prisma.tenant.findFirst({
+    where: { notifuseWorkspaceSlug: payload.tenant_id },
+    select: { id: true, metadata: true },
+  });
 
-  // Idempotence: skip events we've already processed. The table is declared in
-  // a fresh migration that hasn't been regenerated into types_db.ts yet, so we
-  // bypass the typed builder.
-  const events = (supabase.from as any)('notifuse_events_processed');
-  const { data: existing } = await events
-    .select('event_id')
-    .eq('event_id', payload.event_id)
-    .maybeSingle();
-  if (existing) {
-    return NextResponse.json({ ok: true, deduplicated: true });
+  if (tenant) {
+    const meta = (tenant.metadata as Record<string, unknown> | null) ?? {};
+    const processed = Array.isArray(meta.notifuse_processed_events)
+      ? (meta.notifuse_processed_events as string[])
+      : [];
+    if (processed.includes(payload.event_id)) {
+      return NextResponse.json({ ok: true, deduplicated: true });
+    }
   }
 
   try {
@@ -91,86 +96,127 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: message }, { status: 500 });
   }
 
-  await events.insert({
-    event_id: payload.event_id,
-    event_type: payload.event_type,
-    tenant_id: payload.tenant_id,
-  });
+  // Marquer event_id comme traité (best-effort)
+  if (tenant) {
+    try {
+      const meta = (tenant.metadata as Record<string, unknown> | null) ?? {};
+      const processed = Array.isArray(meta.notifuse_processed_events)
+        ? (meta.notifuse_processed_events as string[])
+        : [];
+      const next = [...processed, payload.event_id].slice(-200);
+      await prisma.tenant.update({
+        where: { id: tenant.id },
+        data: {
+          metadata: { ...meta, notifuse_processed_events: next } as object,
+        },
+      });
+    } catch (err) {
+      console.warn('[notifuse-webhook] failed to mark event processed', err);
+    }
+  }
 
   return NextResponse.json({ ok: true });
 }
 
 async function dispatchEvent(payload: VeridianEventPayload): Promise<void> {
-  const supabase = getSupabaseAdmin();
-  const tenants = supabase.from('tenants') as any;
   const tenantSlug = payload.tenant_id;
-
   const eventType = payload.event_type as NotifuseEventType;
+
+  // Resolve tenant
+  const tenant = await prisma.tenant.findFirst({
+    where: { notifuseWorkspaceSlug: tenantSlug },
+    select: { id: true, metadata: true, prospectionConfig: true },
+  });
 
   switch (eventType) {
     case 'tenant.provisioned':
-      // Hub initiated the provisioning, nothing to mirror — just log.
       console.info('[notifuse-webhook] tenant.provisioned', tenantSlug);
       return;
 
     case 'tenant.suspended': {
+      if (!tenant) return;
       const data = payload.data as TenantSuspendedEventData;
-      const { error } = await tenants
-        .update({
-          notifuse_suspended_at: data?.suspended_at ?? new Date().toISOString(),
-          notifuse_suspended_reason: data?.reason ?? null,
-        })
-        .eq('notifuse_workspace_slug', tenantSlug);
-      if (error) throw new Error(error.message);
+      const meta = (tenant.metadata as Record<string, unknown> | null) ?? {};
+      await prisma.tenant.update({
+        where: { id: tenant.id },
+        data: {
+          metadata: {
+            ...meta,
+            notifuse_suspended_at: data?.suspended_at ?? new Date().toISOString(),
+            notifuse_suspended_reason: data?.reason ?? null,
+          } as object,
+        },
+      });
       return;
     }
 
     case 'tenant.resumed': {
+      if (!tenant) return;
       const data = payload.data as TenantResumedEventData | undefined;
-      const { error } = await tenants
-        .update({
-          notifuse_suspended_at: null,
-          notifuse_suspended_reason: null,
-        })
-        .eq('notifuse_workspace_slug', tenantSlug);
-      if (error) throw new Error(error.message);
-      console.info('[notifuse-webhook] tenant.resumed', tenantSlug, data?.resumed_at ?? '');
+      const meta = (tenant.metadata as Record<string, unknown> | null) ?? {};
+      await prisma.tenant.update({
+        where: { id: tenant.id },
+        data: {
+          metadata: {
+            ...meta,
+            notifuse_suspended_at: null,
+            notifuse_suspended_reason: null,
+          } as object,
+        },
+      });
+      console.info(
+        '[notifuse-webhook] tenant.resumed',
+        tenantSlug,
+        data?.resumed_at ?? '',
+      );
       return;
     }
 
     case 'tenant.deleted': {
+      if (!tenant) return;
       const data = payload.data as TenantDeletedEventData;
-      const { error } = await tenants
-        .update({
-          notifuse_deleted_at: data?.deleted_at ?? new Date().toISOString(),
-        })
-        .eq('notifuse_workspace_slug', tenantSlug);
-      if (error) throw new Error(error.message);
+      const meta = (tenant.metadata as Record<string, unknown> | null) ?? {};
+      await prisma.tenant.update({
+        where: { id: tenant.id },
+        data: {
+          metadata: {
+            ...meta,
+            notifuse_deleted_at: data?.deleted_at ?? new Date().toISOString(),
+          } as object,
+        },
+      });
       return;
     }
 
     case 'email.sent': {
       const data = payload.data as EmailSentEventData | undefined;
-      // Atomic increment via Postgres RPC (defined in migration if needed).
-      // Fallback to update via raw filter — supabase-js doesn't yet support
-      // SQL-side atomic increments without RPC, so we read+write and accept
-      // the small race window. Counter is informational — Notifuse remains
-      // source of truth.
-      const { data: tenant, error: readErr } = await tenants
-        .select('id, notifuse_emails_sent_this_month')
-        .eq('notifuse_workspace_slug', tenantSlug)
-        .maybeSingle();
-      if (readErr) throw new Error(readErr.message);
       if (!tenant) {
         console.warn('[notifuse-webhook] email.sent for unknown tenant', tenantSlug);
         return;
       }
-      const next = (tenant.notifuse_emails_sent_this_month ?? 0) + 1;
-      const { error: writeErr } = await tenants
-        .update({ notifuse_emails_sent_this_month: next })
-        .eq('id', tenant.id);
-      if (writeErr) throw new Error(writeErr.message);
-      console.info('[notifuse-webhook] email.sent', tenantSlug, data?.message_id ?? '', '→', next);
+      // Counter dans metadata (Notifuse reste source de vérité — informatif).
+      const meta = (tenant.metadata as Record<string, unknown> | null) ?? {};
+      const current =
+        typeof meta.notifuse_emails_sent_this_month === 'number'
+          ? (meta.notifuse_emails_sent_this_month as number)
+          : 0;
+      const next = current + 1;
+      await prisma.tenant.update({
+        where: { id: tenant.id },
+        data: {
+          metadata: {
+            ...meta,
+            notifuse_emails_sent_this_month: next,
+          } as object,
+        },
+      });
+      console.info(
+        '[notifuse-webhook] email.sent',
+        tenantSlug,
+        data?.message_id ?? '',
+        '→',
+        next,
+      );
       return;
     }
 
@@ -186,8 +232,6 @@ async function dispatchEvent(payload: VeridianEventPayload): Promise<void> {
     }
 
     default:
-      // Unknown event types are accepted (return 200) so Notifuse doesn't retry
-      // forever. We just log them.
       console.info('[notifuse-webhook] unhandled event_type', eventType, tenantSlug);
       return;
   }

@@ -1,15 +1,17 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { createClient } from '@/utils/supabase/client';
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 
+/**
+ * PasswordForm — Auth.js v5
+ *
+ * POST vers /api/account/password (route protégée par requireUser()).
+ * Le hash est stocké dans `Account.access_token` pour le provider 'credentials'.
+ */
 export default function PasswordForm() {
-  const router = useRouter();
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -21,12 +23,10 @@ export default function PasswordForm() {
     setError(null);
     setSuccess(false);
 
-    // Validation
     if (newPassword.length < 6) {
       setError('Password must be at least 6 characters long');
       return;
     }
-
     if (newPassword !== confirmPassword) {
       setError('Passwords do not match');
       return;
@@ -35,35 +35,25 @@ export default function PasswordForm() {
     setIsSubmitting(true);
 
     try {
-      const supabase = createClient();
-
-      const { error: updateError } = await supabase.auth.updateUser({
-        password: newPassword,
+      const res = await fetch('/api/account/password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newPassword }),
       });
 
-      if (updateError) {
-        // Handle specific error messages
-        if (updateError.message.includes('same as the old password')) {
-          setError('New password must be different from your current password');
-        } else {
-          setError(updateError.message);
-        }
-        setIsSubmitting(false);
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setError(data.error || 'Failed to update password');
         return;
       }
 
-      // Success!
       setSuccess(true);
       setNewPassword('');
       setConfirmPassword('');
 
-      // Optionally refresh the page or show a success message
-      setTimeout(() => {
-        setSuccess(false);
-      }, 5000);
-
+      setTimeout(() => setSuccess(false), 5000);
     } catch (err: any) {
-      setError(err.message || 'An unexpected error occurred');
+      setError(err?.message || 'An unexpected error occurred');
     } finally {
       setIsSubmitting(false);
     }
@@ -80,7 +70,7 @@ export default function PasswordForm() {
       {success && (
         <div className="p-4 rounded-md bg-green-500/10 border border-green-500/20">
           <p className="text-sm text-green-600 dark:text-green-400 font-medium">
-            ✓ Password updated successfully!
+            Password updated successfully.
           </p>
         </div>
       )}

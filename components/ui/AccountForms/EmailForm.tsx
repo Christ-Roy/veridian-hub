@@ -2,13 +2,18 @@
 
 import { Button } from '@/components/ui/button';
 import CardWrapper from '@/components/ui/card-wrapper';
-import { updateEmail } from '@/utils/auth-helpers/server';
-import { handleRequest } from '@/utils/auth-helpers/client';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { toast } from 'sonner';
 
+/**
+ * EmailForm — Auth.js v5
+ *
+ * PATCH /api/account/profile { email }. Le serveur reset `emailVerified=null`
+ * et l'utilisateur recevra (post LOT A) un email de re-vérification.
+ */
 export default function EmailForm({
-  userEmail
+  userEmail,
 }: {
   userEmail: string | undefined;
 }) {
@@ -16,15 +21,31 @@ export default function EmailForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const newEmail = String(formData.get('newEmail') ?? '').trim();
+
+    if (!newEmail || newEmail === userEmail) return;
+
     setIsSubmitting(true);
-    // Check if the new email is the same as the old email
-    if (e.currentTarget.newEmail.value === userEmail) {
-      e.preventDefault();
+    try {
+      const res = await fetch('/api/account/profile', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: newEmail }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        toast.error(data.error || 'Failed to update email');
+        return;
+      }
+      toast.success('Email updated. Please check your inbox to verify.');
+      router.refresh();
+    } catch (err: any) {
+      toast.error(err?.message || 'Network error');
+    } finally {
       setIsSubmitting(false);
-      return;
     }
-    handleRequest(e, updateEmail, router);
-    setIsSubmitting(false);
   };
 
   return (
@@ -48,9 +69,9 @@ export default function EmailForm({
       }
     >
       <div className="mt-8 mb-4 text-xl font-semibold">
-        <form id="emailForm" onSubmit={(e) => handleSubmit(e)}>
+        <form id="emailForm" onSubmit={handleSubmit}>
           <input
-            type="text"
+            type="email"
             name="newEmail"
             className="input-base w-1/2"
             defaultValue={userEmail ?? ''}

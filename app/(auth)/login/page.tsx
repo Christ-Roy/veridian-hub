@@ -1,16 +1,13 @@
 import { LoginForm } from '@/components/auth/LoginForm';
 import Logo from '@/components/icons/Logo';
-import { createClient } from '@/utils/supabase/server';
 import { redirect } from 'next/navigation';
 import { getAuthTypes } from '@/utils/auth-helpers/settings';
 import { Card } from '@/components/ui/card';
+import { getCurrentUser } from '@/lib/auth/get-user';
 
 export default async function LoginPage() {
-  const supabase = createClient();
-  const {
-    data: { user }
-  } = await supabase.auth.getUser();
-
+  // Auth.js v5 : si déjà loggué, redirect vers dashboard
+  const user = await getCurrentUser();
   if (user) {
     return redirect('/dashboard');
   }

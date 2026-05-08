@@ -1,46 +1,47 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 
-const ADMIN_EMAILS = ['brunon5robert@gmail.com'];
+import { auth } from '@/auth';
+import { isPlatformAdmin } from '@/lib/admin/check-admin';
+import { prisma } from '@/lib/prisma';
 
-function getSupabaseAdmin() {
-  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key);
-}
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
-async function checkAdmin(request: NextRequest) {
+/**
+ * Admin authorization helper.
+ *
+ * Two paths :
+ *  1. ADMIN_SECRET header (script / cron) — bypass session.
+ *  2. Authenticated session (cookie) + email whitelisted via isPlatformAdmin.
+ */
+async function requireAdmin(request: NextRequest): Promise<NextResponse | null> {
   const adminSecret = process.env.ADMIN_SECRET;
   const headerSecret = request.headers.get('x-admin-secret');
-  if (adminSecret && headerSecret === adminSecret) return true;
+  if (adminSecret && headerSecret === adminSecret) return null;
 
-  const authHeader = request.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) return false;
-  const supabase = getSupabaseAdmin();
-  if (!supabase) return false;
-  const { data: { user } } = await supabase.auth.getUser(authHeader.replace('Bearer ', ''));
-  return user && ADMIN_EMAILS.includes(user.email || '');
+  const session = await auth();
+  if (!session?.user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  if (!isPlatformAdmin(session.user)) {
+    return NextResponse.json({ error: 'Forbidden — admin access only' }, { status: 403 });
+  }
+  return null;
 }
 
 /**
  * DELETE /api/admin/delete-tenant
  * Body: { email: string, confirm: true }
  *
- * Deletes tenant row + Supabase auth user.
+ * Soft-deletes tenant rows for the given email and removes the Auth.js user
+ * (cascade clears Account/Session via Prisma FK onDelete).
  * Does NOT delete Twenty/Notifuse workspaces (those need manual cleanup).
  */
 export async function DELETE(request: NextRequest) {
-  if (!(await checkAdmin(request))) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const denial = await requireAdmin(request);
+  if (denial) return denial;
 
-  const supabase = getSupabaseAdmin();
-  if (!supabase) {
-    return NextResponse.json({ error: 'Supabase not configured' }, { status: 500 });
-  }
-
-  let body;
+  let body: { email?: string; confirm?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -52,72 +53,81 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: 'email required' }, { status: 400 });
   }
   if (confirm !== true) {
-    return NextResponse.json({ error: 'Set confirm: true to proceed (destructive action)' }, { status: 400 });
+    return NextResponse.json(
+      { error: 'Set confirm: true to proceed (destructive action)' },
+      { status: 400 },
+    );
   }
 
-  // Find user
-  const { data: usersData } = await supabase.auth.admin.listUsers();
-  const user = usersData?.users.find(u => u.email === email);
+  // Find user (Auth.js)
+  const user = await prisma.user.findUnique({
+    where: { email },
+    select: { id: true, supabaseUserId: true },
+  });
   if (!user) {
     return NextResponse.json({ error: `User not found: ${email}` }, { status: 404 });
   }
 
+  const userUuid = user.supabaseUserId;
   const actions: string[] = [];
 
-  // Delete tenant row
-  const { data: tenant } = await supabase
-    .from('tenants')
-    .select('id, twenty_workspace_id, notifuse_workspace_id')
-    .eq('user_id', user.id)
-    .maybeSingle();
+  // Soft-delete tenants (only if we have a UUID bridge)
+  if (userUuid) {
+    const tenants = await prisma.tenant.findMany({
+      where: { userId: userUuid },
+      select: { id: true, twentyWorkspaceId: true, notifuseWorkspaceSlug: true },
+    });
 
-  if (tenant) {
-    await supabase.from('tenants').delete().eq('id', tenant.id);
-    actions.push(`Deleted tenant ${tenant.id}`);
+    for (const tenant of tenants) {
+      await prisma.tenant.update({
+        where: { id: tenant.id },
+        data: { status: 'deleted', deletedAt: new Date() },
+      });
+      actions.push(`Soft-deleted tenant ${tenant.id}`);
 
-    if (tenant.twenty_workspace_id) {
-      actions.push(`⚠️ Twenty workspace ${tenant.twenty_workspace_id} still exists (manual cleanup needed)`);
+      if (tenant.twentyWorkspaceId) {
+        actions.push(
+          `⚠️ Twenty workspace ${tenant.twentyWorkspaceId} still exists (manual cleanup needed)`,
+        );
+      }
+      if (tenant.notifuseWorkspaceSlug) {
+        actions.push(
+          `⚠️ Notifuse workspace ${tenant.notifuseWorkspaceSlug} still exists (manual cleanup needed)`,
+        );
+      }
     }
-    if (tenant.notifuse_workspace_id) {
-      actions.push(`⚠️ Notifuse workspace ${tenant.notifuse_workspace_id} still exists (manual cleanup needed)`);
+    if (tenants.length === 0) {
+      actions.push('No tenant row found');
+    }
+
+    // Delete subscriptions linked to this UUID
+    const subResult = await prisma.subscription.deleteMany({ where: { userId: userUuid } });
+    if (subResult.count) actions.push(`Deleted ${subResult.count} subscription(s)`);
+
+    // Delete profile if any
+    try {
+      await prisma.profile.delete({ where: { id: userUuid } });
+      actions.push('Deleted profile');
+    } catch {
+      /* profile not found — ignore */
     }
   } else {
-    actions.push('No tenant row found');
+    actions.push('User has no supabaseUserId bridge — skipped tenant/sub/profile cleanup');
   }
 
-  // Delete subscriptions
-  const { count: subCount } = await supabase
-    .from('subscriptions')
-    .delete({ count: 'exact' })
-    .eq('user_id', user.id);
-  if (subCount) actions.push(`Deleted ${subCount} subscription(s)`);
-
-  // Delete customer
-  const { count: custCount } = await supabase
-    .from('customers')
-    .delete({ count: 'exact' })
-    .eq('id', user.id);
-  if (custCount) actions.push(`Deleted customer record`);
-
-  // Delete profile
-  const { count: profCount } = await supabase
-    .from('profiles')
-    .delete({ count: 'exact' })
-    .eq('id', user.id);
-  if (profCount) actions.push(`Deleted profile`);
-
-  // Delete Supabase auth user (last, so we have the ID for everything above)
-  const { error: deleteError } = await supabase.auth.admin.deleteUser(user.id);
-  if (deleteError) {
-    actions.push(`⚠️ Auth user delete failed: ${deleteError.message}`);
-  } else {
+  // Finally remove the Auth.js user (cascades to Account, Session, MfaCode)
+  try {
+    await prisma.user.delete({ where: { id: user.id } });
     actions.push('Deleted auth user');
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error';
+    actions.push(`⚠️ Auth user delete failed: ${message}`);
   }
 
   return NextResponse.json({
     ok: true,
     email,
-    user_id: user.id,
+    user_id: userUuid ?? user.id,
     actions,
   });
 }

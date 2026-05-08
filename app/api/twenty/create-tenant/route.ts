@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
+
+import { requireUser, userUuid } from '@/lib/auth/get-user';
+import { prisma } from '@/lib/prisma';
+
 // Force dynamic rendering - prevent static generation at build time
 export const dynamic = 'force-dynamic';
-import { createClient } from '@/utils/supabase/server';
+export const runtime = 'nodejs';
 
 // Load Twenty URLs from environment variables
-// Use empty default to allow build-time compilation, real value injected at runtime
 const TWENTY_BASE_URL = process.env.NEXT_PUBLIC_TWENTY_URL || '';
 const TWENTY_API_URL = TWENTY_BASE_URL ? `${TWENTY_BASE_URL}/graphql` : '';
 const TWENTY_METADATA_URL = TWENTY_BASE_URL ? `${TWENTY_BASE_URL}/metadata` : '';
@@ -15,10 +18,15 @@ interface LogEntry {
   step: string;
   type: 'info' | 'success' | 'error' | 'warning';
   message: string;
-  data?: any;
+  data?: unknown;
 }
 
-async function graphqlRequest(url: string, query: string, variables?: any, token?: string) {
+async function graphqlRequest(
+  url: string,
+  query: string,
+  variables?: unknown,
+  token?: string,
+) {
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
@@ -53,11 +61,16 @@ export async function POST(request: NextRequest) {
   if (!TWENTY_BASE_URL) {
     return NextResponse.json(
       { error: 'Missing environment variable: NEXT_PUBLIC_TWENTY_URL' },
-      { status: 500 }
+      { status: 500 },
     );
   }
 
-  function addLog(type: LogEntry['type'], step: string, message: string, data?: any) {
+  function addLog(
+    type: LogEntry['type'],
+    step: string,
+    message: string,
+    data?: unknown,
+  ) {
     const log = {
       timestamp: new Date().toISOString(),
       step,
@@ -67,7 +80,6 @@ export async function POST(request: NextRequest) {
     };
     logs.push(log);
 
-    // Log en dev mode
     if (process.env.NODE_ENV === 'development') {
       console.log(`[API Twenty] [${type.toUpperCase()}] ${step}: ${message}`, data || '');
     }
@@ -75,16 +87,17 @@ export async function POST(request: NextRequest) {
 
   try {
     // 🔒 SÉCURITÉ : Vérifier que l'utilisateur est authentifié
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      addLog('error', 'auth', 'Unauthorized: User not authenticated');
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized', logs },
-        { status: 401 }
-      );
+    let user;
+    try {
+      user = await requireUser();
+    } catch (err) {
+      if (err instanceof Response) {
+        addLog('error', 'auth', 'Unauthorized: User not authenticated');
+        return err;
+      }
+      throw err;
     }
+    const uuid = userUuid(user);
 
     addLog('info', 'auth', `User authenticated: ${user.email}`);
 
@@ -94,7 +107,7 @@ export async function POST(request: NextRequest) {
       addLog('error', 'validation', 'Missing required fields');
       return NextResponse.json(
         { success: false, error: 'Missing required fields', logs },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -103,7 +116,7 @@ export async function POST(request: NextRequest) {
       addLog('error', 'security', `Email mismatch: ${email} !== ${user.email}`);
       return NextResponse.json(
         { success: false, error: 'Email must match your account email', logs },
-        { status: 403 }
+        { status: 403 },
       );
     }
 
@@ -125,8 +138,12 @@ export async function POST(request: NextRequest) {
     try {
       await graphqlRequest(TWENTY_API_URL, signUpMutation, { email, password });
       addLog('success', 'signup', 'User account created');
-    } catch (error: any) {
-      if (error.message?.includes('USER_ALREADY_EXISTS') || error.message?.includes('already exists')) {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '';
+      if (
+        message.includes('USER_ALREADY_EXISTS') ||
+        message.includes('already exists')
+      ) {
         addLog('info', 'signup', 'User already exists, continuing...');
       } else {
         throw error;
@@ -146,7 +163,10 @@ export async function POST(request: NextRequest) {
       }
     `;
 
-    const signInResult = await graphqlRequest(TWENTY_API_URL, signInMutation, { email, password });
+    const signInResult = await graphqlRequest(TWENTY_API_URL, signInMutation, {
+      email,
+      password,
+    });
     const userToken = signInResult.signIn.tokens.accessOrWorkspaceAgnosticToken.token;
     addLog('success', 'signin', 'User token obtained');
 
@@ -165,7 +185,12 @@ export async function POST(request: NextRequest) {
       }
     `;
 
-    const wsResult = await graphqlRequest(TWENTY_API_URL, createWsMutation, {}, userToken);
+    const wsResult = await graphqlRequest(
+      TWENTY_API_URL,
+      createWsMutation,
+      {},
+      userToken,
+    );
     const workspaceId = wsResult.signUpInNewWorkspace.workspace.id;
     const loginToken = wsResult.signUpInNewWorkspace.loginToken.token;
     const workspaceUrl = wsResult.signUpInNewWorkspace.workspace.workspaceUrls.subdomainUrl;
@@ -193,7 +218,8 @@ export async function POST(request: NextRequest) {
       origin: workspaceUrl || TWENTY_FRONTEND_URL,
     });
 
-    const workspaceToken = tokensResult.getAuthTokensFromLoginToken.tokens.accessOrWorkspaceAgnosticToken.token;
+    const workspaceToken =
+      tokensResult.getAuthTokensFromLoginToken.tokens.accessOrWorkspaceAgnosticToken.token;
     addLog('success', 'workspace-token', 'Workspace token obtained');
 
     // Step 5: Activate Workspace
@@ -213,7 +239,7 @@ export async function POST(request: NextRequest) {
       TWENTY_API_URL,
       activateMutation,
       { input: { displayName: workspaceName } },
-      workspaceToken
+      workspaceToken,
     );
 
     addLog('success', 'activate', 'Workspace activated');
@@ -234,7 +260,12 @@ export async function POST(request: NextRequest) {
       }
     `;
 
-    const rolesResult = await graphqlRequest(TWENTY_METADATA_URL, getRolesQuery, {}, workspaceToken);
+    const rolesResult = await graphqlRequest(
+      TWENTY_METADATA_URL,
+      getRolesQuery,
+      {},
+      workspaceToken,
+    );
 
     if (!rolesResult.getRoles || rolesResult.getRoles.length === 0) {
       throw new Error('No roles found in workspace');
@@ -268,7 +299,7 @@ export async function POST(request: NextRequest) {
           roleId,
         },
       },
-      workspaceToken
+      workspaceToken,
     );
 
     const apiKeyId = apiKeyResult.createApiKey.id;
@@ -289,7 +320,7 @@ export async function POST(request: NextRequest) {
       TWENTY_API_URL,
       generateTokenMutation,
       { apiKeyId, expiresAt },
-      workspaceToken
+      workspaceToken,
     );
 
     const apiKeyToken = tokenResult.generateApiKeyToken.token;
@@ -299,24 +330,44 @@ export async function POST(request: NextRequest) {
     const autoLoginUrl = `${workspaceUrl}verify?loginToken=${loginToken}`;
     addLog('success', 'complete', 'Tenant creation completed!', { autoLoginUrl });
 
-    // Save to Supabase (réutilise supabase et user déjà déclarés)
-    if (user) {
-      const { error: dbError } = await supabase.from('tenants').upsert({
-        user_id: user.id,
-        name: workspaceName,
-        slug: `twenty-${workspaceId.slice(0, 8)}`,
-        status: 'active',
-        twenty_workspace_id: workspaceId,
-        twenty_user_email: email,
-        twenty_user_password: password,
-        twenty_api_key: apiKeyToken,
-      } as any);
-
-      if (dbError) {
-        addLog('error', 'database', `Failed to save to database: ${dbError.message}`);
+    // Save to Prisma — upsert tenant for this user
+    const slug = `twenty-${workspaceId.slice(0, 8)}`;
+    const existing = await prisma.tenant.findFirst({
+      where: { userId: uuid },
+      select: { id: true },
+    });
+    try {
+      if (existing) {
+        await prisma.tenant.update({
+          where: { id: existing.id },
+          data: {
+            name: workspaceName,
+            slug,
+            status: 'active',
+            twentyWorkspaceId: workspaceId,
+            twentyUserEmail: email,
+            twentyUserPassword: password,
+            twentyApiKey: apiKeyToken,
+          },
+        });
       } else {
-        addLog('success', 'database', 'Tenant saved to database');
+        await prisma.tenant.create({
+          data: {
+            userId: uuid,
+            name: workspaceName,
+            slug,
+            status: 'active',
+            twentyWorkspaceId: workspaceId,
+            twentyUserEmail: email,
+            twentyUserPassword: password,
+            twentyApiKey: apiKeyToken,
+          },
+        });
       }
+      addLog('success', 'database', 'Tenant saved to database');
+    } catch (dbErr) {
+      const message = dbErr instanceof Error ? dbErr.message : 'Unknown DB error';
+      addLog('error', 'database', `Failed to save to database: ${message}`);
     }
 
     return NextResponse.json({
@@ -342,16 +393,17 @@ export async function POST(request: NextRequest) {
       autoLoginUrl,
       logs,
     });
-  } catch (error: any) {
-    addLog('error', 'failed', `Error: ${error.message}`, { error: error.message });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    addLog('error', 'failed', `Error: ${message}`, { error: message });
 
     return NextResponse.json(
       {
         success: false,
-        error: error.message || 'Unknown error',
+        error: message,
         logs,
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

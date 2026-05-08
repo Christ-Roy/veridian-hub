@@ -3,14 +3,14 @@
 
 'use client';
 
-import { useState, useEffect, FormEvent } from 'react';
+import { Suspense, useState, useEffect, FormEvent } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Logo from '@/components/icons/Logo';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 
-export default function MfaPage() {
+function MfaContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const userId = searchParams.get('uid') ?? '';
@@ -170,5 +170,19 @@ export default function MfaPage() {
         </div>
       </Card>
     </div>
+  );
+}
+
+export default function MfaPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen flex items-center justify-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        </div>
+      }
+    >
+      <MfaContent />
+    </Suspense>
   );
 }

@@ -6,7 +6,12 @@ import AuthMenu from './AuthMenu';
 import { AnimatedThemeToggler } from '@/components/ui/animated-theme-toggler';
 
 interface NavlinksProps {
-  user?: any;
+  user?: {
+    id?: string;
+    email?: string | null;
+    name?: string | null;
+    image?: string | null;
+  } | null;
 }
 
 export default function Navlinks({ user }: NavlinksProps) {

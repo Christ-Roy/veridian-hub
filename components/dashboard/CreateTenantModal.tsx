@@ -12,7 +12,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { createClient } from '@/utils/supabase/client';
 
 type ServiceType = 'twenty' | 'notifuse';
 
@@ -26,7 +25,7 @@ interface CreateTenantModalProps {
 const serviceConfig = {
   twenty: {
     name: 'Twenty CRM',
-    icon: '📇',
+    icon: 'Twenty',
     fields: [
       { name: 'email', label: 'Email', type: 'email', placeholder: 'user@example.com' },
       { name: 'password', label: 'Password', type: 'password', placeholder: 'Minimum 8 characters' },
@@ -35,7 +34,7 @@ const serviceConfig = {
   },
   notifuse: {
     name: 'Notifuse',
-    icon: '📧',
+    icon: 'Notifuse',
     fields: [
       { name: 'workspaceId', label: 'Workspace ID', type: 'text', placeholder: 'acmecorp' },
       { name: 'workspaceName', label: 'Workspace Name', type: 'text', placeholder: 'ACME Corporation' },
@@ -43,6 +42,14 @@ const serviceConfig = {
   },
 };
 
+/**
+ * CreateTenantModal — Manuel.
+ *
+ * Post-migration Auth.js / Prisma : la persistance du tenant est désormais
+ * 100% server-side dans /api/twenty/create-tenant et /api/notifuse/create-tenant
+ * (ces routes utilisent requireUser() puis prisma.tenant.upsert). Ce composant
+ * se contente d'appeler l'API et de remonter le résultat.
+ */
 export default function CreateTenantModal({ service, open, onOpenChange, onSuccess }: CreateTenantModalProps) {
   const router = useRouter();
   const config = serviceConfig[service];
@@ -69,40 +76,15 @@ export default function CreateTenantModal({ service, open, onOpenChange, onSucce
       const data = await response.json();
 
       if (data.success) {
-        // Enregistrer le tenant en base Supabase
-        const supabase = createClient();
-        const { data: { user } } = await supabase.auth.getUser();
-
-        if (user) {
-          const tenantData: any = {
-            user_id: user.id,
-            name: formData.workspaceName || formData.workspaceId,
-            slug: formData.workspaceId || `${service}-${Date.now()}`,
-            status: 'active',
-          };
-
-          if (service === 'twenty') {
-            tenantData.twenty_workspace_id = data.workspace.id;
-            tenantData.twenty_user_email = formData.email;
-            tenantData.twenty_user_password = formData.password;
-            tenantData.twenty_api_key = data.apiKey?.token;
-          } else {
-            tenantData.notifuse_workspace_slug = formData.workspaceId;
-            tenantData.notifuse_user_email = data.result?.adminEmail;
-            tenantData.notifuse_api_key = data.result?.apiKey;
-          }
-
-          await supabase.from('tenants').upsert(tenantData as any);
-        }
-
         onSuccess();
         onOpenChange(false);
         setFormData({});
+        router.refresh();
       } else {
         setError(data.error || 'Failed to create workspace');
       }
     } catch (err: any) {
-      setError(err.message || 'An error occurred');
+      setError(err?.message || 'An error occurred');
     } finally {
       setIsLoading(false);
     }
@@ -113,7 +95,7 @@ export default function CreateTenantModal({ service, open, onOpenChange, onSucce
       <DialogContent className="sm:max-w-[500px]">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <span className="text-2xl">{config.icon}</span>
+            <span className="text-sm uppercase tracking-wide text-muted-foreground">{config.icon}</span>
             Create {config.name} Workspace
           </DialogTitle>
           <DialogDescription>

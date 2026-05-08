@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { requireUser, userUuid } from '@/lib/auth/get-user';
 import { NotifuseClient } from '@/lib/notifuse/client';
 import { NotifuseError } from '@/lib/notifuse/types';
-import { createClient } from '@/utils/supabase/server';
+import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 interface LogEntry {
   timestamp: string;
@@ -32,7 +34,12 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  function addLog(type: LogEntry['type'], step: string, message: string, data?: unknown) {
+  function addLog(
+    type: LogEntry['type'],
+    step: string,
+    message: string,
+    data?: unknown,
+  ) {
     logs.push({ timestamp: new Date().toISOString(), step, type, message, data });
     if (process.env.NODE_ENV === 'development') {
       console.log(`[API Notifuse] [${type.toUpperCase()}] ${step}: ${message}`, data ?? '');
@@ -40,16 +47,18 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const supabase = await createClient();
-    const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-    if (authError || !user) {
-      addLog('error', 'auth', 'Unauthorized: User not authenticated');
-      return NextResponse.json(
-        { success: false, error: 'Unauthorized', logs },
-        { status: 401 },
-      );
+    let user;
+    try {
+      user = await requireUser();
+    } catch (err) {
+      if (err instanceof Response) {
+        addLog('error', 'auth', 'Unauthorized: User not authenticated');
+        return err;
+      }
+      throw err;
     }
+    const uuid = userUuid(user);
+
     addLog('info', 'auth', `User authenticated: ${user.email}`);
 
     const { workspaceId, workspaceName } = await request.json();
@@ -62,7 +71,11 @@ export async function POST(request: NextRequest) {
     }
     if (!/^[a-zA-Z0-9]+$/.test(workspaceId)) {
       return NextResponse.json(
-        { success: false, error: 'Workspace ID must be alphanumeric only (no underscores or hyphens)', logs },
+        {
+          success: false,
+          error: 'Workspace ID must be alphanumeric only (no underscores or hyphens)',
+          logs,
+        },
         { status: 400 },
       );
     }
@@ -78,7 +91,7 @@ export async function POST(request: NextRequest) {
     const client = new NotifuseClient({ apiUrl, hubSecret });
     const result = await client.provisionWorkspace({
       tenantId: workspaceId,
-      ownerEmail: user.email!,
+      ownerEmail: user.email,
       workspaceName,
       plan: 'free',
     });
@@ -88,20 +101,41 @@ export async function POST(request: NextRequest) {
       apiKeyEmail: result.api_key_email,
     });
 
-    const { error: dbError } = await supabase.from('tenants').upsert({
-      user_id: user.id,
-      name: workspaceName,
-      slug: workspaceId,
-      status: 'active',
-      notifuse_workspace_slug: result.workspace_id,
-      notifuse_user_email: user.email!,
-      notifuse_api_key: result.api_key,
-    } as any);
-
-    if (dbError) {
-      addLog('error', 'database', `Failed to save to database: ${dbError.message}`);
-    } else {
+    // Persist to Prisma — upsert tenant
+    try {
+      const existing = await prisma.tenant.findFirst({
+        where: { userId: uuid },
+        select: { id: true },
+      });
+      if (existing) {
+        await prisma.tenant.update({
+          where: { id: existing.id },
+          data: {
+            name: workspaceName,
+            slug: workspaceId,
+            status: 'active',
+            notifuseWorkspaceSlug: result.workspace_id,
+            notifuseUserEmail: user.email,
+            notifuseApiKey: result.api_key,
+          },
+        });
+      } else {
+        await prisma.tenant.create({
+          data: {
+            userId: uuid,
+            name: workspaceName,
+            slug: workspaceId,
+            status: 'active',
+            notifuseWorkspaceSlug: result.workspace_id,
+            notifuseUserEmail: user.email,
+            notifuseApiKey: result.api_key,
+          },
+        });
+      }
       addLog('success', 'database', 'Tenant saved to database');
+    } catch (dbErr) {
+      const message = dbErr instanceof Error ? dbErr.message : 'Unknown DB error';
+      addLog('error', 'database', `Failed to save to database: ${message}`);
     }
 
     return NextResponse.json({

@@ -1,18 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { auth } from '@/auth';
 import { isPlatformAdmin } from '@/lib/admin/check-admin';
 import { NotifuseClient } from '@/lib/notifuse/client';
 import { NotifuseError } from '@/lib/notifuse/types';
-import { createClient } from '@/utils/supabase/server';
-import { getSupabaseAdmin } from '@/utils/supabase/admin';
+import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
-  const supabase = await createClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
-
-  if (authError || !user) {
+  const session = await auth();
+  const sessionUser = session?.user;
+  if (!sessionUser) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -28,27 +28,33 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'tenantId required' }, { status: 400 });
   }
 
-  const admin = getSupabaseAdmin();
-  const tenantQuery = (admin.from('tenants') as any)
-    .select('id, user_id, notifuse_workspace_slug, notifuse_api_key, notifuse_user_email')
-    .eq('id', tenantId)
-    .maybeSingle();
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: {
+      id: true,
+      userId: true,
+      notifuseWorkspaceSlug: true,
+      notifuseApiKey: true,
+      notifuseUserEmail: true,
+    },
+  });
 
-  const { data: tenant, error: tenantError } = await tenantQuery;
-
-  if (tenantError) {
-    return NextResponse.json({ error: tenantError.message }, { status: 500 });
-  }
   if (!tenant) {
     return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
   }
 
+  // Resolve current user's UUID bridge to compare ownership
+  const me = await prisma.user.findUnique({
+    where: { id: sessionUser.id! },
+    select: { supabaseUserId: true },
+  });
+
   // Authorization: only the tenant owner OR a platform admin can request a magic link
-  if (tenant.user_id !== user.id && !isPlatformAdmin(user)) {
+  if (tenant.userId !== me?.supabaseUserId && !isPlatformAdmin(sessionUser)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  if (!tenant.notifuse_api_key || !tenant.notifuse_user_email) {
+  if (!tenant.notifuseApiKey || !tenant.notifuseUserEmail) {
     return NextResponse.json(
       { error: 'Tenant Notifuse workspace not provisioned' },
       { status: 409 },
@@ -68,10 +74,13 @@ export async function POST(request: NextRequest) {
 
   try {
     const result = await client.generateMagicLink({
-      apiKey: tenant.notifuse_api_key,
-      userEmail: tenant.notifuse_user_email,
+      apiKey: tenant.notifuseApiKey,
+      userEmail: tenant.notifuseUserEmail,
     });
+    // Préférer auto_login_url (auto-connect via localStorage, sans saisie code).
+    // Fallback magic_link garde l'ancien flow si le frontend a besoin de le tester.
     return NextResponse.json({
+      autoLoginUrl: result.auto_login_url,
       magicLink: result.magic_link,
       expiresAt: result.expires_at,
     });

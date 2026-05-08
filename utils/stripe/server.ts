@@ -2,94 +2,135 @@
 
 import Stripe from 'stripe';
 import { stripe } from '@/utils/stripe/config';
-import { createClient } from '@/utils/supabase/server';
-import { createOrRetrieveCustomer } from '@/utils/supabase/admin';
 import {
   getURL,
   getErrorRedirect,
   calculateTrialEndUnixTimestamp
 } from '@/utils/helpers';
-import { Tables } from '@/types_db';
+import { requireUser, userUuid } from '@/lib/auth/get-user';
+import { prisma } from '@/lib/prisma';
 
-type Price = Tables<'prices'>;
+// Type local du Price (passé depuis Server -> Client puis re-posté en server action).
+// On reste laxiste sur les champs : Stripe valide à la création.
+type Price = {
+  id: string;
+  type?: string | null;
+  trial_period_days?: number | null;
+};
 
 type CheckoutResponse = {
   errorRedirect?: string;
   sessionId?: string;
 };
 
+/**
+ * Résout le Stripe customer ID associé à l'utilisateur :
+ * 1. Si on en trouve un dans `subscriptions` (Prisma) -> on le réutilise.
+ * 2. Sinon on cherche dans Stripe par metadata.userUuid.
+ * 3. Sinon par email.
+ * 4. Sinon on en crée un.
+ *
+ * Pas de table `customers` en local : la source de vérité est Stripe + le
+ * webhook qui upsert sur `subscriptions` quand il y a une vraie souscription.
+ */
+async function resolveStripeCustomerId(userUuidValue: string, email: string): Promise<string> {
+  // 1) Existing subscription in our DB
+  const existing = await prisma.subscription.findFirst({
+    where: { userId: userUuidValue },
+    select: { stripeCustomerId: true },
+  });
+  if (existing?.stripeCustomerId) {
+    return existing.stripeCustomerId;
+  }
+
+  // 2) Stripe customers by metadata.userUuid
+  const byMetadata = await stripe.customers.search({
+    query: `metadata['userUuid']:'${userUuidValue}'`,
+    limit: 1,
+  });
+  if (byMetadata.data[0]?.id) {
+    return byMetadata.data[0].id;
+  }
+
+  // 3) Stripe customers by email
+  const byEmail = await stripe.customers.list({ email, limit: 1 });
+  if (byEmail.data[0]?.id) {
+    // patch metadata pour lier ce customer à notre user (utile pour future search)
+    try {
+      await stripe.customers.update(byEmail.data[0].id, {
+        metadata: { ...(byEmail.data[0].metadata ?? {}), userUuid: userUuidValue },
+      });
+    } catch (e) {
+      console.warn('[Stripe-Customer] could not patch metadata:', e);
+    }
+    return byEmail.data[0].id;
+  }
+
+  // 4) Create
+  const created = await stripe.customers.create({
+    email,
+    metadata: { userUuid: userUuidValue },
+  });
+  return created.id;
+}
+
 export async function checkoutWithStripe(
   price: Price,
   redirectPath: string = '/dashboard/billing'
 ): Promise<CheckoutResponse> {
-  console.log('[Stripe-Checkout] 🛒 Starting checkout flow:', {
+  console.log('[Stripe-Checkout] Starting checkout flow:', {
     priceId: price.id,
-    priceAmount: price.unit_amount,
-    priceCurrency: price.currency,
     priceType: price.type,
-    interval: price.interval,
     redirectPath,
     timestamp: new Date().toISOString()
   });
 
   try {
-    // Get the user from Supabase auth
-    const supabase = createClient();
-    const {
-      error,
-      data: { user }
-    } = await supabase.auth.getUser();
-
-    if (error || !user) {
-      console.error('[Stripe-Checkout] ❌ User lookup failed:', {
-        error: error?.message,
-        hasUser: !!user
-      });
+    // Auth.js v5
+    let user;
+    try {
+      user = await requireUser();
+    } catch {
       throw new Error('Could not get user session.');
     }
+    const userUuidValue = userUuid(user);
+    if (!user.email) {
+      throw new Error('User has no email.');
+    }
 
-    console.log('[Stripe-Checkout] ✅ User authenticated:', {
+    console.log('[Stripe-Checkout] User authenticated:', {
       userId: user.id,
+      userUuid: userUuidValue,
       userEmail: user.email
     });
 
-    // Retrieve or create the customer in Stripe
+    // Stripe customer
     let customer: string;
     try {
-      customer = await createOrRetrieveCustomer({
-        uuid: user?.id || '',
-        email: user?.email || ''
-      });
-      console.log('[Stripe-Checkout] ✅ Customer retrieved/created:', customer.substring(0, 10) + '...');
+      customer = await resolveStripeCustomerId(userUuidValue, user.email);
+      console.log('[Stripe-Checkout] Customer resolved:', customer.substring(0, 10) + '...');
     } catch (err) {
-      console.error('[Stripe-Checkout] ❌ Customer retrieval failed:', err);
+      console.error('[Stripe-Checkout] Customer resolution failed:', err);
       throw new Error('Unable to access customer record.');
     }
 
-    // Récupérer le workspace Twenty depuis la table tenants
+    // Récupérer le workspace Twenty depuis la table tenants (Prisma)
     let subscriptionMetadata: Record<string, string> = {};
     try {
-      const { data: tenant, error: tenantError } = await supabase
-        .from('tenants')
-        .select('twenty_workspace_id')
-        .eq('user_id', user.id)
-        .eq('status', 'active')
-        .maybeSingle();
-
-      // Cast explicite car types_db n'a pas twenty_workspace_id
-      const tenantData = tenant as any;
-
-      if (tenantError) {
-        console.warn('[Stripe-Checkout] ⚠️ Could not fetch tenant:', tenantError);
-      } else if (tenantData?.twenty_workspace_id) {
-        subscriptionMetadata.workspaceId = tenantData.twenty_workspace_id;
-        console.log('[Stripe-Checkout] ✅ Twenty workspace found:', tenantData.twenty_workspace_id);
+      const tenant = await prisma.tenant.findFirst({
+        where: { userId: userUuidValue, status: 'active' },
+        select: { twentyWorkspaceId: true },
+      });
+      if (tenant?.twentyWorkspaceId) {
+        subscriptionMetadata.workspaceId = tenant.twentyWorkspaceId;
+        console.log('[Stripe-Checkout] Twenty workspace found:', tenant.twentyWorkspaceId);
       }
     } catch (err) {
-      console.warn('[Stripe-Checkout] ⚠️ Tenant lookup failed:', err);
+      console.warn('[Stripe-Checkout] Tenant lookup failed:', err);
     }
 
-    // Déterminer le plan key depuis les metadata du produit Stripe
+    // Plan key depuis les metadata du product Stripe
+    let trialPeriodDays: number | null | undefined = price.trial_period_days;
     try {
       const stripePrice = await stripe.prices.retrieve(price.id, {
         expand: ['product']
@@ -97,11 +138,17 @@ export async function checkoutWithStripe(
       const product = stripePrice.product as Stripe.Product;
       const planKey = product.metadata?.planKey || 'PRO';
       subscriptionMetadata.plan = planKey;
-      console.log('[Stripe-Checkout] ✅ Plan key from product:', planKey);
+      // Si le price embarque un trial_period_days côté Stripe, on l'utilise.
+      // Sinon on garde celui passé en argument (qui peut être null).
+      if (trialPeriodDays === undefined || trialPeriodDays === null) {
+        trialPeriodDays = stripePrice.recurring?.trial_period_days ?? null;
+      }
+      console.log('[Stripe-Checkout] Plan key from product:', planKey);
     } catch (err) {
-      console.warn('[Stripe-Checkout] ⚠️ Could not fetch product metadata, defaulting to PRO');
+      console.warn('[Stripe-Checkout] Could not fetch product metadata, defaulting to PRO');
       subscriptionMetadata.plan = 'PRO';
     }
+    subscriptionMetadata.userUuid = userUuidValue;
 
     let params: Stripe.Checkout.SessionCreateParams = {
       allow_promotion_codes: true,
@@ -120,60 +167,39 @@ export async function checkoutWithStripe(
       success_url: getURL(redirectPath)
     };
 
-    console.log('[Stripe-Checkout] 📦 Checkout session params:', {
-      customer: customer.substring(0, 10) + '...',
-      cancel_url: params.cancel_url,
-      success_url: params.success_url,
-      lineItemsCount: params.line_items?.length,
-      metadata: subscriptionMetadata
-    });
-
-    console.log(
-      'Trial end:',
-      calculateTrialEndUnixTimestamp(price.trial_period_days)
-    );
+    console.log('[Stripe-Checkout] Trial end:', calculateTrialEndUnixTimestamp(trialPeriodDays ?? null));
     if (price.type === 'recurring') {
       params = {
         ...params,
         mode: 'subscription',
         subscription_data: {
-          trial_end: calculateTrialEndUnixTimestamp(price.trial_period_days),
+          trial_end: calculateTrialEndUnixTimestamp(trialPeriodDays ?? null),
           metadata: subscriptionMetadata
         }
       };
-      console.log('[Stripe-Checkout] 🔄 Subscription mode with trial');
     } else if (price.type === 'one_time') {
       params = {
         ...params,
         mode: 'payment'
       };
-      console.log('[Stripe-Checkout] 💳 One-time payment mode');
     }
 
-    // Create a checkout session in Stripe
     let session;
     try {
-      console.log('[Stripe-Checkout] 🎫 Creating Stripe checkout session...');
       session = await stripe.checkout.sessions.create(params);
-      console.log('[Stripe-Checkout] ✅ Checkout session created:', {
-        sessionId: session.id.substring(0, 10) + '...',
-        url: session.url
-      });
+      console.log('[Stripe-Checkout] Checkout session created:', session.id);
     } catch (err) {
-      console.error('[Stripe-Checkout] ❌ Session creation failed:', err);
+      console.error('[Stripe-Checkout] Session creation failed:', err);
       throw new Error('Unable to create checkout session.');
     }
 
-    // Instead of returning a Response, just return the data or error.
     if (session) {
-      console.log('[Stripe-Checkout] ✅ Flow completed successfully');
       return { sessionId: session.id };
     } else {
-      console.error('[Stripe-Checkout] ❌ No session returned');
       throw new Error('Unable to create checkout session.');
     }
   } catch (error) {
-    console.error('[Stripe-Checkout] ❌ Flow failed with error:', error);
+    console.error('[Stripe-Checkout] Flow failed:', error);
     if (error instanceof Error) {
       return {
         errorRedirect: getErrorRedirect(
@@ -182,97 +208,71 @@ export async function checkoutWithStripe(
           'Please try again later or contact a system administrator.'
         )
       };
-    } else {
-      return {
-        errorRedirect: getErrorRedirect(
-          redirectPath,
-          'An unknown error occurred.',
-          'Please try again later or contact a system administrator.'
-        )
-      };
     }
+    return {
+      errorRedirect: getErrorRedirect(
+        redirectPath,
+        'An unknown error occurred.',
+        'Please try again later or contact a system administrator.'
+      )
+    };
   }
 }
 
 export async function createStripePortal(currentPath: string) {
-  console.log('[Stripe-Portal] 🚪 Starting portal creation:', {
-    currentPath,
-    timestamp: new Date().toISOString()
-  });
+  console.log('[Stripe-Portal] Starting portal creation:', { currentPath });
 
   try {
-    const supabase = createClient();
-    const {
-      error,
-      data: { user }
-    } = await supabase.auth.getUser();
-
-    if (!user) {
-      console.error('[Stripe-Portal] ❌ User lookup failed:', {
-        error: error?.message,
-        hasUser: !!user
-      });
-      if (error) {
-        console.error(error);
-      }
+    let user;
+    try {
+      user = await requireUser();
+    } catch {
       throw new Error('Could not get user session.');
     }
-
-    console.log('[Stripe-Portal] ✅ User authenticated:', {
-      userId: user.id,
-      userEmail: user.email
-    });
+    const userUuidValue = userUuid(user);
+    if (!user.email) {
+      throw new Error('User has no email.');
+    }
 
     let customer;
     try {
-      customer = await createOrRetrieveCustomer({
-        uuid: user.id || '',
-        email: user.email || ''
-      });
-      console.log('[Stripe-Portal] ✅ Customer retrieved:', customer.substring(0, 10) + '...');
+      customer = await resolveStripeCustomerId(userUuidValue, user.email);
+      console.log('[Stripe-Portal] Customer resolved:', customer.substring(0, 10) + '...');
     } catch (err) {
-      console.error('[Stripe-Portal] ❌ Customer retrieval failed:', err);
+      console.error('[Stripe-Portal] Customer resolution failed:', err);
       throw new Error('Unable to access customer record.');
     }
 
     if (!customer) {
-      console.error('[Stripe-Portal] ❌ No customer returned');
       throw new Error('Could not get customer.');
     }
 
     try {
-      console.log('[Stripe-Portal] 🎨 Creating billing portal session...');
       const { url } = await stripe.billingPortal.sessions.create({
         customer,
         return_url: getURL('/dashboard/billing')
       });
       if (!url) {
-        console.error('[Stripe-Portal] ❌ No URL returned');
         throw new Error('Could not create billing portal');
       }
-      console.log('[Stripe-Portal] ✅ Portal created successfully:', {
-        url: url.substring(0, 50) + '...'
-      });
       return url;
     } catch (err) {
-      console.error('[Stripe-Portal] ❌ Portal creation failed:', err);
+      console.error('[Stripe-Portal] Portal creation failed:', err);
       throw new Error('Could not create billing portal');
     }
   } catch (error) {
-    console.error('[Stripe-Portal] ❌ Flow failed with error:', error);
+    console.error('[Stripe-Portal] Flow failed:', error);
     if (error instanceof Error) {
-      console.error(error);
       return getErrorRedirect(
         currentPath,
         error.message,
         'Please try again later or contact a system administrator.'
       );
-    } else {
-      return getErrorRedirect(
-        currentPath,
-        'An unknown error occurred.',
-        'Please try again later or contact a system administrator.'
-      );
     }
+    return getErrorRedirect(
+      currentPath,
+      'An unknown error occurred.',
+      'Please try again later or contact a system administrator.'
+    );
   }
 }

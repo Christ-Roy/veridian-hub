@@ -2,31 +2,55 @@
 
 import { Button } from '@/components/ui/button';
 import LogoCloud from '@/components/ui/LogoCloud';
-import type { Tables } from '@/types_db';
 import { getStripe } from '@/utils/stripe/client';
-import { checkoutWithStripe, createStripePortal } from '@/utils/stripe/server';
+import { checkoutWithStripe } from '@/utils/stripe/server';
 import { getErrorRedirect } from '@/utils/helpers';
-import { User } from '@supabase/supabase-js';
 import cn from 'classnames';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { trackBeginCheckout, trackError } from '@/lib/gtm';
 
-type Subscription = Tables<'subscriptions'>;
-type Product = Tables<'products'>;
-type Price = Tables<'prices'>;
+// Types post-migration : sérialisés (BigInt -> number) côté Server Component
+// avant d'être passés à ce Client Component. Voir app/(marketing)/pricing/page.tsx.
+type AuthUserLike = {
+  id: string;
+  email?: string | null;
+} | null | undefined;
+interface Price {
+  id: string;
+  product_id?: string | null;
+  active?: boolean | null;
+  description?: string | null;
+  unit_amount?: number | null;
+  currency?: string | null;
+  type?: string | null;
+  interval?: string | null;
+  interval_count?: number | null;
+  trial_period_days?: number | null;
+  metadata?: any;
+}
+interface Product {
+  id: string;
+  active?: boolean | null;
+  name?: string | null;
+  description?: string | null;
+  image?: string | null;
+  metadata?: any;
+}
 interface ProductWithPrices extends Product {
   prices: Price[];
 }
 interface PriceWithProduct extends Price {
-  products: Product | null;
+  products?: Product | null;
 }
-interface SubscriptionWithProduct extends Subscription {
+interface SubscriptionWithProduct {
+  id: string;
+  status: string;
   prices: PriceWithProduct | null;
 }
 
 interface Props {
-  user: User | null | undefined;
+  user: AuthUserLike;
   products: ProductWithPrices[];
   subscription: SubscriptionWithProduct | null;
   currentPath?: string;

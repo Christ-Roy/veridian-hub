@@ -2,6 +2,7 @@ import { Metadata } from 'next';
 import { Toaster } from '@/components/ui/sonner';
 import { ThemeProvider } from '@/components/theme-provider';
 import { EnvProvider, EnvConfig } from '@/contexts/EnvContext';
+import Providers from './providers';
 import { PropsWithChildren, Suspense } from 'react';
 import { getURL } from '@/utils/helpers';
 import { GoogleTagManager, GoogleTagManagerNoScript } from '@/components/analytics/gtm';
@@ -97,19 +98,20 @@ export default async function RootLayout({ children }: PropsWithChildren) {
 
         {/* Pass initialEnv to hydrate Context immediately (no fetch needed) */}
         <EnvProvider initialEnv={runtimeEnv}>
-          <ThemeProvider
-            attribute="class"
-            defaultTheme="dark"
-            enableSystem
-            disableTransitionOnChange
-          >
-            {children}
-            <Suspense>
-              {/* TOASTER : Affiche les messages d'erreur/succès depuis les query params */}
-              {/* Utilisé par Supabase Auth - NE PAS SUPPRIMER */}
-              <Toaster />
-            </Suspense>
-          </ThemeProvider>
+          <Providers>
+            <ThemeProvider
+              attribute="class"
+              defaultTheme="dark"
+              enableSystem
+              disableTransitionOnChange
+            >
+              {children}
+              <Suspense>
+                {/* TOASTER : Affiche les messages d'erreur/succès depuis les query params */}
+                <Toaster />
+              </Suspense>
+            </ThemeProvider>
+          </Providers>
         </EnvProvider>
 
         {/* Google Tag Manager Script */}

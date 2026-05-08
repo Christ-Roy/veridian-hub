@@ -1,24 +1,24 @@
 /**
  * Hub admin layout — restricted to ADMIN_EMAILS whitelist.
  * Redirects to /dashboard if non-admin.
+ *
+ * Auth.js v5 — utilise getCurrentUser() (Prisma) et isPlatformAdmin().
  */
-import { redirect } from "next/navigation";
-import Link from "next/link";
-import { createClient } from "@/utils/supabase/server";
-import { isPlatformAdmin } from "@/lib/admin/check-admin";
+import { redirect } from 'next/navigation';
+import Link from 'next/link';
+
+import { getCurrentUser } from '@/lib/auth/get-user';
+import { isPlatformAdmin } from '@/lib/admin/check-admin';
 
 export default async function AdminHubLayout({ children }: { children: React.ReactNode }) {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   if (!user) {
-    redirect("/login?redirect=/dashboard/admin");
+    redirect('/login?redirect=/dashboard/admin');
   }
   if (!isPlatformAdmin(user)) {
     // Use notFound semantics so non-admins don't discover the admin area
-    redirect("/dashboard");
+    redirect('/dashboard');
   }
 
   return (

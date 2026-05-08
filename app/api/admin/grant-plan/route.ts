@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 
-const ADMIN_EMAILS = ['brunon5robert@gmail.com'];
+import { auth } from '@/auth';
+import { isPlatformAdmin } from '@/lib/admin/check-admin';
+import { prisma } from '@/lib/prisma';
 
-function getSupabaseAdmin() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key);
-}
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 /**
  * POST /api/admin/grant-plan
@@ -17,35 +14,25 @@ function getSupabaseAdmin() {
  * Security: ADMIN_SECRET header OR authenticated admin email
  */
 export async function POST(request: NextRequest) {
-  // Auth: check ADMIN_SECRET header
   const adminSecret = process.env.ADMIN_SECRET;
   const headerSecret = request.headers.get('x-admin-secret');
 
-  if (adminSecret && headerSecret === adminSecret) {
-    // OK — secret matches
-  } else {
-    // Fallback: check if caller is an admin email via Supabase auth
-    const supabase = getSupabaseAdmin();
-    if (!supabase) {
-      return NextResponse.json({ error: 'Supabase not configured' }, { status: 500 });
+  const secretOk = !!(adminSecret && headerSecret === adminSecret);
+
+  if (!secretOk) {
+    const session = await auth();
+    if (!session?.user) {
+      return NextResponse.json(
+        { error: 'Unauthorized — provide x-admin-secret or authenticate' },
+        { status: 401 },
+      );
     }
-    // Try to get user from cookie/bearer
-    const authHeader = request.headers.get('authorization');
-    if (!authHeader?.startsWith('Bearer ')) {
-      return NextResponse.json({ error: 'Unauthorized — provide x-admin-secret or Bearer token' }, { status: 401 });
-    }
-    const { data: { user }, error } = await supabase.auth.getUser(authHeader.replace('Bearer ', ''));
-    if (error || !user || !ADMIN_EMAILS.includes(user.email || '')) {
+    if (!isPlatformAdmin(session.user)) {
       return NextResponse.json({ error: 'Forbidden — admin access only' }, { status: 403 });
     }
   }
 
-  const supabase = getSupabaseAdmin();
-  if (!supabase) {
-    return NextResponse.json({ error: 'Supabase not configured' }, { status: 500 });
-  }
-
-  let body;
+  let body: { email?: string; plan?: string };
   try {
     body = await request.json();
   } catch {
@@ -57,37 +44,51 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'email and plan required' }, { status: 400 });
   }
   if (!['freemium', 'pro', 'enterprise'].includes(plan)) {
-    return NextResponse.json({ error: 'plan must be freemium, pro, or enterprise' }, { status: 400 });
+    return NextResponse.json(
+      { error: 'plan must be freemium, pro, or enterprise' },
+      { status: 400 },
+    );
   }
 
   // Find user by email
-  const { data: users, error: listError } = await supabase.auth.admin.listUsers();
-  if (listError) {
-    return NextResponse.json({ error: `User lookup failed: ${listError.message}` }, { status: 500 });
-  }
-  const user = users.users.find(u => u.email === email);
+  const user = await prisma.user.findUnique({
+    where: { email },
+    select: { id: true, supabaseUserId: true },
+  });
   if (!user) {
     return NextResponse.json({ error: `User not found: ${email}` }, { status: 404 });
   }
-
-  // Update tenant prospection_plan
-  const { data: tenant, error: tenantError } = await supabase
-    .from('tenants')
-    .update({ prospection_plan: plan } as Record<string, unknown>)
-    .eq('user_id', user.id)
-    .select('id, name, prospection_plan')
-    .single();
-
-  if (tenantError) {
-    return NextResponse.json({ error: `Tenant update failed: ${tenantError.message}` }, { status: 500 });
+  if (!user.supabaseUserId) {
+    return NextResponse.json(
+      { error: `User ${email} has no UUID bridge — cannot resolve tenant` },
+      { status: 409 },
+    );
   }
+
+  // Update tenant prospection_plan (one tenant per user assumption preserved)
+  const tenant = await prisma.tenant.findFirst({
+    where: { userId: user.supabaseUserId },
+    select: { id: true },
+  });
+  if (!tenant) {
+    return NextResponse.json(
+      { error: `No tenant found for user ${email}` },
+      { status: 404 },
+    );
+  }
+
+  const updated = await prisma.tenant.update({
+    where: { id: tenant.id },
+    data: { prospectionPlan: plan },
+    select: { id: true, name: true, prospectionPlan: true },
+  });
 
   return NextResponse.json({
     ok: true,
-    user_id: user.id,
+    user_id: user.supabaseUserId,
     email,
     plan,
-    tenant_id: tenant.id,
-    tenant_name: tenant.name,
+    tenant_id: updated.id,
+    tenant_name: updated.name,
   });
 }

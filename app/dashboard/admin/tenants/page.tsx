@@ -3,14 +3,21 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { NotifuseAdminPanel, type NotifuseSummary } from "./NotifuseAdminPanel";
+
+type TenantServices = {
+  prospection?: { provisioned?: boolean; plan?: string | null };
+  twenty?: { provisioned?: boolean; subdomain?: string | null };
+  notifuse?: NotifuseSummary;
+};
+
 type Tenant = {
   tenant_id?: string;
   email?: string;
   plan?: string;
   trial_ends_at?: string | null;
   created_at?: string;
-  services?: Record<string, { status?: string }>;
-  [k: string]: unknown;
+  services?: TenantServices;
 };
 
 export default function AdminTenantsPage() {
@@ -107,23 +114,24 @@ export default function AdminTenantsPage() {
           <thead className="bg-gray-50 border-b">
             <tr>
               <th className="text-left px-4 py-2 font-medium">Email</th>
-              <th className="text-left px-4 py-2 font-medium">Plan</th>
+              <th className="text-left px-4 py-2 font-medium">Plan (prospection)</th>
               <th className="text-left px-4 py-2 font-medium">Trial</th>
               <th className="text-left px-4 py-2 font-medium">Créé le</th>
+              <th className="text-left px-4 py-2 font-medium">Notifuse</th>
               <th className="text-right px-4 py-2 font-medium">Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={5} className="text-center text-muted-foreground py-8">
+                <td colSpan={6} className="text-center text-muted-foreground py-8">
                   Chargement...
                 </td>
               </tr>
             )}
             {!loading && filtered.length === 0 && (
               <tr>
-                <td colSpan={5} className="text-center text-muted-foreground py-8">
+                <td colSpan={6} className="text-center text-muted-foreground py-8">
                   Aucun tenant.
                 </td>
               </tr>
@@ -146,6 +154,18 @@ export default function AdminTenantsPage() {
                     {t.created_at
                       ? new Date(t.created_at).toLocaleDateString("fr-FR")
                       : "-"}
+                  </td>
+                  <td className="px-4 py-2 relative">
+                    {t.tenant_id && t.services?.notifuse ? (
+                      <NotifuseAdminPanel
+                        tenantId={t.tenant_id}
+                        email={t.email ?? ""}
+                        initial={t.services.notifuse}
+                        onChanged={fetchTenants}
+                      />
+                    ) : (
+                      <span className="text-xs text-muted-foreground">-</span>
+                    )}
                   </td>
                   <td className="px-4 py-2 text-right">
                     <button

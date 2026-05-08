@@ -1,26 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { randomBytes } from 'crypto';
 
-const ADMIN_EMAILS = ['brunon5robert@gmail.com'];
+import { auth } from '@/auth';
+import { isPlatformAdmin } from '@/lib/admin/check-admin';
+import { prisma } from '@/lib/prisma';
 
-function getSupabaseAdmin() {
-  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key);
-}
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
-async function checkAdmin(request: NextRequest) {
+async function requireAdmin(request: NextRequest): Promise<NextResponse | null> {
   const adminSecret = process.env.ADMIN_SECRET;
   const headerSecret = request.headers.get('x-admin-secret');
-  if (adminSecret && headerSecret === adminSecret) return true;
+  if (adminSecret && headerSecret === adminSecret) return null;
 
-  const authHeader = request.headers.get('authorization');
-  if (!authHeader?.startsWith('Bearer ')) return false;
-  const supabase = getSupabaseAdmin();
-  if (!supabase) return false;
-  const { data: { user } } = await supabase.auth.getUser(authHeader.replace('Bearer ', ''));
-  return user && ADMIN_EMAILS.includes(user.email || '');
+  const session = await auth();
+  if (!session?.user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  if (!isPlatformAdmin(session.user)) {
+    return NextResponse.json({ error: 'Forbidden — admin access only' }, { status: 403 });
+  }
+  return null;
 }
 
 /**
@@ -29,18 +29,18 @@ async function checkAdmin(request: NextRequest) {
  *
  * Generates auto-login URLs for all services for a given user.
  * Useful for debugging/support — login as any user without knowing their password.
+ *
+ * Hub login : on crée une Session Auth.js pour le user cible et on retourne
+ * un lien `/auth/admin-impersonate?token=<sessionToken>` que le frontend doit
+ * utiliser pour set le cookie côté client (cookie httpOnly cross-domain non
+ * trivial à set depuis l'API). Pour l'instant on retourne juste le sessionToken
+ * — un endpoint dédié `/api/auth/impersonate-set` peut le consommer (TODO LOT D).
  */
 export async function POST(request: NextRequest) {
-  if (!(await checkAdmin(request))) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const denial = await requireAdmin(request);
+  if (denial) return denial;
 
-  const supabase = getSupabaseAdmin();
-  if (!supabase) {
-    return NextResponse.json({ error: 'Supabase not configured' }, { status: 500 });
-  }
-
-  let body;
+  let body: { email?: string };
   try {
     body = await request.json();
   } catch {
@@ -53,24 +53,23 @@ export async function POST(request: NextRequest) {
   }
 
   // Find user
-  const { data: usersData } = await supabase.auth.admin.listUsers();
-  const user = usersData?.users.find(u => u.email === email);
+  const user = await prisma.user.findUnique({
+    where: { email },
+    select: { id: true, supabaseUserId: true, email: true },
+  });
   if (!user) {
     return NextResponse.json({ error: `User not found: ${email}` }, { status: 404 });
   }
 
-  // Get tenant
-  const { data: tenant } = await supabase
-    .from('tenants')
-    .select('*')
-    .eq('user_id', user.id)
-    .single();
+  // Get tenant (if user has UUID bridge)
+  const tenant = user.supabaseUserId
+    ? await prisma.tenant.findFirst({ where: { userId: user.supabaseUserId } })
+    : null;
 
   // Generate Prospection auto-login token
-  let prospectionUrl = null;
+  let prospectionUrl: string | null = null;
   const prospectionApiUrl = process.env.PROSPECTION_API_URL;
   const prospectionSecret = process.env.PROSPECTION_TENANT_API_SECRET;
-  const prospectionPublicUrl = process.env.NEXT_PUBLIC_PROSPECTION_URL || 'https://prospection.app.veridian.site';
 
   if (prospectionApiUrl && prospectionSecret) {
     try {
@@ -80,51 +79,64 @@ export async function POST(request: NextRequest) {
           Authorization: `Bearer ${prospectionSecret}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ email, name: email.split('@')[0], plan: tenant?.prospection_plan || 'freemium' }),
+        body: JSON.stringify({
+          email,
+          name: email.split('@')[0],
+          plan: tenant?.prospectionPlan || 'freemium',
+        }),
       });
       if (provRes.ok) {
         const provData = await provRes.json();
-        prospectionUrl = provData.login_url;
+        prospectionUrl = provData.login_url ?? null;
 
-        // Store token in tenants
-        if (provData.login_url) {
-          const token = provData.login_url.split('t=')[1];
-          await supabase
-            .from('tenants')
-            .update({
-              prospection_login_token: token,
-              prospection_login_token_created_at: new Date().toISOString(),
-              prospection_login_token_used: false,
-            })
-            .eq('user_id', user.id);
+        if (provData.login_url && tenant) {
+          const token = String(provData.login_url).split('t=')[1];
+          await prisma.tenant.update({
+            where: { id: tenant.id },
+            data: {
+              prospectionLoginToken: token ?? null,
+              prospectionLoginTokenCreatedAt: new Date(),
+              prospectionLoginTokenUsed: false,
+            },
+          });
         }
       }
-    } catch { /* non-blocking */ }
+    } catch {
+      /* non-blocking */
+    }
   }
 
-  // Generate magic link for hub login
-  const { data: magicLink } = await supabase.auth.admin.generateLink({
-    type: 'magiclink',
-    email,
+  // Hub session : créer une vraie Session Auth.js pour le user cible.
+  // Le sessionToken doit être posé côté client en cookie `authjs.session-token`
+  // (ou `__Secure-authjs.session-token` en https). On le retourne brut + une
+  // URL helper qui pointe vers un endpoint à créer (cf. TODO LOT D).
+  const sessionToken = randomBytes(32).toString('hex');
+  const expires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
+  await prisma.session.create({
+    data: { sessionToken, userId: user.id, expires },
   });
 
   const hubUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://app.veridian.site';
+  const hubLink = `${hubUrl}/api/auth/impersonate-callback?token=${encodeURIComponent(sessionToken)}`;
 
   return NextResponse.json({
-    user_id: user.id,
+    user_id: user.supabaseUserId ?? user.id,
     email,
-    tenant_id: tenant?.id || null,
+    tenant_id: tenant?.id ?? null,
     links: {
-      hub: magicLink?.properties?.action_link
-        ? `${hubUrl}/auth/confirm?token_hash=${encodeURIComponent(magicLink.properties.hashed_token)}&type=magiclink`
-        : null,
+      // TODO LOT D : implémenter /api/auth/impersonate-callback qui set le cookie
+      // `authjs.session-token` (httpOnly, secure, sameSite=lax) avec ce token et
+      // redirige vers /dashboard.
+      hub: hubLink,
       prospection: prospectionUrl,
-      twenty: tenant?.twenty_subdomain
-        ? `https://twenty.app.veridian.site`
-        : null,
-      notifuse: tenant?.notifuse_workspace_id
+      twenty: tenant?.twentySubdomain ? `https://twenty.app.veridian.site` : null,
+      notifuse: tenant?.notifuseWorkspaceSlug
         ? `https://notifuse.app.veridian.site`
         : null,
+    },
+    session: {
+      token: sessionToken,
+      expires: expires.toISOString(),
     },
   });
 }

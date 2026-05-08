@@ -1,7 +1,7 @@
-import { createClient } from '@/utils/supabase/server';
 import { redirect } from 'next/navigation';
 import { Card, CardContent } from '@/components/ui/card';
 import { Zap, Clock } from 'lucide-react';
+import { getCurrentUser } from '@/lib/auth/get-user';
 
 /**
  * INTEGRATION PAGE - Prochainement
@@ -10,15 +10,8 @@ import { Zap, Clock } from 'lucide-react';
  */
 
 export default async function IntegrationPage() {
-  const supabase = createClient();
-
-  // Vérifier auth
-  const {
-    data: { user },
-    error: authError,
-  } = await supabase.auth.getUser();
-
-  if (authError || !user) {
+  const user = await getCurrentUser();
+  if (!user) {
     redirect('/login');
   }
 
@@ -61,8 +54,7 @@ export default async function IntegrationPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-2xl mt-8">
               <div className="p-4 rounded-lg border bg-muted/30 text-left">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-muted-foreground">📊</span>
-                  <span className="font-medium text-muted-foreground">Twenty CRM</span>
+                  <span className="text-muted-foreground">Twenty CRM</span>
                 </div>
                 <p className="text-sm text-muted-foreground/70">
                   Synchronisation automatique des contacts
@@ -71,8 +63,7 @@ export default async function IntegrationPage() {
 
               <div className="p-4 rounded-lg border bg-muted/30 text-left">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-muted-foreground">📧</span>
-                  <span className="font-medium text-muted-foreground">Notifuse</span>
+                  <span className="text-muted-foreground">Notifuse</span>
                 </div>
                 <p className="text-sm text-muted-foreground/70">
                   Intégration email marketing
@@ -91,7 +82,6 @@ export default async function IntegrationPage() {
 
               <div className="p-4 rounded-lg border bg-muted/30 text-left">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-muted-foreground">🔄</span>
                   <span className="font-medium text-muted-foreground">Bi-directionnelle</span>
                 </div>
                 <p className="text-sm text-muted-foreground/70">
@@ -103,7 +93,7 @@ export default async function IntegrationPage() {
             {/* Info */}
             <div className="mt-8 p-4 bg-muted/50 rounded-lg border max-w-md">
               <p className="text-sm text-muted-foreground">
-                💡 Vous serez notifié lorsque cette fonctionnalité sera disponible.
+                Vous serez notifié lorsque cette fonctionnalité sera disponible.
               </p>
             </div>
           </div>

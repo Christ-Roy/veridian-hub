@@ -1,4 +1,3 @@
-import { createClient } from '@/utils/supabase/server';
 import { redirect } from 'next/navigation';
 import {
   Card,
@@ -10,46 +9,31 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { AlertCircle, CheckCircle2, Clock, XCircle, FileText } from 'lucide-react';
 import { StripePortalButton } from './StripePortalButton';
+import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
+import { prisma } from '@/lib/prisma';
 
 export default async function BillingPage() {
-  const supabase = createClient();
-
-  // 🔒 Auth check
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+  const user = await getCurrentUser();
   if (!user) {
     redirect('/login');
   }
 
   // Récupérer TOUTES les subscriptions de l'utilisateur (pas juste active/trialing)
-  const { data: subscriptions, error: subsError } = await supabase
-    .from('subscriptions')
-    .select(`
-      *,
-      prices(
-        *,
-        products(*)
-      )
-    `)
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: false });
-
-  // Récupérer les infos customer Stripe
-  const { data: customer } = await supabase
-    .from('customers')
-    .select('*')
-    .eq('id', user.id)
-    .maybeSingle() as { data: { id: string; stripe_customer_id: string | null } | null };
+  const subscriptions = await prisma.subscription.findMany({
+    where: { userId: userUuid(user) },
+    orderBy: { createdAt: 'desc' },
+    include: {
+      price: {
+        include: { product: true },
+      },
+    },
+  });
 
   // Trouver la subscription active (trialing, active, ou past_due)
-  const activeSubscription = subscriptions?.find((s: any) =>
+  const activeSubscription = subscriptions.find((s) =>
     ['trialing', 'active', 'past_due'].includes(s.status)
   );
-
-  // S'il n'y a pas de subscription active, prendre la plus récente
-  const subscription: any = activeSubscription || subscriptions?.[0] || null;
+  const subscription = activeSubscription || subscriptions[0] || null;
 
   // Helper pour obtenir le badge de statut
   const getStatusBadge = (status: string) => {
@@ -61,7 +45,7 @@ export default async function BillingPage() {
       incomplete: { label: 'Incomplete', variant: 'outline' as const, icon: AlertCircle, className: 'bg-yellow-500' },
       incomplete_expired: { label: 'Expired', variant: 'outline' as const, icon: XCircle, className: 'bg-red-500' },
       unpaid: { label: 'Unpaid', variant: 'destructive' as const, icon: XCircle, className: 'bg-red-600' },
-    };
+    } as const;
 
     const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.incomplete;
     const Icon = config.icon;
@@ -73,6 +57,11 @@ export default async function BillingPage() {
       </Badge>
     );
   };
+
+  // BigInt -> Number safe (pour affichage / sérialisation)
+  const unitAmount = subscription?.price?.unitAmount
+    ? Number(subscription.price.unitAmount)
+    : 0;
 
   return (
     <div className="flex flex-col gap-8 p-4 md:p-8 max-w-4xl mx-auto w-full">
@@ -95,7 +84,7 @@ export default async function BillingPage() {
             <CardTitle>Current Plan</CardTitle>
             <CardDescription>
               {subscription
-                ? `You are currently on the ${subscription?.prices?.products?.name} plan.`
+                ? `You are currently on the ${subscription.price?.product?.name ?? 'unknown'} plan.`
                 : 'You are not currently subscribed to any plan.'}
             </CardDescription>
           </CardHeader>
@@ -107,12 +96,12 @@ export default async function BillingPage() {
                   <span className="text-3xl font-bold">
                     {new Intl.NumberFormat('en-US', {
                       style: 'currency',
-                      currency: subscription?.prices?.currency || 'USD',
+                      currency: subscription.price?.currency || 'USD',
                       minimumFractionDigits: 0,
-                    }).format((subscription?.prices?.unit_amount || 0) / 100)}
+                    }).format(unitAmount / 100)}
                   </span>
                   <span className="text-muted-foreground">
-                    / {subscription?.prices?.interval}
+                    / {subscription.price?.interval}
                   </span>
                 </div>
 
@@ -131,31 +120,31 @@ export default async function BillingPage() {
                     </div>
                   )}
 
-                  {subscription.current_period_end && (
+                  {subscription.currentPeriodEnd && (
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Current period ends:</span>
-                      <span className="font-medium">{new Date(subscription.current_period_end).toLocaleDateString()}</span>
+                      <span className="font-medium">{new Date(subscription.currentPeriodEnd).toLocaleDateString()}</span>
                     </div>
                   )}
 
-                  {subscription.trial_end && (
+                  {subscription.trialEnd && (
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Trial ends:</span>
-                      <span className="font-medium">{new Date(subscription.trial_end).toLocaleDateString()}</span>
+                      <span className="font-medium">{new Date(subscription.trialEnd).toLocaleDateString()}</span>
                     </div>
                   )}
 
-                  {subscription.cancel_at && (
+                  {subscription.cancelAt && (
                     <div className="flex justify-between text-destructive">
                       <span>Cancels on:</span>
-                      <span className="font-medium">{new Date(subscription.cancel_at).toLocaleDateString()}</span>
+                      <span className="font-medium">{new Date(subscription.cancelAt).toLocaleDateString()}</span>
                     </div>
                   )}
 
-                  {subscription.canceled_at && (
+                  {subscription.canceledAt && (
                     <div className="flex justify-between text-muted-foreground">
                       <span>Canceled on:</span>
-                      <span>{new Date(subscription.canceled_at).toLocaleDateString()}</span>
+                      <span>{new Date(subscription.canceledAt).toLocaleDateString()}</span>
                     </div>
                   )}
                 </div>
@@ -167,7 +156,7 @@ export default async function BillingPage() {
                   href="/pricing"
                   className="text-primary hover:underline font-medium"
                 >
-                  View pricing plans →
+                  View pricing plans
                 </a>
               </div>
             )}
@@ -209,45 +198,30 @@ export default async function BillingPage() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Stripe Customer ID:</span>
-                  <span className="text-xs">{customer?.stripe_customer_id || 'Not created yet'}</span>
+                  <span className="text-xs">{subscription?.stripeCustomerId || 'Not created yet'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Total Subscriptions:</span>
-                  <span>{subscriptions?.length || 0}</span>
+                  <span>{subscriptions.length}</span>
                 </div>
-                {subscription?.stripe_subscription_id && (
+                {subscription?.stripeSubscriptionId && (
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Stripe Subscription ID:</span>
-                    <span className="text-xs">{subscription.stripe_subscription_id}</span>
+                    <span className="text-xs">{subscription.stripeSubscriptionId}</span>
                   </div>
                 )}
-                {subscription?.price_id && (
+                {subscription?.priceId && (
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Price ID:</span>
-                    <span className="text-xs">{subscription.price_id}</span>
+                    <span className="text-xs">{subscription.priceId}</span>
                   </div>
                 )}
               </div>
 
-              {subsError && (
-                <div className="mt-4 p-3 bg-destructive/10 border border-destructive rounded-md">
-                  <p className="text-sm text-destructive font-medium">Error loading subscriptions:</p>
-                  <p className="text-xs text-destructive/80 mt-1">{subsError.message}</p>
-                </div>
-              )}
-
-              {!customer?.stripe_customer_id && (
-                <div className="mt-4 p-3 bg-yellow-500/10 border border-yellow-500 rounded-md">
-                  <p className="text-sm text-yellow-700 dark:text-yellow-400">
-                    ⚠️ No Stripe customer created yet. Customer will be created when you subscribe to a plan.
-                  </p>
-                </div>
-              )}
-
-              {subscriptions && subscriptions.length === 0 && (
+              {subscriptions.length === 0 && (
                 <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500 rounded-md">
                   <p className="text-sm text-blue-700 dark:text-blue-400">
-                    ℹ️ No subscriptions found. This could mean:
+                    No subscriptions found. This could mean:
                   </p>
                   <ul className="text-xs text-blue-600 dark:text-blue-300 mt-2 ml-4 list-disc space-y-1">
                     <li>You haven't subscribed yet</li>
@@ -263,7 +237,7 @@ export default async function BillingPage() {
         {/* Info */}
         <div className="rounded-lg border bg-muted/50 p-4">
           <p className="text-sm text-muted-foreground">
-            💳 All billing is securely managed by Stripe. You can update your payment method,
+            All billing is securely managed by Stripe. You can update your payment method,
             view invoices, and manage your subscription in the customer portal.
           </p>
         </div>

@@ -1,10 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { SignOut } from '@/utils/auth-helpers/server';
-import { handleRequest } from '@/utils/auth-helpers/client';
-import { usePathname, useRouter } from 'next/navigation';
-import { getRedirectMethod } from '@/utils/auth-helpers/settings';
+import { signOut } from 'next-auth/react';
+import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -22,18 +20,24 @@ import {
   CreditCard
 } from 'lucide-react';
 
+interface AuthUserLike {
+  id?: string;
+  email?: string | null;
+  name?: string | null;
+  image?: string | null;
+}
+
 interface AuthMenuProps {
-  user?: any;
+  user?: AuthUserLike | null;
 }
 
 export default function AuthMenu({ user }: AuthMenuProps) {
-  const router = getRedirectMethod() === 'client' ? useRouter() : null;
   const pathname = usePathname();
 
   if (user) {
     // User is authenticated - show dropdown menu
-    const userInitials = user.user_metadata?.full_name
-      ? user.user_metadata.full_name
+    const userInitials = user.name
+      ? user.name
           .split(' ')
           .map((n: string) => n[0])
           .join('')
@@ -46,7 +50,7 @@ export default function AuthMenu({ user }: AuthMenuProps) {
         <DropdownMenuTrigger asChild>
           <Button variant="ghost" className="relative h-8 w-8 rounded-full">
             <Avatar className="h-8 w-8">
-              <AvatarImage src={user.user_metadata?.avatar_url} alt={user.email} />
+              <AvatarImage src={user.image ?? undefined} alt={user.email ?? undefined} />
               <AvatarFallback>{userInitials}</AvatarFallback>
             </Avatar>
           </Button>
@@ -54,9 +58,7 @@ export default function AuthMenu({ user }: AuthMenuProps) {
         <DropdownMenuContent className="w-56" align="end" forceMount>
           <div className="flex items-center justify-start gap-2 p-2">
             <div className="flex flex-col space-y-1 leading-none">
-              {user.user_metadata?.full_name && (
-                <p className="font-medium">{user.user_metadata.full_name}</p>
-              )}
+              {user.name && <p className="font-medium">{user.name}</p>}
               {user.email && (
                 <p className="w-[200px] truncate text-sm text-muted-foreground">
                   {user.email}
@@ -84,15 +86,18 @@ export default function AuthMenu({ user }: AuthMenuProps) {
             </Link>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
-          <form onSubmit={(e) => handleRequest(e, SignOut, router)}>
-            <input type="hidden" name="pathName" value={pathname} />
-            <DropdownMenuItem className="cursor-pointer" asChild>
-              <button type="submit" className="w-full flex items-center">
-                <LogOut className="mr-2 h-4 w-4" />
-                <span>Sign out</span>
-              </button>
-            </DropdownMenuItem>
-          </form>
+          <DropdownMenuItem
+            className="cursor-pointer"
+            onSelect={(e) => {
+              e.preventDefault();
+              // Auth.js v5 — signOut côté client redirige vers / par défaut.
+              // On préserve l'ancienne UX (retour à la page courante si possible).
+              void signOut({ callbackUrl: pathname || '/' });
+            }}
+          >
+            <LogOut className="mr-2 h-4 w-4" />
+            <span>Sign out</span>
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     );

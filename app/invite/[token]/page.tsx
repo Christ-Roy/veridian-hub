@@ -1,4 +1,3 @@
-import { createClient } from '@/utils/supabase/server';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
@@ -7,10 +6,8 @@ import { CheckCircle, XCircle, Clock, LogIn } from 'lucide-react';
 import Logo from '@/components/icons/Logo';
 import { WORKSPACE_ROLE_LABELS } from '@/types/workspace';
 import type { WorkspaceRole } from '@/types/workspace';
-
-// TODO(P1.5): Quand Prisma est dispo, remplacer validateToken() par la vraie requête
-
-const PRISMA_READY = false;
+import { getCurrentUser } from '@/lib/auth/get-user';
+import { prisma } from '@/lib/prisma';
 
 type TokenStatus = 'valid' | 'expired' | 'consumed' | 'not_found';
 
@@ -24,70 +21,36 @@ interface TokenInfo {
 }
 
 async function validateToken(token: string): Promise<TokenInfo> {
-  if (!PRISMA_READY) {
-    // Stub démo — simule un token valide pour les tests
-    if (token === 'demo') {
-      return {
-        status: 'valid',
-        email: 'invite@example.com',
-        role: 'MEMBER',
-        workspaceName: 'Mon Workspace',
-        invitationId: 'inv_demo',
-        workspaceId: 'ws_demo',
-      };
-    }
-    return { status: 'not_found' };
-  }
+  const invitation = await prisma.invitation.findUnique({
+    where: { token },
+    include: { workspace: { select: { name: true, id: true } } },
+  });
 
-  // ==== IMPLÉMENTATION PRISMA ====
-  // const prisma = getPrismaClient();
-  // const invitation = await prisma.invitation.findUnique({
-  //   where: { token },
-  //   include: { workspace: { select: { name: true, id: true } } },
-  // });
-  // if (!invitation) return { status: 'not_found' };
-  // if (invitation.acceptedAt) return { status: 'consumed' };
-  // if (invitation.expiresAt < new Date()) return { status: 'expired' };
-  // return {
-  //   status: 'valid',
-  //   email: invitation.email,
-  //   role: invitation.role as WorkspaceRole,
-  //   workspaceName: invitation.workspace.name,
-  //   invitationId: invitation.id,
-  //   workspaceId: invitation.workspace.id,
-  // };
-  // ================================
-  return { status: 'not_found' };
-}
+  if (!invitation) return { status: 'not_found' };
+  if (invitation.acceptedAt) return { status: 'consumed' };
+  if (invitation.expiresAt < new Date()) return { status: 'expired' };
 
-async function acceptInvitation(invitationId: string, userId: string, workspaceId: string, role: WorkspaceRole): Promise<void> {
-  if (!PRISMA_READY) return;
-
-  // ==== IMPLÉMENTATION PRISMA ====
-  // const prisma = getPrismaClient();
-  // await prisma.$transaction([
-  //   prisma.workspaceMember.create({
-  //     data: { workspaceId, userId, role, joinedAt: new Date() },
-  //   }),
-  //   prisma.invitation.update({
-  //     where: { id: invitationId },
-  //     data: { acceptedAt: new Date() },
-  //   }),
-  // ]);
-  // ================================
+  return {
+    status: 'valid',
+    email: invitation.email,
+    role: invitation.role as WorkspaceRole,
+    workspaceName: invitation.workspace.name,
+    invitationId: invitation.id,
+    workspaceId: invitation.workspace.id,
+  };
 }
 
 interface Props {
-  params: { token: string };
-  searchParams: { accepted?: string };
+  params: Promise<{ token: string }>;
+  searchParams: Promise<{ accepted?: string }>;
 }
 
 export default async function InvitePage({ params, searchParams }: Props) {
-  const { token } = params;
+  const { token } = await params;
+  const _searchParams = await searchParams;
   const tokenInfo = await validateToken(token);
 
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const user = await getCurrentUser();
 
   // Token invalide ou expiré
   if (tokenInfo.status !== 'valid') {
@@ -175,7 +138,7 @@ export default async function InvitePage({ params, searchParams }: Props) {
   }
 
   // Acceptation en cours (POST-redirect)
-  if (searchParams.accepted === '1') {
+  if (_searchParams.accepted === '1') {
     return (
       <div className="min-h-screen flex items-center justify-center p-6 bg-background">
         <div className="w-full max-w-sm">

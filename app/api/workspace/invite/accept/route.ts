@@ -1,20 +1,21 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@/utils/supabase/server';
 import { z } from 'zod';
 
-// TODO(P1.5): Stub — activer quand Prisma hub_app est initialisé
+import { auth } from '@/auth';
+import { prisma } from '@/lib/prisma';
 
-const PRISMA_READY = false;
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 const AcceptSchema = z.object({
   token: z.string().min(1),
 });
 
 export async function POST(request: Request) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const session = await auth();
+  const sessionUser = session?.user;
 
-  if (!user) {
+  if (!sessionUser?.id || !sessionUser.email) {
     return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
   }
 
@@ -30,49 +31,59 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Token manquant' }, { status: 422 });
   }
 
-  if (!PRISMA_READY) {
+  const { token } = parsed.data;
+
+  const invitation = await prisma.invitation.findUnique({
+    where: { token },
+    include: { workspace: true },
+  });
+
+  if (!invitation) {
+    return NextResponse.json({ error: 'Invitation introuvable' }, { status: 404 });
+  }
+  if (invitation.acceptedAt) {
+    return NextResponse.json({ error: 'Invitation déjà utilisée' }, { status: 409 });
+  }
+  if (invitation.expiresAt < new Date()) {
+    return NextResponse.json({ error: 'Invitation expirée' }, { status: 410 });
+  }
+  if (invitation.email.toLowerCase() !== sessionUser.email.toLowerCase()) {
     return NextResponse.json(
-      { error: 'Service temporairement indisponible — Prisma hub en cours d\'initialisation (P1.4)' },
-      { status: 503 }
+      { error: 'Email ne correspond pas' },
+      { status: 403 },
     );
   }
 
-  // ==== IMPLÉMENTATION PRISMA ====
-  // const { token } = parsed.data;
-  //
-  // const invitation = await prisma.invitation.findUnique({
-  //   where: { token },
-  //   include: { workspace: true },
-  // });
-  //
-  // if (!invitation) return NextResponse.json({ error: 'Invitation introuvable' }, { status: 404 });
-  // if (invitation.acceptedAt) return NextResponse.json({ error: 'Invitation déjà utilisée' }, { status: 409 });
-  // if (invitation.expiresAt < new Date()) return NextResponse.json({ error: 'Invitation expirée' }, { status: 410 });
-  // if (invitation.email !== user.email) return NextResponse.json({ error: 'Email ne correspond pas' }, { status: 403 });
-  //
-  // // Vérifier si déjà membre
-  // const existing = await prisma.workspaceMember.findUnique({
-  //   where: { workspaceId_userId: { workspaceId: invitation.workspaceId, userId: user.id } },
-  // });
-  // if (existing) return NextResponse.json({ error: 'Déjà membre du workspace' }, { status: 409 });
-  //
-  // await prisma.$transaction([
-  //   prisma.workspaceMember.create({
-  //     data: {
-  //       workspaceId: invitation.workspaceId,
-  //       userId: user.id,
-  //       role: invitation.role,
-  //       joinedAt: new Date(),
-  //     },
-  //   }),
-  //   prisma.invitation.update({
-  //     where: { id: invitation.id },
-  //     data: { acceptedAt: new Date() },
-  //   }),
-  // ]);
-  //
-  // return NextResponse.json({ ok: true });
-  // ================================
+  // Vérifier si déjà membre
+  const existingMember = await prisma.workspaceMember.findUnique({
+    where: {
+      workspaceId_userId: {
+        workspaceId: invitation.workspaceId,
+        userId: sessionUser.id,
+      },
+    },
+  });
+  if (existingMember) {
+    return NextResponse.json(
+      { error: 'Déjà membre du workspace' },
+      { status: 409 },
+    );
+  }
+
+  await prisma.$transaction([
+    prisma.workspaceMember.create({
+      data: {
+        workspaceId: invitation.workspaceId,
+        userId: sessionUser.id,
+        role: invitation.role,
+        joinedAt: new Date(),
+      },
+    }),
+    prisma.invitation.update({
+      where: { id: invitation.id },
+      data: { acceptedAt: new Date() },
+    }),
+  ]);
 
   return NextResponse.json({ ok: true });
 }

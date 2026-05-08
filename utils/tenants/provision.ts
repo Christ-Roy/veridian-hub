@@ -1,15 +1,20 @@
 /**
  * Tenant Provisioning Utilities
  * Crée automatiquement les tenants Twenty + Notifuse au signup
+ *
+ * Migration Auth.js v5 / Prisma (2026-05-08) :
+ * - Plus aucune dépendance à Supabase ici. Toutes les écritures de la table
+ *   `tenants` passent par Prisma (`prisma.tenant.*`).
+ * - L'API publique `provisionTenants(email, password, userId)` est inchangée.
+ *   `userId` reste un UUID stringifié (= ancien `auth.users.id` Supabase pour
+ *   les users migrés, sinon UUID neuf généré côté API). Il est inséré tel
+ *   quel dans `tenant.user_id` (UUID).
  */
 
 import { logProvisionStart, logProvisionEnd, logStep, logError } from './debug';
 import { NotifuseClient } from '@/lib/notifuse/client';
 import { NotifuseError } from '@/lib/notifuse/types';
-
-// Import correct Supabase admin client (handles URLs and auth properly)
-// Using getSupabaseAdmin() from utils/supabase/admin.ts instead of direct createClient
-// This ensures proper configuration for Docker internal URLs
+import { prisma } from '@/lib/prisma';
 
 const TWENTY_API_URL = process.env.TWENTY_GRAPHQL_URL!;
 const TWENTY_METADATA_URL = process.env.TWENTY_METADATA_URL!;
@@ -55,6 +60,10 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function slugify(email: string): string {
+  return email.split('@')[0].replace(/[^a-z0-9]/gi, '').toLowerCase();
+}
+
 // ============================================================
 // Twenty CRM Provisioning
 // ============================================================
@@ -73,12 +82,12 @@ export async function provisionTwentyTenant(
 }> {
   const startTime = Date.now();
   try {
-    logStep('TWENTY', '🚀 Starting provisioning', { email, userId });
+    logStep('TWENTY', 'Starting provisioning', { email, userId });
 
     const workspaceName = email.split('@')[0] + "'s Workspace";
 
     // Step 1: SignUp
-    logStep('TWENTY', '1️⃣ Creating user account...');
+    logStep('TWENTY', '1. Creating user account...');
     try {
       await graphqlRequest(
         TWENTY_API_URL,
@@ -93,20 +102,20 @@ export async function provisionTwentyTenant(
         `,
         { email, password }
       );
-      logStep('TWENTY', '✅ User account created');
+      logStep('TWENTY', 'User account created');
     } catch (error: any) {
       if (
         error.message?.includes('USER_ALREADY_EXISTS') ||
         error.message?.includes('already exists')
       ) {
-        logStep('TWENTY', '⚠️  User already exists, continuing...');
+        logStep('TWENTY', 'User already exists, continuing...');
       } else {
         throw error;
       }
     }
 
     // Step 2: SignIn
-    logStep('TWENTY', '2️⃣ Signing in...');
+    logStep('TWENTY', '2. Signing in...');
     const signInResult = await graphqlRequest(
       TWENTY_API_URL,
       `
@@ -123,10 +132,10 @@ export async function provisionTwentyTenant(
 
     const userToken =
       signInResult.signIn.tokens.accessOrWorkspaceAgnosticToken.token;
-    logStep('TWENTY', '✅ User token obtained');
+    logStep('TWENTY', 'User token obtained');
 
     // Step 3: Create Workspace
-    logStep('TWENTY', '3️⃣ Creating workspace...');
+    logStep('TWENTY', '3. Creating workspace...');
     const wsResult = await graphqlRequest(
       TWENTY_API_URL,
       `
@@ -153,7 +162,7 @@ export async function provisionTwentyTenant(
       .replace('https://', '')
       .split('.')[0];
 
-    logStep('TWENTY', '✅ Workspace created', { workspaceId, subdomain });
+    logStep('TWENTY', 'Workspace created', { workspaceId, subdomain });
 
     // Step 4: Get Workspace Token
     const tokensResult = await graphqlRequest(
@@ -191,10 +200,10 @@ export async function provisionTwentyTenant(
       workspaceToken
     );
 
-    logStep('TWENTY', '✅ Workspace activated');
+    logStep('TWENTY', 'Workspace activated');
 
     // Step 5b: Create Stripe trial subscription for Twenty billing paywall
-    logStep('TWENTY', '5b️⃣ Creating Stripe trial subscription...');
+    logStep('TWENTY', '5b. Creating Stripe trial subscription...');
     try {
       const { stripe } = await import('@/utils/stripe/config');
 
@@ -203,6 +212,7 @@ export async function provisionTwentyTenant(
         email,
         metadata: {
           workspaceId,
+          userUuid: userId,
           source: 'veridian-auto-provision',
         },
       });
@@ -227,8 +237,7 @@ export async function provisionTwentyTenant(
         throw new Error('No Pro monthly metered price found (lookup_key: veridian_pro_workflow_monthly_v1)');
       }
 
-      // Create subscription with 7-day trial (no payment required)
-      // Twenty v1.16.7 requires exactly 2 items: BASE_PRODUCT (licensed) + WORKFLOW_NODE_EXECUTION (metered)
+      // Create subscription with N-day trial (no payment required)
       const trialDays = parseInt(process.env.TRIAL_PERIOD_DAYS || process.env.NEXT_PUBLIC_TRIAL_PERIOD_DAYS || '7', 10);
       const trialEnd = Math.floor(Date.now() / 1000) + trialDays * 24 * 60 * 60;
 
@@ -239,25 +248,25 @@ export async function provisionTwentyTenant(
           { price: meteredPrice.id },
         ],
         trial_end: trialEnd,
-        metadata: { workspaceId, plan: 'PRO' },
+        metadata: { workspaceId, plan: 'PRO', userUuid: userId },
         payment_settings: {
           save_default_payment_method: 'on_subscription',
         },
       });
 
-      logStep('TWENTY', `✅ Trial subscription created: ${subscription.id} (${trialDays} days, 2 items)`);
+      logStep('TWENTY', `Trial subscription created: ${subscription.id} (${trialDays} days, 2 items)`);
     } catch (trialError: any) {
       // Non-blocking: workspace is created, user can still subscribe manually
-      console.error('[TWENTY] ⚠️ Trial subscription failed (non-blocking):', trialError.message);
-      logStep('TWENTY', '⚠️ Trial subscription failed, user will need to subscribe via /plan-required');
+      console.error('[TWENTY] Trial subscription failed (non-blocking):', trialError.message);
+      logStep('TWENTY', 'Trial subscription failed, user will need to subscribe via /plan-required');
     }
 
     // Step 6: Wait for roles
-    logStep('TWENTY', '6️⃣ Waiting for roles (3s)...');
+    logStep('TWENTY', '6. Waiting for roles (3s)...');
     await sleep(3000);
 
     // Step 7: Get Roles
-    logStep('TWENTY', '7️⃣ Fetching roles...');
+    logStep('TWENTY', '7. Fetching roles...');
     const rolesResult = await graphqlRequest(
       TWENTY_METADATA_URL,
       `
@@ -281,7 +290,7 @@ export async function provisionTwentyTenant(
     const roleId = adminRole ? adminRole.id : rolesResult.getRoles[0].id;
 
     if (process.env.NODE_ENV === 'development') {
-      console.log('[TWENTY] Selected role:', adminRole ? 'Admin' : rolesResult.getRoles[0].label, '→', roleId);
+      console.log('[TWENTY] Selected role:', adminRole ? 'Admin' : rolesResult.getRoles[0].label, '->', roleId);
     }
 
     // Step 8: Create API Key
@@ -326,21 +335,10 @@ export async function provisionTwentyTenant(
 
     const apiKeyToken = tokenResult.generateApiKeyToken.token;
 
-    logStep('TWENTY', '✅ API key created and token generated');
+    logStep('TWENTY', 'API key created and token generated');
 
-    // Step 10: Store in Supabase
-    // Use correct admin client that handles Docker internal URLs
-    const { getSupabaseAdmin } = await import('@/utils/supabase/admin');
-    const supabase = getSupabaseAdmin();
-
-    const slug = email.split('@')[0].replace(/[^a-z0-9]/gi, '').toLowerCase();
-
-    // Check if tenant exists
-    const { data: existingTenant } = await supabase
-      .from('tenants')
-      .select('id')
-      .eq('user_id', userId)
-      .maybeSingle();
+    // Step 10: Store via Prisma
+    const slug = slugify(email);
 
     // Calculate trial end date
     const trialDaysTotal = parseInt(process.env.TRIAL_PERIOD_DAYS || '15', 10);
@@ -348,19 +346,19 @@ export async function provisionTwentyTenant(
     trialEndsAt.setDate(trialEndsAt.getDate() + trialDaysTotal);
 
     const tenantData = {
-      user_id: userId,
+      userId,
       name: workspaceName,
-      slug: slug,
+      slug,
       status: 'active' as const,
-      twenty_workspace_id: workspaceId,
-      twenty_subdomain: subdomain,
-      twenty_api_key: apiKeyToken,
-      twenty_user_email: email,
-      twenty_user_password: password,
-      twenty_login_token: loginToken,
-      twenty_login_token_created_at: new Date().toISOString(),
-      provisioned_at: new Date().toISOString(),
-      trial_ends_at: trialEndsAt.toISOString(),
+      twentyWorkspaceId: workspaceId,
+      twentySubdomain: subdomain,
+      twentyApiKey: apiKeyToken,
+      twentyUserEmail: email,
+      twentyUserPassword: password,
+      twentyLoginToken: loginToken,
+      twentyLoginTokenCreatedAt: new Date(),
+      provisionedAt: new Date(),
+      trialEndsAt,
       metadata: {
         workspace_url: workspaceUrl,
         api_key_id: apiKeyId,
@@ -370,28 +368,57 @@ export async function provisionTwentyTenant(
       },
     };
 
+    const existingTenant = await prisma.tenant.findFirst({
+      where: { userId },
+      select: { id: true, slug: true },
+    });
+
+    let tenantId: string;
+
     if (existingTenant) {
-      const { error: updateError } = await supabase
-        .from('tenants')
-        .update(tenantData)
-        .eq('id', existingTenant.id);
-
-      if (updateError) {
-        console.error('[TWENTY] Error updating tenant:', updateError);
-        throw new Error(`Failed to update tenant: ${updateError.message}`);
-      }
+      // Garde le slug existant pour ne pas violer l'unique constraint
+      const { slug: _ignored, ...rest } = tenantData;
+      const updated = await prisma.tenant.update({
+        where: { id: existingTenant.id },
+        data: rest,
+        select: { id: true },
+      });
+      tenantId = updated.id;
     } else {
-      const { error: insertError } = await supabase.from('tenants').insert(tenantData);
-
-      if (insertError) {
-        console.error('[TWENTY] Error inserting tenant:', insertError);
-        throw new Error(`Failed to insert tenant: ${insertError.message}`);
+      // Si le slug est déjà pris (collision rare), on suffixe avec un random
+      let finalSlug = slug;
+      const slugTaken = await prisma.tenant.findUnique({
+        where: { slug: finalSlug },
+        select: { id: true },
+      });
+      if (slugTaken) {
+        finalSlug = `${slug}-${Math.random().toString(36).slice(2, 7)}`;
       }
+      const created = await prisma.tenant.create({
+        data: { ...tenantData, slug: finalSlug },
+        select: { id: true },
+      });
+      tenantId = created.id;
+    }
+
+    // Log de provisioning (non bloquant)
+    try {
+      await prisma.provisioningLog.create({
+        data: {
+          tenantId,
+          level: 'success',
+          service: 'twenty',
+          message: 'Twenty provisioned',
+          metadata: { workspaceId, subdomain, apiKeyId },
+        },
+      });
+    } catch (logErr) {
+      console.warn('[TWENTY] provisioning_log create failed:', logErr);
     }
 
     const duration = Date.now() - startTime;
-    logStep('TWENTY', '✅ Stored in Supabase');
-    logStep('TWENTY', `🎉 Provisioning completed in ${(duration / 1000).toFixed(2)}s`);
+    logStep('TWENTY', 'Stored in DB');
+    logStep('TWENTY', `Provisioning completed in ${(duration / 1000).toFixed(2)}s`);
 
     return {
       success: true,
@@ -403,7 +430,7 @@ export async function provisionTwentyTenant(
   } catch (error: any) {
     const duration = Date.now() - startTime;
     logError('TWENTY', error);
-    logStep('TWENTY', `❌ Provisioning failed after ${(duration / 1000).toFixed(2)}s`);
+    logStep('TWENTY', `Provisioning failed after ${(duration / 1000).toFixed(2)}s`);
     return {
       success: false,
       error: error.message,
@@ -423,6 +450,7 @@ export async function provisionNotifuseTenant(
   workspaceId?: string;
   apiKey?: string;
   magicLink?: string;
+  autoLoginUrl?: string;
   error?: string;
 }> {
   try {
@@ -434,7 +462,7 @@ export async function provisionNotifuseTenant(
       );
     }
 
-    logStep('NOTIFUSE', '🚀 Starting provisioning', { email, userId });
+    logStep('NOTIFUSE', 'Starting provisioning', { email, userId });
 
     const workspaceId = email
       .split('@')[0]
@@ -452,63 +480,92 @@ export async function provisionNotifuseTenant(
       plan: 'free',
     });
 
-    logStep('NOTIFUSE', result.created ? '✅ Workspace created' : '✅ Workspace already existed');
-
-    const { getSupabaseAdmin } = await import('@/utils/supabase/admin');
-    const supabase = getSupabaseAdmin();
-
-    const { data: existingTenant } = await supabase
-      .from('tenants')
-      .select('id')
-      .eq('user_id', userId)
-      .maybeSingle();
+    logStep('NOTIFUSE', result.created ? 'Workspace created' : 'Workspace already existed');
 
     const tenantData = {
-      notifuse_workspace_slug: result.workspace_id,
-      notifuse_api_key: result.api_key,
-      notifuse_user_email: email,
+      notifuseWorkspaceSlug: result.workspace_id,
+      notifuseApiKey: result.api_key,
+      notifuseUserEmail: email,
       metadata: {
         api_key_email: result.api_key_email,
         workspace_created_at: new Date().toISOString(),
-      },
+      } as any,
     };
 
-    if (existingTenant) {
-      const { error: updateError } = await supabase
-        .from('tenants')
-        .update(tenantData)
-        .eq('id', existingTenant.id);
+    const existingTenant = await prisma.tenant.findFirst({
+      where: { userId },
+      select: { id: true, metadata: true },
+    });
 
-      if (updateError) {
-        throw new Error(`Failed to update tenant: ${updateError.message}`);
-      }
+    let tenantId: string;
+
+    if (existingTenant) {
+      const mergedMetadata = {
+        ...((existingTenant.metadata as Record<string, unknown>) || {}),
+        ...tenantData.metadata,
+      };
+      const updated = await prisma.tenant.update({
+        where: { id: existingTenant.id },
+        data: { ...tenantData, metadata: mergedMetadata },
+        select: { id: true },
+      });
+      tenantId = updated.id;
     } else {
-      const slug = email.split('@')[0].replace(/[^a-z0-9]/gi, '').toLowerCase();
+      const slug = slugify(email);
       const trialEndsAt = new Date();
       trialEndsAt.setDate(trialEndsAt.getDate() + 15);
 
-      const { error: insertError } = await supabase.from('tenants').insert({
-        user_id: userId,
-        name: workspaceName,
-        slug,
-        status: 'active' as const,
-        ...tenantData,
-        provisioned_at: new Date().toISOString(),
-        trial_ends_at: trialEndsAt.toISOString(),
+      // Si le slug est déjà pris (collision rare), on suffixe
+      let finalSlug = slug;
+      const slugTaken = await prisma.tenant.findUnique({
+        where: { slug: finalSlug },
+        select: { id: true },
       });
-
-      if (insertError) {
-        throw new Error(`Failed to insert tenant: ${insertError.message}`);
+      if (slugTaken) {
+        finalSlug = `${slug}-${Math.random().toString(36).slice(2, 7)}`;
       }
+
+      const created = await prisma.tenant.create({
+        data: {
+          userId,
+          name: workspaceName,
+          slug: finalSlug,
+          status: 'active',
+          ...tenantData,
+          provisionedAt: new Date(),
+          trialEndsAt,
+        },
+        select: { id: true },
+      });
+      tenantId = created.id;
     }
 
-    logStep('NOTIFUSE', '✅ Stored in Supabase');
+    try {
+      await prisma.provisioningLog.create({
+        data: {
+          tenantId,
+          level: 'success',
+          service: 'notifuse',
+          message: 'Notifuse provisioned',
+          metadata: { workspaceId: result.workspace_id, created: result.created },
+        },
+      });
+    } catch (logErr) {
+      console.warn('[NOTIFUSE] provisioning_log create failed:', logErr);
+    }
+
+    logStep('NOTIFUSE', 'Stored in DB');
 
     return {
       success: true,
       workspaceId: result.workspace_id,
       apiKey: result.api_key,
       magicLink: result.magic_link,
+      // === Veridian patch === Auto-login URL : permet click -> connecté direct
+      // sans saisir le code par email. TTL 60s donc valide uniquement après le
+      // signup immédiat. Le Hub doit générer un fresh URL via /api/admin/notifuse/magic-link
+      // pour les usages ultérieurs.
+      autoLoginUrl: result.auto_login_url,
     };
   } catch (error: any) {
     const message =
@@ -541,12 +598,12 @@ export async function provisionProspectionTenant(
   const PROSPECTION_SECRET = process.env.PROSPECTION_TENANT_API_SECRET;
 
   if (!PROSPECTION_URL || !PROSPECTION_SECRET) {
-    logStep('PROSPECTION', '⚠️ Not configured (missing PROSPECTION_API_URL or PROSPECTION_TENANT_API_SECRET), skipping');
+    logStep('PROSPECTION', 'Not configured (missing PROSPECTION_API_URL or PROSPECTION_TENANT_API_SECRET), skipping');
     return { success: false, error: 'Not configured' };
   }
 
   try {
-    logStep('PROSPECTION', '🚀 Starting provisioning', { email, userId });
+    logStep('PROSPECTION', 'Starting provisioning', { email, userId });
 
     // HMAC-signed request (no secret in headers)
     const timestamp = Date.now();
@@ -571,54 +628,81 @@ export async function provisionProspectionTenant(
 
     if (!res.ok) {
       const errorText = await res.text();
-      throw new Error(`Provision failed: ${res.status} — ${errorText}`);
+      throw new Error(`Provision failed: ${res.status} - ${errorText}`);
     }
 
     const data = await res.json();
-    logStep('PROSPECTION', '✅ Provisioned', {
+    logStep('PROSPECTION', 'Provisioned', {
       tenantId: data.tenant_id,
       created: data.created,
     });
 
-    // Store in Supabase tenant record
-    const { getSupabaseAdmin } = await import('@/utils/supabase/admin');
-    const supabase = getSupabaseAdmin();
-
-    // Type cast: Supabase strict mode infers `never` for tenants (enum + new columns)
-    const db = supabase.from('tenants') as any;
-
-    const { data: existingTenant } = await db
-      .select('id')
-      .eq('user_id', userId)
-      .maybeSingle();
-
     const prospectionData = {
-      prospection_api_key: data.api_key,
-      prospection_login_token: data.login_url?.split('t=')[1] ?? null,
-      prospection_login_token_created_at: new Date().toISOString(),
-      prospection_plan: 'freemium',
-      prospection_provisioned_at: new Date().toISOString(),
+      prospectionApiKey: data.api_key,
+      prospectionLoginToken: data.login_url?.split('t=')[1] ?? null,
+      prospectionLoginTokenCreatedAt: new Date(),
+      prospectionPlan: 'freemium',
+      prospectionProvisionedAt: new Date(),
     };
 
+    const existingTenant = await prisma.tenant.findFirst({
+      where: { userId },
+      select: { id: true },
+    });
+
+    let tenantId: string;
+
     if (existingTenant) {
-      await db.update(prospectionData).eq('id', existingTenant.id);
+      const updated = await prisma.tenant.update({
+        where: { id: existingTenant.id },
+        data: prospectionData,
+        select: { id: true },
+      });
+      tenantId = updated.id;
     } else {
-      const slug = email.split('@')[0].replace(/[^a-z0-9]/gi, '').toLowerCase();
+      const slug = slugify(email);
       const trialEndsAt = new Date();
       trialEndsAt.setDate(trialEndsAt.getDate() + 15);
 
-      await db.insert({
-        user_id: userId,
-        name: email.split('@')[0],
-        slug,
-        status: 'active',
-        ...prospectionData,
-        provisioned_at: new Date().toISOString(),
-        trial_ends_at: trialEndsAt.toISOString(),
+      let finalSlug = slug;
+      const slugTaken = await prisma.tenant.findUnique({
+        where: { slug: finalSlug },
+        select: { id: true },
       });
+      if (slugTaken) {
+        finalSlug = `${slug}-${Math.random().toString(36).slice(2, 7)}`;
+      }
+
+      const created = await prisma.tenant.create({
+        data: {
+          userId,
+          name: email.split('@')[0],
+          slug: finalSlug,
+          status: 'active',
+          ...prospectionData,
+          provisionedAt: new Date(),
+          trialEndsAt,
+        },
+        select: { id: true },
+      });
+      tenantId = created.id;
     }
 
-    logStep('PROSPECTION', '✅ Stored in Supabase');
+    try {
+      await prisma.provisioningLog.create({
+        data: {
+          tenantId,
+          level: 'success',
+          service: 'prospection',
+          message: 'Prospection provisioned',
+          metadata: { tenantIdRemote: data.tenant_id, created: data.created },
+        },
+      });
+    } catch (logErr) {
+      console.warn('[PROSPECTION] provisioning_log create failed:', logErr);
+    }
+
+    logStep('PROSPECTION', 'Stored in DB');
 
     return {
       success: true,
@@ -659,22 +743,20 @@ export async function provisionTenants(
   let twentyPassword = password;
   if (!twentyPassword) {
     try {
-      const { getSupabaseAdmin } = await import('@/utils/supabase/admin');
-      const supabase = getSupabaseAdmin();
-      const { data: tenant } = await (supabase.from('tenants') as any)
-        .select('twenty_user_password')
-        .eq('user_id', userId)
-        .maybeSingle();
-      if (tenant?.twenty_user_password) {
-        twentyPassword = tenant.twenty_user_password;
-        logStep('TWENTY', '🔑 Reusing stored password for retry');
+      const tenant = await prisma.tenant.findFirst({
+        where: { userId },
+        select: { twentyUserPassword: true },
+      });
+      if (tenant?.twentyUserPassword) {
+        twentyPassword = tenant.twentyUserPassword;
+        logStep('TWENTY', 'Reusing stored password for retry');
       }
     } catch { /* ignore */ }
   }
   if (!twentyPassword) {
     // Generate a random password — user connects via auto-login token, never types this
     twentyPassword = `V${crypto.randomUUID().replace(/-/g, '').slice(0, 20)}!`;
-    logStep('TWENTY', '🔑 Generated random password (user uses auto-login)');
+    logStep('TWENTY', 'Generated random password (user uses auto-login)');
   }
 
   // Provisionner en parallèle

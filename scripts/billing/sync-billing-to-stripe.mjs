@@ -25,7 +25,7 @@ import Stripe from 'stripe';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { createClient } from '@supabase/supabase-js';
+import { withPg, createPgClient } from '../lib/db.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -100,17 +100,18 @@ const stripe = new Stripe(stripeSecretKey, {
   apiVersion: '2024-12-18.acacia'
 });
 
-// Initialiser Supabase Admin pour la synchronisation
-// Utiliser l'URL interne Docker si disponible, sinon l'URL publique
-const supabaseUrl = envVars.SUPABASE_URL || 'http://supabase-kong:8000';
-const supabaseKey = envVars.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl || !supabaseKey) {
-  console.error('❌ Variables Supabase manquantes (SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY)');
+// Post-migration : on tape directement Postgres `hub_app.*` via `pg`.
+const databaseUrl = envVars.DATABASE_URL || process.env.DATABASE_URL;
+if (!databaseUrl) {
+  console.error('❌ DATABASE_URL manquante');
   process.exit(1);
 }
-
-const supabase = createClient(supabaseUrl, supabaseKey);
+// Force la variable env pour que createPgClient() la trouve
+process.env.DATABASE_URL = databaseUrl;
+// Client persistant ouvert pour toute la durée du script
+const pgClient = createPgClient();
+await pgClient.connect();
+process.on('exit', () => { try { pgClient.end(); } catch {} });
 
 // Charger la configuration billing
 const billingConfigPath = path.join(__dirname, '../../config/billing.config.ts');
@@ -186,59 +187,76 @@ function logDiff(field, oldValue, newValue) {
 // ============================================================================
 
 /**
- * Synchronise un produit Stripe vers Supabase
+ * Synchronise un produit Stripe vers hub_app.products (Postgres direct)
  */
 async function syncProductToSupabase(stripeProduct) {
   if (isDryRun) return;
 
-  const productData = {
-    id: stripeProduct.id,
-    active: stripeProduct.active,
-    name: stripeProduct.name,
-    description: stripeProduct.description ?? null,
-    image: stripeProduct.images?.[0] ?? null,
-    metadata: stripeProduct.metadata
-  };
-
-  const { error } = await supabase
-    .from('products')
-    .upsert([productData]);
-
-  if (error) {
-    console.error(`  ⚠️  Erreur sync Supabase produit ${stripeProduct.id}:`, error.message);
-  } else {
-    log('  💾', `Produit synchronisé vers Supabase`, 2);
+  try {
+    await pgClient.query(
+      `INSERT INTO hub_app.products (id, active, name, description, image, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (id) DO UPDATE SET
+         active = EXCLUDED.active,
+         name = EXCLUDED.name,
+         description = EXCLUDED.description,
+         image = EXCLUDED.image,
+         metadata = EXCLUDED.metadata`,
+      [
+        stripeProduct.id,
+        stripeProduct.active,
+        stripeProduct.name,
+        stripeProduct.description ?? null,
+        stripeProduct.images?.[0] ?? null,
+        JSON.stringify(stripeProduct.metadata ?? {}),
+      ],
+    );
+    log('  💾', `Produit synchronisé en DB`, 2);
+  } catch (error) {
+    console.error(`  ⚠️  Erreur sync DB produit ${stripeProduct.id}:`, error.message);
   }
 }
 
 /**
- * Synchronise un prix Stripe vers Supabase
+ * Synchronise un prix Stripe vers hub_app.prices (Postgres direct)
  */
 async function syncPriceToSupabase(stripePrice) {
   if (isDryRun) return;
 
-  const priceData = {
-    id: stripePrice.id,
-    product_id: typeof stripePrice.product === 'string' ? stripePrice.product : '',
-    active: stripePrice.active,
-    currency: stripePrice.currency,
-    description: stripePrice.nickname ?? null,
-    type: stripePrice.type,
-    unit_amount: stripePrice.unit_amount ?? null,
-    interval: stripePrice.recurring?.interval ?? null,
-    interval_count: stripePrice.recurring?.interval_count ?? null,
-    trial_period_days: stripePrice.recurring?.trial_period_days ?? null,
-    metadata: stripePrice.metadata ?? null
-  };
-
-  const { error } = await supabase
-    .from('prices')
-    .upsert([priceData]);
-
-  if (error) {
-    console.error(`  ⚠️  Erreur sync Supabase prix ${stripePrice.id}:`, error.message);
-  } else {
-    log('  💾', `Prix synchronisé vers Supabase`, 2);
+  try {
+    await pgClient.query(
+      `INSERT INTO hub_app.prices (
+         id, product_id, active, currency, description, type,
+         unit_amount, interval, interval_count, trial_period_days, metadata
+       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       ON CONFLICT (id) DO UPDATE SET
+         product_id = EXCLUDED.product_id,
+         active = EXCLUDED.active,
+         currency = EXCLUDED.currency,
+         description = EXCLUDED.description,
+         type = EXCLUDED.type,
+         unit_amount = EXCLUDED.unit_amount,
+         interval = EXCLUDED.interval,
+         interval_count = EXCLUDED.interval_count,
+         trial_period_days = EXCLUDED.trial_period_days,
+         metadata = EXCLUDED.metadata`,
+      [
+        stripePrice.id,
+        typeof stripePrice.product === 'string' ? stripePrice.product : '',
+        stripePrice.active,
+        stripePrice.currency,
+        stripePrice.nickname ?? null,
+        stripePrice.type,
+        stripePrice.unit_amount ?? null,
+        stripePrice.recurring?.interval ?? null,
+        stripePrice.recurring?.interval_count ?? null,
+        stripePrice.recurring?.trial_period_days ?? null,
+        JSON.stringify(stripePrice.metadata ?? {}),
+      ],
+    );
+    log('  💾', `Prix synchronisé en DB`, 2);
+  } catch (error) {
+    console.error(`  ⚠️  Erreur sync DB prix ${stripePrice.id}:`, error.message);
   }
 }
 
@@ -347,12 +365,17 @@ async function syncProducts() {
       product = existingProduct;
       log('🔍', `Produit existant trouvé: ${product.id}`, 2);
 
-      // Vérifier si le produit existe dans Supabase
-      const { data: existingDbProduct, error: checkError } = await supabase
-        .from('products')
-        .select('id')
-        .eq('id', product.id)
-        .maybeSingle();
+      // Vérifier si le produit existe en DB (hub_app.products)
+      let existingDbProduct = null;
+      try {
+        const r = await pgClient.query(
+          'SELECT id FROM hub_app.products WHERE id = $1 LIMIT 1',
+          [product.id],
+        );
+        existingDbProduct = r.rows[0] || null;
+      } catch (e) {
+        console.warn(`  ⚠️  DB lookup failed for product ${product.id}:`, e.message);
+      }
 
       const needsSync = !existingDbProduct;
 

@@ -1,9 +1,16 @@
-import { type NextRequest } from 'next/server';
-import { updateSession } from '@/utils/supabase/middleware';
+// Middleware Auth.js v5 (edge runtime).
+//
+// Utilise auth.config.ts (edge-safe, sans adapter Prisma) pour décider de
+// l'autorisation via la callback `authorized()`. La logique des paths
+// publics/protégés est centralisée dans auth.config.ts.
+//
+// NB : pas d'appel Prisma ici — Prisma n'est pas edge-compatible. Toute
+// logique Node-only (PrismaAdapter, CredentialsProvider) vit dans auth.ts.
 
-export async function middleware(request: NextRequest) {
-  return await updateSession(request);
-}
+import NextAuth from 'next-auth';
+import { authConfig } from '@/auth.config';
+
+export const { auth: middleware } = NextAuth(authConfig);
 
 export const config = {
   matcher: [
@@ -13,8 +20,7 @@ export const config = {
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - images - .svg, .png, .jpg, .jpeg, .gif, .webp
-     * Feel free to modify this pattern to include more paths.
      */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)'
-  ]
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+  ],
 };

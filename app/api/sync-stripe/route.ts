@@ -1,24 +1,25 @@
 import { NextResponse } from 'next/server';
+
 import { stripe } from '@/utils/stripe/config';
-import { upsertProductRecord, upsertPriceRecord } from '@/utils/supabase/admin';
+import { upsertProductRecord, upsertPriceRecord } from '@/utils/stripe/prisma-sync';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
 
 /**
- * Synchronise tous les produits et prix Stripe existants vers Supabase
- * Cette route est sécurisée et ne devrait être appelée qu'une seule fois pour la sync initiale
+ * Synchronise tous les produits et prix Stripe existants vers la DB.
+ * Cette route est sécurisée et ne devrait être appelée qu'une seule fois pour la sync initiale.
  */
 export async function POST(req: Request) {
   try {
     console.log('🔄 Starting Stripe sync...');
 
-    // Vérifier qu'un secret est fourni (protection basique)
+    // Protection basique : un secret = première partie de STRIPE_SECRET_KEY
     const { secret } = await req.json();
-    const expectedSecret = process.env.STRIPE_SECRET_KEY?.substring(0, 20); // Utiliser une partie de la clé comme secret
+    const expectedSecret = process.env.STRIPE_SECRET_KEY?.substring(0, 20);
 
     if (secret !== expectedSecret) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     // 1. Récupérer tous les produits Stripe
@@ -49,15 +50,12 @@ export async function POST(req: Request) {
       success: true,
       synced: {
         products: products.data.length,
-        prices: prices.data.length
-      }
+        prices: prices.data.length,
+      },
     });
-
-  } catch (error: any) {
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
     console.error('❌ Stripe sync failed:', error);
-    return NextResponse.json(
-      { error: error.message },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

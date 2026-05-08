@@ -1,4 +1,3 @@
-import { createClient } from '@/utils/supabase/server';
 import { redirect } from 'next/navigation';
 import NameForm from '@/components/ui/AccountForms/NameForm';
 import EmailForm from '@/components/ui/AccountForms/EmailForm';
@@ -12,32 +11,32 @@ import {
 } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { Settings } from 'lucide-react';
+import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
+import { prisma } from '@/lib/prisma';
 
 export default async function SettingsPage() {
-  const supabase = createClient();
-
-  // 🔒 Auth check
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
+  const user = await getCurrentUser();
   if (!user) {
     redirect('/login');
   }
 
-  // Récupérer les détails du profil
-  const { data: userDetails } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single();
+  // Fetch user complet pour name + createdAt + emailVerified
+  const dbUser = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { createdAt: true, emailVerified: true, name: true },
+  });
 
-  // Récupérer le tenant
-  const { data: tenant } = await supabase
-    .from('tenants')
-    .select('*')
-    .eq('user_id', user.id)
-    .maybeSingle() as { data: any };
+  // Récupérer le tenant principal
+  const tenant = await prisma.tenant.findFirst({
+    where: { userId: userUuid(user) },
+    select: {
+      id: true,
+      twentyWorkspaceId: true,
+      twentyUserEmail: true,
+      notifuseWorkspaceSlug: true,
+      notifuseUserEmail: true,
+    },
+  });
 
   return (
     <div className="flex flex-col gap-8 p-4 md:p-8 max-w-4xl mx-auto w-full">
@@ -62,8 +61,7 @@ export default async function SettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            {/* 🔒 COMPOSANTS BACKEND - Logique conservée */}
-            <NameForm userName={(userDetails as any)?.full_name ?? ''} />
+            <NameForm userName={dbUser?.name ?? user.name ?? ''} />
             <Separator />
             <EmailForm userEmail={user.email ?? ''} />
           </CardContent>
@@ -93,21 +91,20 @@ export default async function SettingsPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Twenty CRM */}
-              {tenant.twenty_workspace_id && (
+              {tenant.twentyWorkspaceId && (
                 <div className="rounded-lg border p-4 space-y-2">
                   <div className="flex items-center gap-2">
-                    <span className="text-2xl">📇</span>
                     <h3 className="font-semibold">Twenty CRM</h3>
                     <span className="ml-auto text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full dark:bg-green-900/30 dark:text-green-400">
                       Active
                     </span>
                   </div>
                   <div className="text-sm text-muted-foreground space-y-1">
-                    <div><strong>Email:</strong> {tenant.twenty_user_email}</div>
+                    <div><strong>Email:</strong> {tenant.twentyUserEmail}</div>
                     <div>
                       <strong>Workspace ID:</strong>{' '}
                       <code className="text-xs bg-muted px-2 py-0.5 rounded">
-                        {tenant.twenty_workspace_id}
+                        {tenant.twentyWorkspaceId}
                       </code>
                     </div>
                   </div>
@@ -115,28 +112,27 @@ export default async function SettingsPage() {
               )}
 
               {/* Notifuse */}
-              {tenant.notifuse_workspace_slug && (
+              {tenant.notifuseWorkspaceSlug && (
                 <div className="rounded-lg border p-4 space-y-2">
                   <div className="flex items-center gap-2">
-                    <span className="text-2xl">📧</span>
                     <h3 className="font-semibold">Notifuse</h3>
                     <span className="ml-auto text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full dark:bg-green-900/30 dark:text-green-400">
                       Active
                     </span>
                   </div>
                   <div className="text-sm text-muted-foreground space-y-1">
-                    <div><strong>Email:</strong> {tenant.notifuse_user_email}</div>
+                    <div><strong>Email:</strong> {tenant.notifuseUserEmail}</div>
                     <div>
                       <strong>Workspace:</strong>{' '}
                       <code className="text-xs bg-muted px-2 py-0.5 rounded">
-                        {tenant.notifuse_workspace_slug}
+                        {tenant.notifuseWorkspaceSlug}
                       </code>
                     </div>
                   </div>
                 </div>
               )}
 
-              {!tenant.twenty_workspace_id && !tenant.notifuse_workspace_slug && (
+              {!tenant.twentyWorkspaceId && !tenant.notifuseWorkspaceSlug && (
                 <div className="text-center py-6 text-muted-foreground">
                   <p>No workspaces configured yet</p>
                   <p className="text-sm mt-2">
@@ -168,14 +164,18 @@ export default async function SettingsPage() {
             <Separator />
             <div className="flex justify-between">
               <span className="text-muted-foreground">Email Verified</span>
-              <span className={user.email_confirmed_at ? 'text-green-600' : 'text-amber-600'}>
-                {user.email_confirmed_at ? '✓ Verified' : '⚠ Not verified'}
+              <span className={dbUser?.emailVerified ? 'text-green-600' : 'text-amber-600'}>
+                {dbUser?.emailVerified ? 'Verified' : 'Not verified'}
               </span>
             </div>
             <Separator />
             <div className="flex justify-between">
               <span className="text-muted-foreground">Member Since</span>
-              <span>{new Date(user.created_at).toLocaleDateString()}</span>
+              <span>
+                {dbUser?.createdAt
+                  ? new Date(dbUser.createdAt).toLocaleDateString()
+                  : '—'}
+              </span>
             </div>
           </CardContent>
         </Card>
