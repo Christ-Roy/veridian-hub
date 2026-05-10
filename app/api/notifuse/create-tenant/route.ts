@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireUser, userUuid } from '@/lib/auth/get-user';
 import { NotifuseClient } from '@/lib/notifuse/client';
 import { NotifuseError } from '@/lib/notifuse/types';
+import { validateWorkspaceId } from '@/lib/notifuse/workspace-id';
 import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
@@ -63,25 +64,17 @@ export async function POST(request: NextRequest) {
 
     const { workspaceId, workspaceName } = await request.json();
 
-    if (!workspaceId || !workspaceName) {
+    if (!workspaceName || typeof workspaceName !== 'string') {
       return NextResponse.json(
-        { success: false, error: 'Missing workspaceId or workspaceName', logs },
+        { success: false, error: 'Missing workspaceName', logs },
         { status: 400 },
       );
     }
-    if (!/^[a-zA-Z0-9]+$/.test(workspaceId)) {
+
+    const wsValidation = validateWorkspaceId(workspaceId);
+    if (!wsValidation.ok) {
       return NextResponse.json(
-        {
-          success: false,
-          error: 'Workspace ID must be alphanumeric only (no underscores or hyphens)',
-          logs,
-        },
-        { status: 400 },
-      );
-    }
-    if (workspaceId.length > 32) {
-      return NextResponse.json(
-        { success: false, error: 'Workspace ID must be 32 characters or less', logs },
+        { success: false, error: wsValidation.error, logs },
         { status: 400 },
       );
     }

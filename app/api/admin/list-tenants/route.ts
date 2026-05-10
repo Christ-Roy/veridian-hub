@@ -1,26 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { auth } from '@/auth';
-import { isPlatformAdmin } from '@/lib/admin/check-admin';
+import { requireAdmin } from '@/lib/admin/require-admin';
 import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-
-async function requireAdmin(request: NextRequest): Promise<NextResponse | null> {
-  const adminSecret = process.env.ADMIN_SECRET;
-  const headerSecret = request.headers.get('x-admin-secret');
-  if (adminSecret && headerSecret === adminSecret) return null;
-
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-  if (!isPlatformAdmin(session.user)) {
-    return NextResponse.json({ error: 'Forbidden — admin access only' }, { status: 403 });
-  }
-  return null;
-}
 
 /**
  * GET /api/admin/list-tenants

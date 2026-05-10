@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { auth } from '@/auth';
-import { isPlatformAdmin } from '@/lib/admin/check-admin';
+import { requireAdmin } from '@/lib/admin/require-admin';
 import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
@@ -14,23 +13,8 @@ export const runtime = 'nodejs';
  * Security: ADMIN_SECRET header OR authenticated admin email
  */
 export async function POST(request: NextRequest) {
-  const adminSecret = process.env.ADMIN_SECRET;
-  const headerSecret = request.headers.get('x-admin-secret');
-
-  const secretOk = !!(adminSecret && headerSecret === adminSecret);
-
-  if (!secretOk) {
-    const session = await auth();
-    if (!session?.user) {
-      return NextResponse.json(
-        { error: 'Unauthorized — provide x-admin-secret or authenticate' },
-        { status: 401 },
-      );
-    }
-    if (!isPlatformAdmin(session.user)) {
-      return NextResponse.json({ error: 'Forbidden — admin access only' }, { status: 403 });
-    }
-  }
+  const denial = await requireAdmin(request);
+  if (denial) return denial;
 
   let body: { email?: string; plan?: string };
   try {

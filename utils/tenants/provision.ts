@@ -14,6 +14,7 @@
 import { logProvisionStart, logProvisionEnd, logStep, logError } from './debug';
 import { NotifuseClient } from '@/lib/notifuse/client';
 import { NotifuseError } from '@/lib/notifuse/types';
+import { workspaceIdFromEmail } from '@/lib/notifuse/workspace-id';
 import { prisma } from '@/lib/prisma';
 
 const TWENTY_API_URL = process.env.TWENTY_GRAPHQL_URL!;
@@ -464,11 +465,7 @@ export async function provisionNotifuseTenant(
 
     logStep('NOTIFUSE', 'Starting provisioning', { email, userId });
 
-    const workspaceId = email
-      .split('@')[0]
-      .replace(/[^a-z0-9]/gi, '')
-      .toLowerCase()
-      .slice(0, 32);
+    const workspaceId = workspaceIdFromEmail(email);
 
     const workspaceName = email.split('@')[0].slice(0, 32);
 
