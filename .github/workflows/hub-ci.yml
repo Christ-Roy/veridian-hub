@@ -187,9 +187,43 @@ jobs:
           exit 1
         working-directory: .
 
-  # ── Rollback prod on health check failure ──────────────────────────
-  rollback-prod:
+  # ── E2E smoke prod — gate du rollback ──────────────────────────────
+  # Cette étape teste les endpoints Auth.js publics de la prod après deploy.
+  # AURAIT DÉTECTÉ L'INCIDENT 2026-05-10 EN 30s (Traefik avait routé sur un
+  # container fantôme pre-Auth.js qui renvoyait 500 sur /api/auth/*).
+  #
+  # Read-only contre app.veridian.site. Aucune écriture, aucun signup.
+  # Si fail → le rollback-prod ci-dessous se déclenche automatiquement.
+  e2e-prod-smoke:
     needs: deploy-prod
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: 'pnpm'
+          cache-dependency-path: hub/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
+      - name: Install Playwright chromium
+        run: npx playwright install --with-deps chromium
+      - name: Run prod smoke (Auth.js + /login)
+        run: npx playwright test e2e/prod-smoke/ --reporter=list
+      - name: Upload trace on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hub-prod-smoke-trace
+          path: hub/test-results/
+          retention-days: 7
+
+  # ── Rollback prod on health check failure OR smoke failure ─────────
+  rollback-prod:
+    needs: [deploy-prod, e2e-prod-smoke]
     if: failure() && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
