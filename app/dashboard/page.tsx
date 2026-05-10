@@ -1,9 +1,10 @@
 import { redirect } from 'next/navigation';
 import { TenantCard } from './components/TenantCard';
 import { ProspectionCard } from './components/ProspectionCard';
+import { ServiceCard } from './components/ServiceCard';
 import { RefreshButton } from './components/RefreshButton';
 import { RetryProvisionButton } from './components/RetryProvisionButton';
-import { LayoutDashboard } from 'lucide-react';
+import { LayoutDashboard, BarChart3 } from 'lucide-react';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
 
@@ -100,12 +101,12 @@ export default async function DashboardPage() {
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-3">
             <LayoutDashboard className="h-10 w-10 text-primary" />
-            <h1 className="text-4xl font-bold tracking-tight">My Applications</h1>
+            <h1 className="text-4xl font-bold tracking-tight">My Workspace</h1>
           </div>
           <RefreshButton />
         </div>
         <p className="text-muted-foreground">
-          Access your Twenty CRM, Notifuse, and Prospection workspaces
+          Your Veridian SaaS apps and tracking services in one place
         </p>
 
         {/* Debug info (development only) */}
@@ -146,34 +147,67 @@ export default async function DashboardPage() {
         </div>
       )}
 
-      {/* Tenant Cards Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        <TenantCard
-          service="twenty"
-          configured={!!tenant?.twentyWorkspaceId}
-          available={twentyAvailable}
-          subdomain={tenant?.twentySubdomain || undefined}
-          loginTokenValid={twentyTokenValid}
-          loginToken={tenant?.twentyLoginToken || undefined}
-          userEmail={user.email || undefined}
-        />
+      {/* Section 1 — Vos SaaS */}
+      <section className="mb-12">
+        <div className="mb-4">
+          <h2 className="text-2xl font-semibold tracking-tight">Vos SaaS</h2>
+          <p className="text-sm text-muted-foreground">
+            Vos espaces de travail provisionnés automatiquement à l'inscription.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <ProspectionCard
+            configured={!!tenant?.prospectionProvisionedAt}
+            loginUrl={prospectionLoginUrl}
+            tokenValid={prospectionTokenValid}
+            plan={tenant?.prospectionPlan || 'freemium'}
+          />
 
-        <TenantCard
-          service="notifuse"
-          configured={!!tenant?.notifuseWorkspaceSlug}
-          available={notifuseAvailable}
-          slug={tenant?.notifuseWorkspaceSlug || undefined}
-          tenantId={tenant?.id}
-          userEmail={user.email || undefined}
-        />
+          <TenantCard
+            service="twenty"
+            configured={!!tenant?.twentyWorkspaceId}
+            available={twentyAvailable}
+            subdomain={tenant?.twentySubdomain || undefined}
+            loginTokenValid={twentyTokenValid}
+            loginToken={tenant?.twentyLoginToken || undefined}
+            userEmail={user.email || undefined}
+          />
 
-        <ProspectionCard
-          configured={!!tenant?.prospectionProvisionedAt}
-          loginUrl={prospectionLoginUrl}
-          tokenValid={prospectionTokenValid}
-          plan={tenant?.prospectionPlan || 'freemium'}
-        />
-      </div>
+          <TenantCard
+            service="notifuse"
+            configured={!!tenant?.notifuseWorkspaceSlug}
+            available={notifuseAvailable}
+            slug={tenant?.notifuseWorkspaceSlug || undefined}
+            tenantId={tenant?.id}
+            userEmail={user.email || undefined}
+          />
+        </div>
+      </section>
+
+      {/* Section 2 — Services de suivi */}
+      <section className="mb-12">
+        <div className="mb-4">
+          <h2 className="text-2xl font-semibold tracking-tight">Services de suivi</h2>
+          <p className="text-sm text-muted-foreground">
+            Outils de tracking et reporting pour piloter vos performances.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <ServiceCard
+            name="Veridian Analytics"
+            description="Dashboard multi-tenant : pageviews, formulaires, SEO (GSC), appels SIP."
+            url="https://analytics.app.veridian.site"
+            icon={BarChart3}
+            badge="BETA"
+            features={[
+              'Tracker JS humain-only',
+              'Sync Google Search Console',
+              'Tracking appels OVH SIP',
+              'Vue par client (multi-tenant)',
+            ]}
+          />
+        </div>
+      </section>
 
       {/* Info Section */}
       <div className="mt-12 p-6 bg-muted/50 rounded-lg border">
