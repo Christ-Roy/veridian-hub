@@ -1,0 +1,90 @@
+name: _audit-cve (reusable)
+
+# Reusable CVE audit gate. Bloque sur npm/pnpm audit critical OU high.
+# Référence: CLAUDE.md "Sécurité — règles non négociables" (post incident
+# verger-shop 2026-05-07). Chaque app exposée internet doit appeler ce
+# workflow avec son path + package manager.
+
+on:
+  workflow_call:
+    inputs:
+      app-path:
+        description: "Chemin vers l'app (ex: hub, prospection, analytics, cms)"
+        required: true
+        type: string
+      package-manager:
+        description: "npm | pnpm"
+        required: true
+        type: string
+      node-version:
+        description: "Version Node"
+        required: false
+        type: string
+        default: "22"
+      pnpm-version:
+        description: "Version pnpm (si pnpm)"
+        required: false
+        type: string
+        default: "10"
+      omit-dev:
+        description: "Audit prod-only (recommandé pour apps déployées)"
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  audit:
+    name: CVE audit (high+critical bloquant)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ inputs.app-path }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        if: inputs.package-manager == 'pnpm'
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ inputs.pnpm-version }}
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: ${{ inputs.package-manager }}
+          cache-dependency-path: ${{ inputs.app-path }}/${{ inputs.package-manager == 'pnpm' && 'pnpm-lock.yaml' || 'package-lock.json' }}
+
+      - name: Install (lockfile only — no scripts)
+        run: |
+          if [ "${{ inputs.package-manager }}" = "pnpm" ]; then
+            pnpm install --frozen-lockfile --ignore-scripts || pnpm install --no-frozen-lockfile --ignore-scripts
+          else
+            npm ci --ignore-scripts || npm install --ignore-scripts
+          fi
+
+      - name: npm/pnpm audit (high + critical bloquant)
+        run: |
+          set +e
+          OMIT_FLAG=""
+          if [ "${{ inputs.omit-dev }}" = "true" ]; then
+            OMIT_FLAG="--omit=dev"
+          fi
+          if [ "${{ inputs.package-manager }}" = "pnpm" ]; then
+            # pnpm audit --prod equivalent à npm omit=dev. Affiche tout, gate sur high.
+            if [ "${{ inputs.omit-dev }}" = "true" ]; then
+              pnpm audit --prod --audit-level high
+            else
+              pnpm audit --audit-level high
+            fi
+          else
+            npm audit $OMIT_FLAG --audit-level=high
+          fi
+          AUDIT_EXIT=$?
+          if [ $AUDIT_EXIT -ne 0 ]; then
+            echo ""
+            echo "::error::CVE audit échoué — vulnérabilité high ou critical détectée."
+            echo "::error::Voir CLAUDE.md 'Sécurité — règles non négociables' : on patch AVANT de déployer."
+            echo "::error::Pour debug : cd ${{ inputs.app-path }} && ${{ inputs.package-manager }} audit --audit-level=high"
+            exit 1
+          fi
+          echo "✓ Pas de CVE high/critical détectée"
