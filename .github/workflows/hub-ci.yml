@@ -10,6 +10,8 @@ on:
     branches: [main]
     paths:
       - 'hub/**'
+      - '.github/workflows/hub-ci.yml'
+      - '.github/workflows/_audit-cve.yml'
   workflow_dispatch:
 
 concurrency:
@@ -58,8 +60,18 @@ jobs:
           STRIPE_SECRET_KEY: sk_test_fake
           STRIPE_WEBHOOK_SECRET: whsec_fake
 
+  audit:
+    name: CVE audit (high+critical bloquant)
+    uses: ./.github/workflows/_audit-cve.yml
+    with:
+      app-path: hub
+      package-manager: pnpm
+      node-version: "20"
+      pnpm-version: "10"
+      omit-dev: true
+
   docker:
-    needs: test
+    needs: [test, audit]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: [self-hosted, veridian]
     permissions:
