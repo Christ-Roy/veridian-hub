@@ -113,15 +113,24 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/build-push-action@v5
+      # Wrapper retry pour palier les "context deadline exceeded / no active
+      # session" intermittents du push GHCR depuis self-hosted runner.
+      # 3 tentatives max, backoff 30s.
+      - name: Build and push (with retry)
+        uses: nick-fields/retry@v3
         with:
-          context: ./hub
-          file: ./hub/Dockerfile
-          target: runner
-          push: true
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          timeout_minutes: 15
+          max_attempts: 3
+          retry_wait_seconds: 30
+          retry_on: error
+          command: |
+            docker buildx build \
+              --target runner \
+              --push \
+              -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }} \
+              -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
+              -f ./hub/Dockerfile \
+              ./hub
 
   trivy:
     needs: docker
