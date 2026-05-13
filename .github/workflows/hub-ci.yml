@@ -159,11 +159,14 @@ jobs:
             fi
             docker pull ghcr.io/christ-roy/veridian-hub:latest
             DKEY=\$(grep '^DOKPLOY_API_KEY=' ~/credentials/.all-creds.env | cut -d= -f2)
+            # compose.deploy clone Git puis up. compose.redeploy juste up sans
+            # re-clone => le compose Git ne se met jamais à jour. Pour GitOps
+            # custom-git il faut compose.deploy.
             curl -sf -X POST \
               -H "x-api-key: \$DKEY" \
               -H "Content-Type: application/json" \
               -d '{"json":{"composeId":"$DOKPLOY_COMPOSE_ID"}}' \
-              http://localhost:3000/api/trpc/compose.redeploy && echo "Hub prod redeploy triggered"
+              http://localhost:3000/api/trpc/compose.deploy && echo "Hub prod deploy triggered"
           DEPLOY
           echo "Waiting for hub health (up to 2min)..."
           for i in $(seq 1 12); do
