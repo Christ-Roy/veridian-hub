@@ -10,13 +10,42 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ExternalLink, type LucideIcon } from 'lucide-react';
+import {
+  ExternalLink,
+  BarChart3,
+  LayoutDashboard,
+  Mail,
+  Users,
+  CreditCard,
+  Settings,
+  Database,
+  Globe,
+  Activity,
+  type LucideIcon,
+} from 'lucide-react';
+
+// Map noms d'icônes → composants. Passer un composant React en prop depuis
+// un Server Component vers un Client Component crashe en Next.js 15 (RSC ne
+// sérialise pas les fonctions/forwardRef). On passe une string, on résout ici.
+const ICON_MAP: Record<string, LucideIcon> = {
+  BarChart3,
+  LayoutDashboard,
+  Mail,
+  Users,
+  CreditCard,
+  Settings,
+  Database,
+  Globe,
+  Activity,
+};
+
+export type ServiceCardIcon = keyof typeof ICON_MAP;
 
 export interface ServiceCardProps {
   name: string;
   description: string;
   url: string;
-  icon: LucideIcon;
+  icon: ServiceCardIcon;
   badge?: 'BETA' | 'NEW' | 'COMING_SOON';
   features?: string[];
 }
@@ -31,10 +60,11 @@ export function ServiceCard({
   name,
   description,
   url,
-  icon: Icon,
+  icon,
   badge,
   features,
 }: ServiceCardProps) {
+  const Icon = ICON_MAP[icon] ?? BarChart3;
   const isComingSoon = badge === 'COMING_SOON';
 
   return (
