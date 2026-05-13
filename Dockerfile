@@ -1,7 +1,7 @@
 # ============================================================================
 # STAGE 1: Dependencies
 # ============================================================================
-FROM node:20-alpine AS deps
+FROM node:26-alpine AS deps
 
 # Install dependencies needed for node-gyp
 RUN apk add --no-cache libc6-compat
@@ -20,7 +20,7 @@ RUN pnpm install --frozen-lockfile
 # ============================================================================
 # STAGE 2: Builder
 # ============================================================================
-FROM node:20-alpine AS builder
+FROM node:26-alpine AS builder
 
 WORKDIR /app
 
@@ -64,7 +64,7 @@ RUN pnpm run build
 # ============================================================================
 # STAGE 3: Runner (Production)
 # ============================================================================
-FROM node:20-alpine AS runner
+FROM node:26-alpine AS runner
 
 WORKDIR /app
 
@@ -117,7 +117,7 @@ CMD ["sh", "-c", "node scripts/init-stripe.mjs && node server.js"]
 # ============================================================================
 # STAGE 4: Development (with hot reload)
 # ============================================================================
-FROM node:20-alpine AS dev
+FROM node:26-alpine AS dev
 
 WORKDIR /app
 
