@@ -1,0 +1,23 @@
+# test-coverage-map.yaml — Standard CI Veridian §1
+#
+# Déclare ici les fichiers critiques qui ne suivent PAS la convention canonique
+# de chemin (1 source → 1 test colocalisé au même chemin) mais sont légitimement
+# couverts par un test situé ailleurs (ex : test integration qui exerce un helper).
+#
+# Le hook pre-push check-test-mapping.sh lit ce fichier comme fallback :
+# si une source modifiée n'a pas de test colocalisé, il cherche ici.
+# Au moins UN des `covered_by` doit être modifié dans la même PR.
+#
+# Format strict :
+# - sources:
+#     - <chemin/source/relatif.ts>
+#   covered_by:
+#     - <chemin/test/relatif.test.ts>
+#   reason: |
+#     Justification écrite. Pas de "TODO refactor", expliquer POURQUOI ce test
+#     couvre fonctionnellement le code source.
+#
+# Renovate et agents auto ne peuvent pas ajouter de couverture sans toucher
+# ce fichier. Reviewable comme du code.
+
+# Aucune couverture non-canonique déclarée pour le moment.
