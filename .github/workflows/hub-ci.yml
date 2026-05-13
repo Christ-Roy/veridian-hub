@@ -20,7 +20,7 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: christ-roy/veridian-dashboard
+  IMAGE_NAME: christ-roy/veridian-hub
 
 jobs:
   test:
@@ -87,7 +87,7 @@ jobs:
       - name: Extract version
         id: version
         run: |
-          PACKAGE_NAME="veridian-dashboard"
+          PACKAGE_NAME="veridian-hub"
           EXISTING_TAGS=$(gh api \
             -H "Accept: application/vnd.github+json" \
             "/users/${{ github.repository_owner }}/packages/container/${PACKAGE_NAME}/versions" \
@@ -128,7 +128,7 @@ jobs:
     needs: docker
     uses: ./.github/workflows/_trivy-image.yml
     with:
-      image-ref: ghcr.io/christ-roy/veridian-dashboard:latest
+      image-ref: ghcr.io/christ-roy/veridian-hub:latest
       severity: 'CRITICAL,HIGH'
       ignore-unfixed: true
 
@@ -152,12 +152,12 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H $VPS_HOST >> ~/.ssh/known_hosts 2>/dev/null
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST bash -s << DEPLOY
-            CURRENT_ID=\$(docker images ghcr.io/christ-roy/veridian-dashboard:latest --format '{{.ID}}' 2>/dev/null)
+            CURRENT_ID=\$(docker images ghcr.io/christ-roy/veridian-hub:latest --format '{{.ID}}' 2>/dev/null)
             if [ -n "\$CURRENT_ID" ]; then
-              docker tag "\$CURRENT_ID" ghcr.io/christ-roy/veridian-dashboard:rollback
+              docker tag "\$CURRENT_ID" ghcr.io/christ-roy/veridian-hub:rollback
               echo "Tagged current image as :rollback (\$CURRENT_ID)"
             fi
-            docker pull ghcr.io/christ-roy/veridian-dashboard:latest
+            docker pull ghcr.io/christ-roy/veridian-hub:latest
             DKEY=\$(grep '^DOKPLOY_API_KEY=' ~/credentials/.all-creds.env | cut -d= -f2)
             curl -sf -X POST \
               -H "x-api-key: \$DKEY" \
@@ -227,12 +227,12 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H $VPS_HOST >> ~/.ssh/known_hosts 2>/dev/null
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST bash -s << ROLLBACK
-            ROLLBACK_ID=\$(docker images ghcr.io/christ-roy/veridian-dashboard:rollback --format '{{.ID}}' 2>/dev/null)
+            ROLLBACK_ID=\$(docker images ghcr.io/christ-roy/veridian-hub:rollback --format '{{.ID}}' 2>/dev/null)
             if [ -z "\$ROLLBACK_ID" ]; then
               echo "No :rollback image found — cannot rollback"
               exit 1
             fi
-            docker tag ghcr.io/christ-roy/veridian-dashboard:rollback ghcr.io/christ-roy/veridian-dashboard:latest
+            docker tag ghcr.io/christ-roy/veridian-hub:rollback ghcr.io/christ-roy/veridian-hub:latest
             DKEY=\$(grep '^DOKPLOY_API_KEY=' ~/credentials/.all-creds.env | cut -d= -f2)
             curl -sf -X POST \
               -H "x-api-key: \$DKEY" \

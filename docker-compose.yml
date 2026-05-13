@@ -1,6 +1,6 @@
 services:
   hub:
-    image: ghcr.io/christ-roy/veridian-dashboard:${HUB_IMAGE_TAG:-latest}@sha256:${HUB_IMAGE_DIGEST:-1406f2c1c0c09c4e70933af93af6fc832a41966e83ffb19bb9ca603438a6ce68}
+    image: ghcr.io/christ-roy/veridian-hub:${HUB_IMAGE_TAG:-latest}@sha256:${HUB_IMAGE_DIGEST:-1406f2c1c0c09c4e70933af93af6fc832a41966e83ffb19bb9ca603438a6ce68}
     restart: unless-stopped
     networks:
       - dokploy-network
