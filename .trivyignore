@@ -1,0 +1,17 @@
+# Trivy ignore list — chaque CVE listée doit avoir :
+# - une justification (pourquoi pas exploitable / pas appli)
+# - une date d'ajout
+# - une condition de levée (quand upstream bumpé)
+
+# CVE-2026-33671 : picomatch 4.0.3 DoS regex via extglob patterns
+# Source : npm bundled dans node:22-alpine et node:24-alpine
+# Justification :
+#   - npm n'est pas exécuté au runtime du container Next.js (juste au build)
+#   - DoS regex sur extglob ≠ RCE / auth bypass
+#   - Tentative de patch via `npm install -g npm@latest` casse le bump npm 10→11
+#     (Cannot find module 'promise-retry' pendant le swap)
+#   - Upstream Node devra rebuild ses images avec npm patché
+# Ajouté : 2026-05-13 (extraction monorepo, sprint GitOps)
+# Levée : quand `docker run --rm node:22-alpine npm --version` retourne npm
+#   avec picomatch ≥ 4.0.4 (vérifier avec `npm ls picomatch -g`).
+CVE-2026-33671

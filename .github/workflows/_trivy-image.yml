@@ -28,6 +28,8 @@ jobs:
     name: Trivy scan (CRIT/HIGH bloquant)
     runs-on: ubuntu-latest
     steps:
+      # Checkout pour récupérer .trivyignore si présent à la racine
+      - uses: actions/checkout@v6
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -38,6 +40,6 @@ jobs:
           format: 'table'
           vuln-type: 'os,library'
           timeout: '10m'
+          trivyignores: '.trivyignore'
         env:
-          # Cache la DB Trivy pour éviter le rate limit GHCR
           TRIVY_CACHE_DIR: /tmp/trivy-cache

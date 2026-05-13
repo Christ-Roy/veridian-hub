@@ -72,10 +72,12 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# Patch npm bundled to latest (Trivy gate : node:22-alpine ship un npm avec
-# picomatch 4.0.3 vulnerable CVE-2026-33671 DoS regex. npm@latest a picomatch
-# patché. On le bump uniquement dans le runner pour pas alourdir builder).
-RUN npm install -g npm@latest && npm cache clean --force
+# Note Trivy gate : node:22-alpine et node:24-alpine shippent un npm dont
+# picomatch transitif est 4.0.3 (CVE-2026-33671 DoS regex). Pas patchable
+# in-image sans casser npm (bug bump npm 10→11). Accepté via .trivyignore :
+# - npm n'est pas exécuté au runtime du container Next.js
+# - C'est un DoS regex via extglob, pas une RCE / auth bypass
+# - Upstream Node devra bump le npm bundled
 
 # Create a non-root user
 RUN addgroup --system --gid 1001 nodejs && \
