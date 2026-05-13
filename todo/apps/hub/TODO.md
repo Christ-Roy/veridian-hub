@@ -48,6 +48,47 @@ hub/
 
 ## Sprint en cours
 
+### P0.8 — Migration GitOps Dokploy + Trivy CI (sprint SPRINT-GITOPS-VERIDIAN.md)
+
+**Objectif** : passer la stack hub Dokploy `compose-back-up-online-pixel-nl2k9p`
+de provider Raw → Git, brancher Trivy CI bloquant + Dependabot docker, atteindre
+0 CVE CRIT/HIGH sur l'image hub deployed.
+
+Branche : `feat/hub-gitops-migration`. Stack Dokploy : `compose-back-up-online-pixel-nl2k9p`.
+
+**Phase A — Compose Git** ✅ (2026-05-13)
+- [x] Snapshot forensique compose live + docker inspect → `/tmp/forensics-hub-gitops-20260513/`
+- [x] `infra/services/hub/docker-compose.yml` SHA-pinned (digest `1406f2c1...`), healthcheck explicite, `${DEPLOY_ENV}` blue-green ready
+- [x] `infra/services/hub/.env.example` (noms d'ENV, pas de secrets)
+- [x] `infra/services/hub/README.md` (procédure deploy + rollback + secrets dans Dokploy UI)
+- [ ] PR `feat/hub-gitops-migration` → main, CI verte, merge
+- [ ] Dokploy UI : Stack hub → Settings → Provider Raw→Git, branche `main`, path `infra/services/hub/docker-compose.yml`, Auto Deploy + webhook GitHub
+- [ ] Premier deploy test + smoke `curl https://app.veridian.site`
+- [ ] Test idempotence (commit no-op → redeploy 0 downtime)
+- [ ] Test rollback (`git revert` → redeploy précédent)
+
+**Phase B — CI security** ✅ (2026-05-13)
+- [x] Workflow réutilisable `.github/workflows/_trivy-image.yml` (CRIT/HIGH bloquant, ignore-unfixed, vuln-type os+library)
+- [x] Job `trivy` ajouté à `hub-ci.yml` en `needs: docker`, `deploy-staging` + `deploy-prod` dépendent maintenant de `[docker, trivy]`
+- [x] Cron quotidien `hub-security-cron.yml` (3h UTC) sur image deployed `:latest`
+- [x] `.github/dependabot.yml` : npm /hub + docker /hub + docker /infra/services/hub + github-actions /
+
+**Phase C — Loop validation 7j**
+- [ ] Daily : `gh run list -w hub-security-cron.yml --limit 3` → verte
+- [ ] Daily : `obs check security` côté image hub deployed
+- [ ] Si PR Dependabot → Trivy CI valide ou bloque correctement
+- [ ] À J+7 sans incident : marquer le P0.8 complete, supprimer la branche
+
+**Décisions techniques** :
+- Image tag : on garde `${HUB_IMAGE_TAG:-latest}@sha256:${HUB_IMAGE_DIGEST}` pour avoir
+  à la fois la lisibilité du tag versionné (`vX.Y.Z` bumped par hub-ci) ET le pinning
+  immutable du digest. Le digest est overridable via Dokploy ENV pour bump rapide
+  sans push de PR — utile en hotfix.
+- Healthcheck dupliqué (Dockerfile + compose) : volontaire pour explicite GitOps audit.
+- Routers Traefik gardent les mêmes noms `hub-prod-web/-websecure` → certs Let's Encrypt
+  reconduits sans nouvelle émission. Variable `${DEPLOY_ENV:-prod}` injectée dans les
+  noms de routers pour préparer le pattern blue-green futur.
+
 ### P1.1 — Appliquer le standard cross-SaaS (ref TODO-LIVE)
 - [ ] Lire `docs/saas-standards.md` quand cree et auditer le Hub contre la checklist
 - [x] Soft delete sur la table `tenants` (migration `supabase/migrations/20260117_add_trial_cleanup_columns.sql` : colonne `deleted_at` + index `idx_tenants_deleted_at`)

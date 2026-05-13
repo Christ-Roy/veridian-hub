@@ -12,6 +12,8 @@ on:
       - 'hub/**'
       - '.github/workflows/hub-ci.yml'
       - '.github/workflows/_audit-cve.yml'
+      - '.github/workflows/_trivy-image.yml'
+      - 'infra/services/hub/**'
   workflow_dispatch:
 
 concurrency:
@@ -121,8 +123,16 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
 
-  deploy-staging:
+  trivy:
     needs: docker
+    uses: ./.github/workflows/_trivy-image.yml
+    with:
+      image-ref: ghcr.io/christ-roy/veridian-dashboard:latest
+      severity: 'CRITICAL,HIGH'
+      ignore-unfixed: true
+
+  deploy-staging:
+    needs: [docker, trivy]
     runs-on: [self-hosted, veridian]
     steps:
       - name: Pull image and redeploy staging
@@ -151,7 +161,7 @@ jobs:
           fi
 
   deploy-prod:
-    needs: docker
+    needs: [docker, trivy]
     runs-on: ubuntu-latest
     steps:
       - name: Deploy prod (with rollback tag)

@@ -1,0 +1,75 @@
+services:
+  hub:
+    image: ghcr.io/christ-roy/veridian-dashboard:${HUB_IMAGE_TAG:-latest}@sha256:${HUB_IMAGE_DIGEST:-1406f2c1c0c09c4e70933af93af6fc832a41966e83ffb19bb9ca603438a6ce68}
+    restart: unless-stopped
+    networks:
+      - dokploy-network
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://localhost:3000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})\""]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      NEXT_TELEMETRY_DISABLED: "1"
+      DEPLOY_ENV: ${DEPLOY_ENV:-prod}
+      AUTH_SECRET: ${HUB_AUTH_SECRET}
+      AUTH_TRUST_HOST: "true"
+      AUTH_URL: https://app.veridian.site
+      NEXTAUTH_URL: https://app.veridian.site
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET}
+      DATABASE_URL: postgresql://veridian:${VERIDIAN_CORE_DB_PASSWORD}@veridian-core-db:5432/veridian?schema=hub_app
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY_LIVE}
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_LIVE: ${STRIPE_PUBLISHABLE_KEY_LIVE}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY_LIVE}
+      STRIPE_SECRET_KEY_LIVE: ${STRIPE_SECRET_KEY_LIVE}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET_LIVE}
+      STRIPE_WEBHOOK_SECRET_LIVE: ${STRIPE_WEBHOOK_SECRET_LIVE}
+      NEXT_PUBLIC_SITE_URL: https://app.veridian.site
+      DASHBOARD_SITE_URL: https://app.veridian.site
+      DOMAIN: app.veridian.site
+      NEXT_PUBLIC_NOTIFUSE_URL: https://notifuse.app.veridian.site
+      NEXT_PUBLIC_NOTIFUSE_API_URL: https://notifuse.app.veridian.site/api/v1
+      NOTIFUSE_API_URL: https://notifuse.app.veridian.site
+      NOTIFUSE_API_ENDPOINT: https://notifuse.app.veridian.site
+      NOTIFUSE_SECRET_KEY: ${NOTIFUSE_SECRET_KEY}
+      NOTIFUSE_ROOT_EMAIL: ${NOTIFUSE_ROOT_EMAIL}
+      NOTIFUSE_HUB_API_SECRET: ${NOTIFUSE_HUB_API_SECRET}
+      NOTIFUSE_HUB_WEBHOOK_SECRET: ${NOTIFUSE_HUB_WEBHOOK_SECRET}
+      NEXT_PUBLIC_TWENTY_URL: https://twenty.app.veridian.site
+      TWENTY_FRONTEND_URL: https://twenty.app.veridian.site
+      TWENTY_GRAPHQL_URL: https://twenty.app.veridian.site/graphql
+      TWENTY_METADATA_URL: https://twenty.app.veridian.site/metadata
+      TWENTY_SERVER_URL: https://twenty.app.veridian.site
+      TWENTY_APP_SECRET: ${TWENTY_APP_SECRET}
+      NEXT_PUBLIC_PROSPECTION_URL: https://prospection.app.veridian.site
+      PROSPECTION_API_URL: https://prospection.app.veridian.site
+      PROSPECTION_INTERNAL_URL: https://prospection.app.veridian.site
+      PROSPECTION_TENANT_API_SECRET: ${PROSPECTION_TENANT_API_SECRET}
+      BREVO_API_KEY: ${BREVO_API_KEY}
+      CRON_SECRET: ${CRON_SECRET}
+      VAULT_ENC_KEY: ${VAULT_ENC_KEY}
+      ADMIN_EMAILS: brunon5robert@gmail.com,robert.brunon@veridian.site
+      NEXT_PUBLIC_GTM_ID: ${GTM_ID_APP_VERIDIAN}
+      NEXT_PUBLIC_SUPABASE_URL: https://api.app.veridian.site
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      - traefik.http.routers.hub-${DEPLOY_ENV:-prod}-web.entrypoints=web
+      - traefik.http.routers.hub-${DEPLOY_ENV:-prod}-web.rule=Host(`${HUB_HOST:-app.veridian.site}`)
+      - traefik.http.routers.hub-${DEPLOY_ENV:-prod}-web.middlewares=redirect-to-https@file
+      - traefik.http.routers.hub-${DEPLOY_ENV:-prod}-websecure.entrypoints=websecure
+      - traefik.http.routers.hub-${DEPLOY_ENV:-prod}-websecure.rule=Host(`${HUB_HOST:-app.veridian.site}`)
+      - traefik.http.routers.hub-${DEPLOY_ENV:-prod}-websecure.tls=true
+      - traefik.http.routers.hub-${DEPLOY_ENV:-prod}-websecure.tls.certresolver=letsencrypt
+      - traefik.http.services.hub-${DEPLOY_ENV:-prod}.loadbalancer.server.port=3000
+
+networks:
+  dokploy-network:
+    external: true

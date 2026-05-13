@@ -1,0 +1,23 @@
+name: Hub — Security cron (Trivy daily)
+
+# Cron quotidien Trivy sur l'image hub deployed (latest tag GHCR).
+# Détecte les CVE upstream sorties APRÈS le merge (entre 2 builds).
+# Si CRIT/HIGH apparaît : ce workflow fail et l'agent CI hub doit ouvrir une PR de bump.
+# Référence : SPRINT-GITOPS-VERIDIAN.md "Cron Trivy quotidien".
+
+on:
+  schedule:
+    - cron: '0 3 * * *'   # 3h UTC = 4h/5h Paris
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  trivy-deployed:
+    uses: ./.github/workflows/_trivy-image.yml
+    with:
+      image-ref: ghcr.io/christ-roy/veridian-dashboard:latest
+      severity: 'CRITICAL,HIGH'
+      ignore-unfixed: true

@@ -1,0 +1,43 @@
+name: _trivy-image (reusable)
+
+# Reusable Trivy image scan. Bloque sur CRITICAL ou HIGH avec fix dispo.
+# Référence : SPRINT-GITOPS-VERIDIAN.md "Trivy CI bloquant sur build".
+# Complémentaire à _audit-cve.yml (npm/pnpm deps) : couvre les CVE OS + libs
+# système embarquées dans l'image Docker (libssl, libcrypto, glibc, etc.).
+
+on:
+  workflow_call:
+    inputs:
+      image-ref:
+        description: "Image à scanner (ex: ghcr.io/org/repo:tag ou local-tag)"
+        required: true
+        type: string
+      severity:
+        description: "Sévérités bloquantes (CSV)"
+        required: false
+        type: string
+        default: "CRITICAL,HIGH"
+      ignore-unfixed:
+        description: "Ignorer les CVE sans patch dispo upstream (recommandé)"
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  trivy:
+    name: Trivy scan (CRIT/HIGH bloquant)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ inputs.image-ref }}
+          severity: ${{ inputs.severity }}
+          exit-code: '1'
+          ignore-unfixed: ${{ inputs.ignore-unfixed }}
+          format: 'table'
+          vuln-type: 'os,library'
+          timeout: '10m'
+        env:
+          # Cache la DB Trivy pour éviter le rate limit GHCR
+          TRIVY_CACHE_DIR: /tmp/trivy-cache
