@@ -194,7 +194,7 @@ jobs:
         run: npx playwright test e2e/prod-smoke/ --reporter=list
       - name: Upload trace on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: hub-prod-smoke-trace
           path: test-results/
