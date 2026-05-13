@@ -244,9 +244,15 @@ jobs:
           retention-days: 7
 
   # ── Rollback prod on health check failure OR smoke failure ─────────
+  # IMPORTANT: condition stricte. failure() seul match aussi quand un job
+  # amont est SKIPPED (cas Trivy fail → deploy-prod skipped → rollback
+  # déclenché alors qu'aucun deploy n'a eu lieu). On exige que deploy-prod
+  # OU e2e-prod-smoke ait explicitement fail.
   rollback-prod:
     needs: [deploy-prod, e2e-prod-smoke]
-    if: failure() && github.ref == 'refs/heads/main'
+    if: |
+      github.ref == 'refs/heads/main' &&
+      (needs.deploy-prod.result == 'failure' || needs.e2e-prod-smoke.result == 'failure')
     runs-on: ubuntu-latest
     steps:
       - name: Rollback to previous image
