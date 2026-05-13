@@ -219,6 +219,7 @@ Branche : `feat/hub-gitops-migration`. Stack Dokploy : `compose-back-up-online-p
 
 ## Backlog Hub-specific
 
+- [ ] **Dégager Twenty de l'UI Hub** — Twenty va être supprimé de la stack Veridian. Retirer toutes les refs UI/API : `app/dashboard/integration/page.tsx`, `app/api/twenty/*` (create-tenant, regenerate-login), `components/account/TwentyTenantManager.tsx`, `components/dashboard/TenantCard.tsx` (carte Twenty), `utils/tenants/provision.ts` (étape provisionnement Twenty), refs dans pricing/landing/docs, `EnvContext` (vars TWENTY_*), `api/cron/cleanup-trials` (cleanup tenant Twenty), provisioning au signup (`api/auth/signup`), admin pages (`api/admin/delete-tenant`, `impersonate`, `list-tenants`), `utils/tenants/cleanup.ts` + `debug.ts`. Migration DB : nettoyer colonnes `twenty_*` sur `tenants` + table `provisioning_logs` filtrée. Garder traces dans audit log.
 - [ ] Audit hot paths Supabase admin API (P0.2) — verifier que le cache 5min est bien applique partout
 - [ ] Page `/billing` : historique factures Stripe, upgrade/downgrade plan
 - [ ] Page `/settings/workspace` : nom, logo, domaine custom

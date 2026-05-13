@@ -1,6 +1,8 @@
 services:
   hub:
-    image: ghcr.io/christ-roy/veridian-hub:${HUB_IMAGE_TAG:-latest}@sha256:${HUB_IMAGE_DIGEST:-1406f2c1c0c09c4e70933af93af6fc832a41966e83ffb19bb9ca603438a6ce68}
+    # Default: tag mouvant (:latest) ; SHA pin activable via Dokploy ENV
+    # HUB_IMAGE_DIGEST=sha256:<digest> pour pin immutable (cf sprint GitOps).
+    image: ghcr.io/christ-roy/veridian-hub:${HUB_IMAGE_TAG:-latest}
     restart: unless-stopped
     networks:
       - dokploy-network
