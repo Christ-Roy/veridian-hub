@@ -65,7 +65,9 @@ jobs:
   docker:
     needs: [test, audit]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: [self-hosted, veridian]
+    # GitHub-hosted depuis extraction polyrepo (2026-05-13). Le self-hosted
+    # runner [self-hosted, veridian] n'est pas enregistré sur ce repo.
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       packages: write
