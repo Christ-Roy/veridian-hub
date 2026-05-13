@@ -12,7 +12,7 @@
  *
  * Mapping :
  * - DASHBOARD_SITE_URL → NEXT_PUBLIC_SITE_URL
- * - DASHBOARD_SUPABASE_URL → NEXT_PUBLIC_SUPABASE_URL
+ * - DASHBOARD_TWENTY_URL → NEXT_PUBLIC_TWENTY_URL
  * etc.
  *
  * ⚠️ CRITICAL : export const dynamic = 'force-dynamic' est OBLIGATOIRE
@@ -25,8 +25,6 @@ export async function GET() {
   // Fallback sur NEXT_PUBLIC_* pour compatibilité avec l'ancien système
   const config = {
     NEXT_PUBLIC_SITE_URL: process.env.DASHBOARD_SITE_URL || process.env.NEXT_PUBLIC_SITE_URL || null,
-    NEXT_PUBLIC_SUPABASE_URL: process.env.DASHBOARD_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || null,
-    NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.DASHBOARD_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || null,
     NEXT_PUBLIC_TWENTY_URL: process.env.DASHBOARD_TWENTY_URL || process.env.NEXT_PUBLIC_TWENTY_URL || null,
     NEXT_PUBLIC_NOTIFUSE_URL: process.env.DASHBOARD_NOTIFUSE_URL || process.env.NEXT_PUBLIC_NOTIFUSE_URL || null,
     NEXT_PUBLIC_NOTIFUSE_API_URL: process.env.DASHBOARD_NOTIFUSE_API_URL || process.env.NEXT_PUBLIC_NOTIFUSE_API_URL || null,

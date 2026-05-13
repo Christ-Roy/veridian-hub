@@ -55,7 +55,7 @@ export const metadata: Metadata = {
  * Il contient uniquement :
  * - HTML/body structure
  * - Styles globaux (main.css avec shadcn theme)
- * - <Toaster /> CRITIQUE : gère les notifications Supabase Auth
+ * - <Toaster /> : notifications auth (Auth.js) + actions dashboard
  * - Runtime ENV injection (window.__ENV__) pour Docker
  *
  * Les layouts spécifiques (marketing, dashboard) ajoutent leur propre UI.
@@ -65,8 +65,6 @@ export default async function RootLayout({ children }: PropsWithChildren) {
   // This runs in Node.js where process.env is fully populated at RUNTIME
   const runtimeEnv: EnvConfig = {
     NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL || '',
-    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-    NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
     NEXT_PUBLIC_TWENTY_URL: process.env.NEXT_PUBLIC_TWENTY_URL || '',
     NEXT_PUBLIC_NOTIFUSE_URL: process.env.NEXT_PUBLIC_NOTIFUSE_URL || '',
     NEXT_PUBLIC_NOTIFUSE_API_URL: process.env.NEXT_PUBLIC_NOTIFUSE_API_URL || '',
@@ -79,7 +77,6 @@ export default async function RootLayout({ children }: PropsWithChildren) {
     <html lang="fr" suppressHydrationWarning>
       <head>
         {/* Preconnect hints pour optimiser le chargement des ressources externes */}
-        <link rel="preconnect" href="https://cdn.supabase.com" />
         <link rel="preconnect" href="https://js.stripe.com" />
         <link rel="preconnect" href="https://www.googletagmanager.com" />
 

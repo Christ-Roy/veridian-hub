@@ -55,9 +55,6 @@ services:
       VAULT_ENC_KEY: ${VAULT_ENC_KEY}
       ADMIN_EMAILS: brunon5robert@gmail.com,robert.brunon@veridian.site
       NEXT_PUBLIC_GTM_ID: ${GTM_ID_APP_VERIDIAN}
-      NEXT_PUBLIC_SUPABASE_URL: https://api.app.veridian.site
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
-      SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY}
     labels:
       - traefik.enable=true
       - traefik.docker.network=dokploy-network

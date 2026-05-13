@@ -7,8 +7,6 @@ import { createContext, useContext, useState, PropsWithChildren } from 'react';
  */
 export type EnvConfig = {
   NEXT_PUBLIC_SITE_URL: string;
-  NEXT_PUBLIC_SUPABASE_URL: string;
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: string;
   NEXT_PUBLIC_TWENTY_URL: string;
   NEXT_PUBLIC_NOTIFUSE_URL: string;
   NEXT_PUBLIC_NOTIFUSE_API_URL: string;
@@ -31,8 +29,6 @@ declare global {
  */
 const buildTimeEnv: EnvConfig = {
   NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL || '',
-  NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL || '',
-  NEXT_PUBLIC_SUPABASE_ANON_KEY: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '',
   NEXT_PUBLIC_TWENTY_URL: process.env.NEXT_PUBLIC_TWENTY_URL || '',
   NEXT_PUBLIC_NOTIFUSE_URL: process.env.NEXT_PUBLIC_NOTIFUSE_URL || '',
   NEXT_PUBLIC_NOTIFUSE_API_URL: process.env.NEXT_PUBLIC_NOTIFUSE_API_URL || '',
@@ -101,7 +97,7 @@ export function EnvProvider({ children, initialEnv }: EnvProviderProps) {
  *
  * @example
  * ```tsx
- * const { NEXT_PUBLIC_SUPABASE_URL } = useEnv();
+ * const { NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY } = useEnv();
  * ```
  */
 export function useEnv(): EnvConfig {
