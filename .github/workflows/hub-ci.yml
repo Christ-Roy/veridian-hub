@@ -107,7 +107,7 @@ jobs:
       # Wrapper retry pour palier les "context deadline exceeded / no active
       # session" intermittents du push GHCR depuis self-hosted runner.
       - name: Build and push (with retry)
-        uses: nick-fields/retry@v3
+        uses: nick-fields/retry@v4
         with:
           timeout_minutes: 15
           max_attempts: 3
