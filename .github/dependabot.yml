@@ -1,0 +1,86 @@
+version: 2
+
+updates:
+  # --- App deps ---
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Paris"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    groups:
+      next-stack:
+        patterns:
+          - "next"
+          - "next-auth"
+          - "@auth/*"
+          - "react"
+          - "react-dom"
+      prisma-stack:
+        patterns:
+          - "prisma"
+          - "@prisma/*"
+      dev-tooling:
+        dependency-type: "development"
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+          - "@playwright/test"
+          - "playwright"
+          - "eslint*"
+          - "typescript"
+          - "@types/*"
+    # Majors framework restent en PR individuelles, review humaine
+    ignore:
+      - dependency-name: "next"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "next-auth"
+        update-types: ["version-update:semver-major"]
+
+  # --- Dockerfile (image de base node:20-alpine) ---
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Paris"
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "chore(docker)"
+
+  # NOTE : Dependabot ecosystem `docker` ne scanne PAS docker-compose.yml
+  # (limitation upstream). Le bump des images du compose Dokploy passe par :
+  #   - hub-security-cron.yml (cron Trivy quotidien — détecte CVE upstream)
+  #   - le tag :latest du compose Git pull à chaque deploy
+  # Renovate gère compose nativement — à activer plus tard si besoin.
+
+  # --- GitHub Actions ---
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "Europe/Paris"
+    labels:
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "chore(ci)"
+    groups:
+      github-actions-patches:
+        update-types:
+          - "patch"
+          - "minor"

@@ -1,19 +1,17 @@
 name: Hub CI/CD
 
+# Repo standalone veridian-hub. Code à la racine (post-extraction monorepo
+# veridian-platform le 2026-05-13). Cf README.md.
+
 on:
   push:
     branches: [main, staging]
-    paths:
-      - 'hub/**'
-      - '.github/workflows/hub-ci.yml'
+    paths-ignore:
+      - 'todo/**'
+      - '_archive/**'
+      - '**/*.md'
   pull_request:
     branches: [main]
-    paths:
-      - 'hub/**'
-      - '.github/workflows/hub-ci.yml'
-      - '.github/workflows/_audit-cve.yml'
-      - '.github/workflows/_trivy-image.yml'
-      - 'infra/services/hub/**'
   workflow_dispatch:
 
 concurrency:
@@ -23,10 +21,6 @@ concurrency:
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: christ-roy/veridian-dashboard
-
-defaults:
-  run:
-    working-directory: hub
 
 jobs:
   test:
@@ -40,7 +34,6 @@ jobs:
         with:
           node-version: 20
           cache: 'pnpm'
-          cache-dependency-path: hub/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
       - name: Lint
         run: pnpm lint
@@ -51,14 +44,11 @@ jobs:
       - name: Build check
         run: pnpm build
         env:
-          NEXT_PUBLIC_SUPABASE_URL: http://localhost:54321
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: fake-anon-key
           NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_fake
           NEXT_PUBLIC_SITE_URL: http://localhost:3000
           NEXT_PUBLIC_TWENTY_URL: http://localhost:3001
           NEXT_PUBLIC_NOTIFUSE_URL: http://localhost:3002
           NEXT_PUBLIC_NOTIFUSE_API_URL: http://localhost:3003
-          SUPABASE_SERVICE_ROLE_KEY: fake-service-role-key
           STRIPE_SECRET_KEY: sk_test_fake
           STRIPE_WEBHOOK_SECRET: whsec_fake
 
@@ -66,7 +56,7 @@ jobs:
     name: CVE audit (high+critical bloquant)
     uses: ./.github/workflows/_audit-cve.yml
     with:
-      app-path: hub
+      app-path: .
       package-manager: pnpm
       node-version: "20"
       pnpm-version: "10"
@@ -79,6 +69,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -109,13 +101,11 @@ jobs:
           fi
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "Building version: ${VERSION}"
-        working-directory: .
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Wrapper retry pour palier les "context deadline exceeded / no active
       # session" intermittents du push GHCR depuis self-hosted runner.
-      # 3 tentatives max, backoff 30s.
       - name: Build and push (with retry)
         uses: nick-fields/retry@v3
         with:
@@ -129,8 +119,8 @@ jobs:
               --push \
               -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }} \
               -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
-              -f ./hub/Dockerfile \
-              ./hub
+              -f ./Dockerfile \
+              .
 
   trivy:
     needs: docker
@@ -140,72 +130,39 @@ jobs:
       severity: 'CRITICAL,HIGH'
       ignore-unfixed: true
 
-  deploy-staging:
-    needs: [docker, trivy]
-    runs-on: [self-hosted, veridian]
-    steps:
-      - name: Pull image and redeploy staging
-        env:
-          SSH_KEY_PROD: ${{ secrets.DEPLOY_SSH_KEY }}
-          VPS_HOST: ${{ vars.VPS_HOST }}
-          VPS_USER: ${{ vars.VPS_USER }}
-          COMPOSE_ID: ${{ vars.COMPOSE_ID_STAGING }}
-          DOKPLOY_KEY: ${{ secrets.DOKPLOY_API_KEY }}
-        run: |
-          # Self-hosted runner IS on dev server — pull locally (no SSH needed)
-          docker pull ghcr.io/christ-roy/veridian-dashboard:latest && echo "Image pulled locally"
-
-          # Trigger redeploy via Dokploy on prod VPS
-          if [ -n "$COMPOSE_ID" ] && [ -n "$DOKPLOY_KEY" ] && [ -n "$VPS_HOST" ]; then
-            mkdir -p ~/.ssh
-            echo "$SSH_KEY_PROD" > ~/.ssh/prod_key
-            chmod 600 ~/.ssh/prod_key
-            ssh-keyscan -H $VPS_HOST >> ~/.ssh/known_hosts 2>/dev/null
-            ssh -i ~/.ssh/prod_key -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST \
-              "curl -sf -X POST \
-                -H 'x-api-key: $DOKPLOY_KEY' \
-                -H 'Content-Type: application/json' \
-                -d '{\"json\":{\"composeId\":\"$COMPOSE_ID\"}}' \
-                http://localhost:3000/api/trpc/compose.redeploy && echo 'Staging redeploy triggered'"
-          fi
-
   deploy-prod:
     needs: [docker, trivy]
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy prod (with rollback tag)
+      - name: Trigger Dokploy redeploy (custom-git mode pulls main automatically)
         env:
           SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           VPS_HOST: ${{ vars.VPS_HOST }}
           VPS_USER: ${{ vars.VPS_USER }}
+          DOKPLOY_COMPOSE_ID: ${{ vars.DOKPLOY_COMPOSE_ID }}
         run: |
-          if [ -z "$SSH_KEY" ] || [ -z "$VPS_HOST" ]; then
-            echo "Prod deploy not configured — skipping"
+          if [ -z "$SSH_KEY" ] || [ -z "$VPS_HOST" ] || [ -z "$DOKPLOY_COMPOSE_ID" ]; then
+            echo "Prod deploy not fully configured — skipping (set vars/secrets)"
             exit 0
           fi
           mkdir -p ~/.ssh
           echo "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H $VPS_HOST >> ~/.ssh/known_hosts 2>/dev/null
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST bash -s << 'DEPLOY'
-            # Tag current image as rollback BEFORE pulling new one
-            CURRENT_ID=$(docker images ghcr.io/christ-roy/veridian-dashboard:latest --format '{{.ID}}' 2>/dev/null)
-            if [ -n "$CURRENT_ID" ]; then
-              docker tag "$CURRENT_ID" ghcr.io/christ-roy/veridian-dashboard:rollback
-              echo "Tagged current image as :rollback ($CURRENT_ID)"
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST bash -s << DEPLOY
+            CURRENT_ID=\$(docker images ghcr.io/christ-roy/veridian-dashboard:latest --format '{{.ID}}' 2>/dev/null)
+            if [ -n "\$CURRENT_ID" ]; then
+              docker tag "\$CURRENT_ID" ghcr.io/christ-roy/veridian-dashboard:rollback
+              echo "Tagged current image as :rollback (\$CURRENT_ID)"
             fi
             docker pull ghcr.io/christ-roy/veridian-dashboard:latest
-            DKEY=$(grep '^DOKPLOY_API_KEY=' ~/credentials/.all-creds.env | cut -d= -f2)
+            DKEY=\$(grep '^DOKPLOY_API_KEY=' ~/credentials/.all-creds.env | cut -d= -f2)
             curl -sf -X POST \
-              -H "x-api-key: $DKEY" \
+              -H "x-api-key: \$DKEY" \
               -H "Content-Type: application/json" \
-              -d '{"json":{"composeId":"Rnt_Jz4BhkcyEJ2D6Bugb"}}' \
+              -d '{"json":{"composeId":"$DOKPLOY_COMPOSE_ID"}}' \
               http://localhost:3000/api/trpc/compose.redeploy && echo "Hub prod redeploy triggered"
           DEPLOY
-          # Health check (wait up to 2 min — Dokploy queue + Next cold start).
-          # TODO: quand /api/health expose `version`, vérifier ici que la
-          # version qui répond correspond bien à hub/package.json (cf
-          # prospection-ci ligne 471) → catch les "queued but no-op" deploys.
           echo "Waiting for hub health (up to 2min)..."
           for i in $(seq 1 12); do
             if curl -sf https://app.veridian.site/api/health | grep -q '"status":"ok"'; then
@@ -216,15 +173,7 @@ jobs:
           done
           echo "ERROR: hub health check failed after 2min — deploy probably broken"
           exit 1
-        working-directory: .
 
-  # ── E2E smoke prod — gate du rollback ──────────────────────────────
-  # Cette étape teste les endpoints Auth.js publics de la prod après deploy.
-  # AURAIT DÉTECTÉ L'INCIDENT 2026-05-10 EN 30s (Traefik avait routé sur un
-  # container fantôme pre-Auth.js qui renvoyait 500 sur /api/auth/*).
-  #
-  # Read-only contre app.veridian.site. Aucune écriture, aucun signup.
-  # Si fail → le rollback-prod ci-dessous se déclenche automatiquement.
   e2e-prod-smoke:
     needs: deploy-prod
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -238,7 +187,6 @@ jobs:
         with:
           node-version: 20
           cache: 'pnpm'
-          cache-dependency-path: hub/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
       - name: Install Playwright chromium
         run: npx playwright install --with-deps chromium
@@ -249,14 +197,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: hub-prod-smoke-trace
-          path: hub/test-results/
+          path: test-results/
           retention-days: 7
 
-  # ── Rollback prod on health check failure OR smoke failure ─────────
-  # IMPORTANT: condition stricte. failure() seul match aussi quand un job
-  # amont est SKIPPED (cas Trivy fail → deploy-prod skipped → rollback
-  # déclenché alors qu'aucun deploy n'a eu lieu). On exige que deploy-prod
-  # OU e2e-prod-smoke ait explicitement fail.
+  # Rollback : déclenché uniquement si deploy-prod OU e2e-prod-smoke a explicitement
+  # fail (pas si skipped). Évite le faux rollback quand Trivy bloque le deploy.
   rollback-prod:
     needs: [deploy-prod, e2e-prod-smoke]
     if: |
@@ -269,8 +214,9 @@ jobs:
           SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           VPS_HOST: ${{ vars.VPS_HOST }}
           VPS_USER: ${{ vars.VPS_USER }}
+          DOKPLOY_COMPOSE_ID: ${{ vars.DOKPLOY_COMPOSE_ID }}
         run: |
-          if [ -z "$SSH_KEY" ] || [ -z "$VPS_HOST" ]; then
+          if [ -z "$SSH_KEY" ] || [ -z "$VPS_HOST" ] || [ -z "$DOKPLOY_COMPOSE_ID" ]; then
             echo "Rollback skipped (no prod credentials)"
             exit 0
           fi
@@ -278,24 +224,21 @@ jobs:
           echo "$SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H $VPS_HOST >> ~/.ssh/known_hosts 2>/dev/null
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST bash -s << 'ROLLBACK'
-            ROLLBACK_ID=$(docker images ghcr.io/christ-roy/veridian-dashboard:rollback --format '{{.ID}}' 2>/dev/null)
-            if [ -z "$ROLLBACK_ID" ]; then
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST bash -s << ROLLBACK
+            ROLLBACK_ID=\$(docker images ghcr.io/christ-roy/veridian-dashboard:rollback --format '{{.ID}}' 2>/dev/null)
+            if [ -z "\$ROLLBACK_ID" ]; then
               echo "No :rollback image found — cannot rollback"
               exit 1
             fi
             docker tag ghcr.io/christ-roy/veridian-dashboard:rollback ghcr.io/christ-roy/veridian-dashboard:latest
-            echo "Tagged :rollback ($ROLLBACK_ID) as :latest"
-            DKEY=$(grep '^DOKPLOY_API_KEY=' ~/credentials/.all-creds.env | cut -d= -f2)
+            DKEY=\$(grep '^DOKPLOY_API_KEY=' ~/credentials/.all-creds.env | cut -d= -f2)
             curl -sf -X POST \
-              -H "x-api-key: $DKEY" \
+              -H "x-api-key: \$DKEY" \
               -H "Content-Type: application/json" \
-              -d '{"json":{"composeId":"Rnt_Jz4BhkcyEJ2D6Bugb"}}' \
+              -d '{"json":{"composeId":"$DOKPLOY_COMPOSE_ID"}}' \
               http://localhost:3000/api/trpc/compose.redeploy
             echo "Rolled back to previous image"
           ROLLBACK
-          # Verify rollback health (wait up to 90s)
-          echo "Verifying rollback health..."
           for i in $(seq 1 9); do
             if curl -sf https://app.veridian.site/api/health | grep -q '"status":"ok"'; then
               echo "Rollback healthy after ${i}0s"
@@ -305,4 +248,3 @@ jobs:
           done
           echo "WARNING: rollback health check timed out — manual intervention needed"
           exit 1
-        working-directory: .
