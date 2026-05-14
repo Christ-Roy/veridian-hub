@@ -4,6 +4,40 @@
 > Ce fichier suit l'**implémentation** chantier par chantier — fait / en cours / à faire.
 > Mis à jour à chaque action significative sur la CI Hub.
 
+## 🚀 État actuel (post-session 2026-05-14)
+
+**Session marathon** : 3 PR mergées sur main, infra staging activée, 🔥 mode Nuclear actif.
+
+### Ce qui tourne maintenant en prod
+- ✅ Hub `/dashboard` débloqué (fix RSC Next 15) — validé visuellement Chrome
+- ✅ Compose modulaire `base + prod + staging` avec wrapper `include:` (byte-exact)
+- ✅ Pipeline complet vert sur 3 deploys consécutifs (PR #17, #18, #19)
+
+### Garde-fous CI actifs
+- 🔥 **Mode Nuclear** : 0 dette tolérée sur business logic (API routes, components hors ui, hooks, lib)
+- ✅ `check-test-mapping.sh` côté CI étage 1 + pre-push hook local (impossible à bypass)
+- ✅ `check-compose-sync.sh` côté CI étage 1 + pre-push hook si compose modifié
+- ✅ Supply chain : `--ignore-scripts` partout (CI + Dockerfile) + whitelist `pnpm.onlyBuiltDependencies`
+- ✅ Audit CVE high+critical bloquant
+- ✅ Trivy image scan
+- ✅ Auto-rollback Docker si smoke prod fail
+
+### Infrastructure staging dispo
+- ✅ Traefik standalone sur dev (`~/traefik-staging/`)
+- ✅ User SSH `staging-deploy` + clé déployée
+- ✅ Secrets/vars GitHub repo configurés (5 entrées)
+- ✅ Workflow `hub-staging.yml` prêt — déclenche sur push branche `staging`
+- ✅ URL : `https://hub.staging.veridian.site` (cert wildcard ACME)
+
+### Reste à faire (priorisé)
+1. **Créer branche `staging`** depuis main + push → premier vrai test E2E staging
+2. Brancher Renovate (chantier #18 du tableau)
+3. Compléter Trivy 9 capacités (chantier #9)
+4. Workflow réutilisable `_app-ci.yml` (chantier #6) — mutualisation 5 apps
+5. Reste de la dette : emergency revert/rollback, SARIF, migrations safety, MSW, size-limit, etc.
+
+---
+
 **Légende :**
 - ✅ Fait + en prod
 - 🟡 Fait localement, pas encore mergé
@@ -353,10 +387,7 @@ Le workflow `hub-staging.yml` attend ces secrets/vars sur le repo `Christ-Roy/ve
 
 - ✅ **PR #17** (`fix/dashboard-rsc-icon-prop`) : fix RSC `/dashboard` Next.js 15. Merge commit `e8526787`. Pipeline complet vert (test + audit + docker + trivy + deploy-prod + e2e-prod-smoke). **Validé visuellement** : `/dashboard` rend correctement, robert.brunon connecté voit les cards Prospection/Twenty/Notifuse + ServiceCard avec icon BarChart3.
 - ✅ **PR #18** (`feat/staging-ephemeral-ci`) : refacto compose base/prod/staging + workflow staging fixe + smoke-prod.sh + runbook activate-staging. Merge commit `babed29a`. Pipeline complet vert. **Validation byte-exact** : compose `include:` produit le même runtime que l'ancien monolithique → 0 régression Dokploy.
-
-#### PR ouverte non-mergée
-
-- 🟡 **PR #19** (`feat/ci-hardening`) : extension CI (anti `--no-verify` + supply chain + 🔥 mode Nuclear). CI en cours, à merger après validation.
+- ✅ **PR #19** (`feat/ci-hardening`) : extension CI (anti `--no-verify` étage 1 + supply chain `--ignore-scripts` partout + 🔥 mode Nuclear) + path-based skip étendu (`docs/`, `runbooks/`). Merge commit `b7c95604`. CI test+audit verte avant merge. Pipeline post-merge en cours de surveillance (redeploy Dockerfile hardened).
 
 #### Infrastructure staging activée
 
