@@ -37,6 +37,8 @@ jobs:
       - run: pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
       - name: Lint
         run: pnpm lint
+      - name: Compose sync (base + prod + staging cohérents)
+        run: ./scripts/ci/check-compose-sync.sh
       - name: Tests
         run: pnpm test
         env:

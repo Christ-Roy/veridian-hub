@@ -1,0 +1,129 @@
+# ============================================================================
+# compose/staging.yml — Override staging (dev server, *.staging.veridian.site)
+# ============================================================================
+#
+# Combiné avec base.yml :
+#   docker compose -f compose/base.yml -f compose/staging.yml up -d
+#
+# Réseau : staging-edge (Traefik standalone sur dev, cf ~/traefik-staging/)
+# DB : Postgres éphémère par stack (pas la prod, pas de partage)
+# Stripe : keys TEST
+# URLs : hub-<branch-slug>.staging.veridian.site (sous-domaine par PR)
+#
+# Variables d'env attendues (injectées par le workflow CI) :
+#   HUB_IMAGE_TAG      = staging-<sha7> (image build par la CI sur la PR)
+#   BRANCH_SLUG        = nom de branche slugifié, ex: fix-dashboard-rsc
+#   HUB_AUTH_SECRET    = secret AUTH.js staging (faux mais stable)
+#   POSTGRES_PASSWORD  = mot de passe DB éphémère (généré random par CI)
+#
+# ============================================================================
+
+services:
+  hub:
+    container_name: hub-${BRANCH_SLUG}
+    networks:
+      - staging-edge
+      - hub-internal
+    depends_on:
+      hub-db:
+        condition: service_healthy
+    environment:
+      # ─── Env tag ───────────────────────────────────────────────────────
+      DEPLOY_ENV: staging
+
+      # ─── Auth.js staging ───────────────────────────────────────────────
+      AUTH_SECRET: ${HUB_AUTH_SECRET:-staging-not-secret-replace-me}
+      AUTH_URL: https://hub-${BRANCH_SLUG}.staging.veridian.site
+      NEXTAUTH_URL: https://hub-${BRANCH_SLUG}.staging.veridian.site
+      # OAuth Google : pas configuré sur staging par défaut.
+      # Pour tester l'OAuth, ajouter manuellement les keys staging.
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID_STAGING:-}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET_STAGING:-}
+
+      # ─── DB éphémère par stack ─────────────────────────────────────────
+      DATABASE_URL: postgresql://hub:${POSTGRES_PASSWORD:-staging-pwd}@hub-db:5432/hub?schema=hub_app
+
+      # ─── Stripe TEST (clés publiques toujours OK, pas de transac) ──────
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY_TEST:-pk_test_fake}
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_LIVE: ${STRIPE_PUBLISHABLE_KEY_TEST:-pk_test_fake}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY_TEST:-sk_test_fake}
+      STRIPE_SECRET_KEY_LIVE: ${STRIPE_SECRET_KEY_TEST:-sk_test_fake}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET_TEST:-whsec_fake}
+      STRIPE_WEBHOOK_SECRET_LIVE: ${STRIPE_WEBHOOK_SECRET_TEST:-whsec_fake}
+
+      # ─── URLs staging (sous-domaine par PR) ────────────────────────────
+      NEXT_PUBLIC_SITE_URL: https://hub-${BRANCH_SLUG}.staging.veridian.site
+      DASHBOARD_SITE_URL: https://hub-${BRANCH_SLUG}.staging.veridian.site
+      DOMAIN: hub-${BRANCH_SLUG}.staging.veridian.site
+
+      # ─── Notifuse : pas de staging propre, pointe vers prod (read-only) ─
+      # À terme : notifuse.staging.veridian.site
+      NEXT_PUBLIC_NOTIFUSE_URL: https://notifuse.app.veridian.site
+      NEXT_PUBLIC_NOTIFUSE_API_URL: https://notifuse.app.veridian.site/api/v1
+      NOTIFUSE_API_URL: https://notifuse.app.veridian.site
+      NOTIFUSE_API_ENDPOINT: https://notifuse.app.veridian.site
+      NOTIFUSE_SECRET_KEY: ${NOTIFUSE_SECRET_KEY_STAGING:-staging-secret}
+      NOTIFUSE_ROOT_EMAIL: ${NOTIFUSE_ROOT_EMAIL:-admin@veridian.site}
+      NOTIFUSE_HUB_API_SECRET: ${NOTIFUSE_HUB_API_SECRET_STAGING:-staging-secret}
+      NOTIFUSE_HUB_WEBHOOK_SECRET: ${NOTIFUSE_HUB_WEBHOOK_SECRET_STAGING:-staging-secret}
+
+      # ─── Twenty : retiré de la stack (cf TODO Hub P0.1) ────────────────
+      NEXT_PUBLIC_TWENTY_URL: https://twenty.app.veridian.site
+      TWENTY_FRONTEND_URL: https://twenty.app.veridian.site
+      TWENTY_GRAPHQL_URL: https://twenty.app.veridian.site/graphql
+      TWENTY_METADATA_URL: https://twenty.app.veridian.site/metadata
+      TWENTY_SERVER_URL: https://twenty.app.veridian.site
+      TWENTY_APP_SECRET: staging-not-used
+
+      # ─── Prospection : pointe vers prod (read-only) ────────────────────
+      NEXT_PUBLIC_PROSPECTION_URL: https://prospection.app.veridian.site
+      PROSPECTION_API_URL: https://prospection.app.veridian.site
+      PROSPECTION_INTERNAL_URL: https://prospection.app.veridian.site
+      PROSPECTION_TENANT_API_SECRET: ${PROSPECTION_TENANT_API_SECRET_STAGING:-staging-secret}
+
+      # ─── Services tiers staging ────────────────────────────────────────
+      BREVO_API_KEY: ${BREVO_API_KEY_STAGING:-}
+      CRON_SECRET: staging-cron-secret
+      VAULT_ENC_KEY: ${VAULT_ENC_KEY_STAGING:-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
+      NEXT_PUBLIC_GTM_ID: ""
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=staging-edge
+      - traefik.http.routers.hub-${BRANCH_SLUG}.rule=Host(`hub-${BRANCH_SLUG}.staging.veridian.site`)
+      - traefik.http.routers.hub-${BRANCH_SLUG}.entrypoints=websecure
+      - traefik.http.routers.hub-${BRANCH_SLUG}.tls=true
+      - traefik.http.routers.hub-${BRANCH_SLUG}.tls.certresolver=letsencrypt
+      - traefik.http.services.hub-${BRANCH_SLUG}.loadbalancer.server.port=3000
+      # Marquer la stack pour le GC (cleanup hebdo des PR orphelines)
+      - veridian.staging.app=hub
+      - veridian.staging.branch=${BRANCH_SLUG}
+
+  # ─── Postgres éphémère par stack ─────────────────────────────────────
+  # Pas de volume nommé : tout disparaît au `docker compose down -v`.
+  hub-db:
+    image: postgres:16-alpine
+    container_name: hub-db-${BRANCH_SLUG}
+    restart: unless-stopped
+    networks:
+      - hub-internal
+    environment:
+      POSTGRES_USER: hub
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-staging-pwd}
+      POSTGRES_DB: hub
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hub -d hub"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    labels:
+      - veridian.staging.app=hub
+      - veridian.staging.branch=${BRANCH_SLUG}
+
+networks:
+  staging-edge:
+    external: true
+  hub-internal:
+    # Network interne app↔DB, isolé du Traefik. Pas de external: true →
+    # Compose le crée par stack, et le supprime avec `down -v`.
+    driver: bridge
