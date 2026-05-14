@@ -9,9 +9,17 @@ on:
     paths-ignore:
       - 'todo/**'
       - '_archive/**'
+      - 'docs/**'
+      - 'runbooks/**'
       - '**/*.md'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - 'todo/**'
+      - '_archive/**'
+      - 'docs/**'
+      - 'runbooks/**'
+      - '**/*.md'
   workflow_dispatch:
 
 concurrency:
@@ -27,6 +35,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          # Fetch depth 0 pour que check-test-mapping puisse faire
+          # `git diff origin/main...HEAD`. Sinon le diff renvoie tout.
+          fetch-depth: 0
       - uses: pnpm/action-setup@v4
         with:
           version: 10
@@ -34,7 +46,13 @@ jobs:
         with:
           node-version: 20
           cache: 'pnpm'
-      - run: pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
+      - run: pnpm install --frozen-lockfile --ignore-scripts || pnpm install --no-frozen-lockfile --ignore-scripts
+      - name: Generate Prisma client (postinstall skipped via --ignore-scripts)
+        run: pnpm exec prisma generate
+      - name: Test mapping route↔test (anti --no-verify)
+        run: ./scripts/ci/check-test-mapping.sh
+        env:
+          BASE_REF: origin/${{ github.base_ref || 'main' }}
       - name: Lint
         run: pnpm lint
       - name: Compose sync (base + prod + staging cohérents)

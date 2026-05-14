@@ -17,11 +17,13 @@
 
 | Chantier | État | Bloque quoi |
 |---|---|---|
-| 1. Script de mapping route↔test | ✅ Versionné + exécutable | — |
-| 2. Husky pre-push hook | ✅ Installé + actif | — |
-| 3. Baseline `tests-pending.txt` | ✅ 116 fichiers critiques listés | — |
+| 1. Script de mapping route↔test | ✅ Versionné + exécutable + 🔥 mode Nuclear | — |
+| 2. Husky pre-push hook | ✅ Installé + actif (mapping + compose-sync) | — |
+| 2b. **`check-test-mapping.sh` côté CI étage 1** | ✅ **PR #19** (anti `--no-verify`) | — |
+| 2c. **Mode Nuclear** (0 dette business logic) | ✅ **PR #19** | — |
+| 3. Baseline `tests-pending.txt` | ✅ Réduit à 41 (components/ui uniquement) | — |
 | 4. `test-coverage-map.yaml` versionné | ✅ Présent (vide, à peupler au fil de l'eau) | — |
-| 5. Path-based skip CI (docs/todo/runbooks) | ✅ `paths-ignore` dans `hub-ci.yml` | — |
+| 5. Path-based skip CI étendu | ✅ `docs/**`, `runbooks/**`, `todo/**`, `_archive/**`, `**/*.md` | — |
 | 6. Workflow réutilisable `_app-ci.yml` partagé | 🔲 N'existe pas dans veridian-infra | Mutualisation 5 apps |
 | 7. Path-based staging gate (changements structurels) | 🔲 Pas câblé | Promotion auto staging→prod |
 | 8. GitHub Environments staging + production | 🔲 Pas créés sur le repo | Approbation manuelle structurel |
@@ -35,20 +37,21 @@
 | 16. `size-limit` (bundle budget +15%) | 🔲 Pas câblé | Bloque Renovate fat-bundle |
 | 17. Playwright `retries: 2` + flaky detector | 🟡 Playwright OK, pas de `playwright-flaky-detector.yml` | Flaky → rollback bidon |
 | 18. Renovate `renovate.json` (auto-merge total) | 🔲 Pas migré (Dependabot encore actif) | Auto-merge minor/major bloqué |
-| 19. **Staging éphémère par PR sur dev server** | 🟡 **Code prêt, manque secrets repo + DNS** — voir §A | Valider sans prod |
-| 19a. Compose pattern base + prod + staging (include) | ✅ Refacto fait, byte-exact identique prod | — |
+| 19. **Staging fixe sur dev server** | ✅ **Convention `<app>.staging.veridian.site`, push branche `staging`** | — |
+| 19a. Compose pattern base + prod + staging (include) | ✅ Mergé via PR #18, byte-exact validé en prod | — |
 | 19b. Script `check-compose-sync.sh` + pre-push + CI | ✅ Versionné + actif | — |
-| 19c. Workflow `hub-staging.yml` (spawn/teardown) | ✅ Versionné, attend secrets | Pas tant que secrets absents |
-| 19d. GC hebdo `staging-gc.sh` | 🟡 Script écrit, pas déployé sur dev | Cleanup safety net |
+| 19c. Workflow `hub-staging.yml` | ✅ Mergé via PR #18 (refondu après convention CLAUDE.md) | — |
+| 19d. GC hebdo `staging-gc.sh` | ❌ Abandonné (convention fixe = pas d'orphelins) | — |
 | 20. `emergency-revert.yml` (rollback Docker → revert Git) | 🔲 Pas créé | Commit fautif reste sur main |
 | 21. `emergency-rollback.yml` (Grafana webhook → rollback) | 🔲 Pas créé | Alertes Grafana = silence |
-| 22. `--ignore-scripts` strict (CI + Dockerfile) | 🟡 CI oui (`_audit-cve.yml`), Dockerfile à vérifier | Supply chain attack |
-| 23. `pnpm.onlyBuiltDependencies` whitelist | 🔲 Pas configuré dans `package.json` | Idem supply chain |
-| 24. Cleanup runner `always()` step | 🔲 Pas câblé | Runner empoisonné |
+| 22. `--ignore-scripts` strict | ✅ **PR #19** (CI + Dockerfile) | — |
+| 23. `pnpm.onlyBuiltDependencies` whitelist | ✅ **PR #19** (Prisma + Husky + Playwright) | — |
+| 24. Cleanup runner `always()` step | 🟡 Présent sur `hub-staging.yml`, pas sur `hub-ci.yml` | Runner empoisonné |
 | 25. Auto-merge total PR (8 checks + plus de review humaine) | 🔲 Branch protection à configurer | Robert hors boucle |
 | 26. `obs annotate` cablé dans étage 3 (deploy/migrate/rollback) | 🔲 Pas câblé | Timeline Grafana incomplète |
 | 27. Synthetic monitoring 5 min sur prod | 🔲 Pas câblé | Baseline absente |
 | 28. Coverage hooks/lib (`__tests__/hooks/`, `__tests__/lib/`) | 🔲 Pas créé | Mapping script ne couvre que API |
+| 29. **smoke-prod.sh** | ✅ **PR #18** (validation post-deploy) | — |
 
 ---
 
@@ -344,17 +347,52 @@ Le workflow `hub-staging.yml` attend ces secrets/vars sur le repo `Christ-Roy/ve
 
 3. ✅ **Image staging push GHCR** : OK (tag `staging-<sha7>`, ex `staging-93c5295`)
 
-### 🔲 Reste à faire pour activer staging end-to-end
+### 🎯 Bilan fin de session 2026-05-14
 
-(toutes les étapes documentées dans `runbooks/activate-staging.md`)
+#### PR mergées sur main
 
-- 🔲 Configurer secrets/vars GitHub repo Christ-Roy/veridian-hub :
-  - Secrets : `STAGING_SSH_KEY`, `STAGING_HUB_AUTH_SECRET`, `STAGING_POSTGRES_PASSWORD`
-  - Vars : `STAGING_HOST` (= `dev-pub.veridian.site`), `STAGING_USER` (= `staging-deploy`)
-- 🔲 Créer user SSH `staging-deploy` sur dev (groupe docker) + déployer clé publique
-- 🔲 Déployer `staging-gc.sh` sur dev sous `/opt/scripts/staging-gc-hub.sh` + systemd timer hebdo
-- 🔲 Re-tester PR #18 → vérifier spawn → URL `hub-feat-staging-ephemeral-ci.staging.veridian.site` répond 200
-- 🔲 Tester teardown : fermer la PR (ou re-ouvrir) → vérifier que la stack est bien supprimée
+- ✅ **PR #17** (`fix/dashboard-rsc-icon-prop`) : fix RSC `/dashboard` Next.js 15. Merge commit `e8526787`. Pipeline complet vert (test + audit + docker + trivy + deploy-prod + e2e-prod-smoke). **Validé visuellement** : `/dashboard` rend correctement, robert.brunon connecté voit les cards Prospection/Twenty/Notifuse + ServiceCard avec icon BarChart3.
+- ✅ **PR #18** (`feat/staging-ephemeral-ci`) : refacto compose base/prod/staging + workflow staging fixe + smoke-prod.sh + runbook activate-staging. Merge commit `babed29a`. Pipeline complet vert. **Validation byte-exact** : compose `include:` produit le même runtime que l'ancien monolithique → 0 régression Dokploy.
+
+#### PR ouverte non-mergée
+
+- 🟡 **PR #19** (`feat/ci-hardening`) : extension CI (anti `--no-verify` + supply chain + 🔥 mode Nuclear). CI en cours, à merger après validation.
+
+#### Infrastructure staging activée
+
+- ✅ User SSH `staging-deploy` créé sur dev (groupe docker, /opt/staging/hub/ owner)
+- ✅ Clé SSH ed25519 générée localement (`~/credentials/staging-deploy-veridian-hub`) et déployée sur dev
+- ✅ Secrets GitHub repo Christ-Roy/veridian-hub : `STAGING_SSH_KEY`, `STAGING_HUB_AUTH_SECRET`, `STAGING_POSTGRES_PASSWORD`
+- ✅ Variables GitHub : `STAGING_HOST` (= `37.187.199.185`), `STAGING_USER` (= `staging-deploy`)
+- ✅ Workflow staging conforme convention CLAUDE.md racine : `hub.staging.veridian.site` (URL fixe), trigger sur push branche `staging`, pas d'éphémère
+
+#### Bugs CI rencontrés + fixés (Session)
+
+1. ❌ **YAML parse fail** : heredoc `<<ENV` imbriqué dans `<<EOF` du run step → parser GitHub Actions refusait le fichier.
+   - Fix : génération `.env` localement via printf + scp + rm.
+   - Leçon : max 1 niveau d'heredoc dans `run: |`.
+
+2. ❌ **Faux succès "Deploy stack ✓"** : check `[ -z "$STAGING_HOST" ] && exit 0` rendait OK silently quand secrets vides → job vert, smoke fail 60s plus tard sans container.
+   - Fix : conditionner les jobs au niveau YAML `if: vars.STAGING_HOST != ''` → status SKIPPED. Strict check explicite dans step `Setup SSH` (exit 1 avec liste secrets manquants).
+   - Leçon : ne **jamais** faire `exit 0` silencieux quand des secrets sont requis.
+
+3. ❌ **`.env` non chargé via SSH subshell** : Compose voyait `BRANCH_SLUG` vide → container nommé `hub-` au lieu de `hub-<slug>`, image `:latest` (prod) au lieu de `staging-<sha7>`.
+   - Fix : `--env-file .env` explicite + simplification → URL fixe (plus de slug) selon convention CLAUDE.md.
+
+4. ❌ **Convention initiale incorrecte** : j'avais conçu un staging éphémère par PR avec sous-domaine `hub-<slug>.staging.veridian.site`. La convention officielle Veridian (CLAUDE.md racine §Staging) est `<app>.staging.veridian.site` fixe.
+   - Fix : refonte complète (commit `6a598b0`), trigger `push: branches: [staging]` au lieu de `pull_request`. Volume persistant pour la DB staging.
+
+#### 🔥 Mode Nuclear activé (PR #19)
+
+Allowlist `tests-pending.txt` IGNORÉE sur ces scopes :
+- `app/api/**/route.ts` (routes API)
+- `components/**` sauf `components/ui/**`
+- `hooks/**`
+- `lib/**` sauf `lib/types/*`
+
+Conséquence : **toute modif de business logic exige son test colocalisé**, même si fichier était en dette historique. `tests-pending.txt` réduit de 116 → 41 entrées (uniquement components/ui).
+
+Garde-fou complet : pre-push hook (local) + check-test-mapping en étage 1 CI (anti `--no-verify`).
 
 ### 2026-05-13
 - ✅ Standard CI Veridian v1 validé (CI-ARCHITECTURE.md, 1206 lignes)
