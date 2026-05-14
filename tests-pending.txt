@@ -1,59 +1,20 @@
-app/api/account/profile/route.ts
-app/api/account/recent-subscription/route.ts
-app/api/admin/delete-tenant/route.ts
-app/api/admin/grant-plan/route.ts
-app/api/admin/impersonate/route.ts
-app/api/admin/list-tenants/route.ts
-app/api/admin/notifuse/delete/route.ts
-app/api/admin/notifuse/magic-link/route.ts
-app/api/admin/notifuse/resume/route.ts
-app/api/admin/notifuse/status/route.ts
-app/api/admin/notifuse/suspend/route.ts
-app/api/admin/notifuse/update-plan/route.ts
-app/api/auth/mfa/resend/route.ts
-app/api/auth/mfa/toggle/route.ts
-app/api/auth/mfa/verify/route.ts
-app/api/auth/[...nextauth]/route.ts
-app/api/auth/signup/route.ts
-app/api/config/route.ts
-app/api/cron/cleanup-trials/route.ts
-app/api/health/route.ts
-app/api/notifuse/create-tenant/route.ts
-app/api/prospection/regenerate-login/route.ts
-app/api/sync-stripe/route.ts
-app/api/tenants/retry/route.ts
-app/api/tenants/status/route.ts
-app/api/twenty/create-tenant/route.ts
-app/api/twenty/regenerate-login/route.ts
-app/api/webhooks/notifuse/route.ts
-app/api/webhooks/route.ts
-app/api/workspace/invite/accept/route.ts
-app/api/workspace/invite/route.ts
-app/api/workspace/members/[id]/route.ts
-components/account/TwentyTenantManager.tsx
-components/analytics/auth-tracker.tsx
-components/analytics/gtm.tsx
-components/analytics/purchase-tracker.tsx
-components/app-sidebar.tsx
-components/auth/LoginForm.tsx
-components/auth/SignupForm.tsx
-components/chart-area-interactive.tsx
-components/dashboard/FreemiumBanner.tsx
-components/dashboard/TenantButton.tsx
-components/data-table.tsx
-components/icons/GitHub.tsx
-components/icons/Logo.tsx
-components/landing/cta-section.tsx
-components/landing/features-section.tsx
-components/landing/hero-section.tsx
-components/nav-documents.tsx
-components/nav-main.tsx
-components/nav-secondary.tsx
-components/nav-user.tsx
-components/section-cards.tsx
-components/site-header.tsx
-components/theme-provider.tsx
-components/theme-toggle.tsx
+# tests-pending.txt — Allowlist tests existants en dette
+#
+# ⚠ MODE NUCLEAR ACTIVÉ (2026-05-14)
+# Cette allowlist n'a PLUS aucun effet sur les scopes "business logic" :
+#   - app/api/**/route.ts (routes API)
+#   - components/** SAUF components/ui/** (composants applicatifs)
+#   - hooks/**
+#   - lib/** (sauf lib/types/*)
+#
+# Sur ces scopes : 0 dette autorisée. Toute modif de fichier exige son
+# test colocalisé. Le hook check-test-mapping.sh refuse le push sinon.
+#
+# L'allowlist reste active UNIQUEMENT sur components/ui/** (shadcn
+# primitives sans logique métier). Les 41 lignes ci-dessous sont
+# tolérées le temps de tester progressivement les composants UI.
+#
+# Cible : 0 entrée d'ici fin Q3 2026.
 components/ui/AccountForms/CustomerPortalForm.tsx
 components/ui/AccountForms/EmailForm.tsx
 components/ui/AccountForms/NameForm.tsx
@@ -95,22 +56,3 @@ components/ui/textarea.tsx
 components/ui/toggle-group.tsx
 components/ui/toggle.tsx
 components/ui/tooltip.tsx
-components/workspace/InviteModal.tsx
-components/workspace/MemberActions.tsx
-components/workspace/MembersTable.tsx
-hooks/use-mobile.tsx
-lib/admin/check-admin.ts
-lib/admin/require-admin.ts
-lib/analytics/client.ts
-lib/auth/get-user.ts
-lib/database.types.ts
-lib/email/send.ts
-lib/email/templates/invitation.ts
-lib/email/templates/mfa-code.ts
-lib/gtm.ts
-lib/mfa/index.ts
-lib/notifuse/admin-helpers.ts
-lib/notifuse/client.ts
-lib/notifuse/workspace-id.ts
-lib/prisma/index.ts
-lib/utils.ts

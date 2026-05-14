@@ -60,9 +60,41 @@ fi
 PENDING_FILE="tests-pending.txt"
 COVERAGE_MAP="test-coverage-map.yaml"
 
+# ─── Mode Nuclear (0 dette) ──────────────────────────────────────────────────
+# tests-pending.txt est IGNORÉ sur ces scopes. Toute modif → test obligatoire,
+# même si le fichier existait sans test depuis le début.
+#
+# Scopes Nuclear :
+#   - app/api/**/route.ts      (business logic critique)
+#   - components/** SAUF components/ui/** (shadcn primitives sans logique)
+#   - hooks/**
+#   - lib/** (sauf lib/types/*)
+#
+# Scopes encore en allowlist (tests-pending.txt actif) :
+#   - components/ui/** (shadcn, peu testable, peu de logique)
+is_nuclear_scope() {
+  local f="$1"
+  local stripped="${f#src/}"
+  case "$stripped" in
+    components/ui/*|components/ui/**) return 1 ;;  # PAS Nuclear
+    app/api/*/route.ts) return 0 ;;
+    components/*.tsx|components/**/*.tsx) return 0 ;;
+    hooks/*.ts|hooks/*.tsx) return 0 ;;
+    lib/types/*|lib/**/types.ts) return 1 ;;       # PAS Nuclear (types only)
+    lib/*.ts|lib/**/*.ts) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 in_pending() {
   local f="$1"
-  [ -f "$PENDING_FILE" ] && grep -Fxq "$f" "$PENDING_FILE"
+  # Mode Nuclear : l'allowlist tests-pending.txt est IGNORÉE.
+  # Le fichier doit avoir son test, même s'il a toujours été en dette.
+  if is_nuclear_scope "$f"; then
+    return 1  # Pas en pending = doit avoir un test
+  fi
+  # Ignore les lignes commentaires/vides quand on cherche dans pending
+  [ -f "$PENDING_FILE" ] && grep -v '^[[:space:]]*#' "$PENDING_FILE" | grep -v '^[[:space:]]*$' | grep -Fxq "$f"
 }
 
 # ─── Coverage map ────────────────────────────────────────────────────────────
@@ -206,7 +238,13 @@ for f in $CHANGED; do
     else
       echo "${RED}✗ $f modifié sans test correspondant${NC}"
       echo "  Test attendu (canonique) : ${expected_test}"
-      echo "  OU déclarer dans test-coverage-map.yaml qu'un autre test le couvre."
+      if is_nuclear_scope "$f"; then
+        echo "  ${RED}🔥 MODE NUCLEAR — tests-pending.txt n'autorise plus aucune dette sur ce scope.${NC}"
+        echo "  Tu DOIS créer le test colocalisé avant de toucher à ce fichier."
+        echo "  Scope concerné : routes API, components (sauf ui/), hooks, lib (sauf types/)."
+      else
+        echo "  OU déclarer dans test-coverage-map.yaml qu'un autre test le couvre."
+      fi
       FAILED=$((FAILED + 1))
       continue
     fi
