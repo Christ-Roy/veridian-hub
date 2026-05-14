@@ -86,20 +86,27 @@ jobs:
 
       # Déploie sur dev server via SSH.
       # Setup SSH key éphémère, scope au répertoire staging.
+      # Échec STRICT si les secrets/vars manquent — éviter les faux "succès".
       - name: Setup SSH to dev server
         env:
           SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
           DEV_HOST: ${{ vars.STAGING_HOST }}
           DEV_USER: ${{ vars.STAGING_USER }}
         run: |
-          if [ -z "$SSH_KEY" ] || [ -z "$DEV_HOST" ] || [ -z "$DEV_USER" ]; then
-            echo "::warning::Staging SSH credentials manquants — skip deploy"
-            exit 0
+          MISSING=""
+          [ -z "$SSH_KEY" ] && MISSING="$MISSING STAGING_SSH_KEY"
+          [ -z "$DEV_HOST" ] && MISSING="$MISSING STAGING_HOST"
+          [ -z "$DEV_USER" ] && MISSING="$MISSING STAGING_USER"
+          if [ -n "$MISSING" ]; then
+            echo "::error::Staging credentials missing:$MISSING"
+            echo "::error::Configure ces secrets/vars sur le repo. Cf runbooks/activate-staging.md."
+            exit 1
           fi
           mkdir -p ~/.ssh
           echo "$SSH_KEY" > ~/.ssh/staging_key
           chmod 600 ~/.ssh/staging_key
           ssh-keyscan -H "$DEV_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          echo "SSH setup OK for $DEV_USER@$DEV_HOST"
 
       - name: Deploy stack
         env:
@@ -111,7 +118,6 @@ jobs:
           POSTGRES_PASSWORD: ${{ secrets.STAGING_POSTGRES_PASSWORD }}
         run: |
           set -euo pipefail
-          [ -z "${{ vars.STAGING_HOST }}" ] && exit 0
           STACK_DIR="${{ env.STAGING_DIR }}/${BRANCH_SLUG}"
 
           # SCP des composes (base + staging uniquement, pas prod.yml).
@@ -237,8 +243,11 @@ jobs:
           SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
           DEV_HOST: ${{ vars.STAGING_HOST }}
         run: |
-          if [ -z "$SSH_KEY" ] || [ -z "$DEV_HOST" ]; then
-            echo "::warning::Staging SSH credentials manquants — skip teardown"
+          MISSING=""
+          [ -z "$SSH_KEY" ] && MISSING="$MISSING STAGING_SSH_KEY"
+          [ -z "$DEV_HOST" ] && MISSING="$MISSING STAGING_HOST"
+          if [ -n "$MISSING" ]; then
+            echo "::warning::Teardown SSH credentials missing:$MISSING — GC hebdo rattrapera"
             exit 0
           fi
           mkdir -p ~/.ssh
@@ -256,7 +265,12 @@ jobs:
           DEV_USER: ${{ vars.STAGING_USER }}
           BRANCH_SLUG: ${{ steps.slug.outputs.slug }}
         run: |
-          [ -z "${{ vars.STAGING_HOST }}" ] && exit 0
+          # Si la SSH key n'existe pas, c'est qu'on a skip le Setup SSH (secrets
+          # manquants). Pas d'erreur, le GC hebdo rattrapera.
+          if [ ! -f ~/.ssh/staging_key ]; then
+            echo "::warning::Pas de clé SSH staging, teardown skip — GC hebdo prendra le relais"
+            exit 0
+          fi
           STACK_DIR="${{ env.STAGING_DIR }}/${BRANCH_SLUG}"
           ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" bash -s << EOF || true
             set +e
