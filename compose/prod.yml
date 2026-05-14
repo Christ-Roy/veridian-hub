@@ -1,0 +1,88 @@
+# ============================================================================
+# compose/prod.yml — Override production
+# ============================================================================
+#
+# Combiné avec base.yml. Lu par Dokploy via le consolidé `docker-compose.yml`
+# à la racine (généré automatiquement, cf base.yml header).
+#
+# Réseau : dokploy-network (Traefik Dokploy de prod)
+# DB : veridian-core-db partagée (schema hub_app)
+# Stripe : keys LIVE
+# URLs : app.veridian.site + sous-domaines prod
+# ============================================================================
+
+services:
+  hub:
+    networks:
+      - dokploy-network
+    environment:
+      # ─── Env tag ───────────────────────────────────────────────────────
+      DEPLOY_ENV: ${DEPLOY_ENV:-prod}
+
+      # ─── Auth.js prod ──────────────────────────────────────────────────
+      AUTH_SECRET: ${HUB_AUTH_SECRET}
+      AUTH_URL: https://app.veridian.site
+      NEXTAUTH_URL: https://app.veridian.site
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET}
+
+      # ─── DB prod partagée ──────────────────────────────────────────────
+      DATABASE_URL: postgresql://veridian:${VERIDIAN_CORE_DB_PASSWORD}@veridian-core-db:5432/veridian?schema=hub_app
+
+      # ─── Stripe LIVE ───────────────────────────────────────────────────
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY_LIVE}
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_LIVE: ${STRIPE_PUBLISHABLE_KEY_LIVE}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY_LIVE}
+      STRIPE_SECRET_KEY_LIVE: ${STRIPE_SECRET_KEY_LIVE}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET_LIVE}
+      STRIPE_WEBHOOK_SECRET_LIVE: ${STRIPE_WEBHOOK_SECRET_LIVE}
+
+      # ─── URLs prod ─────────────────────────────────────────────────────
+      NEXT_PUBLIC_SITE_URL: https://app.veridian.site
+      DASHBOARD_SITE_URL: https://app.veridian.site
+      DOMAIN: app.veridian.site
+
+      # ─── Notifuse prod ─────────────────────────────────────────────────
+      NEXT_PUBLIC_NOTIFUSE_URL: https://notifuse.app.veridian.site
+      NEXT_PUBLIC_NOTIFUSE_API_URL: https://notifuse.app.veridian.site/api/v1
+      NOTIFUSE_API_URL: https://notifuse.app.veridian.site
+      NOTIFUSE_API_ENDPOINT: https://notifuse.app.veridian.site
+      NOTIFUSE_SECRET_KEY: ${NOTIFUSE_SECRET_KEY}
+      NOTIFUSE_ROOT_EMAIL: ${NOTIFUSE_ROOT_EMAIL}
+      NOTIFUSE_HUB_API_SECRET: ${NOTIFUSE_HUB_API_SECRET}
+      NOTIFUSE_HUB_WEBHOOK_SECRET: ${NOTIFUSE_HUB_WEBHOOK_SECRET}
+
+      # ─── Twenty prod ───────────────────────────────────────────────────
+      NEXT_PUBLIC_TWENTY_URL: https://twenty.app.veridian.site
+      TWENTY_FRONTEND_URL: https://twenty.app.veridian.site
+      TWENTY_GRAPHQL_URL: https://twenty.app.veridian.site/graphql
+      TWENTY_METADATA_URL: https://twenty.app.veridian.site/metadata
+      TWENTY_SERVER_URL: https://twenty.app.veridian.site
+      TWENTY_APP_SECRET: ${TWENTY_APP_SECRET}
+
+      # ─── Prospection prod ──────────────────────────────────────────────
+      NEXT_PUBLIC_PROSPECTION_URL: https://prospection.app.veridian.site
+      PROSPECTION_API_URL: https://prospection.app.veridian.site
+      PROSPECTION_INTERNAL_URL: https://prospection.app.veridian.site
+      PROSPECTION_TENANT_API_SECRET: ${PROSPECTION_TENANT_API_SECRET}
+
+      # ─── Services tiers prod ───────────────────────────────────────────
+      BREVO_API_KEY: ${BREVO_API_KEY}
+      CRON_SECRET: ${CRON_SECRET}
+      VAULT_ENC_KEY: ${VAULT_ENC_KEY}
+      NEXT_PUBLIC_GTM_ID: ${GTM_ID_APP_VERIDIAN}
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=dokploy-network
+      - traefik.http.routers.hub-${DEPLOY_ENV:-prod}-web.entrypoints=web
+      - traefik.http.routers.hub-${DEPLOY_ENV:-prod}-web.rule=Host(`${HUB_HOST:-app.veridian.site}`)
+      - traefik.http.routers.hub-${DEPLOY_ENV:-prod}-web.middlewares=redirect-to-https@file
+      - traefik.http.routers.hub-${DEPLOY_ENV:-prod}-websecure.entrypoints=websecure
+      - traefik.http.routers.hub-${DEPLOY_ENV:-prod}-websecure.rule=Host(`${HUB_HOST:-app.veridian.site}`)
+      - traefik.http.routers.hub-${DEPLOY_ENV:-prod}-websecure.tls=true
+      - traefik.http.routers.hub-${DEPLOY_ENV:-prod}-websecure.tls.certresolver=letsencrypt
+      - traefik.http.services.hub-${DEPLOY_ENV:-prod}.loadbalancer.server.port=3000
+
+networks:
+  dokploy-network:
+    external: true

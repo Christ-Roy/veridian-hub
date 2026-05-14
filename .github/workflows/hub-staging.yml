@@ -1,0 +1,161 @@
+name: Hub Staging (dev server)
+
+# Convention officielle Veridian (CLAUDE.md racine §Staging) :
+#   - 1 stack staging fixe sur hub.staging.veridian.site
+#   - Trigger : push sur branche `staging`
+#   - Pas d'éphémère par PR, pas de teardown auto
+#   - Deploy via SSH dev-pub → docker compose up
+#
+# Pour valider une PR sur staging avant merge main :
+#   1. Push la branche feature/fix → travailler dessus
+#   2. Une fois prête, merger (ou cherry-pick) dans `staging`
+#   3. Ce workflow se déclenche → deploy automatique
+#   4. Smoke + validation manuelle sur https://hub.staging.veridian.site
+#   5. Si OK → PR de feature → main → prod
+
+on:
+  push:
+    branches: [staging]
+    paths-ignore:
+      - 'todo/**'
+      - '_archive/**'
+      - 'docs/**'
+      - 'runbooks/**'
+      - '**/*.md'
+  workflow_dispatch:
+
+concurrency:
+  group: hub-staging-deploy
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: christ-roy/veridian-hub
+  STAGING_DIR: /opt/staging/hub
+  STAGING_URL: https://hub.staging.veridian.site
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: |
+      vars.STAGING_HOST != '' && vars.STAGING_USER != ''
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Compute image tag
+        id: tag
+        run: |
+          SHA7=$(echo "${{ github.sha }}" | cut -c1-7)
+          echo "image-tag=staging-$SHA7" >> $GITHUB_OUTPUT
+          echo "Building staging-$SHA7"
+
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push staging image
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 15
+          max_attempts: 3
+          retry_wait_seconds: 30
+          retry_on: error
+          command: |
+            docker buildx build \
+              --target runner \
+              --push \
+              -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.image-tag }} \
+              -f ./Dockerfile \
+              .
+
+      - name: Setup SSH
+        env:
+          SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          DEV_HOST: ${{ vars.STAGING_HOST }}
+        run: |
+          MISSING=""
+          [ -z "$SSH_KEY" ] && MISSING="$MISSING STAGING_SSH_KEY"
+          [ -z "$DEV_HOST" ] && MISSING="$MISSING STAGING_HOST"
+          if [ -n "$MISSING" ]; then
+            echo "::error::Staging credentials missing:$MISSING"
+            exit 1
+          fi
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/staging_key
+          chmod 600 ~/.ssh/staging_key
+          ssh-keyscan -H "$DEV_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy stack
+        env:
+          DEV_HOST: ${{ vars.STAGING_HOST }}
+          DEV_USER: ${{ vars.STAGING_USER }}
+          IMAGE_TAG: ${{ steps.tag.outputs.image-tag }}
+          HUB_AUTH_SECRET: ${{ secrets.STAGING_HUB_AUTH_SECRET }}
+          POSTGRES_PASSWORD: ${{ secrets.STAGING_POSTGRES_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          # SCP composes (base + staging uniquement, pas prod.yml).
+          ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" "mkdir -p ${{ env.STAGING_DIR }}/compose"
+          scp -i ~/.ssh/staging_key compose/base.yml "$DEV_USER@$DEV_HOST:${{ env.STAGING_DIR }}/compose/"
+          scp -i ~/.ssh/staging_key compose/staging.yml "$DEV_USER@$DEV_HOST:${{ env.STAGING_DIR }}/compose/"
+
+          # .env de la stack (chargé automatiquement par compose dans le CWD)
+          ENVFILE="$(mktemp)"
+          {
+            printf 'HUB_IMAGE_TAG=%s\n' "$IMAGE_TAG"
+            printf 'HUB_AUTH_SECRET=%s\n' "$HUB_AUTH_SECRET"
+            printf 'POSTGRES_PASSWORD=%s\n' "$POSTGRES_PASSWORD"
+          } > "$ENVFILE"
+          scp -i ~/.ssh/staging_key "$ENVFILE" "$DEV_USER@$DEV_HOST:${{ env.STAGING_DIR }}/.env"
+          rm -f "$ENVFILE"
+          ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" "chmod 600 ${{ env.STAGING_DIR }}/.env"
+
+          # Pull + up (1 seule stack fixe, recycle des containers existants)
+          ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" \
+            "cd ${{ env.STAGING_DIR }} && docker compose -p hub-staging --env-file .env -f compose/base.yml -f compose/staging.yml pull"
+          ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" \
+            "cd ${{ env.STAGING_DIR }} && docker compose -p hub-staging --env-file .env -f compose/base.yml -f compose/staging.yml up -d --remove-orphans"
+
+          # Attendre healthcheck OK
+          echo "Waiting for hub-staging to become healthy..."
+          for i in $(seq 1 30); do
+            STATUS=$(ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" \
+              "docker inspect hub-staging --format '{{.State.Health.Status}}' 2>/dev/null" || echo "starting")
+            if [ "$STATUS" = "healthy" ]; then
+              echo "Healthy after $((i*10))s"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Container hub-staging not healthy after 5min"
+          ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" \
+            "docker logs hub-staging --tail 100" || true
+          exit 1
+
+      - name: Smoke test staging URL
+        run: |
+          echo "Smoke test: ${{ env.STAGING_URL }}/api/health"
+          for i in $(seq 1 6); do
+            if curl -sf --max-time 10 "${{ env.STAGING_URL }}/api/health" | grep -q '"status":"ok"'; then
+              echo "✓ Staging healthy: ${{ env.STAGING_URL }}"
+              exit 0
+            fi
+            echo "Attempt $i: not ready, retry in 10s..."
+            sleep 10
+          done
+          echo "::error::Smoke failed after 60s on ${{ env.STAGING_URL }}"
+          exit 1
+
+      - name: Cleanup local runner
+        if: always()
+        run: |
+          docker container prune -f || true
+          docker image prune -f --filter "until=1h" || true
+          rm -f ~/.ssh/staging_key

@@ -1,0 +1,40 @@
+# ============================================================================
+# compose/base.yml — Base commune Hub (prod + staging)
+# ============================================================================
+#
+# JAMAIS lu seul. Toujours combiné avec un override :
+#   - prod    : docker compose -f compose/base.yml -f compose/prod.yml ...
+#   - staging : docker compose -f compose/base.yml -f compose/staging.yml ...
+#
+# Pour Dokploy (prod), un fichier consolidé `docker-compose.yml` est généré
+# automatiquement par la CI à partir de base.yml + prod.yml. Dokploy lit ce
+# consolidé. Ne JAMAIS éditer `docker-compose.yml` à la main — il est
+# regénéré et vérifié par `scripts/ci/check-compose-sync.sh`.
+#
+# ============================================================================
+
+services:
+  hub:
+    # Tag mouvant par défaut (:latest pour prod, staging-<sha7> pour staging).
+    # Pin immutable possible via HUB_IMAGE_DIGEST (cf sprint GitOps).
+    image: ghcr.io/christ-roy/veridian-hub:${HUB_IMAGE_TAG:-latest}
+    pull_policy: always
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:3000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})\""]
+      interval: 30s
+      timeout: 10s
+      start_period: 40s
+      retries: 3
+    environment:
+      # ─── Runtime Next.js ───────────────────────────────────────────────
+      NODE_ENV: production
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      NEXT_TELEMETRY_DISABLED: "1"
+
+      # ─── Auth.js partagé ───────────────────────────────────────────────
+      AUTH_TRUST_HOST: "true"
+
+      # ─── Admin (identique prod/staging) ────────────────────────────────
+      ADMIN_EMAILS: brunon5robert@gmail.com,robert.brunon@veridian.site

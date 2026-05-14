@@ -1,0 +1,132 @@
+# ============================================================================
+# compose/staging.yml — Override staging (dev server, hub.staging.veridian.site)
+# ============================================================================
+#
+# Convention officielle Veridian (cf CLAUDE.md racine §Staging) :
+#   - 1 seule stack staging par app (pas d'éphémère par PR)
+#   - URL fixe : hub.staging.veridian.site
+#   - Trigger : push sur branche `staging` du repo veridian-hub
+#   - Network external : staging-edge (Traefik standalone sur dev)
+#   - DB : Postgres locale à la stack (pas la prod, pas de partage)
+#
+# Combiné avec base.yml :
+#   docker compose -f compose/base.yml -f compose/staging.yml up -d
+#
+# Variables d'env attendues (injectées par le workflow CI via .env sur dev) :
+#   HUB_IMAGE_TAG      = staging-<sha7> (image build par la CI sur push staging)
+#   HUB_AUTH_SECRET    = secret AUTH.js staging (random 32 bytes, stable)
+#   POSTGRES_PASSWORD  = mot de passe DB staging
+#
+# Optionnels (fallback values pour permettre au container de démarrer) :
+#   GOOGLE_OAUTH_CLIENT_ID_STAGING / _SECRET_STAGING
+#   NOTIFUSE_*_STAGING
+#   PROSPECTION_TENANT_API_SECRET_STAGING
+# ============================================================================
+
+services:
+  hub:
+    container_name: hub-staging
+    networks:
+      - staging-edge
+      - hub-internal
+    depends_on:
+      hub-db:
+        condition: service_healthy
+    environment:
+      DEPLOY_ENV: staging
+
+      # ─── Auth.js staging ───────────────────────────────────────────────
+      AUTH_SECRET: ${HUB_AUTH_SECRET:-staging-not-secret-replace-me}
+      AUTH_URL: https://hub.staging.veridian.site
+      NEXTAUTH_URL: https://hub.staging.veridian.site
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID_STAGING:-}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET_STAGING:-}
+
+      # ─── DB locale à la stack ──────────────────────────────────────────
+      DATABASE_URL: postgresql://hub:${POSTGRES_PASSWORD:-staging-pwd}@hub-db:5432/hub?schema=hub_app
+
+      # ─── Stripe TEST ───────────────────────────────────────────────────
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ${STRIPE_PUBLISHABLE_KEY_TEST:-pk_test_fake}
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_LIVE: ${STRIPE_PUBLISHABLE_KEY_TEST:-pk_test_fake}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY_TEST:-sk_test_fake}
+      STRIPE_SECRET_KEY_LIVE: ${STRIPE_SECRET_KEY_TEST:-sk_test_fake}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET_TEST:-whsec_fake}
+      STRIPE_WEBHOOK_SECRET_LIVE: ${STRIPE_WEBHOOK_SECRET_TEST:-whsec_fake}
+
+      # ─── URLs staging ──────────────────────────────────────────────────
+      NEXT_PUBLIC_SITE_URL: https://hub.staging.veridian.site
+      DASHBOARD_SITE_URL: https://hub.staging.veridian.site
+      DOMAIN: hub.staging.veridian.site
+
+      # ─── Notifuse staging (pointe vers prod si pas de staging) ─────────
+      NEXT_PUBLIC_NOTIFUSE_URL: https://notifuse.staging.veridian.site
+      NEXT_PUBLIC_NOTIFUSE_API_URL: https://notifuse.staging.veridian.site/api/v1
+      NOTIFUSE_API_URL: https://notifuse.staging.veridian.site
+      NOTIFUSE_API_ENDPOINT: https://notifuse.staging.veridian.site
+      NOTIFUSE_SECRET_KEY: ${NOTIFUSE_SECRET_KEY_STAGING:-staging-secret}
+      NOTIFUSE_ROOT_EMAIL: ${NOTIFUSE_ROOT_EMAIL:-admin@veridian.site}
+      NOTIFUSE_HUB_API_SECRET: ${NOTIFUSE_HUB_API_SECRET_STAGING:-staging-secret}
+      NOTIFUSE_HUB_WEBHOOK_SECRET: ${NOTIFUSE_HUB_WEBHOOK_SECRET_STAGING:-staging-secret}
+
+      # ─── Twenty : retiré de la stack (cf TODO Hub P0.1) ────────────────
+      NEXT_PUBLIC_TWENTY_URL: https://twenty.app.veridian.site
+      TWENTY_FRONTEND_URL: https://twenty.app.veridian.site
+      TWENTY_GRAPHQL_URL: https://twenty.app.veridian.site/graphql
+      TWENTY_METADATA_URL: https://twenty.app.veridian.site/metadata
+      TWENTY_SERVER_URL: https://twenty.app.veridian.site
+      TWENTY_APP_SECRET: staging-not-used
+
+      # ─── Prospection ───────────────────────────────────────────────────
+      NEXT_PUBLIC_PROSPECTION_URL: https://prospection.staging.veridian.site
+      PROSPECTION_API_URL: https://prospection.staging.veridian.site
+      PROSPECTION_INTERNAL_URL: https://prospection.staging.veridian.site
+      PROSPECTION_TENANT_API_SECRET: ${PROSPECTION_TENANT_API_SECRET_STAGING:-staging-secret}
+
+      # ─── Services tiers staging ────────────────────────────────────────
+      BREVO_API_KEY: ${BREVO_API_KEY_STAGING:-}
+      CRON_SECRET: staging-cron-secret
+      VAULT_ENC_KEY: ${VAULT_ENC_KEY_STAGING:-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
+      NEXT_PUBLIC_GTM_ID: ""
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=staging-edge
+      - traefik.http.routers.hub.rule=Host(`hub.staging.veridian.site`)
+      - traefik.http.routers.hub.entrypoints=websecure
+      - traefik.http.routers.hub.tls=true
+      - traefik.http.routers.hub.tls.certresolver=letsencrypt
+      - traefik.http.services.hub.loadbalancer.server.port=3000
+      - veridian.staging.app=hub
+
+  # ─── Postgres staging (DB locale à la stack) ─────────────────────────
+  # Volume nommé pour persister entre les redeploys (au contraire de
+  # l'ancienne version qui mettait tout en éphémère).
+  hub-db:
+    image: postgres:16-alpine
+    container_name: hub-staging-db
+    restart: unless-stopped
+    networks:
+      - hub-internal
+    environment:
+      POSTGRES_USER: hub
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-staging-pwd}
+      POSTGRES_DB: hub
+    volumes:
+      - hub-staging-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hub -d hub"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    labels:
+      - veridian.staging.app=hub
+
+networks:
+  staging-edge:
+    external: true
+  hub-internal:
+    driver: bridge
+
+volumes:
+  hub-staging-pgdata:
+    name: hub-staging-pgdata
