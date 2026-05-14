@@ -26,6 +26,29 @@
 
 ## Workflow opérationnel
 
+### Piège : création initiale de la branche `staging`
+
+Si tu crées la branche `staging` pour la première fois avec `git checkout -b staging main + git push`, **GitHub n'enregistre qu'un `CreateEvent`**, pas un `PushEvent`. Le workflow `on: push: branches: [staging]` ne se déclenche **pas**.
+
+Plus subtil : un `git commit --allow-empty` puis push **ne déclenche pas non plus** si le workflow a un `paths-ignore` — GitHub Actions skip "aucun fichier matché".
+
+Solutions :
+
+**Option 1 (recommandée)** : trigger manuel via `workflow_dispatch` (présent dans le workflow) :
+
+```sh
+gh workflow run hub-staging.yml --repo Christ-Roy/veridian-hub --ref staging
+```
+
+**Option 2** : forcer un commit qui touche un fichier hors `paths-ignore` :
+
+```sh
+git checkout -b staging main
+git push -u origin staging
+# Modifier un fichier réel (pas todo/, docs/, runbooks/, ni .md)
+echo "" >> compose/base.yml && git commit -am "ci(staging): trigger" && git push
+```
+
 ### Pour valider un fix avant prod
 
 ```sh
