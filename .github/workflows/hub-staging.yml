@@ -1,73 +1,57 @@
-name: Hub Staging (ephemeral per PR)
+name: Hub Staging (dev server)
 
-# Spawn / teardown automatique d'une stack staging Hub par Pull Request sur
-# le dev server (37.187.199.185, Traefik standalone *.staging.veridian.site).
+# Convention officielle Veridian (CLAUDE.md racine §Staging) :
+#   - 1 stack staging fixe sur hub.staging.veridian.site
+#   - Trigger : push sur branche `staging`
+#   - Pas d'éphémère par PR, pas de teardown auto
+#   - Deploy via SSH dev-pub → docker compose up
 #
-# - PR opened/synchronize → build image staging-<sha7> → push GHCR → SSH dev
-#   → docker compose up → smoke HTTPS → comment PR avec l'URL
-# - PR closed/merged → SSH dev → docker compose down -v → prune images stack
-#
-# Cleanup garanti via step `if: always()` (CI-ARCHITECTURE §17.3).
+# Pour valider une PR sur staging avant merge main :
+#   1. Push la branche feature/fix → travailler dessus
+#   2. Une fois prête, merger (ou cherry-pick) dans `staging`
+#   3. Ce workflow se déclenche → deploy automatique
+#   4. Smoke + validation manuelle sur https://hub.staging.veridian.site
+#   5. Si OK → PR de feature → main → prod
 
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, closed]
-    branches: [main]
+  push:
+    branches: [staging]
     paths-ignore:
       - 'todo/**'
       - '_archive/**'
+      - 'docs/**'
+      - 'runbooks/**'
       - '**/*.md'
+  workflow_dispatch:
 
-# Annule les runs en double sur la même PR (cancel-in-progress).
-# Concurrency PAR PR pour ne pas qu'une PR bloque le spawn d'une autre.
 concurrency:
-  group: hub-staging-pr-${{ github.event.pull_request.number }}
+  group: hub-staging-deploy
   cancel-in-progress: true
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: christ-roy/veridian-hub
   STAGING_DIR: /opt/staging/hub
+  STAGING_URL: https://hub.staging.veridian.site
 
 jobs:
-  # ─── SPAWN ────────────────────────────────────────────────────────────
-  # Tourne sur opened/synchronize/reopened uniquement.
-  # Skippé proprement (status SKIPPED) si les vars/secrets staging ne sont
-  # pas configurés sur le repo — évite de bloquer les merges en attendant
-  # l'activation. Cf runbooks/activate-staging.md pour la procédure.
-  spawn:
-    if: |
-      github.event.action != 'closed' &&
-      vars.STAGING_HOST != '' &&
-      vars.STAGING_USER != ''
+  deploy:
     runs-on: ubuntu-latest
+    if: |
+      vars.STAGING_HOST != '' && vars.STAGING_USER != ''
     permissions:
       contents: read
       packages: write
-      pull-requests: write
-    outputs:
-      branch-slug: ${{ steps.slug.outputs.slug }}
-      staging-url: ${{ steps.slug.outputs.url }}
-      image-tag: ${{ steps.slug.outputs.image-tag }}
     steps:
       - uses: actions/checkout@v6
 
-      # Slug de la branche pour le sous-domaine et le nom de stack.
-      # Ex: fix/dashboard-rsc-icon-prop → fix-dashboard-rsc-icon-prop
-      # Limite Traefik/DNS : 63 caractères max par label, on tronque à 50.
-      - name: Compute branch slug
-        id: slug
+      - name: Compute image tag
+        id: tag
         run: |
-          BRANCH="${{ github.head_ref }}"
-          SLUG=$(echo "$BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's|[/_.]|-|g' | sed 's/[^a-z0-9-]//g' | cut -c1-50)
-          SHA7=$(echo "${{ github.event.pull_request.head.sha }}" | cut -c1-7)
-          echo "slug=$SLUG" >> $GITHUB_OUTPUT
+          SHA7=$(echo "${{ github.sha }}" | cut -c1-7)
           echo "image-tag=staging-$SHA7" >> $GITHUB_OUTPUT
-          echo "url=https://hub-$SLUG.staging.veridian.site" >> $GITHUB_OUTPUT
-          echo "Branch slug: $SLUG"
-          echo "URL staging: https://hub-$SLUG.staging.veridian.site"
+          echo "Building staging-$SHA7"
 
-      # Build + push image staging (tag = staging-<sha7>).
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
@@ -86,167 +70,9 @@ jobs:
             docker buildx build \
               --target runner \
               --push \
-              -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.slug.outputs.image-tag }} \
+              -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.image-tag }} \
               -f ./Dockerfile \
               .
-
-      # Déploie sur dev server via SSH.
-      # Setup SSH key éphémère, scope au répertoire staging.
-      # Échec STRICT si les secrets/vars manquent — éviter les faux "succès".
-      - name: Setup SSH to dev server
-        env:
-          SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
-          DEV_HOST: ${{ vars.STAGING_HOST }}
-          DEV_USER: ${{ vars.STAGING_USER }}
-        run: |
-          MISSING=""
-          [ -z "$SSH_KEY" ] && MISSING="$MISSING STAGING_SSH_KEY"
-          [ -z "$DEV_HOST" ] && MISSING="$MISSING STAGING_HOST"
-          [ -z "$DEV_USER" ] && MISSING="$MISSING STAGING_USER"
-          if [ -n "$MISSING" ]; then
-            echo "::error::Staging credentials missing:$MISSING"
-            echo "::error::Configure ces secrets/vars sur le repo. Cf runbooks/activate-staging.md."
-            exit 1
-          fi
-          mkdir -p ~/.ssh
-          echo "$SSH_KEY" > ~/.ssh/staging_key
-          chmod 600 ~/.ssh/staging_key
-          ssh-keyscan -H "$DEV_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-          echo "SSH setup OK for $DEV_USER@$DEV_HOST"
-
-      - name: Deploy stack
-        env:
-          DEV_HOST: ${{ vars.STAGING_HOST }}
-          DEV_USER: ${{ vars.STAGING_USER }}
-          BRANCH_SLUG: ${{ steps.slug.outputs.slug }}
-          IMAGE_TAG: ${{ steps.slug.outputs.image-tag }}
-          HUB_AUTH_SECRET: ${{ secrets.STAGING_HUB_AUTH_SECRET }}
-          POSTGRES_PASSWORD: ${{ secrets.STAGING_POSTGRES_PASSWORD }}
-        run: |
-          set -euo pipefail
-          STACK_DIR="${{ env.STAGING_DIR }}/${BRANCH_SLUG}"
-
-          # SCP des composes (base + staging uniquement, pas prod.yml).
-          ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" "mkdir -p $STACK_DIR/compose"
-          scp -i ~/.ssh/staging_key compose/base.yml "$DEV_USER@$DEV_HOST:$STACK_DIR/compose/"
-          scp -i ~/.ssh/staging_key compose/staging.yml "$DEV_USER@$DEV_HOST:$STACK_DIR/compose/"
-
-          # Génère le .env localement, le copie via scp, puis l'efface
-          # localement immédiatement (évite le heredoc imbriqué dans le YAML).
-          ENVFILE="$(mktemp)"
-          {
-            printf 'BRANCH_SLUG=%s\n' "$BRANCH_SLUG"
-            printf 'HUB_IMAGE_TAG=%s\n' "$IMAGE_TAG"
-            printf 'HUB_AUTH_SECRET=%s\n' "$HUB_AUTH_SECRET"
-            printf 'POSTGRES_PASSWORD=%s\n' "$POSTGRES_PASSWORD"
-          } > "$ENVFILE"
-          scp -i ~/.ssh/staging_key "$ENVFILE" "$DEV_USER@$DEV_HOST:$STACK_DIR/.env"
-          rm -f "$ENVFILE"
-          ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" "chmod 600 $STACK_DIR/.env"
-
-          # Pull + up
-          ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" \
-            "cd $STACK_DIR && docker compose -p hub-$BRANCH_SLUG -f compose/base.yml -f compose/staging.yml pull"
-          ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" \
-            "cd $STACK_DIR && docker compose -p hub-$BRANCH_SLUG -f compose/base.yml -f compose/staging.yml up -d --remove-orphans"
-
-          # Attendre healthcheck OK
-          echo "Waiting for hub-$BRANCH_SLUG to become healthy..."
-          for i in $(seq 1 30); do
-            STATUS=$(ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" \
-              "docker inspect hub-$BRANCH_SLUG --format '{{.State.Health.Status}}' 2>/dev/null" || echo "starting")
-            if [ "$STATUS" = "healthy" ]; then
-              echo "Healthy after $((i*10))s"
-              exit 0
-            fi
-            sleep 10
-          done
-          echo "::error::Container hub-$BRANCH_SLUG not healthy after 5min"
-          ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" \
-            "docker logs hub-$BRANCH_SLUG --tail 100" || true
-          exit 1
-
-      # Smoke HTTPS sur l'URL Traefik (cert Let's Encrypt + routing OK ?)
-      - name: Smoke test staging URL
-        env:
-          URL: ${{ steps.slug.outputs.url }}
-        run: |
-          echo "Smoke test: $URL/api/health"
-          for i in $(seq 1 6); do
-            if curl -sf --max-time 10 "$URL/api/health" | grep -q '"status":"ok"'; then
-              echo "✓ Staging healthy: $URL"
-              exit 0
-            fi
-            echo "Attempt $i: not ready, retry in 10s..."
-            sleep 10
-          done
-          echo "::error::Smoke failed after 60s on $URL"
-          exit 1
-
-      - name: Comment PR with staging URL
-        if: success()
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const url = '${{ steps.slug.outputs.url }}';
-            const tag = '${{ steps.slug.outputs.image-tag }}';
-            const body = `### 🟢 Staging déployé
-
-            **URL** : ${url}
-            **Image** : \`${tag}\`
-            **Stack** : \`hub-${{ steps.slug.outputs.slug }}\` sur dev server
-
-            La stack sera **automatiquement détruite** au merge ou à la fermeture de cette PR.
-            `;
-            // Trouver un commentaire existant du bot pour le mettre à jour
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-            const existing = comments.find(c => c.user.type === 'Bot' && c.body.startsWith('### 🟢 Staging déployé'));
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body,
-              });
-            }
-
-      # CLEANUP RUNNER (always) — supprime images temporaires sur le runner
-      # GitHub Actions hosted. Pas critique vu que le runner est éphémère,
-      # mais propre pour cohérence avec la règle CI-ARCHITECTURE §17.3.
-      - name: Cleanup local runner
-        if: always()
-        run: |
-          docker container prune -f || true
-          docker image prune -f --filter "until=1h" || true
-          rm -f ~/.ssh/staging_key
-
-  # ─── TEARDOWN ─────────────────────────────────────────────────────────
-  # Tourne sur PR closed (merged ou pas). Skippé si secrets staging absents
-  # (le GC hebdo rattrapera de toute façon les stacks orphelines).
-  teardown:
-    if: |
-      github.event.action == 'closed' &&
-      vars.STAGING_HOST != '' &&
-      vars.STAGING_USER != ''
-    runs-on: ubuntu-latest
-    steps:
-      - name: Compute branch slug
-        id: slug
-        run: |
-          BRANCH="${{ github.head_ref }}"
-          SLUG=$(echo "$BRANCH" | tr '[:upper:]' '[:lower:]' | sed 's|[/_.]|-|g' | sed 's/[^a-z0-9-]//g' | cut -c1-50)
-          echo "slug=$SLUG" >> $GITHUB_OUTPUT
 
       - name: Setup SSH
         env:
@@ -257,80 +83,79 @@ jobs:
           [ -z "$SSH_KEY" ] && MISSING="$MISSING STAGING_SSH_KEY"
           [ -z "$DEV_HOST" ] && MISSING="$MISSING STAGING_HOST"
           if [ -n "$MISSING" ]; then
-            echo "::warning::Teardown SSH credentials missing:$MISSING — GC hebdo rattrapera"
-            exit 0
+            echo "::error::Staging credentials missing:$MISSING"
+            exit 1
           fi
           mkdir -p ~/.ssh
           echo "$SSH_KEY" > ~/.ssh/staging_key
           chmod 600 ~/.ssh/staging_key
           ssh-keyscan -H "$DEV_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
-      # `if: always()` sur ce step : même si le SSH a échoué au step
-      # précédent, on tente le teardown. Si le SSH ne fonctionne pas non
-      # plus ici, le GC hebdo rattrapera (cf scripts/ops/staging-gc.sh).
-      - name: Destroy stack on dev server
-        if: always()
+      - name: Deploy stack
         env:
           DEV_HOST: ${{ vars.STAGING_HOST }}
           DEV_USER: ${{ vars.STAGING_USER }}
-          BRANCH_SLUG: ${{ steps.slug.outputs.slug }}
+          IMAGE_TAG: ${{ steps.tag.outputs.image-tag }}
+          HUB_AUTH_SECRET: ${{ secrets.STAGING_HUB_AUTH_SECRET }}
+          POSTGRES_PASSWORD: ${{ secrets.STAGING_POSTGRES_PASSWORD }}
         run: |
-          # Si la SSH key n'existe pas, c'est qu'on a skip le Setup SSH (secrets
-          # manquants). Pas d'erreur, le GC hebdo rattrapera.
-          if [ ! -f ~/.ssh/staging_key ]; then
-            echo "::warning::Pas de clé SSH staging, teardown skip — GC hebdo prendra le relais"
-            exit 0
-          fi
-          STACK_DIR="${{ env.STAGING_DIR }}/${BRANCH_SLUG}"
-          ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" bash -s << EOF || true
-            set +e
-            if [ -d "$STACK_DIR" ]; then
-              cd "$STACK_DIR"
-              # Down + suppression volumes (DB éphémère)
-              docker compose -p hub-$BRANCH_SLUG \
-                -f compose/base.yml -f compose/staging.yml \
-                down -v --remove-orphans --timeout 30
-              cd /
-              rm -rf "$STACK_DIR"
+          set -euo pipefail
+
+          # SCP composes (base + staging uniquement, pas prod.yml).
+          ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" "mkdir -p ${{ env.STAGING_DIR }}/compose"
+          scp -i ~/.ssh/staging_key compose/base.yml "$DEV_USER@$DEV_HOST:${{ env.STAGING_DIR }}/compose/"
+          scp -i ~/.ssh/staging_key compose/staging.yml "$DEV_USER@$DEV_HOST:${{ env.STAGING_DIR }}/compose/"
+
+          # .env de la stack (chargé automatiquement par compose dans le CWD)
+          ENVFILE="$(mktemp)"
+          {
+            printf 'HUB_IMAGE_TAG=%s\n' "$IMAGE_TAG"
+            printf 'HUB_AUTH_SECRET=%s\n' "$HUB_AUTH_SECRET"
+            printf 'POSTGRES_PASSWORD=%s\n' "$POSTGRES_PASSWORD"
+          } > "$ENVFILE"
+          scp -i ~/.ssh/staging_key "$ENVFILE" "$DEV_USER@$DEV_HOST:${{ env.STAGING_DIR }}/.env"
+          rm -f "$ENVFILE"
+          ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" "chmod 600 ${{ env.STAGING_DIR }}/.env"
+
+          # Pull + up (1 seule stack fixe, recycle des containers existants)
+          ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" \
+            "cd ${{ env.STAGING_DIR }} && docker compose -p hub-staging --env-file .env -f compose/base.yml -f compose/staging.yml pull"
+          ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" \
+            "cd ${{ env.STAGING_DIR }} && docker compose -p hub-staging --env-file .env -f compose/base.yml -f compose/staging.yml up -d --remove-orphans"
+
+          # Attendre healthcheck OK
+          echo "Waiting for hub-staging to become healthy..."
+          for i in $(seq 1 30); do
+            STATUS=$(ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" \
+              "docker inspect hub-staging --format '{{.State.Health.Status}}' 2>/dev/null" || echo "starting")
+            if [ "$STATUS" = "healthy" ]; then
+              echo "Healthy after $((i*10))s"
+              exit 0
             fi
-            # Supprimer les images dangling de cette stack
-            docker image prune -f --filter "label=veridian.staging.branch=$BRANCH_SLUG" || true
-            echo "Teardown done for hub-$BRANCH_SLUG"
-          EOF
+            sleep 10
+          done
+          echo "::error::Container hub-staging not healthy after 5min"
+          ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" \
+            "docker logs hub-staging --tail 100" || true
+          exit 1
 
-      - name: Comment PR with teardown status
-        if: always()
-        uses: actions/github-script@v8
-        with:
-          script: |
-            const slug = '${{ steps.slug.outputs.slug }}';
-            const body = `### 🧹 Staging détruit
-
-            Stack \`hub-${slug}\` supprimée du dev server (containers + volumes + DB).
-            `;
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-            });
-            const existing = comments.find(c => c.user.type === 'Bot' && c.body.startsWith('### 🟢 Staging déployé'));
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: existing.id,
-                body: existing.body + '\n\n---\n' + body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: context.issue.number,
-                body,
-              });
-            }
+      - name: Smoke test staging URL
+        run: |
+          echo "Smoke test: ${{ env.STAGING_URL }}/api/health"
+          for i in $(seq 1 6); do
+            if curl -sf --max-time 10 "${{ env.STAGING_URL }}/api/health" | grep -q '"status":"ok"'; then
+              echo "✓ Staging healthy: ${{ env.STAGING_URL }}"
+              exit 0
+            fi
+            echo "Attempt $i: not ready, retry in 10s..."
+            sleep 10
+          done
+          echo "::error::Smoke failed after 60s on ${{ env.STAGING_URL }}"
+          exit 1
 
       - name: Cleanup local runner
         if: always()
         run: |
+          docker container prune -f || true
+          docker image prune -f --filter "until=1h" || true
           rm -f ~/.ssh/staging_key
