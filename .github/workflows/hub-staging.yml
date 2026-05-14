@@ -110,50 +110,49 @@ jobs:
           HUB_AUTH_SECRET: ${{ secrets.STAGING_HUB_AUTH_SECRET }}
           POSTGRES_PASSWORD: ${{ secrets.STAGING_POSTGRES_PASSWORD }}
         run: |
+          set -euo pipefail
           [ -z "${{ vars.STAGING_HOST }}" ] && exit 0
           STACK_DIR="${{ env.STAGING_DIR }}/${BRANCH_SLUG}"
-          # SCP sources compose (base + staging uniquement, pas prod.yml)
+
+          # SCP des composes (base + staging uniquement, pas prod.yml).
           ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" "mkdir -p $STACK_DIR/compose"
           scp -i ~/.ssh/staging_key compose/base.yml "$DEV_USER@$DEV_HOST:$STACK_DIR/compose/"
           scp -i ~/.ssh/staging_key compose/staging.yml "$DEV_USER@$DEV_HOST:$STACK_DIR/compose/"
 
-          ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" bash -s << EOF
-            set -e
-            cd $STACK_DIR
+          # Génère le .env localement, le copie via scp, puis l'efface
+          # localement immédiatement (évite le heredoc imbriqué dans le YAML).
+          ENVFILE="$(mktemp)"
+          {
+            printf 'BRANCH_SLUG=%s\n' "$BRANCH_SLUG"
+            printf 'HUB_IMAGE_TAG=%s\n' "$IMAGE_TAG"
+            printf 'HUB_AUTH_SECRET=%s\n' "$HUB_AUTH_SECRET"
+            printf 'POSTGRES_PASSWORD=%s\n' "$POSTGRES_PASSWORD"
+          } > "$ENVFILE"
+          scp -i ~/.ssh/staging_key "$ENVFILE" "$DEV_USER@$DEV_HOST:$STACK_DIR/.env"
+          rm -f "$ENVFILE"
+          ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" "chmod 600 $STACK_DIR/.env"
 
-            # .env de la stack (variables résolues par docker compose)
-            cat > .env <<ENV
-BRANCH_SLUG=$BRANCH_SLUG
-HUB_IMAGE_TAG=$IMAGE_TAG
-HUB_AUTH_SECRET=$HUB_AUTH_SECRET
-POSTGRES_PASSWORD=$POSTGRES_PASSWORD
-ENV
-            chmod 600 .env
+          # Pull + up
+          ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" \
+            "cd $STACK_DIR && docker compose -p hub-$BRANCH_SLUG -f compose/base.yml -f compose/staging.yml pull"
+          ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" \
+            "cd $STACK_DIR && docker compose -p hub-$BRANCH_SLUG -f compose/base.yml -f compose/staging.yml up -d --remove-orphans"
 
-            # Pull image fraîche
-            docker compose -p hub-$BRANCH_SLUG \
-              -f compose/base.yml -f compose/staging.yml \
-              pull
-
-            # Up
-            docker compose -p hub-$BRANCH_SLUG \
-              -f compose/base.yml -f compose/staging.yml \
-              up -d --remove-orphans
-
-            # Attendre healthcheck OK
-            echo "Waiting for hub-$BRANCH_SLUG to become healthy..."
-            for i in \$(seq 1 30); do
-              STATUS=\$(docker inspect hub-$BRANCH_SLUG --format '{{.State.Health.Status}}' 2>/dev/null || echo "starting")
-              if [ "\$STATUS" = "healthy" ]; then
-                echo "Healthy after \${i}0s"
-                exit 0
-              fi
-              sleep 10
-            done
-            echo "::error::Container hub-$BRANCH_SLUG not healthy after 5min"
-            docker logs hub-$BRANCH_SLUG --tail 100
-            exit 1
-          EOF
+          # Attendre healthcheck OK
+          echo "Waiting for hub-$BRANCH_SLUG to become healthy..."
+          for i in $(seq 1 30); do
+            STATUS=$(ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" \
+              "docker inspect hub-$BRANCH_SLUG --format '{{.State.Health.Status}}' 2>/dev/null" || echo "starting")
+            if [ "$STATUS" = "healthy" ]; then
+              echo "Healthy after $((i*10))s"
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Container hub-$BRANCH_SLUG not healthy after 5min"
+          ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" \
+            "docker logs hub-$BRANCH_SLUG --tail 100" || true
+          exit 1
 
       # Smoke HTTPS sur l'URL Traefik (cert Let's Encrypt + routing OK ?)
       - name: Smoke test staging URL
