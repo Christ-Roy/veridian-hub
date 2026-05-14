@@ -4,7 +4,7 @@ import { ProspectionCard } from './components/ProspectionCard';
 import { ServiceCard } from './components/ServiceCard';
 import { RefreshButton } from './components/RefreshButton';
 import { RetryProvisionButton } from './components/RetryProvisionButton';
-import { LayoutDashboard, BarChart3 } from 'lucide-react';
+import { LayoutDashboard } from 'lucide-react';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
 
@@ -197,7 +197,7 @@ export default async function DashboardPage() {
             name="Veridian Analytics"
             description="Dashboard multi-tenant : pageviews, formulaires, SEO (GSC), appels SIP."
             url="https://analytics.app.veridian.site"
-            icon={BarChart3}
+            icon="BarChart3"
             badge="BETA"
             features={[
               'Tracker JS humain-only',
