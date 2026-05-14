@@ -13,9 +13,13 @@ COPY package.json pnpm-lock.yaml* ./
 COPY prisma ./prisma
 
 # Install pnpm and dependencies
-# postinstall triggers `prisma generate` which requires prisma/schema.prisma
+# --ignore-scripts blinde la supply chain : aucun postinstall malveillant
+# d'un package npm bumped par Renovate ne s'exécutera ici.
+# `prisma generate` est invoqué explicitement après l'install (nécessite
+# prisma/schema.prisma déjà copié).
 RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
-RUN pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile --ignore-scripts
+RUN pnpm exec prisma generate
 
 # ============================================================================
 # STAGE 2: Builder
