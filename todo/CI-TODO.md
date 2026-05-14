@@ -327,11 +327,14 @@ Le workflow `hub-staging.yml` attend ces secrets/vars sur le repo `Christ-Roy/ve
 - ✅ CI Hub : `check-compose-sync.sh` ajouté en étage 1 de `hub-ci.yml` (toujours)
 - ✅ Workflow `.github/workflows/hub-staging.yml` créé (spawn sur PR open/sync, teardown sur PR close, cleanup runner `always()`, commentaire PR avec URL staging)
 - ✅ Script `scripts/ops/staging-gc.sh` créé (GC hebdo : kill stacks orphelines, fallback âge 7j si gh CLI indispo, alerte Telegram si disk > 80%)
-- 🔲 **Reste à faire pour activer staging** :
-  - Configurer secrets/vars GitHub repo (cf section A.3 ci-dessus)
-  - Déployer SSH key dédiée staging sur dev (avec restriction `command=`)
-  - Déployer `staging-gc.sh` sur dev sous `/opt/scripts/` + systemd timer
-  - Tester end-to-end avec PR #17 (premier spawn staging)
+- ✅ **PR #18 ouverte** : `feat(ci): staging éphémère par PR + refacto compose base/prod/staging` (https://github.com/Christ-Roy/veridian-hub/pull/18)
+- ✅ **Premier push échec CI workflow file YAML** : heredoc `<<ENV` imbriqué dans `<<EOF` du run step → parser GitHub Actions refusait le fichier. Fix : génération `.env` localement sur runner puis scp, pas d'heredoc imbriqué. **Pattern à éviter dans les futurs workflows : un seul niveau d'heredoc max dans les blocs `run: |`.**
+- ✅ **Runbook d'activation** : `runbooks/activate-staging.md` versionné (user SSH dédié, génération clé ed25519, secrets/vars GitHub, GC + systemd timer, test end-to-end, troubleshooting)
+- 🔲 **Reste à faire pour activer staging** (après merge PR #18) :
+  - Configurer secrets/vars GitHub repo (cf `runbooks/activate-staging.md` Étape 4)
+  - Créer user SSH `staging-deploy` sur dev + déployer clé publique (Étape 1-3)
+  - Déployer `staging-gc.sh` sur dev + systemd timer hebdo (Étape 5)
+  - Tester end-to-end avec une PR de test (Étape 6)
 
 ### 2026-05-13
 - ✅ Standard CI Veridian v1 validé (CI-ARCHITECTURE.md, 1206 lignes)
