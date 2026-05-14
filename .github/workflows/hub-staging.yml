@@ -32,8 +32,14 @@ env:
 jobs:
   # ─── SPAWN ────────────────────────────────────────────────────────────
   # Tourne sur opened/synchronize/reopened uniquement.
+  # Skippé proprement (status SKIPPED) si les vars/secrets staging ne sont
+  # pas configurés sur le repo — évite de bloquer les merges en attendant
+  # l'activation. Cf runbooks/activate-staging.md pour la procédure.
   spawn:
-    if: github.event.action != 'closed'
+    if: |
+      github.event.action != 'closed' &&
+      vars.STAGING_HOST != '' &&
+      vars.STAGING_USER != ''
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -226,9 +232,13 @@ jobs:
           rm -f ~/.ssh/staging_key
 
   # ─── TEARDOWN ─────────────────────────────────────────────────────────
-  # Tourne sur PR closed (merged ou pas).
+  # Tourne sur PR closed (merged ou pas). Skippé si secrets staging absents
+  # (le GC hebdo rattrapera de toute façon les stacks orphelines).
   teardown:
-    if: github.event.action == 'closed'
+    if: |
+      github.event.action == 'closed' &&
+      vars.STAGING_HOST != '' &&
+      vars.STAGING_USER != ''
     runs-on: ubuntu-latest
     steps:
       - name: Compute branch slug
