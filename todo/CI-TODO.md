@@ -328,13 +328,33 @@ Le workflow `hub-staging.yml` attend ces secrets/vars sur le repo `Christ-Roy/ve
 - ✅ Workflow `.github/workflows/hub-staging.yml` créé (spawn sur PR open/sync, teardown sur PR close, cleanup runner `always()`, commentaire PR avec URL staging)
 - ✅ Script `scripts/ops/staging-gc.sh` créé (GC hebdo : kill stacks orphelines, fallback âge 7j si gh CLI indispo, alerte Telegram si disk > 80%)
 - ✅ **PR #18 ouverte** : `feat(ci): staging éphémère par PR + refacto compose base/prod/staging` (https://github.com/Christ-Roy/veridian-hub/pull/18)
-- ✅ **Premier push échec CI workflow file YAML** : heredoc `<<ENV` imbriqué dans `<<EOF` du run step → parser GitHub Actions refusait le fichier. Fix : génération `.env` localement sur runner puis scp, pas d'heredoc imbriqué. **Pattern à éviter dans les futurs workflows : un seul niveau d'heredoc max dans les blocs `run: |`.**
 - ✅ **Runbook d'activation** : `runbooks/activate-staging.md` versionné (user SSH dédié, génération clé ed25519, secrets/vars GitHub, GC + systemd timer, test end-to-end, troubleshooting)
-- 🔲 **Reste à faire pour activer staging** (après merge PR #18) :
-  - Configurer secrets/vars GitHub repo (cf `runbooks/activate-staging.md` Étape 4)
-  - Créer user SSH `staging-deploy` sur dev + déployer clé publique (Étape 1-3)
-  - Déployer `staging-gc.sh` sur dev + systemd timer hebdo (Étape 5)
-  - Tester end-to-end avec une PR de test (Étape 6)
+- ✅ **CI Hub `Hub CI/CD` ✅ VERTE** sur PR #18 (test 1m35s + audit 20s, deploy/docker/trivy skipped par condition PR)
+- ✅ **CI staging workflow se déclenche** correctement sur la PR (job `spawn` tourne, `teardown` skipping car PR open)
+
+### Bugs CI rencontrés + fixés
+
+1. ❌ **YAML parse fail** : heredoc `<<ENV` imbriqué dans `<<EOF` du run step → parser GitHub Actions refusait le fichier (`could not find expected ':'`).
+   - **Fix** : génération `.env` localement sur runner via printf, scp sur dev, rm immédiat. Pas d'heredoc imbriqué.
+   - **Leçon** : max 1 niveau d'heredoc dans les blocs `run: |` GitHub Actions.
+
+2. ❌ **Faux succès "Deploy stack ✓"** : le check `[ -z "${{ vars.STAGING_HOST }}" ] && exit 0` rendait silently OK le step quand `STAGING_HOST` était vide. Job entier passait au "vert" sans rien déployer → smoke échouait 60s plus tard sur une URL sans container derrière.
+   - **Fix** : exit 1 strict avec liste des secrets manquants dans le step `Setup SSH`. Le workflow tombe rouge immédiatement si secrets pas configurés.
+   - **Leçon** : ne **jamais** faire `exit 0` silencieux quand des secrets sont requis. Préférer `exit 1` avec message explicite.
+
+3. ✅ **Image staging push GHCR** : OK (tag `staging-<sha7>`, ex `staging-93c5295`)
+
+### 🔲 Reste à faire pour activer staging end-to-end
+
+(toutes les étapes documentées dans `runbooks/activate-staging.md`)
+
+- 🔲 Configurer secrets/vars GitHub repo Christ-Roy/veridian-hub :
+  - Secrets : `STAGING_SSH_KEY`, `STAGING_HUB_AUTH_SECRET`, `STAGING_POSTGRES_PASSWORD`
+  - Vars : `STAGING_HOST` (= `dev-pub.veridian.site`), `STAGING_USER` (= `staging-deploy`)
+- 🔲 Créer user SSH `staging-deploy` sur dev (groupe docker) + déployer clé publique
+- 🔲 Déployer `staging-gc.sh` sur dev sous `/opt/scripts/staging-gc-hub.sh` + systemd timer hebdo
+- 🔲 Re-tester PR #18 → vérifier spawn → URL `hub-feat-staging-ephemeral-ci.staging.veridian.site` répond 200
+- 🔲 Tester teardown : fermer la PR (ou re-ouvrir) → vérifier que la stack est bien supprimée
 
 ### 2026-05-13
 - ✅ Standard CI Veridian v1 validé (CI-ARCHITECTURE.md, 1206 lignes)
