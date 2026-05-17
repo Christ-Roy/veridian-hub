@@ -1,0 +1,91 @@
+name: _trivy-fs (reusable)
+
+# Reusable Trivy filesystem scan. 4 scanners en 1 run :
+#   - vuln   (CVE sur deps lockfiles : pnpm-lock, package.json, etc.)
+#   - config (misconfig IaC : Dockerfile, docker-compose, k8s, terraform)
+#   - secret (clés API / tokens en clair commitées)
+#   - license (licences refusées : GPL-3.0, AGPL, etc.)
+#
+# Complémentaire à _trivy-image.yml (CVE OS + libs système dans l'image build).
+# Référence : CI-ARCHITECTURE.md §17.2 Trivy 9 capacités.
+
+on:
+  workflow_call:
+    inputs:
+      scan-path:
+        description: "Chemin à scanner (défaut : racine repo)"
+        required: false
+        type: string
+        default: '.'
+      severity:
+        description: "Sévérités bloquantes (CSV)"
+        required: false
+        type: string
+        default: "CRITICAL,HIGH"
+      ignore-unfixed:
+        description: "Ignorer les CVE sans patch dispo upstream"
+        required: false
+        type: boolean
+        default: true
+      skip-license:
+        description: "Skip license scanner (ex: monorepo polyglotte sans audit légal)"
+        required: false
+        type: boolean
+        default: false
+      sarif-upload:
+        description: "Upload SARIF vers GitHub Security tab"
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  trivy-fs:
+    name: Trivy FS (vuln+config+secret+license)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v6
+
+      # Scanner combiné : vuln + config + secret + (license si pas skip)
+      - name: Run Trivy filesystem scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: 'fs'
+          scan-ref: ${{ inputs.scan-path }}
+          severity: ${{ inputs.severity }}
+          exit-code: '1'
+          ignore-unfixed: ${{ inputs.ignore-unfixed }}
+          format: 'table'
+          scanners: ${{ inputs.skip-license && 'vuln,misconfig,secret' || 'vuln,misconfig,secret,license' }}
+          timeout: '10m'
+          trivyignores: '.trivyignore,.trivyignore.yaml'
+        env:
+          TRIVY_CACHE_DIR: /tmp/trivy-cache
+
+      # SARIF report pour upload GitHub Security tab (non-bloquant : si scan fail
+      # plus haut, on a déjà sorti exit 1. Ce step ne s'exécute que sur success.)
+      - name: Generate SARIF report
+        if: ${{ inputs.sarif-upload }}
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: 'fs'
+          scan-ref: ${{ inputs.scan-path }}
+          severity: ${{ inputs.severity }}
+          exit-code: '0'
+          ignore-unfixed: ${{ inputs.ignore-unfixed }}
+          format: 'sarif'
+          output: 'trivy-fs.sarif'
+          scanners: ${{ inputs.skip-license && 'vuln,misconfig,secret' || 'vuln,misconfig,secret,license' }}
+          timeout: '10m'
+          trivyignores: '.trivyignore,.trivyignore.yaml'
+        env:
+          TRIVY_CACHE_DIR: /tmp/trivy-cache
+
+      - name: Upload SARIF to GitHub Security tab
+        if: ${{ inputs.sarif-upload }}
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-fs.sarif'
+          category: 'trivy-fs'

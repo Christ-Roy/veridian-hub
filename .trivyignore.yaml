@@ -1,0 +1,30 @@
+# Trivy ignore policy (YAML format, Trivy >= 0.50)
+# Spec : https://trivy.dev/latest/docs/configuration/filtering/#by-finding-ids
+#
+# Chaque entry doit avoir :
+#   - id          : CVE / license / misconfig ID
+#   - statement   : pourquoi (justification VEX-like)
+#   - expired_at  : date de levée prévue (review obligatoire)
+#
+# Ce fichier remplace .trivyignore plat (toujours présent pour backward compat).
+
+vulnerabilities:
+  - id: CVE-2026-33671
+    paths:
+      - "usr/local/lib/node_modules/npm/node_modules/picomatch/**"
+    statement: |
+      picomatch 4.0.3 DoS regex via extglob patterns, bundled dans npm de
+      node:22-alpine et node:24-alpine.
+      Non exploitable : npm n'est pas exécuté au runtime du container Next.js.
+      Vérification : docker run --rm node:22-alpine npm ls -g picomatch
+    expired_at: 2026-08-01
+
+licenses:
+  - id: LGPL-3.0-or-later
+    statement: |
+      sharp (Next.js image optimizer) dépend de libvips bindings
+      @img/sharp-libvips-* en LGPL-3.0-or-later.
+      LGPL-3.0 + linkage dynamique = compatible avec licence propriétaire
+      (cf https://www.gnu.org/licenses/lgpl-3.0.html section 4).
+      Aucune modification upstream, aucune distribution du binaire libvips.
+    expired_at: 2027-01-01

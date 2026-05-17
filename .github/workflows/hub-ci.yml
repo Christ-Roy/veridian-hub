@@ -82,8 +82,20 @@ jobs:
       pnpm-version: "10"
       omit-dev: true
 
+  # Trivy FS scan : vuln + misconfig (Dockerfile, compose) + secret + license
+  # Bloquant sur CRIT/HIGH. SARIF uploadé dans GitHub Security tab.
+  trivy-fs:
+    name: Trivy FS (vuln+config+secret+license)
+    uses: ./.github/workflows/_trivy-fs.yml
+    with:
+      scan-path: '.'
+      severity: 'CRITICAL,HIGH'
+      ignore-unfixed: true
+      skip-license: false
+      sarif-upload: true
+
   docker:
-    needs: [test, audit]
+    needs: [test, audit, trivy-fs]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     # GitHub-hosted depuis extraction polyrepo (2026-05-13). Le self-hosted
     # runner [self-hosted, veridian] n'est pas enregistré sur ce repo.
