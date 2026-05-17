@@ -1,0 +1,120 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended",
+    ":semanticCommits",
+    ":dependencyDashboard",
+    ":enableVulnerabilityAlertsWithLabel(security)",
+    "schedule:earlyMondays",
+    "group:monorepos",
+    "group:recommended"
+  ],
+  "timezone": "Europe/Paris",
+  "labels": ["dependencies"],
+  "rangeStrategy": "bump",
+  "rebaseWhen": "conflicted",
+  "prHourlyLimit": 4,
+  "prConcurrentLimit": 8,
+  "dependencyDashboardTitle": "Renovate — Hub dependency dashboard",
+  "dependencyDashboardAutoclose": true,
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 4am on monday"]
+  },
+  "vulnerabilityAlerts": {
+    "labels": ["security", "vulnerability"],
+    "automerge": true,
+    "automergeType": "branch",
+    "schedule": ["at any time"]
+  },
+  "osvVulnerabilityAlerts": true,
+  "packageRules": [
+    {
+      "description": "Auto-merge patch updates si CI verte",
+      "matchUpdateTypes": ["patch", "pin", "digest"],
+      "automerge": true,
+      "automergeType": "branch",
+      "platformAutomerge": true
+    },
+    {
+      "description": "Auto-merge minor updates (libs ≥1.0.0) si CI verte",
+      "matchUpdateTypes": ["minor"],
+      "matchCurrentVersion": "!/^0\\./",
+      "automerge": true,
+      "automergeType": "branch",
+      "platformAutomerge": true
+    },
+    {
+      "description": "Major framework + bases Docker critiques → review humaine",
+      "matchPackageNames": [
+        "next",
+        "react",
+        "react-dom",
+        "next-auth",
+        "@auth/core",
+        "@auth/prisma-adapter",
+        "prisma",
+        "@prisma/client",
+        "postgres",
+        "redis",
+        "node",
+        "traefik"
+      ],
+      "matchUpdateTypes": ["major"],
+      "labels": ["dependencies", "needs-human-review"],
+      "automerge": false,
+      "addLabels": ["major-framework"]
+    },
+    {
+      "description": "Groupe Next stack",
+      "matchPackageNames": ["next", "react", "react-dom", "next-auth", "@auth/**"],
+      "groupName": "next-stack"
+    },
+    {
+      "description": "Groupe Prisma stack",
+      "matchPackageNames": ["prisma", "@prisma/**"],
+      "groupName": "prisma-stack"
+    },
+    {
+      "description": "Groupe dev tooling (test runner + lint + types)",
+      "matchPackageNames": [
+        "vitest",
+        "@vitest/**",
+        "@playwright/test",
+        "playwright",
+        "eslint",
+        "eslint-**",
+        "@typescript-eslint/**",
+        "typescript",
+        "@types/**",
+        "prettier",
+        "prettier-**"
+      ],
+      "groupName": "dev-tooling",
+      "automerge": true,
+      "automergeType": "branch",
+      "platformAutomerge": true
+    },
+    {
+      "description": "Docker base images — patch/minor auto, major review",
+      "matchManagers": ["dockerfile", "docker-compose"],
+      "matchUpdateTypes": ["patch", "minor"],
+      "automerge": true,
+      "automergeType": "branch",
+      "platformAutomerge": true
+    },
+    {
+      "description": "GitHub Actions — patch/minor auto",
+      "matchManagers": ["github-actions"],
+      "matchUpdateTypes": ["patch", "minor", "pin", "digest"],
+      "automerge": true,
+      "automergeType": "branch",
+      "platformAutomerge": true
+    }
+  ],
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/_archive/**",
+    "**/todo/**"
+  ]
+}
