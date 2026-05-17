@@ -52,14 +52,6 @@ services:
       NOTIFUSE_HUB_API_SECRET: ${NOTIFUSE_HUB_API_SECRET}
       NOTIFUSE_HUB_WEBHOOK_SECRET: ${NOTIFUSE_HUB_WEBHOOK_SECRET}
 
-      # ─── Twenty prod ───────────────────────────────────────────────────
-      NEXT_PUBLIC_TWENTY_URL: https://twenty.app.veridian.site
-      TWENTY_FRONTEND_URL: https://twenty.app.veridian.site
-      TWENTY_GRAPHQL_URL: https://twenty.app.veridian.site/graphql
-      TWENTY_METADATA_URL: https://twenty.app.veridian.site/metadata
-      TWENTY_SERVER_URL: https://twenty.app.veridian.site
-      TWENTY_APP_SECRET: ${TWENTY_APP_SECRET}
-
       # ─── Prospection prod ──────────────────────────────────────────────
       NEXT_PUBLIC_PROSPECTION_URL: https://prospection.app.veridian.site
       PROSPECTION_API_URL: https://prospection.app.veridian.site

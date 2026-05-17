@@ -40,15 +40,14 @@ import sys, json
 data = json.load(sys.stdin)
 tenants = data.get('tenants', [])
 print(f'\n  {len(tenants)} tenant(s)\n')
-print(f'{\"Email\":<35} {\"Plan\":<12} {\"Prosp\":<6} {\"Twenty\":<7} {\"Notif\":<6} {\"Trial ends\":<12}')
-print('-' * 85)
+print(f'{\"Email\":<35} {\"Plan\":<12} {\"Prosp\":<6} {\"Notif\":<6} {\"Trial ends\":<12}')
+print('-' * 78)
 for t in tenants:
     s = t['services']
     prosp = '✅' if s['prospection']['provisioned'] else '❌'
-    twenty = '✅' if s['twenty']['provisioned'] else '❌'
     notif = '✅' if s['notifuse']['provisioned'] else '❌'
     trial = t.get('trial_ends_at','')[:10] if t.get('trial_ends_at') else '-'
-    print(f'{t[\"email\"]:<35} {t[\"plan\"]:<12} {prosp:<6} {twenty:<7} {notif:<6} {trial:<12}')
+    print(f'{t[\"email\"]:<35} {t[\"plan\"]:<12} {prosp:<6} {notif:<6} {trial:<12}')
 print()
 "
 }
@@ -95,7 +94,6 @@ cmd_health() {
     "Hub|${HUB_URL}"
     "Prospection|https://prospection.app.veridian.site/api/health"
     "API|https://api.app.veridian.site/auth/v1/health"
-    "Twenty|https://twenty.app.veridian.site"
     "Notifuse|https://notifuse.app.veridian.site"
   )
 

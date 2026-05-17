@@ -6,7 +6,7 @@
 #   2. /api/health retourne 200 + JSON status:ok
 #   3. /dashboard retourne 200 ou 307 (redirect auth) — pas 500
 #   4. Container compose-back-up-online-pixel-nl2k9p-hub-1 healthy
-#   5. 0 erreur dans les logs des 5 dernières minutes (sauf bug Twenty connu)
+#   5. 0 erreur dans les logs des 5 dernières minutes
 #
 # Sortie 0 si OK, 1 si KO avec message explicite.
 #
@@ -65,9 +65,9 @@ fi
 
 # ─── 5. Erreurs récentes dans les logs (5 min) ───────────────────────────
 if command -v ssh >/dev/null 2>&1; then
-  errors=$(ssh -o ConnectTimeout=5 prod-pub 'docker logs compose-back-up-online-pixel-nl2k9p-hub-1 --since 5m 2>&1 | grep -iE "error|exception|fatal" | grep -viE "Twenty\] SignUp|TWENTY\] ❌|GTM|provisioning logs|test-noexist" | head -10' 2>/dev/null || echo "")
+  errors=$(ssh -o ConnectTimeout=5 prod-pub 'docker logs compose-back-up-online-pixel-nl2k9p-hub-1 --since 5m 2>&1 | grep -iE "error|exception|fatal" | grep -viE "GTM|provisioning logs|test-noexist" | head -10' 2>/dev/null || echo "")
   if [ -z "$errors" ]; then
-    ok "Logs 5min : aucune erreur (hors Twenty bug connu)"
+    ok "Logs 5min : aucune erreur"
   else
     fail "Logs 5min contiennent des erreurs :"
     echo "$errors" >&2

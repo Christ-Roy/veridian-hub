@@ -6,8 +6,8 @@
 ## Ce que c'est
 
 Le Hub gère l'inscription (Auth.js v5), le billing (Stripe), et le
-provisioning automatique des apps pour chaque nouveau tenant (Twenty
-CRM, Notifuse, Prospection).
+provisioning automatique des apps pour chaque nouveau tenant (Notifuse,
+Prospection). Twenty retiré de la stack 2026-05-18.
 
 > 📅 Migration Supabase → Auth.js v5 + Prisma : 2026-05-08
 > (cf memory `session_2026-05-08_hub_authjs.md`).
@@ -50,7 +50,7 @@ hub/
 │   ├── schema.prisma       # 15 modèles (User, Workspace, Tenant, Subscription...)
 │   └── migrations/         # Migrations Prisma
 ├── utils/
-│   ├── tenants/provision.ts  # Provisioning Twenty + Notifuse + Prospection
+│   ├── tenants/provision.ts  # Provisioning Notifuse + Prospection
 │   ├── stripe/prisma-sync.ts # Sync Stripe → Prisma (Product, Price, Subscription)
 │   ├── auth-helpers/       # Helpers session
 │   └── env.ts, fetch.ts, helpers.ts
@@ -73,18 +73,18 @@ pnpm test         # Vitest (150+ tests)
 ```
 User Signup (Auth.js) → /api/auth/signup → provision.ts (parallèle)
                                                     |
-                            +-------+-------+-------+
-                            |       |       |       |
-                          Twenty  Notifuse  Prospection
-                          GraphQL  REST     REST
-                            |       |       |
-                            v       v       v
+                            +-------------+---------+
+                            |             |
+                         Notifuse    Prospection
+                          REST        REST
+                            |             |
+                            v             v
                        table Tenant (Prisma : userId UUID, workspaceType, ...)
 ```
 
 L'UUID `User.supabaseUserId` est un nom legacy : c'est juste l'**UUID
-bridge** utilisé comme `user_id` côté Twenty / Notifuse / Prospection.
-Pas un appel Supabase.
+bridge** utilisé comme `user_id` côté Notifuse / Prospection. Pas un
+appel Supabase.
 
 ## Règles
 

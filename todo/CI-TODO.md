@@ -390,7 +390,7 @@ Le workflow `hub-staging.yml` attend ces secrets/vars sur le repo `Christ-Roy/ve
 
 #### PR mergées sur main
 
-- ✅ **PR #17** (`fix/dashboard-rsc-icon-prop`) : fix RSC `/dashboard` Next.js 15. Merge commit `e8526787`. Pipeline complet vert (test + audit + docker + trivy + deploy-prod + e2e-prod-smoke). **Validé visuellement** : `/dashboard` rend correctement, robert.brunon connecté voit les cards Prospection/Twenty/Notifuse + ServiceCard avec icon BarChart3.
+- ✅ **PR #17** (`fix/dashboard-rsc-icon-prop`) : fix RSC `/dashboard` Next.js 15. Merge commit `e8526787`. Pipeline complet vert (test + audit + docker + trivy + deploy-prod + e2e-prod-smoke). **Validé visuellement** : `/dashboard` rend correctement, robert.brunon connecté voit les cards Prospection/Notifuse + ServiceCard avec icon BarChart3.
 - ✅ **PR #18** (`feat/staging-ephemeral-ci`) : refacto compose base/prod/staging + workflow staging fixe + smoke-prod.sh + runbook activate-staging. Merge commit `babed29a`. Pipeline complet vert. **Validation byte-exact** : compose `include:` produit le même runtime que l'ancien monolithique → 0 régression Dokploy.
 - ✅ **PR #19** (`feat/ci-hardening`) : extension CI (anti `--no-verify` étage 1 + supply chain `--ignore-scripts` partout + 🔥 mode Nuclear) + path-based skip étendu (`docs/`, `runbooks/`). Merge commit `b7c95604`. CI test+audit verte avant merge. Pipeline post-merge en cours de surveillance (redeploy Dockerfile hardened).
 

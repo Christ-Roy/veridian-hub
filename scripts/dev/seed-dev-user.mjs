@@ -2,7 +2,7 @@
 /**
  * Script de seed utilisateur dev.
  * Crée automatiquement un compte admin en mode développement (Auth.js v5)
- * ET déclenche le provisioning Twenty + Notifuse.
+ * ET déclenche le provisioning Notifuse + Prospection.
  *
  * Post-migration : insère dans hub_app.users + hub_app.accounts
  * (provider 'credentials', access_token = bcrypt(password)). Le user peut
@@ -110,7 +110,7 @@ async function provisionDevUserTenants(userId) {
 
 async function checkExistingTenants(client, userId) {
   const { rows } = await client.query(
-    `SELECT twenty_workspace_id, notifuse_workspace_slug
+    `SELECT notifuse_workspace_slug
        FROM hub_app.tenants WHERE user_id = $1::uuid LIMIT 1`,
     [userId],
   );
@@ -128,11 +128,10 @@ async function seedDevUser() {
     console.log(`   User UUID: ${userId}`);
 
     const existing = await checkExistingTenants(client, userId);
-    const hasTenants = existing && (existing.twenty_workspace_id || existing.notifuse_workspace_slug);
+    const hasTenants = existing && existing.notifuse_workspace_slug;
 
     if (hasTenants) {
       console.log('\nTenants already provisioned!');
-      console.log(`   Twenty: ${existing.twenty_workspace_id || 'N/A'}`);
       console.log(`   Notifuse: ${existing.notifuse_workspace_slug || 'N/A'}`);
     } else {
       console.log('\nTenants not found - provisioning needed...');

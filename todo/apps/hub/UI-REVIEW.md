@@ -132,11 +132,11 @@
   - `hub/app/dashboard/components/ServiceCard.tsx` (nouveau, generique badge BETA/NEW/COMING_SOON)
 - **A verifier en solo** :
   - [ ] Spacing entre les 2 sections (`mb-12` actuellement)
-  - [ ] Ordre cards SaaS : Prospection / Twenty / Notifuse (Prospection en premier comme flagship — OK ?)
+  - [ ] Ordre cards SaaS : Prospection / Notifuse (Twenty retiré 2026-05-18)
   - [ ] Badge BETA Analytics : couleur `orange-100/700` actuellement, harmonise avec le reste du Hub ?
   - [ ] Sous-titres de section : "Vos espaces de travail provisionnes..." et "Outils de tracking..." — wording a affiner ?
   - [ ] Sur mobile : grid passe en 1 col, verifier que les 2 sections restent bien delimitees visuellement
-  - [ ] Footer "How it works" parle encore que de Twenty/Notifuse/Prospection — ajouter ligne Analytics ou laisser ?
+  - [ ] Footer "How it works" parle de Notifuse/Prospection — ajouter ligne Analytics ou laisser ?
   - [ ] Features list Analytics : 4 items, tester si trop dense quand peu de cards (1 seule actuellement)
 - **Screenshot** : (a prendre en solo apres merge + deploy staging)
 - **Notes agent** : "ServiceCard volontairement minimal (pas de state, pas d'auth-check). OK pour Analytics qui a son propre auth. Pour services futurs qui necessitent provisioning, il faudra extend les props."

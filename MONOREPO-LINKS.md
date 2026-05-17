@@ -2,7 +2,7 @@
 
 > Ce repo a été extrait de `Christ-Roy/veridian-platform` le 2026-05-13.
 > L'historique git du hub est préservé (39 commits depuis l'init du monorepo).
-> Les autres apps Veridian (cms, analytics, notifuse, prospection, twenty,
+> Les autres apps Veridian (cms, analytics, notifuse, prospection,
 > sites clients) restent dans le monorepo.
 
 ## Quand consulter le monorepo
@@ -27,8 +27,7 @@ Hub appelle les autres apps Veridian **toujours via URL publique** :
 | App | URL prod | Auth |
 |---|---|---|
 | Prospection | https://prospection.app.veridian.site | Header `X-Tenant-API-Secret` |
-| Twenty CRM | https://twenty.app.veridian.site | API key tenant |
-| Notifuse | https://notifuse.app.veridian.site | API key tenant |
+| Notifuse | https://notifuse.app.veridian.site | API key tenant + HMAC Hub |
 
 Si tu touches une route d'une autre app que hub consomme, ouvre une issue
 sur le monorepo (`Christ-Roy/veridian-platform`), pas ici.

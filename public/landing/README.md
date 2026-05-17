@@ -79,9 +79,9 @@ Ce dossier contient les images utilisées par la landing page.
 3. **Placer les fichiers**:
    ```bash
    # Copier tes images dans ce dossier
-   cp ~/mes-screenshots/dashboard.png /home/ubuntu/twenty-saas/00-Global-saas/app/Web-Dashboard/public/landing/hero-dashboard.png
-   cp ~/mes-screenshots/crm.png /home/ubuntu/twenty-saas/00-Global-saas/app/Web-Dashboard/public/landing/crm-interface.png
-   cp ~/mes-screenshots/mail.png /home/ubuntu/twenty-saas/00-Global-saas/app/Web-Dashboard/public/landing/mail-automation-interface.png
+   cp ~/mes-screenshots/dashboard.png public/landing/hero-dashboard.png
+   cp ~/mes-screenshots/crm.png public/landing/crm-interface.png
+   cp ~/mes-screenshots/mail.png public/landing/mail-automation-interface.png
    ```
 
 4. **Vérifier** que Next.js les affiche:

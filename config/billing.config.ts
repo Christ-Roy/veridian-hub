@@ -26,12 +26,12 @@ export const WORKFLOW_METER_ID = 'mtr_61U7vcpDWfNLSXDYa41RgvfRggzUNE4e';
 export type PlanType = 'FREE_TRIAL' | 'LICENSED';
 
 /**
- * Type de pricing (Twenty CRM billing)
+ * Type de pricing Stripe (licensed = par siège, metered = à l'usage).
  */
 export type UsageType = 'LICENSED' | 'METERED';
 
 /**
- * Type de produit (Twenty CRM billing)
+ * Type de produit côté Stripe metadata.
  */
 export type ProductKey = 'BASE_PRODUCT' | 'WORKFLOW_NODE_EXECUTION';
 
@@ -98,7 +98,7 @@ export interface PlanConfig {
 
   /** Métadonnées Stripe (synchronisées) */
   stripe_metadata: {
-    /** Clé du plan (utilisée par Twenty CRM) */
+    /** Clé du plan (FREEMIUM, PRO, ENTERPRISE, etc.) */
     planKey: string;
 
     /** Type de pricing (LICENSED ou METERED) */
@@ -223,13 +223,13 @@ export interface FreePlanConfig {
 export const FREE_PLAN: FreePlanConfig = {
   internal_id: 'freemium',
   name: 'Gratuit',
-  description: 'Essai gratuit de 7 jours. Accès complet à Twenty CRM et Notifuse.',
+  description: 'Essai gratuit de 7 jours. Accès complet à Prospection et Notifuse.',
   trial_days: parseInt(process.env.NEXT_PUBLIC_TRIAL_PERIOD_DAYS || '7', 10),
   ui_metadata: {
     display_order: 0,
     features: [
       '7 jours d\'essai gratuit',
-      'Twenty CRM complet',
+      'Prospection commerciale',
       'Notifuse Email Marketing',
       '1 utilisateur',
       'Support communautaire'
@@ -306,7 +306,7 @@ export const PAID_PLANS: PlanConfig[] = [
       display_order: 1,
       features: [
         'Utilisateurs illimités',
-        'Twenty CRM avancé',
+        'Prospection avancée',
         'Notifuse sans limite',
         'Workflows automatisés',
         'Support email prioritaire',
@@ -395,15 +395,16 @@ export const PAID_PLANS: PlanConfig[] = [
 ];
 
 /**
- * Produits metered WORKFLOW_NODE_EXECUTION (requis par Twenty v1.16.7)
+ * Produits metered Stripe (pattern legacy hérité Twenty, conservé pour
+ * compatibilité avec les subscriptions prod existantes).
  *
- * Chaque plan (PRO, ENTERPRISE) nécessite un produit metered en plus du BASE_PRODUCT.
- * Twenty v1.16.7 valide que chaque subscription a exactement 2 items:
- * 1 LICENSED (BASE_PRODUCT) + 1 METERED (WORKFLOW_NODE_EXECUTION)
- *
- * Les prix utilisent un tiered pricing à 2 niveaux :
- * - Tier 1 : crédits inclus (flat_amount = 0 pour nous, gratuit)
+ * Chaque plan (PRO, ENTERPRISE) embarque un produit metered en plus du
+ * BASE_PRODUCT. Tiered pricing à 2 niveaux :
+ * - Tier 1 : crédits inclus (flat_amount = 0, gratuit)
  * - Tier 2 : surplus facturé au unit_amount_decimal par exécution
+ *
+ * À nettoyer dans un sprint dédié quand on aura migré les subs existantes
+ * vers le modèle "1 sub par app activée" (cf todo/integrations/README.md).
  */
 export const METERED_PRODUCTS: MeteredProductConfig[] = [
   // ========================================

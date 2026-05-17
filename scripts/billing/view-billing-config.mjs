@@ -22,13 +22,13 @@ const TRIAL_DAYS = parseInt(process.env.NEXT_PUBLIC_TRIAL_PERIOD_DAYS || '7', 10
 const FREE_PLAN = {
   internal_id: 'freemium',
   name: 'Freemium',
-  description: `Essai gratuit de ${TRIAL_DAYS} jours. Accès complet à Twenty CRM et Notifuse.`,
+  description: `Essai gratuit de ${TRIAL_DAYS} jours. Accès complet à Prospection et Notifuse.`,
   trial_days: TRIAL_DAYS,
   ui_metadata: {
     display_order: 0,
     features: [
       `${TRIAL_DAYS} jours d'essai gratuit`,
-      'Twenty CRM complet',
+      'Prospection commerciale',
       'Notifuse Email Marketing',
       '1 utilisateur',
       'Support communautaire'
@@ -79,7 +79,7 @@ const PAID_PLANS = [
       badge: null,
       features: [
         'Utilisateurs illimités',
-        'Twenty CRM avancé',
+        'Prospection avancée',
         'Notifuse sans limite',
         'Workflows automatisés',
         'Support email prioritaire',
