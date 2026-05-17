@@ -7,6 +7,35 @@
 > **Next.js 15.5.18, App Router, pnpm, Auth.js v5 (Google + Credentials bcrypt), Stripe, Prisma 7 sur veridian-core-db schema hub_app.**
 > Supabase Auth dégagée le 2026-05-08 (cf section dédiée plus bas).
 
+---
+
+## 🚀 Sprint P0 — Standard CI Veridian (2026-05-13)
+
+> Brief complet : [`~/Bureau/SPRINT-GITOPS-VERIDIAN.md`](../../../../SPRINT-GITOPS-VERIDIAN.md) section P0.
+> Standard de référence : `runbooks/standards/ci-veridian.md` (à rédiger par l'agent infra).
+
+**À faire pour le Hub (dette actuelle : 33 routes API / 19 tests, ~14 routes nues)** :
+
+- [ ] Créer `scripts/check-route-test-mapping.sh` qui scanne `app/api/**/route.ts` et exige `__tests__/api/<même chemin>.test.ts`. Fail si manquant.
+- [ ] Installer pre-push hook (`npm run setup-hooks` ou Husky) qui exécute le script ci-dessus sur le diff. Sortie : message clair en terminal listant les routes orphelines.
+- [ ] Ajouter le même check en CI (`hub-ci.yml` job `unit`) → bloque le merge sur main.
+- [ ] Créer `tests-pending.txt` à la racine du repo listant les 14 routes nues actuelles (allowlist temporaire à dégager route par route).
+- [ ] Path-based skip dans `hub-ci.yml` : `paths-ignore: ['**.md', 'docs/**', 'todo/**', 'runbooks/**']`.
+- [ ] Path-based staging gate : si `Dockerfile`, `prisma/schema.prisma`, `prisma/migrations/**`, `docker-compose.yml`, ou `package.json` modifiés → exiger staging vert dans les 24h avant deploy prod.
+- [ ] Brancher `hub-ci.yml` sur le workflow réutilisable `_app-ci.yml` (à créer par l'agent infra).
+- [ ] Créer GitHub Environment `staging` (auto-deploy `app.dev.veridian.site` sur branche `staging`) + `production` (manual approval si structurel) sur le repo `Christ-Roy/veridian-hub`.
+- [ ] Vérifier `.github/dependabot.yml` standard (npm + docker + github-actions hebdo). Si absent, créer.
+- [ ] **Mettre à jour `CLAUDE.md` racine Hub** : ajouter section "Constitution CI" (texte exact dans SPRINT-GITOPS-VERIDIAN.md P0).
+- [ ] Déployer Bearer token `DOKPLOY_DEPLOY_TOKEN` dans GitHub Environment `production` pour le job deploy via `POST /api/compose.deploy` (compose ID Hub à confirmer).
+- [ ] Validation : 7 jours de pushes sans contournement, allowlist `tests-pending.txt` baissée à < 5 routes.
+
+**Pré-requis (bloque le sprint Hub)** :
+- Standard officiel `runbooks/standards/ci-veridian.md` rédigé
+- Workflow réutilisable `_app-ci.yml` disponible
+- Route `/api/compose.deploy` exposée Traefik avec Bearer token côté infra
+
+---
+
 ## Etat actuel
 
 - **Version** : voir `hub/package.json` (Next 15.5.18, next-auth 5.0.0-beta.30, prisma 7.7.0)
@@ -47,6 +76,22 @@ hub/
 ```
 
 ## Sprint en cours
+
+### P0 — Dégager Twenty de l'UI Hub (Twenty supprimé de la stack)
+
+Twenty va être retiré de la stack Veridian. Tout le code Hub qui le référence doit dégager — UI, API, provisioning, cleanup, admin, env, DB.
+
+**À retirer** :
+- UI : `app/dashboard/integration/page.tsx`, `components/account/TwentyTenantManager.tsx`, carte Twenty dans `components/dashboard/TenantCard.tsx`, refs dans `app/dashboard/page.tsx`, `app/dashboard/settings/page.tsx`, pricing/landing/docs
+- API : `app/api/twenty/create-tenant/route.ts`, `app/api/twenty/regenerate-login/route.ts`
+- Provisioning : étape Twenty dans `utils/tenants/provision.ts`, `utils/tenants/cleanup.ts`, `utils/tenants/debug.ts`, `utils/helpers.ts`, `utils/stripe/server.ts`
+- Signup : appel provisioning Twenty dans `app/api/auth/signup/route.ts`, `app/api/tenants/retry/route.ts`, `app/api/tenants/status/route.ts`
+- Cron : `app/api/cron/cleanup-trials/route.ts` (cleanup tenant Twenty)
+- Admin : `app/api/admin/delete-tenant/route.ts`, `app/api/admin/impersonate/route.ts`, `app/api/admin/list-tenants/route.ts`, `app/dashboard/admin/tenants/page.tsx`
+- Env : vars TWENTY_* dans `contexts/EnvContext.tsx`, `app/api/config/route.ts`, `app/layout.tsx`
+- DB : migration drop colonnes `twenty_*` sur `tenants`, filtrer `provisioning_logs`, garder trace dans audit log
+
+**Vérifier avant suppression** : aucun tenant prod actif n'utilise encore Twenty (sinon prévenir + plan de sortie).
 
 ### P0.8 — Migration GitOps Dokploy + Trivy CI (sprint SPRINT-GITOPS-VERIDIAN.md)
 
@@ -219,7 +264,6 @@ Branche : `feat/hub-gitops-migration`. Stack Dokploy : `compose-back-up-online-p
 
 ## Backlog Hub-specific
 
-- [ ] **Dégager Twenty de l'UI Hub** — Twenty va être supprimé de la stack Veridian. Retirer toutes les refs UI/API : `app/dashboard/integration/page.tsx`, `app/api/twenty/*` (create-tenant, regenerate-login), `components/account/TwentyTenantManager.tsx`, `components/dashboard/TenantCard.tsx` (carte Twenty), `utils/tenants/provision.ts` (étape provisionnement Twenty), refs dans pricing/landing/docs, `EnvContext` (vars TWENTY_*), `api/cron/cleanup-trials` (cleanup tenant Twenty), provisioning au signup (`api/auth/signup`), admin pages (`api/admin/delete-tenant`, `impersonate`, `list-tenants`), `utils/tenants/cleanup.ts` + `debug.ts`. Migration DB : nettoyer colonnes `twenty_*` sur `tenants` + table `provisioning_logs` filtrée. Garder traces dans audit log.
 - [ ] Audit hot paths Supabase admin API (P0.2) — verifier que le cache 5min est bien applique partout
 - [ ] Page `/billing` : historique factures Stripe, upgrade/downgrade plan
 - [ ] Page `/settings/workspace` : nom, logo, domaine custom
