@@ -49,8 +49,14 @@ fi
 NOW_TS=$(date -u +%s)
 MAX_AGE_SECONDS=$((MAX_AGE_HOURS * 3600))
 
-# Iter via jq
-echo "$LAST_STAGING_RUNS" | jq -r '.[] | "\(.databaseId)\t\(.headSha)\t\(.createdAt)"' | while IFS=$'\t' read -r run_id sha created_at; do
+# Iter via jq.
+#
+# BUG FIX 2026-05-18 : on n'utilise PAS un pipe `... | while ...` car ça crée
+# un subshell où `exit 0` ne sort que du subshell, pas du script. Le script
+# atterrissait toujours sur le `exit 1` final même quand un match était trouvé.
+# Solution : process substitution `< <(...)` pour garder le while dans le shell
+# parent.
+while IFS=$'\t' read -r run_id sha created_at; do
   # Parse ISO timestamp → epoch
   run_ts=$(date -u -d "$created_at" +%s 2>/dev/null || echo 0)
   age=$((NOW_TS - run_ts))
@@ -64,7 +70,7 @@ echo "$LAST_STAGING_RUNS" | jq -r '.[] | "\(.databaseId)\t\(.headSha)\t\(.create
     echo "✓ Staging vert récent : run $run_id, SHA $sha, age $((age / 3600))h"
     exit 0
   fi
-done
+done < <(echo "$LAST_STAGING_RUNS" | jq -r '.[] | "\(.databaseId)\t\(.headSha)\t\(.createdAt)"')
 
 # Si on arrive ici sans avoir trouvé : pas de match
 echo "❌ Pas de run staging vert dans les $MAX_AGE_HOURS dernières heures sur un ancêtre de HEAD"
