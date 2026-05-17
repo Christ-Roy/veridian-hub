@@ -221,6 +221,11 @@ jobs:
           echo "ERROR: hub health check failed after 2min — deploy probably broken"
           exit 1
 
+      - name: Cleanup runner secrets
+        if: always()
+        run: |
+          rm -f ~/.ssh/deploy_key ~/.ssh/known_hosts
+
   e2e-prod-smoke:
     needs: deploy-prod
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -295,3 +300,8 @@ jobs:
           done
           echo "WARNING: rollback health check timed out — manual intervention needed"
           exit 1
+
+      - name: Cleanup runner secrets
+        if: always()
+        run: |
+          rm -f ~/.ssh/deploy_key ~/.ssh/known_hosts

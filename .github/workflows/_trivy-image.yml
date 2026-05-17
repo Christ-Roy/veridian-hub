@@ -60,7 +60,7 @@ jobs:
           format: 'table'
           vuln-type: 'os,library'
           timeout: '10m'
-          trivyignores: '.trivyignore,.trivyignore.yaml'
+          trivyignores: '.trivyignore.yaml'
         env:
           TRIVY_CACHE_DIR: /tmp/trivy-cache
 
@@ -98,7 +98,7 @@ jobs:
           output: 'trivy-image.sarif'
           vuln-type: 'os,library'
           timeout: '10m'
-          trivyignores: '.trivyignore,.trivyignore.yaml'
+          trivyignores: '.trivyignore.yaml'
         env:
           TRIVY_CACHE_DIR: /tmp/trivy-cache
 

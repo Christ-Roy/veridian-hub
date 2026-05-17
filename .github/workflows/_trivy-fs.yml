@@ -60,7 +60,7 @@ jobs:
           format: 'table'
           scanners: ${{ inputs.skip-license && 'vuln,misconfig,secret' || 'vuln,misconfig,secret,license' }}
           timeout: '10m'
-          trivyignores: '.trivyignore,.trivyignore.yaml'
+          trivyignores: '.trivyignore.yaml'
         env:
           TRIVY_CACHE_DIR: /tmp/trivy-cache
 
@@ -79,7 +79,7 @@ jobs:
           output: 'trivy-fs.sarif'
           scanners: ${{ inputs.skip-license && 'vuln,misconfig,secret' || 'vuln,misconfig,secret,license' }}
           timeout: '10m'
-          trivyignores: '.trivyignore,.trivyignore.yaml'
+          trivyignores: '.trivyignore.yaml'
         env:
           TRIVY_CACHE_DIR: /tmp/trivy-cache
 
