@@ -5,6 +5,8 @@
 # Checks bloquants :
 #  1. Mapping route↔test (scripts/ci/check-test-mapping.sh)
 #  2. Compose sync : base/prod/staging cohérents (scripts/ci/check-compose-sync.sh)
+#  3. Migration safety : DROP/RENAME/ALTER NOT NULL/CREATE INDEX bloquants
+#     (scripts/ci/check-migration-safety.sh) — uniquement si prisma/migrations modifié
 
 set -e
 
@@ -32,6 +34,19 @@ if [ -n "$COMPOSE_CHANGED" ]; then
     scripts/ci/check-compose-sync.sh
   else
     echo "⚠ scripts/ci/check-compose-sync.sh absent ou non exécutable"
+  fi
+fi
+
+# ─── 3. Migration safety ────────────────────────────────────────────────
+# Ne tourne que si une migration Prisma est ajoutée/modifiée
+MIGRATION_CHANGED=$(git diff --name-only "$BASE_REF"...HEAD 2>/dev/null | grep -E '^prisma/migrations/.+migration\.sql$' || true)
+
+if [ -n "$MIGRATION_CHANGED" ]; then
+  echo "─── Migration Prisma modifiée, scan patterns destructifs ───"
+  if [ -x scripts/ci/check-migration-safety.sh ]; then
+    scripts/ci/check-migration-safety.sh
+  else
+    echo "⚠ scripts/ci/check-migration-safety.sh absent ou non exécutable"
   fi
 fi
 

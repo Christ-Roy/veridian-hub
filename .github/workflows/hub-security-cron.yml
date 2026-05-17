@@ -13,11 +13,25 @@ on:
 permissions:
   contents: read
   packages: read
+  security-events: write
 
 jobs:
   trivy-deployed:
     uses: ./.github/workflows/_trivy-image.yml
     with:
-      image-ref: ghcr.io/christ-roy/veridian-dashboard:latest
+      image-ref: ghcr.io/christ-roy/veridian-hub:latest
       severity: 'CRITICAL,HIGH'
       ignore-unfixed: true
+      sbom-upload: true
+      sarif-upload: true
+
+  # Trivy FS scan hebdo : re-scanne le repo (vuln lockfile + misconfig + secret + license)
+  # Détecte les CVE qui sortent APRÈS le dernier merge.
+  trivy-fs-weekly:
+    uses: ./.github/workflows/_trivy-fs.yml
+    with:
+      scan-path: '.'
+      severity: 'CRITICAL,HIGH'
+      ignore-unfixed: true
+      skip-license: false
+      sarif-upload: true
