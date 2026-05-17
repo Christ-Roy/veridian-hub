@@ -67,6 +67,10 @@ jobs:
         run: pnpm lint
       - name: Compose sync (base + prod + staging cohérents)
         run: ./scripts/ci/check-compose-sync.sh
+      - name: Migration safety (DROP/RENAME/CREATE INDEX bloquants)
+        run: ./scripts/ci/check-migration-safety.sh
+        env:
+          BASE_REF: origin/${{ github.base_ref || 'main' }}
       - name: Tests
         run: pnpm test
         env:
@@ -104,8 +108,34 @@ jobs:
       skip-license: false
       sarif-upload: true
 
+  # Path-based staging gate : si la PR/push touche aux fichiers structurels
+  # (Dockerfile, prisma/schema.prisma, prisma/migrations/**, compose/**,
+  # docker-compose.yml, package.json, pnpm-lock.yaml) → exige un run staging
+  # vert dans les 24h sur un ancêtre de HEAD.
+  # N'exécute la vérification staging que sur push main (sur PR, on bloque pas).
+  structural-gate:
+    name: Structural change gate (staging fresh)
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    outputs:
+      has-structural: ${{ steps.detect.outputs.has-structural }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 50
+      - name: Detect structural changes
+        id: detect
+        run: ./scripts/ci/check-structural-changes.sh || true
+        env:
+          BASE_REF: HEAD~1
+      - name: Require staging fresh
+        if: steps.detect.outputs.has-structural == 'true'
+        run: ./scripts/ci/check-staging-fresh.sh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   docker:
-    needs: [test, audit, trivy-fs]
+    needs: [test, audit, trivy-fs, structural-gate]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     # GitHub-hosted depuis extraction polyrepo (2026-05-13). Le self-hosted
     # runner [self-hosted, veridian] n'est pas enregistré sur ce repo.
@@ -177,6 +207,13 @@ jobs:
   deploy-prod:
     needs: [docker, trivy]
     runs-on: ubuntu-latest
+    # GitHub Environment `production` — permet :
+    # - Tracking centralisé des deploys (Settings → Environments → production)
+    # - Ajout futur de protection rules (manual approval si changement structurel)
+    # - Scoping des secrets prod (DEPLOY_SSH_KEY, VPS_HOST, etc. à scope env)
+    environment:
+      name: production
+      url: https://app.veridian.site
     steps:
       - name: Trigger Dokploy redeploy (custom-git mode pulls main automatically)
         env:

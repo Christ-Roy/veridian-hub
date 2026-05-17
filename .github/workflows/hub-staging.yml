@@ -39,6 +39,11 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       vars.STAGING_HOST != '' && vars.STAGING_USER != ''
+    # GitHub Environment `staging` — permet tracking centralisé des deploys
+    # staging et scoping futur des secrets STAGING_* à scope env.
+    environment:
+      name: staging
+      url: https://hub.staging.veridian.site
     permissions:
       contents: read
       packages: write
