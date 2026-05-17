@@ -31,8 +31,6 @@ export default async function SettingsPage() {
     where: { userId: userUuid(user) },
     select: {
       id: true,
-      twentyWorkspaceId: true,
-      twentyUserEmail: true,
       notifuseWorkspaceSlug: true,
       notifuseUserEmail: true,
     },
@@ -90,27 +88,6 @@ export default async function SettingsPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Twenty CRM */}
-              {tenant.twentyWorkspaceId && (
-                <div className="rounded-lg border p-4 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-semibold">Twenty CRM</h3>
-                    <span className="ml-auto text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full dark:bg-green-900/30 dark:text-green-400">
-                      Active
-                    </span>
-                  </div>
-                  <div className="text-sm text-muted-foreground space-y-1">
-                    <div><strong>Email:</strong> {tenant.twentyUserEmail}</div>
-                    <div>
-                      <strong>Workspace ID:</strong>{' '}
-                      <code className="text-xs bg-muted px-2 py-0.5 rounded">
-                        {tenant.twentyWorkspaceId}
-                      </code>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               {/* Notifuse */}
               {tenant.notifuseWorkspaceSlug && (
                 <div className="rounded-lg border p-4 space-y-2">
@@ -132,7 +109,7 @@ export default async function SettingsPage() {
                 </div>
               )}
 
-              {!tenant.twentyWorkspaceId && !tenant.notifuseWorkspaceSlug && (
+              {!tenant.notifuseWorkspaceSlug && (
                 <div className="text-center py-6 text-muted-foreground">
                   <p>No workspaces configured yet</p>
                   <p className="text-sm mt-2">

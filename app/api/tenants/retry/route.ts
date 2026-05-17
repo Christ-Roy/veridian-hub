@@ -16,19 +16,17 @@ export async function POST() {
       where: { userId: uuid },
       select: {
         id: true,
-        twentyWorkspaceId: true,
         prospectionProvisionedAt: true,
         notifuseWorkspaceSlug: true,
       },
     });
 
     const alreadyDone = {
-      twenty: !!existingTenant?.twentyWorkspaceId,
       prospection: !!existingTenant?.prospectionProvisionedAt,
       notifuse: !!existingTenant?.notifuseWorkspaceSlug,
     };
 
-    if (alreadyDone.twenty && alreadyDone.prospection && alreadyDone.notifuse) {
+    if (alreadyDone.prospection && alreadyDone.notifuse) {
       return NextResponse.json({
         message: 'All services already provisioned',
         ...alreadyDone,

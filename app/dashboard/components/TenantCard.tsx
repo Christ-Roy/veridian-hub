@@ -16,78 +16,33 @@ import { Badge } from '@/components/ui/badge';
 import { Loader2, ExternalLink, Info } from 'lucide-react';
 
 interface TenantCardProps {
-  service: 'twenty' | 'notifuse';
+  service: 'notifuse';
   configured: boolean;
   available?: boolean;
-  subdomain?: string;
   slug?: string;
-  loginTokenValid?: boolean;
-  loginToken?: string;
   userEmail?: string;
   tenantId?: string;
 }
 
 export function TenantCard({
-  service,
+  service: _service,
   configured,
   available = true,
-  subdomain,
   slug,
-  loginTokenValid,
-  loginToken,
-  userEmail,
+  userEmail: _userEmail,
   tenantId,
 }: TenantCardProps) {
   const env = useEnv();
   const [loading, setLoading] = useState(false);
 
-  const serviceName = service === 'twenty' ? 'Twenty CRM' : 'Notifuse';
-  const serviceIcon = service === 'twenty' ? '📊' : '📧';
-  const serviceDescription =
-    service === 'twenty'
-      ? 'Customer Relationship Management'
-      : 'Email & Notification Service';
+  const serviceName = 'Notifuse';
+  const serviceIcon = '📧';
+  const serviceDescription = 'Email & Notification Service';
 
   const handleOpenService = async () => {
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(`[TenantCard] Opening ${service}`, {
-        configured,
-        subdomain,
-        slug,
-        loginTokenValid,
-        hasLoginToken: !!loginToken,
-      });
-    }
-
     setLoading(true);
 
     try {
-      if (service === 'twenty') {
-        if (loginTokenValid && loginToken && subdomain) {
-          const twentyBaseUrl = env.NEXT_PUBLIC_TWENTY_URL || 'https://twenty.app.veridian.site';
-          const magicLink = twentyBaseUrl
-            .replace(/^(https?:\/\/)/, `$1${subdomain}.`)
-            + `/verify?loginToken=${loginToken}`;
-          window.open(magicLink, '_blank');
-        } else {
-          const twentyBaseUrl = env.NEXT_PUBLIC_TWENTY_URL || 'https://twenty.app.veridian.site';
-          const baseUrlWithSubdomain = subdomain
-            ? twentyBaseUrl.replace(/^(https?:\/\/)/, `$1${subdomain}.`)
-            : twentyBaseUrl;
-          const emailParam = userEmail ? `?email=${encodeURIComponent(userEmail)}` : '';
-          const manualUrl = `${baseUrlWithSubdomain}/welcome${emailParam}`;
-          window.open(manualUrl, '_blank');
-          setTimeout(() => {
-            toast.info('Manual login required', {
-              description: `Please login manually with your dashboard password.\n\nYour workspace subdomain: ${subdomain}`,
-              duration: 5000,
-            });
-          }, 500);
-        }
-        return;
-      }
-
-      // Notifuse: request a fresh magic link from the Hub admin route
       if (!tenantId) {
         const fallback = (env.NEXT_PUBLIC_NOTIFUSE_URL || 'https://notifuse.app.veridian.site') + '/console';
         window.open(fallback, '_blank');
@@ -104,8 +59,6 @@ export function TenantCard({
       });
       const data = await res.json();
 
-      // Préférer auto_login_url (auto-connect via /veridian/auto-login + localStorage,
-      // pas de saisie de code requise). Fallback magic_link puis URL console nue.
       const targetUrl = data.autoLoginUrl || data.magicLink;
       if (!res.ok || !targetUrl) {
         const fallback = (env.NEXT_PUBLIC_NOTIFUSE_URL || 'https://notifuse.app.veridian.site') + '/console';
@@ -153,14 +106,6 @@ export function TenantCard({
       <CardContent>
         {configured ? (
           <div className="space-y-2">
-            {subdomain && (
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Workspace:</span>
-                <code className="bg-muted px-2 py-1 rounded text-xs">
-                  {subdomain}
-                </code>
-              </div>
-            )}
             {slug && (
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Workspace:</span>
@@ -170,38 +115,17 @@ export function TenantCard({
               </div>
             )}
 
-            {service === 'twenty' && (
-              <div className="flex items-start gap-2 mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                <Info className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                <div className="text-xs text-blue-900">
-                  {loginTokenValid ? (
-                    <span>
-                      <strong>Auto-login enabled</strong> - You'll be logged in
-                      automatically
-                    </span>
-                  ) : (
-                    <span>
-                      <strong>Manual login required</strong> - Use your dashboard
-                      password to login
-                    </span>
-                  )}
+            <div className="flex items-start gap-2 mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
+              <Info className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
+              <div className="text-xs text-blue-900 space-y-2">
+                <div>
+                  <strong>Workspace: {slug}</strong>
+                </div>
+                <div>
+                  Click &ldquo;Open&rdquo; to log in automatically with a fresh magic link
                 </div>
               </div>
-            )}
-
-            {service === 'notifuse' && (
-              <div className="flex items-start gap-2 mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-                <Info className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
-                <div className="text-xs text-blue-900 space-y-2">
-                  <div>
-                    <strong>Workspace: {slug}</strong>
-                  </div>
-                  <div>
-                    Click "Open" to log in automatically with a fresh magic link
-                  </div>
-                </div>
-              </div>
-            )}
+            </div>
           </div>
         ) : (
           <div className="py-6 text-center text-sm text-muted-foreground">
@@ -228,9 +152,7 @@ export function TenantCard({
               ) : (
                 <>
                   <ExternalLink className="mr-2 h-4 w-4" />
-                  {service === 'twenty' && loginTokenValid
-                    ? '🚀 Open (Auto-login)'
-                    : '🔗 Open ' + serviceName}
+                  🔗 Open {serviceName}
                 </>
               )}
             </Button>

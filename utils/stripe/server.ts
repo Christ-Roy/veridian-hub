@@ -114,20 +114,7 @@ export async function checkoutWithStripe(
       throw new Error('Unable to access customer record.');
     }
 
-    // Récupérer le workspace Twenty depuis la table tenants (Prisma)
     let subscriptionMetadata: Record<string, string> = {};
-    try {
-      const tenant = await prisma.tenant.findFirst({
-        where: { userId: userUuidValue, status: 'active' },
-        select: { twentyWorkspaceId: true },
-      });
-      if (tenant?.twentyWorkspaceId) {
-        subscriptionMetadata.workspaceId = tenant.twentyWorkspaceId;
-        console.log('[Stripe-Checkout] Twenty workspace found:', tenant.twentyWorkspaceId);
-      }
-    } catch (err) {
-      console.warn('[Stripe-Checkout] Tenant lookup failed:', err);
-    }
 
     // Plan key depuis les metadata du product Stripe
     let trialPeriodDays: number | null | undefined = price.trial_period_days;

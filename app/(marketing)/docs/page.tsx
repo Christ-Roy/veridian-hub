@@ -1,27 +1,18 @@
 import { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Centre d\'aide | Guides Twenty CRM & Notifuse',
+  title: 'Centre d\'aide | Guides Veridian',
   description: 'Besoin d\'aide ? Apprenez à configurer vos workflows, connecter vos outils SaaS et optimiser votre productivité avec nos guides complets.',
   openGraph: {
-    title: 'Centre d\'aide Veridian | Guides et Intégrations Twenty & Notifuse',
+    title: 'Centre d\'aide Veridian | Guides et Intégrations',
     description: 'Besoin d\'aide ? Apprenez à configurer vos workflows, connecter vos outils SaaS et optimiser votre productivité avec nos guides complets.'
   }
 };
 
-// JSON-LD Schema pour Rich Snippets Google (FAQ)
 const jsonLd = {
   '@context': 'https://schema.org',
   '@type': 'FAQPage',
   mainEntity: [
-    {
-      '@type': 'Question',
-      name: 'Comment configurer Twenty CRM avec Veridian ?',
-      acceptedAnswer: {
-        '@type': 'Answer',
-        text: 'Twenty CRM est automatiquement provisionné lors de la création de votre compte Veridian. Accédez à la documentation Twenty pour découvrir toutes les fonctionnalités disponibles.'
-      }
-    },
     {
       '@type': 'Question',
       name: 'Comment automatiser mes emails avec Notifuse ?',
@@ -32,10 +23,10 @@ const jsonLd = {
     },
     {
       '@type': 'Question',
-      name: 'Puis-je connecter Twenty CRM et Notifuse ensemble ?',
+      name: 'Comment qualifier mes leads avec Prospection ?',
       acceptedAnswer: {
         '@type': 'Answer',
-        text: 'Oui, Veridian centralise Twenty CRM et Notifuse sur une même plateforme. Vos contacts CRM peuvent être synchronisés avec vos listes Notifuse pour des campagnes ciblées.'
+        text: 'Le module Prospection Veridian permet de qualifier vos leads commerciaux et de suivre votre pipeline depuis votre dashboard Veridian.'
       }
     }
   ]
@@ -50,30 +41,12 @@ export default function DocsPage() {
         />
         <div className="min-h-screen gradient-bg py-12 px-4 sm:px-6 lg:px-8">
             <div className="max-w-4xl mx-auto">
-                <h1 className="page-title mb-4">Guides Twenty CRM & Notifuse</h1>
+                <h1 className="page-title mb-4">Guides Veridian</h1>
                 <p className="text-lg text-muted-foreground mb-12">
                     Configurez vos outils et optimisez votre productivité avec nos guides complets.
                 </p>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    {/* Twenty CRM */}
-                    <div className="feature-card">
-                        <h2 className="section-title mb-3">
-                            Twenty CRM
-                        </h2>
-                            <p className="text-muted-foreground mb-6">
-                                Consultez la documentation complète de Twenty CRM.
-                            </p>
-                            <a
-                                href="https://docs.twenty.com"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-block bg-primary text-primary-foreground hover:bg-primary/90 font-medium py-2 px-4 rounded transition"
-                            >
-                                Accéder à Twenty CRM Docs →
-                            </a>
-                        </div>
-
                     {/* Notifuse */}
                     <div className="feature-card">
                         <h2 className="section-title mb-3">
@@ -89,6 +62,22 @@ export default function DocsPage() {
                                 className="inline-block bg-primary text-primary-foreground hover:bg-primary/90 font-medium py-2 px-4 rounded transition"
                             >
                                 Accéder à Notifuse Docs →
+                            </a>
+                        </div>
+
+                    {/* Prospection */}
+                    <div className="feature-card">
+                        <h2 className="section-title mb-3">
+                            Prospection
+                        </h2>
+                            <p className="text-muted-foreground mb-6">
+                                Apprenez à qualifier vos leads et piloter votre pipeline commercial.
+                            </p>
+                            <a
+                                href="/dashboard"
+                                className="inline-block bg-primary text-primary-foreground hover:bg-primary/90 font-medium py-2 px-4 rounded transition"
+                            >
+                                Accéder à votre Prospection →
                             </a>
                         </div>
                 </div>

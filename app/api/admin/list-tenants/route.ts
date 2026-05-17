@@ -49,11 +49,6 @@ export async function GET(request: NextRequest) {
           provisioned_at: t.prospectionProvisionedAt,
           plan: t.prospectionPlan,
         },
-        twenty: {
-          provisioned: !!t.twentyWorkspaceId,
-          workspace_id: t.twentyWorkspaceId,
-          subdomain: t.twentySubdomain,
-        },
         notifuse: {
           provisioned: !!t.notifuseWorkspaceSlug,
           workspace_id: t.notifuseWorkspaceSlug,

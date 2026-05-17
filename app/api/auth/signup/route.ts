@@ -82,9 +82,7 @@ export async function POST(request: NextRequest) {
       select: { id: true, email: true },
     });
 
-    // Provisioning Twenty + Notifuse + Prospection en background.
-    // Note : on passe le password en clair car le provisioning crée des
-    // comptes downstream (Twenty admin, Notifuse user) qui ont besoin du mdp.
+    // Provisioning Notifuse + Prospection en background.
     // Pas de await — on ne veut pas bloquer la réponse.
     provisionTenants(user.email, password, user.id).catch((err) => {
       console.error('[Signup] Tenant provisioning failed:', err);

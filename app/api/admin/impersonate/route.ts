@@ -129,7 +129,6 @@ export async function POST(request: NextRequest) {
       // redirige vers /dashboard.
       hub: hubLink,
       prospection: prospectionUrl,
-      twenty: tenant?.twentySubdomain ? `https://twenty.app.veridian.site` : null,
       notifuse: tenant?.notifuseWorkspaceSlug
         ? `https://notifuse.app.veridian.site`
         : null,

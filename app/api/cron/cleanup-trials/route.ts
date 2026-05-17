@@ -5,7 +5,6 @@
  * Schedule: Daily (via Vercel Cron, GitHub Actions, or external scheduler)
  *
  * Architecture:
- * - Twenty: Gère son propre cleanup (ne fait rien ici)
  * - Notifuse: Supprime les workspaces via API
  *
  * Security:
@@ -100,6 +99,6 @@ export async function GET() {
     description: 'Cleanup expired Free Trial workspaces',
     authentication: 'Bearer CRON_SECRET',
     schedule: 'Daily recommended',
-    note: 'Twenty manages its own cleanup. This only handles Notifuse workspaces.',
+    note: 'Cleanup Notifuse workspaces only.',
   });
 }

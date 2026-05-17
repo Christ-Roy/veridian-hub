@@ -7,7 +7,6 @@ import { NotifuseAdminPanel, type NotifuseSummary } from "./NotifuseAdminPanel";
 
 type TenantServices = {
   prospection?: { provisioned?: boolean; plan?: string | null };
-  twenty?: { provisioned?: boolean; subdomain?: string | null };
   notifuse?: NotifuseSummary;
 };
 
@@ -59,7 +58,6 @@ export default function AdminTenantsPage() {
       const urls: string[] = [];
       if (data.hub_url) urls.push(data.hub_url);
       if (data.prospection_url) urls.push(data.prospection_url);
-      if (data.twenty_url) urls.push(data.twenty_url);
       if (data.notifuse_url) urls.push(data.notifuse_url);
       for (const u of urls) window.open(u, "_blank", "noopener");
     } catch (e) {

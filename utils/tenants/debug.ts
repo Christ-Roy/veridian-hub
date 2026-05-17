@@ -17,9 +17,6 @@ export function logProvisionStart(email: string, userId: string) {
   console.log(`Timestamp: ${new Date().toISOString()}`);
   console.log('');
   console.log('📡 Environment Variables:');
-  console.log(`  TWENTY_GRAPHQL_URL: ${process.env.TWENTY_GRAPHQL_URL || 'NOT SET'}`);
-  console.log(`  TWENTY_METADATA_URL: ${process.env.TWENTY_METADATA_URL || 'NOT SET'}`);
-  console.log(`  TWENTY_FRONTEND_URL: ${process.env.TWENTY_FRONTEND_URL || 'NOT SET'}`);
   console.log(`  NOTIFUSE_API_URL: ${process.env.NOTIFUSE_API_URL || 'NOT SET'}`);
   console.log(`  NOTIFUSE_ROOT_EMAIL: ${process.env.NOTIFUSE_ROOT_EMAIL || 'NOT SET'}`);
   console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');

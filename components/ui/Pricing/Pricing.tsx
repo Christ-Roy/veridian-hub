@@ -61,17 +61,17 @@ interface Props {
 
 type BillingInterval = 'lifetime' | 'year' | 'month';
 
-// Durée du trial depuis env (aligné avec Twenty)
+// Durée du trial depuis env
 const TRIAL_DAYS = parseInt(process.env.NEXT_PUBLIC_TRIAL_PERIOD_DAYS || '7', 10);
 
 // Plan Freemium (pas de produit Stripe, trial gratuit)
 const FREEMIUM_PLAN = {
   id: 'freemium',
   name: 'Freemium',
-  description: `Essai gratuit de ${TRIAL_DAYS} jours. Accès complet à Twenty CRM et Notifuse.`,
+  description: `Essai gratuit de ${TRIAL_DAYS} jours. Accès complet à Prospection et Notifuse.`,
   features: [
     `${TRIAL_DAYS} jours d'essai gratuit`,
-    'Twenty CRM complet',
+    'Prospection commerciale',
     'Notifuse Email Marketing',
     '1 utilisateur',
     'Support communautaire'

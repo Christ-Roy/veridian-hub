@@ -110,7 +110,7 @@ export default function LegalPage() {
                     Veridian propose une plateforme SaaS multi-tenant incluant :
                   </p>
                   <ul className="list-disc pl-6 mt-2 space-y-1 text-muted-foreground">
-                    <li>Un CRM Twenty (gestion de la relation client)</li>
+                    <li>Une plateforme de prospection commerciale</li>
                     <li>Une plateforme d'email marketing Notifuse</li>
                     <li>Un tableau de bord unifié de gestion</li>
                     <li>Des services d'authentification et de base de données</li>
@@ -347,9 +347,8 @@ export default function LegalPage() {
                   autorisation préalable de Veridian.
                 </p>
                 <p className="text-muted-foreground">
-                  Les logiciels Twenty et Notifuse sont des logiciels open source distribués
-                  sous licence libre. Veridian est une plateforme d'intégration et de gestion
-                  de ces logiciels.
+                  Notifuse est un logiciel open source distribué sous licence libre.
+                  Veridian est une plateforme d'intégration et de gestion de ces logiciels.
                 </p>
               </div>
             </section>

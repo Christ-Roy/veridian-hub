@@ -54,7 +54,7 @@ export const toDateTime = (secs: number) => {
   return t;
 };
 
-// Durée du trial par défaut (7 jours, aligné avec Twenty)
+// Durée du trial par défaut (7 jours)
 // Utilise TRIAL_PERIOD_DAYS depuis .env ou 7 par défaut
 export const DEFAULT_TRIAL_DAYS = parseInt(
   process.env.TRIAL_PERIOD_DAYS || '7',

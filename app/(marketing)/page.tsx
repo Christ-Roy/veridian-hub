@@ -4,11 +4,11 @@ import { FeaturesSection } from "@/components/landing/features-section"
 import { CTASection } from "@/components/landing/cta-section"
 
 export const metadata: Metadata = {
-  title: 'Pilotez Twenty CRM & Notifuse sur une plateforme unique',
-  description: 'Simplifiez votre business : connectez Twenty CRM et Notifuse sur Veridian. Automatisez votre marketing et gérez vos clients sans friction.',
+  title: 'Pilotez vos SaaS depuis une plateforme unique',
+  description: 'Simplifiez votre business : centralisez Notifuse, Prospection et vos outils sur Veridian. Automatisez votre marketing et gérez vos clients sans friction.',
   openGraph: {
-    title: 'Veridian | Pilotez Twenty CRM & Notifuse en une plateforme',
-    description: 'Simplifiez votre business : connectez Twenty CRM et Notifuse sur Veridian. Automatisez votre marketing et gérez vos clients sans friction.'
+    title: 'Veridian | Pilotez vos SaaS depuis une plateforme unique',
+    description: 'Simplifiez votre business : centralisez Notifuse, Prospection et vos outils sur Veridian. Automatisez votre marketing et gérez vos clients sans friction.'
   }
 };
 

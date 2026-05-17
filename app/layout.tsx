@@ -10,8 +10,8 @@ import 'styles/main.css';
 // Import fetch wrapper for Traefik routing in Docker
 import '@/utils/fetch';
 
-const defaultTitle = 'Veridian | Pilotez Twenty CRM & Notifuse en une plateforme';
-const defaultDescription = 'Simplifiez votre business : connectez Twenty CRM et Notifuse sur Veridian. Automatisez votre marketing et gérez vos clients sans friction.';
+const defaultTitle = 'Veridian | Pilotez vos SaaS depuis une seule plateforme';
+const defaultDescription = 'Simplifiez votre business : centralisez Notifuse, Prospection et vos outils sur Veridian. Automatisez votre marketing et gérez vos clients sans friction.';
 
 const siteURL = getURL();
 
@@ -37,7 +37,7 @@ export const metadata: Metadata = {
       url: `${siteURL}/og.png`,
       width: 1200,
       height: 630,
-      alt: 'Veridian - Plateforme Twenty CRM et Notifuse unifiée'
+      alt: 'Veridian — Plateforme SaaS unifiée'
     }]
   },
   twitter: {
@@ -65,7 +65,6 @@ export default async function RootLayout({ children }: PropsWithChildren) {
   // This runs in Node.js where process.env is fully populated at RUNTIME
   const runtimeEnv: EnvConfig = {
     NEXT_PUBLIC_SITE_URL: process.env.NEXT_PUBLIC_SITE_URL || '',
-    NEXT_PUBLIC_TWENTY_URL: process.env.NEXT_PUBLIC_TWENTY_URL || '',
     NEXT_PUBLIC_NOTIFUSE_URL: process.env.NEXT_PUBLIC_NOTIFUSE_URL || '',
     NEXT_PUBLIC_NOTIFUSE_API_URL: process.env.NEXT_PUBLIC_NOTIFUSE_API_URL || '',
     NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '',

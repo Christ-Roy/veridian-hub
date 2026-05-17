@@ -15,14 +15,14 @@ export function HeroSection() {
           </Badge>
 
           <h1 className="mb-6 text-4xl font-bold tracking-tight text-foreground sm:text-5xl md:text-6xl lg:text-7xl">
-            Connectez Twenty CRM & Notifuse
+            Pilotez vos SaaS
             <br />
-            <span className="text-foreground">en une seule plateforme</span>
+            <span className="text-foreground">depuis une plateforme unique</span>
           </h1>
 
           <p className="mb-10 max-w-2xl text-lg text-muted-foreground sm:text-xl">
-            Gérez vos clients avec un <strong className="text-foreground">CRM intelligent</strong> et
-            automatisez vos campagnes email. Tout ce dont vous avez besoin pour développer votre business,
+            Centralisez votre <strong className="text-foreground">prospection commerciale</strong> et automatisez
+            vos campagnes email transactionnel. Tout ce dont vous avez besoin pour développer votre business,
             dans une seule plateforme.
           </p>
 

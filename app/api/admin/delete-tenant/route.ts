@@ -12,7 +12,7 @@ export const runtime = 'nodejs';
  *
  * Soft-deletes tenant rows for the given email and removes the Auth.js user
  * (cascade clears Account/Session via Prisma FK onDelete).
- * Does NOT delete Twenty/Notifuse workspaces (those need manual cleanup).
+ * Does NOT delete Notifuse workspaces (manual cleanup needed downstream).
  */
 export async function DELETE(request: NextRequest) {
   const denial = await requireAdmin(request);
@@ -52,7 +52,7 @@ export async function DELETE(request: NextRequest) {
   if (userUuid) {
     const tenants = await prisma.tenant.findMany({
       where: { userId: userUuid },
-      select: { id: true, twentyWorkspaceId: true, notifuseWorkspaceSlug: true },
+      select: { id: true, notifuseWorkspaceSlug: true },
     });
 
     for (const tenant of tenants) {
@@ -62,11 +62,6 @@ export async function DELETE(request: NextRequest) {
       });
       actions.push(`Soft-deleted tenant ${tenant.id}`);
 
-      if (tenant.twentyWorkspaceId) {
-        actions.push(
-          `⚠️ Twenty workspace ${tenant.twentyWorkspaceId} still exists (manual cleanup needed)`,
-        );
-      }
       if (tenant.notifuseWorkspaceSlug) {
         actions.push(
           `⚠️ Notifuse workspace ${tenant.notifuseWorkspaceSlug} still exists (manual cleanup needed)`,

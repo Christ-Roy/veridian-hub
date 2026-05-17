@@ -22,7 +22,6 @@ export interface ExpiredTenant {
   name: string;
   slug: string;
   notifuse_workspace_slug: string | null;
-  twenty_workspace_id: string | null;
   trial_ends_at: string;
   cleanup_notified_at: string | null;
 }

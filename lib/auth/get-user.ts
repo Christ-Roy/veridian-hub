@@ -9,7 +9,7 @@
 //   même UUID stringifié — utilisé pour faire le pont avec les tables
 //   `tenants`/`subscriptions` qui utilisent `user_id UUID`.
 // - `Tenant.userId` (hub_app.tenants.user_id) = UUID, garde l'UUID Supabase
-//   originel pour préserver les FK et les références externes (Twenty etc.).
+//   originel pour préserver les FK et les références externes.
 //
 // Donc : pour récupérer les tenants d'un user logué Auth.js, on utilise
 // `user.supabaseUserId` (cast en UUID dans la query Prisma).

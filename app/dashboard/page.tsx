@@ -9,14 +9,14 @@ import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
 
 /**
- * DASHBOARD PAGE - Version Auto-Provisioning (Auth.js + Prisma)
+ * DASHBOARD PAGE — Auth.js + Prisma
  *
  * Flow :
- * 1. User s'inscrit -> Tenants créés automatiquement (Twenty + Notifuse)
- * 2. User arrive sur /dashboard -> Voit l'état de ses tenants
- * 3. Clic sur "Open" :
- *    - Twenty : Si loginToken < 15min -> Auto-login, sinon -> Login manuel
- *    - Notifuse : Toujours login manuel (magic link)
+ * 1. User signup -> Tenants provisionnés (Notifuse + Prospection)
+ * 2. User /dashboard -> état des tenants
+ * 3. Clic "Open" :
+ *    - Notifuse : magic link auto-login Hub→Notifuse
+ *    - Prospection : login token one-shot
  */
 
 export default async function DashboardPage() {
@@ -25,21 +25,12 @@ export default async function DashboardPage() {
     redirect('/signin');
   }
 
-  if (process.env.NODE_ENV !== 'production') {
-    console.log('[Dashboard] User authenticated:', user.id, user.email);
-  }
-
-  // Récupérer le tenant principal de l'utilisateur (mono-tenant pour l'instant)
   const tenant = await prisma.tenant.findFirst({
     where: { userId: userUuid(user) },
     select: {
       id: true,
       name: true,
       status: true,
-      twentyWorkspaceId: true,
-      twentySubdomain: true,
-      twentyLoginToken: true,
-      twentyLoginTokenCreatedAt: true,
       notifuseWorkspaceSlug: true,
       notifuseInvitationSentAt: true,
       prospectionProvisionedAt: true,
@@ -49,35 +40,12 @@ export default async function DashboardPage() {
     },
   });
 
-  if (process.env.NODE_ENV !== 'production') {
-    console.log('[Dashboard] Tenant data:', {
-      found: !!tenant,
-      id: tenant?.id,
-      twenty_configured: !!tenant?.twentyWorkspaceId,
-      twenty_subdomain: tenant?.twentySubdomain,
-      twenty_login_token_exists: !!tenant?.twentyLoginToken,
-      twenty_login_token_created_at: tenant?.twentyLoginTokenCreatedAt,
-      notifuse_configured: !!tenant?.notifuseWorkspaceSlug,
-      notifuse_slug: tenant?.notifuseWorkspaceSlug,
-    });
-  }
-
-  // Calculer si loginToken Twenty encore valide (15min - 1min de marge)
-  let twentyTokenValid = false;
-  if (tenant?.twentyLoginToken && tenant?.twentyLoginTokenCreatedAt) {
-    const tokenAge =
-      new Date().getTime() - new Date(tenant.twentyLoginTokenCreatedAt).getTime();
-    const maxAge = 14 * 60 * 1000; // 14 minutes
-    twentyTokenValid = tokenAge < maxAge;
-  }
-
-  // Token Prospection valide ? (24h)
   let prospectionTokenValid = false;
   if (tenant?.prospectionLoginToken && tenant?.prospectionLoginTokenCreatedAt) {
     const tokenAge =
       new Date().getTime() -
       new Date(tenant.prospectionLoginTokenCreatedAt).getTime();
-    const maxAge = 23 * 60 * 60 * 1000; // 23 hours
+    const maxAge = 23 * 60 * 60 * 1000;
     prospectionTokenValid = tokenAge < maxAge;
   }
 
@@ -88,15 +56,11 @@ export default async function DashboardPage() {
     ? `${prospectionBaseUrl}/api/auth/token?t=${tenant.prospectionLoginToken}`
     : null;
 
-  // Check if Twenty/Notifuse are actually configured (not localhost placeholders)
-  const twentyUrl = process.env.TWENTY_GRAPHQL_URL || '';
   const notifuseUrl = process.env.NOTIFUSE_API_URL || '';
-  const twentyAvailable = !twentyUrl.includes('localhost') && twentyUrl.length > 0;
   const notifuseAvailable = !notifuseUrl.includes('localhost') && notifuseUrl.length > 0;
 
   return (
     <div className="container mx-auto p-8 max-w-6xl">
-      {/* Header */}
       <div className="mb-8">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-3">
@@ -109,7 +73,6 @@ export default async function DashboardPage() {
           Your Veridian SaaS apps and tracking services in one place
         </p>
 
-        {/* Debug info (development only) */}
         {process.env.NODE_ENV === 'development' && (
           <div className="mt-4 p-3 bg-muted rounded text-xs font-mono">
             <div className="font-semibold mb-1">Debug Info:</div>
@@ -119,9 +82,6 @@ export default async function DashboardPage() {
             {tenant && (
               <>
                 <div>Tenant ID: {tenant.id}</div>
-                <div>Twenty workspace: {tenant.twentyWorkspaceId || 'not configured'}</div>
-                <div>Twenty subdomain: {tenant.twentySubdomain || 'not configured'}</div>
-                <div>LoginToken valid: {twentyTokenValid ? 'yes' : 'no/expired'}</div>
                 <div>Notifuse workspace: {tenant.notifuseWorkspaceSlug || 'not configured'}</div>
                 <div>Prospection: {tenant.prospectionProvisionedAt ? 'provisioned' : 'not provisioned'}</div>
                 <div>Prospection token valid: {prospectionTokenValid ? 'yes' : 'no/expired'}</div>
@@ -131,7 +91,6 @@ export default async function DashboardPage() {
         )}
       </div>
 
-      {/* Status Banner */}
       {!tenant && (
         <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
           <div className="flex items-center gap-2">
@@ -147,12 +106,11 @@ export default async function DashboardPage() {
         </div>
       )}
 
-      {/* Section 1 — Vos SaaS */}
       <section className="mb-12">
         <div className="mb-4">
           <h2 className="text-2xl font-semibold tracking-tight">Vos SaaS</h2>
           <p className="text-sm text-muted-foreground">
-            Vos espaces de travail provisionnés automatiquement à l'inscription.
+            Vos espaces de travail provisionnés automatiquement à l&apos;inscription.
           </p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -161,16 +119,6 @@ export default async function DashboardPage() {
             loginUrl={prospectionLoginUrl}
             tokenValid={prospectionTokenValid}
             plan={tenant?.prospectionPlan || 'freemium'}
-          />
-
-          <TenantCard
-            service="twenty"
-            configured={!!tenant?.twentyWorkspaceId}
-            available={twentyAvailable}
-            subdomain={tenant?.twentySubdomain || undefined}
-            loginTokenValid={twentyTokenValid}
-            loginToken={tenant?.twentyLoginToken || undefined}
-            userEmail={user.email || undefined}
           />
 
           <TenantCard
@@ -184,7 +132,6 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      {/* Section 2 — Services de suivi */}
       <section className="mb-12">
         <div className="mb-4">
           <h2 className="text-2xl font-semibold tracking-tight">Services de suivi</h2>
@@ -209,21 +156,17 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      {/* Info Section */}
       <div className="mt-12 p-6 bg-muted/50 rounded-lg border">
         <h3 className="font-semibold mb-3">How it works</h3>
         <div className="space-y-2 text-sm text-muted-foreground">
           <p>
-            <strong>Twenty CRM:</strong> If the auto-login token is valid (less than 15 minutes old), you'll be logged in automatically. Otherwise, use your dashboard password to login manually.
+            <strong>Notifuse :</strong> Click &ldquo;Open&rdquo; pour ouvrir la console via un magic link auto-login (TTL 60s, généré à la volée par le Hub).
           </p>
           <p>
-            <strong>Notifuse:</strong> Click "Open" to access the console, then request a magic link with your email to login.
-          </p>
-          <p>
-            <strong>Prospection:</strong> Click "Open Prospection" to access your lead qualification dashboard. A secure one-time link is generated automatically.
+            <strong>Prospection :</strong> Click &ldquo;Open Prospection&rdquo; pour accéder au dashboard de qualification de leads. Lien sécurisé one-shot.
           </p>
           <p className="mt-4 text-xs">
-            Tip: Your dashboard password works for all services. Keep it safe.
+            Astuce : Ton mot de passe dashboard fonctionne pour tous les services. Garde-le en sécurité.
           </p>
         </div>
       </div>

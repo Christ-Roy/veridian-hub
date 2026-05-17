@@ -4,11 +4,11 @@ import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
 
 export const metadata: Metadata = {
-  title: 'Tarifs flexibles pour Twenty CRM & Notifuse',
-  description: 'Découvrez les offres Veridian. Des tarifs transparents pour centraliser votre CRM et votre marketing. Commencez gratuitement dès aujourd\'hui !',
+  title: 'Tarifs flexibles pour vos SaaS',
+  description: 'Découvrez les offres Veridian. Des tarifs transparents pour centraliser votre prospection et votre marketing. Commencez gratuitement dès aujourd\'hui !',
   openGraph: {
-    title: 'Tarifs Veridian | Plans flexibles pour Twenty & Notifuse',
-    description: 'Découvrez les offres Veridian. Des tarifs transparents pour centraliser votre CRM et votre marketing. Commencez gratuitement dès aujourd\'hui !'
+    title: 'Tarifs Veridian | Plans flexibles pour vos SaaS',
+    description: 'Découvrez les offres Veridian. Des tarifs transparents pour centraliser votre prospection et votre marketing. Commencez gratuitement dès aujourd\'hui !'
   }
 };
 
@@ -48,7 +48,7 @@ function generateJsonLd(products: SerializedProductWithPrices[]) {
     name: 'Veridian',
     applicationCategory: 'BusinessApplication',
     operatingSystem: 'Web',
-    description: 'Plateforme SaaS tout-en-un intégrant Twenty CRM et Notifuse pour centraliser la gestion client et l\'automatisation marketing.',
+    description: 'Plateforme SaaS tout-en-un centralisant prospection commerciale et emails transactionnels.',
     offers: {
       '@type': 'AggregateOffer',
       priceCurrency: 'EUR',
