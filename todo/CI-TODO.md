@@ -29,12 +29,17 @@
 - ✅ Workflow `hub-staging.yml` prêt — déclenche sur push branche `staging`
 - ✅ URL : `https://hub.staging.veridian.site` (cert wildcard ACME)
 
-### Reste à faire (priorisé)
-1. **Créer branche `staging`** depuis main + push → premier vrai test E2E staging
-2. Brancher Renovate (chantier #18 du tableau)
-3. Compléter Trivy 9 capacités (chantier #9)
-4. Workflow réutilisable `_app-ci.yml` (chantier #6) — mutualisation 5 apps
-5. Reste de la dette : emergency revert/rollback, SARIF, migrations safety, MSW, size-limit, etc.
+### Reste à faire (priorisé, post-session 2026-05-17)
+1. **Activer Renovate** : installer GitHub App sur l'org Christ-Roy (<https://github.com/apps/renovate>) — action humaine
+2. **Workflow réutilisable `_app-ci.yml`** (chantier #6) — ticket déposé chez agent infra
+3. **Backward-compat test** (chantier #13) — image previous vs schéma N, évite rollback qui crash DB
+4. **Emergency revert/rollback** (chantiers #20, #21)
+5. **Auto-merge total + branch protection 8 checks** (chantier #25) — Robert hors boucle
+6. **Annotations Grafana** `obs annotate deploy` (chantier #26)
+7. **MSW + happy-dom + RTL** (chantiers #14, #15) — test stack moderne
+8. **size-limit bundle budget** (chantier #16)
+9. **Synthetic monitoring 5 min** (chantier #27) — baseline auto
+10. **Coverage hooks/lib** (chantier #28) — mapping ne couvre que API
 
 ---
 
@@ -58,19 +63,19 @@
 | 3. Baseline `tests-pending.txt` | ✅ Réduit à 41 (components/ui uniquement) | — |
 | 4. `test-coverage-map.yaml` versionné | ✅ Présent (vide, à peupler au fil de l'eau) | — |
 | 5. Path-based skip CI étendu | ✅ `docs/**`, `runbooks/**`, `todo/**`, `_archive/**`, `**/*.md` | — |
-| 6. Workflow réutilisable `_app-ci.yml` partagé | 🔲 N'existe pas dans veridian-infra | Mutualisation 5 apps |
-| 7. Path-based staging gate (changements structurels) | 🔲 Pas câblé | Promotion auto staging→prod |
-| 8. GitHub Environments staging + production | 🔲 Pas créés sur le repo | Approbation manuelle structurel |
-| 9. Trivy 9 capacités (vuln/misconfig/secret/license/image/EOL/SBOM/SARIF/cron) | 🟡 Partiel (image scan oui, le reste non) | Conformité Constitution §8 |
-| 10. SARIF upload → GitHub Security tab | 🔲 Aucun upload-sarif@v3 | Centralisation findings |
-| 11. `.trivyignore.yaml` avec VEX | 🔲 Pas créé | Gestion faux positifs propre |
-| 12. Script `check-migration-safety.sh` | 🔲 Pas créé | Migrations destructives non gardées |
+| 6. Workflow réutilisable `_app-ci.yml` partagé | 🟡 **Ticket posé chez infra** (`veridian-infra/todo/infra/2026-05-17-app-ci-reusable-workflow.md`) | Mutualisation 5 apps |
+| 7. Path-based staging gate (changements structurels) | ✅ **PR #23** — `check-structural-changes.sh` + `check-staging-fresh.sh` + job structural-gate | — |
+| 8. GitHub Environments staging + production | ✅ **PR #23** — environments créés + câblés dans hub-ci/hub-staging + runbook | — |
+| 9. Trivy 9 capacités (vuln/misconfig/secret/license/image/EOL/SBOM/SARIF/cron) | ✅ **PR #23** — FS scan complet, SARIF upload, SBOM CycloneDX, cron hebdo | — |
+| 10. SARIF upload → GitHub Security tab | ✅ **PR #23** — codeql-action/upload-sarif@v3 dans _trivy-fs + _trivy-image | — |
+| 11. `.trivyignore.yaml` avec VEX | ✅ **PR #23** — `.trivyignore.yaml` (statement + expired_at), `.trivyignore` plat retiré | — |
+| 12. Script `check-migration-safety.sh` | ✅ **PR #23** — DROP/RENAME/CREATE INDEX bloquants + acknowledgement `@safe` | — |
 | 13. Job `test-backward-compat` (image previous vs schéma N) | 🔲 Pas créé | Auto-rollback peut crasher DB |
 | 14. MSW (mock service worker) | 🔲 Pas installé | Tests réseau actuels = `vi.mock` |
 | 15. `happy-dom` + RTL + `__tests__/components/` | 🔲 Pas configuré | Component DOM tests |
 | 16. `size-limit` (bundle budget +15%) | 🔲 Pas câblé | Bloque Renovate fat-bundle |
 | 17. Playwright `retries: 2` + flaky detector | 🟡 Playwright OK, pas de `playwright-flaky-detector.yml` | Flaky → rollback bidon |
-| 18. Renovate `renovate.json` (auto-merge total) | 🔲 Pas migré (Dependabot encore actif) | Auto-merge minor/major bloqué |
+| 18. Renovate `renovate.json` (auto-merge total) | ✅ **PR #22 mergée** — Dependabot archivé, Renovate App à installer sur l'org | Activation : <https://github.com/apps/renovate> |
 | 19. **Staging fixe sur dev server** | ✅ **Convention `<app>.staging.veridian.site`, push branche `staging`** | — |
 | 19a. Compose pattern base + prod + staging (include) | ✅ Mergé via PR #18, byte-exact validé en prod | — |
 | 19b. Script `check-compose-sync.sh` + pre-push + CI | ✅ Versionné + actif | — |
@@ -80,7 +85,7 @@
 | 21. `emergency-rollback.yml` (Grafana webhook → rollback) | 🔲 Pas créé | Alertes Grafana = silence |
 | 22. `--ignore-scripts` strict | ✅ **PR #19** (CI + Dockerfile) | — |
 | 23. `pnpm.onlyBuiltDependencies` whitelist | ✅ **PR #19** (Prisma + Husky + Playwright) | — |
-| 24. Cleanup runner `always()` step | 🟡 Présent sur `hub-staging.yml`, pas sur `hub-ci.yml` | Runner empoisonné |
+| 24. Cleanup runner `always()` step | ✅ **PR #23** — ajouté dans deploy-prod et rollback-prod | — |
 | 25. Auto-merge total PR (8 checks + plus de review humaine) | 🔲 Branch protection à configurer | Robert hors boucle |
 | 26. `obs annotate` cablé dans étage 3 (deploy/migrate/rollback) | 🔲 Pas câblé | Timeline Grafana incomplète |
 | 27. Synthetic monitoring 5 min sur prod | 🔲 Pas câblé | Baseline absente |
