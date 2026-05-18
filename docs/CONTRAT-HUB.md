@@ -1213,6 +1213,15 @@ Stocké :
 
 > 🔥 Gravé en v1.1 suite au bug staging Hub↔Notifuse découvert le 2026-05-18
 > (`NOTIFUSE_HUB_API_SECRET` factice côté Hub vs vrai secret côté Notifuse).
+>
+> ⚠️ Dette restante au 2026-05-19 : le secret `NOTIFUSE_HUB_API_SECRET_STAGING`
+> n'est PAS dans les GitHub Secrets du repo `veridian-hub`. Quand la CI
+> staging redéploie, elle écrit le `.env` staging avec le fallback compose
+> `staging-secret` au lieu du vrai secret HMAC. Effet : appel HMAC Hub→Notifuse
+> staging cassé (le hub `/api/tenants/start` retourne `Invalid signature` 401
+> de Notifuse). À fixer en ajoutant le secret dans GitHub Settings → Secrets
+> and variables → Actions → Repository secrets. Tracker dans
+> `veridian-infra/todo/TODO-LIVE.md`.
 
 **Côté Hub** :
 
