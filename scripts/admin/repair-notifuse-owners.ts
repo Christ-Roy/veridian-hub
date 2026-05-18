@@ -70,7 +70,24 @@ async function main(): Promise<void> {
     console.error('❌ DATABASE_URL manquant');
     process.exit(1);
   }
-  const adapter = new PrismaPg({ connectionString });
+  // Parse manuellement plutôt que de passer connectionString : le password
+  // peut contenir des caractères "=", "+", "/" (base64) qui foirent l'URL
+  // parsing strict de pg si non urlencodés.
+  const urlMatch = connectionString.match(
+    /^postgresql:\/\/([^:]+):(.+)@([^:\/]+)(?::(\d+))?\/([^?]+)/,
+  );
+  if (!urlMatch) {
+    console.error('❌ DATABASE_URL parseable failed');
+    process.exit(1);
+  }
+  const [, user, password, host, port, database] = urlMatch;
+  const adapter = new PrismaPg({
+    user,
+    password,
+    host,
+    port: port ? parseInt(port, 10) : 5432,
+    database,
+  });
   const prisma = new PrismaClient({ adapter });
   const client = new NotifuseClient({ apiUrl, hubSecret });
 
