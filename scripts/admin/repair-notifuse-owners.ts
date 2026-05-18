@@ -30,6 +30,7 @@
  */
 
 import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { NotifuseClient } from '@/lib/notifuse/client';
 import { NotifuseError } from '@/lib/notifuse/types';
 
@@ -64,7 +65,13 @@ async function main(): Promise<void> {
   console.log(` Notifuse API : ${apiUrl}`);
   console.log(`${'═'.repeat(70)}\n`);
 
-  const prisma = new PrismaClient();
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    console.error('❌ DATABASE_URL manquant');
+    process.exit(1);
+  }
+  const adapter = new PrismaPg({ connectionString });
+  const prisma = new PrismaClient({ adapter });
   const client = new NotifuseClient({ apiUrl, hubSecret });
 
   // Tenants Hub à scanner — exclut e2e via email LIKE 'e2e-%'.
