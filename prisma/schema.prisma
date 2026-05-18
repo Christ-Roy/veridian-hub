@@ -338,6 +338,7 @@ model Tenant {
   notifuseApiKey                 String?      @map("notifuse_api_key")
   notifuseUserEmail              String?      @map("notifuse_user_email")
   notifuseInvitationSentAt       DateTime?    @map("notifuse_invitation_sent_at") @db.Timestamptz(6)
+  notifusePlan                   String?      @default("free") @map("notifuse_plan")
   prospectionApiKey              String?      @map("prospection_api_key")
   prospectionLoginToken          String?      @map("prospection_login_token")
   prospectionLoginTokenUsed      Boolean?     @default(false) @map("prospection_login_token_used")
@@ -363,6 +364,7 @@ model Tenant {
   @@index([slug])
   @@index([status])
   @@index([deletedAt])
+  @@index([notifusePlan], map: "tenants_notifuse_plan_idx")
   @@map("tenants")
   @@schema("hub_app")
 }
