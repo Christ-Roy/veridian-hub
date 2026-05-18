@@ -13,6 +13,9 @@
 import { createHmac } from 'crypto';
 
 import {
+  AttachOwnerInput,
+  AttachOwnerResponse,
+  HealthResponse,
   MagicLinkInput,
   MagicLinkResponse,
   NotifuseError,
@@ -108,6 +111,55 @@ export class NotifuseClient {
       '/api/workspaces.generateMagicLink',
       { user_email: input.userEmail },
       input.apiKey,
+    );
+  }
+
+  /**
+   * Répare un workspace existant en y attachant un user humain comme owner.
+   *
+   * Idempotent : si l'user est déjà owner du workspace, renvoie
+   * `already_attached: true` sans modif. Additif : ne retire jamais un owner
+   * existant (cf notifuse `service.AttachOwner` qui fait un transfer atomic
+   * quand un autre owner existe déjà).
+   *
+   * Use case principal : réparer les tenants prod où `Provision` historique
+   * n'avait pas attaché l'owner humain au workspace (bug 2026-05-17, 11 tenants
+   * concernés).
+   *
+   * Endpoint : POST /api/veridian/admin/attach-owner (HMAC Hub).
+   */
+  async attachOwner(input: AttachOwnerInput): Promise<AttachOwnerResponse> {
+    const body: Record<string, unknown> = {
+      tenant_id: input.tenantId,
+      owner_email: input.ownerEmail,
+    };
+    if (input.role) {
+      body.role = input.role;
+    }
+    return this.hmacRequest<AttachOwnerResponse>(
+      'POST',
+      '/api/veridian/admin/attach-owner',
+      body,
+    );
+  }
+
+  /**
+   * Renvoie l'état observable du tenant côté Notifuse.
+   *
+   * Le champ critique est `magic_link_capable` : si `false`, le flow auto-login
+   * Hub → Notifuse va casser (redirect /console/workspace/create). Côté Hub,
+   * brancher en cron pour détecter les désync en pré-mortem.
+   *
+   * Endpoint : GET /api/tenants/{tenantId}/health (HMAC Hub).
+   */
+  async getHealth(tenantId: string): Promise<HealthResponse> {
+    if (!tenantId) {
+      throw new Error('NotifuseClient.getHealth: tenantId is required');
+    }
+    return this.hmacRequest<HealthResponse>(
+      'GET',
+      `/api/tenants/${encodeURIComponent(tenantId)}/health`,
+      null,
     );
   }
 

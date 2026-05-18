@@ -100,6 +100,57 @@ export interface MagicLinkResponse {
   expires_at: string;
 }
 
+/**
+ * Réparation d'un workspace existant : attache un user humain comme owner.
+ * Idempotent + additif (ne retire jamais d'owner existant).
+ *
+ * Endpoint Notifuse : POST /api/veridian/admin/attach-owner (HMAC Hub).
+ * Cf notifuse-veridian/todo/done/2026-05-17-provision-owner-attach.md.
+ */
+export interface AttachOwnerInput {
+  tenantId: string;
+  ownerEmail: string;
+  /** "owner" par défaut côté Notifuse si omis. */
+  role?: 'owner' | 'admin';
+}
+
+export interface AttachOwnerResponse {
+  tenant_id: string;
+  owner_email: string;
+  /** ID interne Notifuse du user (créé ou existant). */
+  user_id: string;
+  /** true si la ligne user_workspaces a été créée/modifiée ce tour-ci. */
+  attached: boolean;
+  /** true si le user était déjà attaché avec le bon role (no-op). */
+  already_attached: boolean;
+  /** true si Notifuse a transféré l'ownership d'un autre user vers ce user. */
+  owner_transferred?: boolean;
+  /** "owner" ou "admin" — role effectif après l'opération. */
+  role: 'owner' | 'admin';
+}
+
+/**
+ * Health check observable d'un tenant côté Notifuse.
+ * Endpoint : GET /api/tenants/{id}/health (HMAC Hub).
+ */
+export interface HealthResponse {
+  tenant_id: string;
+  workspace_id: string;
+  status: 'active' | 'suspended' | 'deleted';
+  /** true si un user humain (`type=user`) est attaché au workspace. */
+  owner_attached: boolean;
+  /** Email de l'owner humain actuel côté Notifuse (peut différer du Hub si désync). */
+  owner_email: string | null;
+  owner_user_id: string | null;
+  api_key_valid: boolean;
+  /** false si owner_attached=false OU api_key_valid=false OU status=deleted. */
+  magic_link_capable: boolean;
+  members_count: number;
+  plan: NotifusePlan;
+  /** ISO8601 — timestamp côté Notifuse au moment du check. */
+  checked_at: string;
+}
+
 export type NotifuseEventType =
   | 'tenant.provisioned'
   | 'tenant.suspended'
