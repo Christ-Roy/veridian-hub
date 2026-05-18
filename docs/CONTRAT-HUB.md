@@ -1709,7 +1709,7 @@ Chaque app doit déclarer dans `<app>/docs/features-by-plan.md` :
 
 | Test | Notifuse | Prospection | Analytics | CMS |
 |---|---|---|---|---|
-| Scénario provision idempotent | ✅ | ⚠️ À vérifier | — | — |
+| Scénario provision idempotent (Cas A/B/C §5.1) | ✅ shipé 2026-05-18 (SHA 445a8ac4) | ⚠️ À vérifier | — | — |
 | Scénario attach-owner | ✅ | ❌ | — | — |
 | Scénario suspend/resume cycle | ⚠️ Partiel | ❌ | — | — |
 | Scénario health avant/après attach | ✅ | ❌ | — | — |
