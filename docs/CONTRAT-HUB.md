@@ -12,12 +12,20 @@
 >   audit log, soft delete). Ce contrat-ci **n'y duplique rien**, il pointe.
 > - `CI-ARCHITECTURE.md` — pipeline CI/CD cross-app. Idem, pas de duplication.
 >
-> **Versionnage** : `v1.1` (2026-05-18). Toute évolution majeure → bump version + section
+> **Versionnage** : `v1.2` (2026-05-18 soir). Toute évolution majeure → bump version + section
 > "Changements" en bas.
 >
 > 🔥 **Règle absolue (gravée en v1.1)** : tout ce qui est décrit dans ce contrat
 > fait l'objet d'un **contrôle accru en CI ET d'un smoke manuel via navigateur
 > avant prod**. Cf §11.5 (Contrôle qualité obligatoire).
+>
+> 🔥 **Responsabilité agent (gravée en v1.2)** : un agent app qui s'écarte du
+> contrat (invente un pattern non spécifié, choisit un default différent de
+> celui gravé ici) doit **soit** ouvrir un ticket dans `veridian-hub/todo/`
+> pour discussion, **soit** documenter explicitement l'écart dans son PR.
+> Implémenter "à l'arrache parce que pas spécifié" est une faute professionnelle.
+> Les defaults ci-dessous sont conservateurs et toujours sûrs en première
+> implémentation.
 
 ---
 
@@ -34,14 +42,22 @@
    - 5.9 [Mode dégradé paywall obfusqué cross-app](#59-mode-dégradé-paywall-obfusqué)
    - 5.10 [Format d'erreurs standardisé](#510-format-derreurs-standardisé)
    - 5.11 [Idempotency-Key header](#511-idempotency-key-header)
+   - 5.12 [Lookup user data depuis l'app (v1.2)](#512-lookup-user-data-depuis-lapp-downstream)
+   - 5.13 [Localisation / i18n (v1.2)](#513-localisation--i18n)
+   - 5.14 [Lookup runtime plan + cache + désync (v1.2)](#514-lookup-runtime-du-plan-tenant-côté-app-cache--invalidation)
+   - 5.15 [Rotation api_key (v1.2)](#515-rotation-api_key-tenant)
+   - 5.16 [Transfer ownership (v1.2)](#516-transfert-downership)
+   - 5.17 [Quotas exposés au provision (v1.2)](#517-quotas-exposés-à-lapp-au-provisioning)
 6. [Authentification — 3 patterns](#6-authentification--3-patterns)
    - 6.5 [Convention env vars staging / prod](#65-convention-env-vars-stagingprod)
    - 6.6 [Mode dev local (SKIP_HMAC)](#66-mode-dev-local-skip_hmac)
 7. [Webhooks app → Hub](#7-webhooks-app--hub)
+   - 7.4 [Stripe → Hub → apps chaîne billing (v1.2)](#74-stripe--hub--apps-chaîne-billing-complète)
 8. [Pilotage des plans + lifecycle depuis le Hub](#8-pilotage-des-plans-depuis-le-hub)
    - 8.5 [Admin lifecycle panel](#85-admin-lifecycle-panel)
    - 8.6 [Restriction réseau admin (Tailscale)](#86-restriction-réseau-admin-tailscale)
    - 8.7 [Config lifecycle ENV Hub](#87-config-lifecycle-env-hub)
+   - 8.8 [Migration tenants existants vers v1.x (v1.2)](#88-migration-des-tenants-existants-vers-v1x)
 9. [Inventaire features payantes par app](#9-inventaire-features-payantes-par-app)
 10. [Matrice de conformité](#10-matrice-de-conformité)
 11. [Onboarding d'une nouvelle app](#11-onboarding-dune-nouvelle-app)
@@ -49,7 +65,9 @@
 12. [Tests d'intégration exigés](#12-tests-dintégration-exigés)
 13. [Observabilité et logs standards](#13-observabilité-et-logs-standards)
 14. [Versionnement et évolution](#14-versionnement-et-évolution)
-15. [Changements](#15-changements)
+    - 14.4 [Concurrent modification — optimistic locking (v1.2)](#144-concurrent-modification-optimistic-locking)
+15. [Roadmap angles morts identifiés (v1.2)](#15-roadmap-angles-morts-identifiés)
+16. [Changements](#16-changements)
 
 ---
 
@@ -885,6 +903,248 @@ CREATE INDEX ON veridian_idempotency_keys(expires_at);  -- pour cleanup cron
 header pour chaque appel sortant qui mute un tenant. Côté Hub, log la
 correspondance `idempotency_key → tenant_id + action` pour debug.
 
+### 5.12 Lookup user data depuis l'app downstream
+
+> 🔥 Gravé en v1.2. Permet à une app d'afficher "Bonjour Robert" sans inventer
+> son propre store user.
+
+#### 5.12.1 Endpoint Hub `GET /api/users/{hub_user_id}`
+
+**Auth** : HMAC Hub (l'app appelle le Hub avec sa propre signature).
+
+**Response 200** :
+```json
+{
+  "hub_user_id": "string",
+  "email": "string",
+  "display_name": "string|null",
+  "locale": "fr|en|... (default fr)",
+  "created_at": "ISO8601"
+}
+```
+
+**Response 404** : user inexistant ou purged.
+
+#### 5.12.2 Default obligatoire si app n'appelle pas
+
+Si l'app downstream n'a pas besoin d'afficher de données user au-delà de
+l'email reçu au `provision`, **elle n'est PAS obligée** de hit cet endpoint.
+Mais elle DOIT utiliser le `owner_email` du provision comme display, jamais
+inventer un autre champ.
+
+#### 5.12.3 Cache obligatoire côté app
+
+Si l'app appelle `/api/users/<id>`, elle DOIT cacher la réponse **15 minutes
+minimum** (cache local, in-memory ou DB) pour éviter de hammer le Hub à
+chaque pageview.
+
+Invalidation : webhook Hub→app `user.updated` (à implémenter v1.3 si besoin).
+
+### 5.13 Localisation / i18n
+
+> 🔥 Gravé en v1.2.
+
+**Default obligatoire** : `locale = "fr"` partout sauf si explicitement
+spécifié autrement.
+
+**Provision payload** : champ `metadata.locale` optionnel. Si absent, l'app
+DOIT défaulter à `"fr"`.
+
+**Magic link** : les templates email (signin, welcome) sont en français par
+défaut. Si l'app expose une UI multilingue, elle DOIT lire la locale soit
+depuis le metadata provision soit depuis le Hub `/api/users/<id>` (cf §5.12).
+
+**Standard pour les nouvelles locales** : codes ISO 639-1 (2 lettres
+minuscules). Pas de `fr-FR`, juste `fr`.
+
+### 5.14 Lookup runtime du plan tenant côté app (cache + invalidation)
+
+> 🔥 Gravé en v1.2. Sans ce pattern, chaque agent va inventer son cache et
+> on se retrouve avec 4 implémentations divergentes.
+
+#### 5.14.1 Source de vérité = colonne locale app
+
+L'app stocke le `plan` courant dans sa propre DB (`tenants.plan` ou
+équivalent) ET le `plan_source` (cf §3.3). C'est la **seule source de vérité
+lue par les routes en runtime**. Pas de call Hub à chaque request.
+
+#### 5.14.2 Synchronisation initiale et mises à jour
+
+- Au `provision` : Hub envoie `plan` initial → app écrit en DB.
+- Au `update-plan` HMAC : Hub envoie nouveau `plan` + `plan_source` → app
+  écrit en DB.
+- L'app n'invente JAMAIS un changement de plan. Elle réagit uniquement aux
+  appels Hub.
+
+#### 5.14.3 Default conservateur si désync détectée
+
+Si l'app détecte une incohérence (ex: tenant sans `plan` en DB mais avec une
+`api_key` Hub valide) :
+- **Default obligatoire** : traiter comme `plan='free'`, `plan_source='manual'`.
+- Logger un warning observable (§13).
+- Émettre webhook `tenant.desync_detected` vers Hub (le Hub peut alors
+  re-pousser le bon plan via `update-plan`).
+
+#### 5.14.4 Pattern d'enforcement runtime
+
+```ts
+// Pattern de référence cross-app pour enforcement plan
+async function requireActivePlan(tenantId: string, minPlan: string) {
+  const tenant = await db.tenant.findUnique({
+    where: { id: tenantId },
+    select: { plan: true, planSource: true, deletedAt: true, trialEndsAt: true },
+  });
+
+  if (!tenant) return { ok: false, reason: "tenant_not_found" };
+  if (tenant.deletedAt) return { ok: false, reason: "tenant_soft_deleted" };
+
+  // Plans offerts toujours OK
+  if (["lifetime_site_vitrine", "lifetime_partner", "internal"].includes(tenant.planSource)) {
+    return { ok: true, plan: tenant.plan };
+  }
+
+  // Trial expiré sur free
+  if (tenant.plan === "free" && tenant.trialEndsAt && tenant.trialEndsAt < new Date()) {
+    return { ok: false, reason: "trial_expired" };
+  }
+
+  // Plan insuffisant
+  if (planRank(tenant.plan) < planRank(minPlan)) {
+    return { ok: false, reason: "plan_insufficient" };
+  }
+
+  return { ok: true, plan: tenant.plan };
+}
+```
+
+`planRank()` est une fonction app-locale qui retourne un int croissant (free=0,
+starter=1, pro=2, enterprise=3, lifetime_*/internal=99).
+
+### 5.15 Rotation api_key tenant
+
+> 🔥 Gravé en v1.2. Indispensable si une `api_key` fuite (logs, screenshot,
+> dev qui commit par erreur).
+
+#### 5.15.1 `POST /api/tenants/{id}/rotate-api-key`
+
+**Auth** : HMAC Hub.
+
+**Request** :
+```json
+{
+  "reason": "leak_suspected|periodic_rotation|admin_action"
+}
+```
+
+**Response 200** :
+```json
+{
+  "tenant_id": "string",
+  "new_api_key": "string (à stocker IMMÉDIATEMENT côté Hub, l'ancienne est révoquée à la réception du 200)",
+  "rotated_at": "ISO8601"
+}
+```
+
+#### 5.15.2 Comportement obligatoire
+
+- L'app génère une nouvelle `api_key`.
+- L'ancienne reste valide **5 minutes** (overlap pour permettre au Hub de
+  recevoir la response et stocker le new key sans race).
+- Après 5 minutes, ancienne `api_key` → 401 `api_key_revoked`.
+
+#### 5.15.3 Default conservateur si l'app n'a pas l'endpoint
+
+Si l'app n'expose pas encore `rotate-api-key`, **fallback** : Hub appelle
+`provision` à nouveau avec le même `tenant_id` + `owner_email` → l'app peut
+soit retourner la même api_key (idempotent — INSUFFISANT pour rotation) soit
+implémenter une variante `?force_new_key=true` à coder ad-hoc.
+
+**Roadmap** : rotation api_key obligatoire dans v1.3 pour toutes les apps.
+
+### 5.16 Transfert d'ownership
+
+> 🔥 Gravé en v1.2. Mentionné en roadmap v1, figé maintenant.
+
+#### 5.16.1 `POST /api/tenants/{id}/transfer-owner`
+
+**Auth** : HMAC Hub.
+
+**Request** :
+```json
+{
+  "new_owner_email": "string",
+  "reason": "business_sale|email_change|admin_action"
+}
+```
+
+**Response 200** :
+```json
+{
+  "tenant_id": "string",
+  "old_owner_email": "string",
+  "new_owner_email": "string",
+  "transferred_at": "ISO8601"
+}
+```
+
+#### 5.16.2 Comportement atomique obligatoire
+
+- Création du `new_owner_email` comme user si pas déjà existant.
+- Attachement avec `role = "owner"`.
+- L'ancien owner passe à `role = "admin"` (PAS retiré — additif uniquement,
+  cf §5.3).
+- Webhook `tenant.owner_changed` émis vers Hub (cf §7.1).
+- **Atomicité obligatoire** : transaction DB côté app. Soit tout réussit, soit
+  rien ne change.
+
+#### 5.16.3 Default si endpoint absent
+
+L'app n'a pas encore l'endpoint → Hub utilise `attach-owner` (qui ne fait que
+ADD, pas TRANSFER). C'est une dégradation acceptable : le nouveau owner
+existe, l'ancien aussi. À l'admin Hub de noter l'écart manuellement.
+
+### 5.17 Quotas exposés à l'app au provisioning
+
+> 🔥 Gravé en v1.2. Évite de hardcoder les quotas dans chaque app.
+
+#### 5.17.1 Body provision étendu
+
+Le Hub peut envoyer (optionnel mais recommandé) un champ `quotas` dans le
+body de `provision` :
+
+```json
+{
+  "tenant_id": "...",
+  "owner_email": "...",
+  "plan": "pro",
+  "quotas": {
+    "emails_per_month": 50000,
+    "leads_total": 10000,
+    "members_max": 5,
+    "storage_mb": 1024
+  }
+}
+```
+
+#### 5.17.2 Default conservateur si l'app ignore
+
+Si l'app n'utilise pas le champ `quotas` (premier port v1.1 → v1.2), elle
+**doit** :
+- Lire son propre fichier `<app>/config/plans.ts` qui hardcode les quotas par plan.
+- Ne JAMAIS dépasser ces quotas en runtime (enforcement local).
+- Logger un warning si elle reçoit un `quotas` dans le body mais n'en tient pas
+  compte (`WARN: provisional quotas ignored, using local config`).
+
+#### 5.17.3 Source de vérité finale
+
+Quand `quotas` est envoyé par Hub, **il prime sur le hardcoded local**. Permet
+à Robert de booster un client sur un plan custom sans toucher le code app.
+
+#### 5.17.4 Update quotas après provision
+
+Pour modifier les quotas d'un tenant existant, le Hub appelle `update-plan`
+avec un nouveau champ `quotas` (extension de §5.2). L'app le merge.
+
 ---
 
 ## 6. Authentification — 3 patterns
@@ -1051,6 +1311,52 @@ Endpoint Hub : `POST https://app.veridian.site/api/webhooks/<app_name>`
 - `400 Bad Request` si payload invalide.
 - Pour `5xx` côté Hub : l'app **doit retenter** avec backoff exponentiel (1s, 2s,
   4s, ..., max 1h). Hub idempotent sur la `idempotency_key`.
+
+### 7.4 Stripe → Hub → apps (chaîne billing complète)
+
+> 🔥 Gravé en v1.2. Le contrat précédent parlait des webhooks app→Hub mais
+> jamais du chemin Stripe→Hub→apps.
+
+#### 7.4.1 Stripe webhook reçu par Hub
+
+Hub expose `POST /api/webhooks/stripe` qui consomme :
+
+| Event Stripe | Action Hub |
+|---|---|
+| `checkout.session.completed` | Mappe `stripe_price_id` → `plan` via `lib/pricing/plans.ts`. Appelle `update-plan` HMAC sur chaque app concernée par le bundle (cf §3.4 bundle Veridian). |
+| `customer.subscription.updated` | Détecte si plan changé. Si oui, propage via `update-plan` sur apps concernées. |
+| `customer.subscription.deleted` | Si `cancel_at_period_end=true` à l'expiration → propage `soft_delete` sur apps. Si `canceled` immédiat → idem. |
+| `invoice.payment_failed` | Marque tenant `past_due` côté Hub. Pas d'action immédiate sur apps. Si 3 échecs successifs → `suspend`. |
+| `invoice.payment_succeeded` | Si tenant était `suspended` pour past_due → `resume`. |
+| `customer.subscription.trial_will_end` | Notif email user (CTA upgrade). Pas d'action apps. |
+
+#### 7.4.2 Propagation Hub → apps : synchrone obligatoire
+
+Pour chaque app concernée, le Hub appelle `update-plan` HMAC **en synchrone**
+(timeout 10s par app). Pas de fire-and-forget côté Stripe webhook.
+
+- Si une app retourne 5xx → Hub retry 3× avec backoff (1s, 2s, 4s) puis
+  passe à l'app suivante mais log un erreur observable.
+- Si une app retourne 4xx → Hub log erreur, ne retry pas (problème de spec).
+- Stripe attend max 30s la response du Hub. Au-delà → Stripe retry son webhook
+  automatiquement (idempotent côté Hub via `event.id`).
+
+#### 7.4.3 Default conservateur en cas d'échec partiel
+
+Si Hub a propagé sur 2 apps sur 3 et la 3e a 5xx :
+- État Hub : plan mis à jour, `last_propagation_failed_app: <app_name>` en
+  metadata tenant.
+- L'admin lifecycle panel (§8.5) affiche un badge "Désync : `<app>` pas à jour
+  depuis 2026-05-18T..." avec un bouton "Re-propage".
+- Cron Hub horaire : tente de re-propager les désyncs détectées.
+- Si désync > 24h : alerte Grafana (§13.4).
+
+#### 7.4.4 Immunité plans offerts (rappel)
+
+Si tenant a `plan_source IN ('lifetime_*', 'internal')`, Hub **ignore** les
+events Stripe `subscription.deleted` ou `updated` qui voudraient downgrade.
+Log warning observable. Ce comportement est gravé §3.3 mais répété ici car
+c'est le point d'entrée critique de la chaîne.
 
 ---
 
@@ -1252,6 +1558,44 @@ Côté Hub `.env` :
 - Endpoint `POST /api/admin/tenants/<id>/lifecycle { graceDays, touchResetDays }`
   pour override par tenant.
 - Path d'évolution lié à l'analyse "coût compute par tenant".
+
+### 8.8 Migration des tenants existants vers v1.x
+
+> 🔥 Gravé en v1.2. Quand une app passe d'un état pré-contrat à v1.2, qu'est-ce
+> qu'elle fait des tenants déjà en DB ?
+
+#### 8.8.1 Au déploiement v1.x d'une app downstream
+
+L'app DOIT exécuter un script de migration **idempotent** qui :
+
+1. Backfill `plan_source = 'manual'` pour tous les tenants existants sans
+   `plan_source` (default conservateur — pas Stripe car on ne sait pas).
+2. Backfill `quotas` depuis le plan local hardcodé (cf §5.17.2).
+3. Backfill `deleted_at = NULL`, `purge_eligible_at = NULL` (pas de tenant
+   en soft-delete à l'origine).
+4. Émet un webhook `tenant.migrated_to_v1` vers Hub pour chaque tenant
+   backfilled, avec le diff.
+
+Le Hub stocke ces diffs dans `hub_app.tenant_migration_log` pour audit.
+
+#### 8.8.2 Du côté Hub
+
+Quand une app downstream remonte sa version contrat dans son endpoint `health`
+(ajout obligatoire : `contract_version: "1.2"`), Hub vérifie les tenants
+qu'il connaît pour cette app et :
+- Compare son état Hub (`tenants.<app>Plan`) avec ce que l'app rapporte.
+- Si désync : appelle `update-plan` sur l'app pour réaligner.
+- Log le résultat dans `hub_app.tenant_migration_log`.
+
+#### 8.8.3 Default si l'app skip la migration
+
+Si une app déploie v1.2 sans script de migration : tous ses tenants existants
+auront `plan_source = NULL` côté DB locale. Hub détecte ça via le diff
+`tenants.plan_source` reçu en webhook → Hub appelle `update-plan` avec
+`plan_source = 'manual'` pour normaliser.
+
+**Conclusion** : la migration manquante est rattrapée automatiquement, mais
+c'est de la dette explicite à corriger sous 1 semaine après déploiement.
 
 ---
 
@@ -1697,9 +2041,189 @@ précédente sans :
 - Coordonner explicitement avec l'agent Hub.
 - Donner 1 mois minimum pour la bascule.
 
+### 14.4 Concurrent modification (optimistic locking)
+
+> 🔥 Gravé en v1.2. Évite les race conditions quand Stripe webhook et admin
+> humain arrivent en même temps sur un même tenant.
+
+#### 14.4.1 Pattern obligatoire côté apps
+
+Chaque app downstream qui stocke un état tenant (plan, deleted_at, etc.) DOIT
+inclure une colonne `version INT NOT NULL DEFAULT 1` sur sa table tenant.
+
+#### 14.4.2 Header `If-Match` pour les mutations
+
+Pour les endpoints `update-plan`, `soft-delete`, `restore`, `rotate-api-key`,
+`transfer-owner`, l'app DOIT accepter (et le Hub DOIT envoyer) un header :
+
+```
+If-Match: <integer version>
+```
+
+L'app vérifie : `WHERE id = ? AND version = ?`. Si match, UPDATE + `version = version + 1`.
+
+#### 14.4.3 Conflict response
+
+Si la version courante en DB ne matche pas le `If-Match` :
+
+```
+HTTP 412 Precondition Failed
+{
+  "error": "version_conflict",
+  "current_version": 7,
+  "supplied_version": 6
+}
+```
+
+#### 14.4.4 Default conservateur si Hub ne fournit pas `If-Match`
+
+Si Hub n'envoie pas `If-Match` (transition v1.1 → v1.2) :
+- L'app applique la mutation **last-write-wins** (comportement v1.1).
+- Logger un warning observable : `WARN: mutation without If-Match, race risk`.
+- Émettre webhook `tenant.unversioned_mutation` vers Hub (cf §13 pour metrics).
+
+#### 14.4.5 Hub : politique de retry sur 412
+
+Si Hub reçoit 412 d'une app : il **relit** l'état actuel (via `health` ou
+`usage-summary`), reconsidère sa décision (la mutation est-elle encore
+souhaitable ?), puis retente avec le nouveau `If-Match`. Maximum 3 retries.
+
 ---
 
-## 15. Changements
+## 15. Roadmap angles morts identifiés
+
+> 🔥 Gravé en v1.2. Ces zones sont **connues comme à traiter** mais pas
+> entièrement spécifiées dans le contrat. Un agent qui les rencontre DOIT
+> ouvrir un ticket `veridian-hub/todo/2026-XX-XX-<topic>.md` plutôt que
+> d'inventer une solution silencieuse.
+
+### 15.1 GDPR export user data (P1)
+
+Un user EU peut demander l'export de toutes ses données cross-app. Hub doit
+agréger.
+
+**Spec préliminaire** :
+- `GET /api/users/{hub_user_id}/gdpr-export` côté Hub.
+- Hub appelle `GET /api/tenants/{id}/gdpr-export` sur chaque app downstream
+  pour récupérer la data du tenant.
+- Hub agrège dans un ZIP signed URL valide 24h.
+
+**Default v1.2** : pas implémenté. Si une demande GDPR arrive, action manuelle
+SQL côté chaque app. Tracker dans ticket dédié quand le premier cas arrive.
+
+### 15.2 Rate limiting Hub → app (P2)
+
+Le Hub peut burst sur une app downstream (ex: re-propagation massive après
+incident).
+
+**Spec préliminaire** :
+- App downstream limite à **20 req/s par signature HMAC source** (= par
+  HUB_API_SECRET).
+- Au-delà → 429 `rate_limited` avec `Retry-After` header.
+- Hub respecte un budget global de **100 req/s vers chaque app**.
+
+**Default v1.2** : pas de rate limit côté apps. Hub ne burst pas (max 1 call
+en parallèle par tenant). Acceptable tant que < 100 tenants. À implémenter
+quand on passera 500 tenants ou première dégradation observable.
+
+### 15.3 Backup et disaster recovery (P2)
+
+Le contrat n'impose pas RPO/RTO mais recommande :
+
+- Backup quotidien automatique de la DB de chaque app.
+- Rétention 30j minimum.
+- Test de restauration trimestriel.
+
+**Default v1.2** : à charge de l'infra (`veridian-infra/`). Pas de check
+automatique côté contrat. Tracker en todo infra.
+
+### 15.4 Audit log cross-app centralisé (P2)
+
+Chaque app a son audit log local. Le Hub a le sien. Pour faire de
+l'investigation cross-app ("qu'a fait ce user partout dans Veridian le
+2026-03-15 ?"), il faut agréger.
+
+**Spec préliminaire** :
+- Chaque app expose `GET /api/audit-log?tenant_id=X&from=...&to=...` (HMAC Hub).
+- Hub agrège dans `/dashboard/admin/audit?user_email=X` (réservé Tailscale §8.6).
+
+**Default v1.2** : pas implémenté. Investigation = SSH + grep dans les logs
+JSON structurés (§13.1).
+
+### 15.5 Synthetic monitoring user flow (P2)
+
+Test automatique périodique : signup → start app → magic link → action →
+logout. Pour détecter une régression avant que le user.
+
+**Default v1.2** : pas configuré. Smoke manuel (§11.5.2) à chaque ship suffit
+en early-stage. À ajouter en cron Playwright headless quand on aura > 50
+tenants actifs.
+
+### 15.6 SSO Hub → app (remplacer magic link) (P3)
+
+Roadmap v2. Migrer de magic-link consumable (1×) vers OIDC stateless (token
+JWT signé par Hub, app vérifie signature). Économise 1 round-trip.
+
+**Default v1.2** : magic link only. Acceptable jusqu'à ~1000 sessions/jour.
+
+### 15.7 Multi-membre par tenant côté Hub (P2)
+
+Aujourd'hui le Hub voit 1 user owner par tenant. Mais l'app downstream peut
+avoir N membres (via invites côté app, hors Hub).
+
+**Spec préliminaire** :
+- Hub expose `POST /api/admin/tenants/{id}/invite-member { email, role }`.
+- Hub appelle `attach-owner` sur l'app avec le role demandé.
+- L'app envoie un magic link au nouvel email.
+
+**Default v1.2** : l'app gère ses propres invites internes. Hub ne les voit
+pas. Acceptable tant que les apps font confiance à leur propre vue membres.
+
+### 15.8 Hub down — comportement apps (P3)
+
+Si Hub crash :
+- Apps continuent de servir les requêtes user (magic link consumed, sessions
+  valides via JWT signé app-locale).
+- Webhooks app→Hub stockés en queue locale avec retry exponentiel.
+- Si Hub > 1h down : alerte Grafana côté infra.
+
+**Default v1.2** : pattern décrit ici. Pas de dead letter queue formelle —
+chaque app retry indéfiniment avec backoff plafond 1h.
+
+---
+
+## 16. Changements
+
+### v1.2 — 2026-05-18 (soir)
+
+**Comble les 15 angles morts identifiés par audit "agent qui débarque frais"** :
+
+- §5.12 Lookup user data (`GET /api/users/<id>` côté Hub + cache obligatoire app).
+- §5.13 Localisation : default `fr`, champ `metadata.locale` au provision.
+- §5.14 Lookup runtime du plan + pattern enforcement + désync recovery.
+- §5.15 Rotation api_key (`rotate-api-key` avec overlap 5min).
+- §5.16 Transfer ownership atomique (`transfer-owner`).
+- §5.17 Quotas exposés au provision (override hardcoded local).
+- §7.4 **Stripe → Hub → apps** chaîne billing complète (le trou béant de v1.1) :
+  mapping events Stripe, propagation synchrone, retry 3×, immunité plans
+  offerts, recovery désync.
+- §8.8 Migration tenants existants : script idempotent obligatoire au déploiement
+  v1.x, rattrapage automatique côté Hub si app skip.
+- §14.4 **Concurrent modification** : optimistic locking via header `If-Match`
+  + version int. Évite race conditions Stripe webhook vs admin humain.
+- §15 **Roadmap angles morts identifiés** : 8 sujets connus comme à traiter
+  (GDPR export, rate limit, DR, audit cross-app, synthetic monitoring, SSO
+  OIDC, multi-membre, Hub-down resilience). Defaults conservateurs documentés
+  pour chaque, agents savent quand ouvrir un ticket plutôt que d'inventer.
+
+**Règle nouvelle gravée en en-tête** :
+
+> 🔥 Responsabilité agent : implémenter "à l'arrache parce que pas spécifié"
+> = faute professionnelle. Soit ticket dans `veridian-hub/todo/`, soit
+> documentation explicite de l'écart dans le PR.
+
+**Inchangé depuis v1.1** : §1-§4, §5.1-§5.11, §6.1-§6.6, §7.1-§7.3, §8.1-§8.7,
+§9-§13, §14.1-§14.3.
 
 ### v1.1 — 2026-05-18 (après-midi)
 
