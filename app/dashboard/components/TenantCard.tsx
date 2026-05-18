@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Loader2, ExternalLink, Info } from 'lucide-react';
+import { StartTrialButton } from './StartTrialButton';
 
 interface TenantCardProps {
   service: 'notifuse';
@@ -128,9 +129,14 @@ export function TenantCard({
             </div>
           </div>
         ) : (
-          <div className="py-6 text-center text-sm text-muted-foreground">
-            <p>Workspace will be created automatically</p>
-            <p className="text-xs mt-1">when you sign up to the dashboard</p>
+          <div className="py-6 text-center text-sm text-muted-foreground space-y-2">
+            <p className="font-medium text-foreground">
+              Envoie tes emails transactionnels
+            </p>
+            <p className="text-xs">
+              Essai gratuit 15 jours — quota inclus, aucune carte bancaire
+              demandée.
+            </p>
           </div>
         )}
       </CardContent>
@@ -152,7 +158,7 @@ export function TenantCard({
               ) : (
                 <>
                   <ExternalLink className="mr-2 h-4 w-4" />
-                  🔗 Open {serviceName}
+                  Open {serviceName}
                 </>
               )}
             </Button>
@@ -162,9 +168,7 @@ export function TenantCard({
             Not available in this environment
           </Button>
         ) : (
-          <Button disabled className="w-full" variant="outline" size="lg">
-            ⏳ Provisioning...
-          </Button>
+          <StartTrialButton app="notifuse" openAfter="auto_login_url" />
         )}
       </CardFooter>
     </Card>

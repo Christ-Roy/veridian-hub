@@ -3,7 +3,6 @@ import { TenantCard } from './components/TenantCard';
 import { ProspectionCard } from './components/ProspectionCard';
 import { ServiceCard } from './components/ServiceCard';
 import { RefreshButton } from './components/RefreshButton';
-import { RetryProvisionButton } from './components/RetryProvisionButton';
 import { LayoutDashboard } from 'lucide-react';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
@@ -11,10 +10,12 @@ import { prisma } from '@/lib/prisma';
 /**
  * DASHBOARD PAGE — Auth.js + Prisma
  *
- * Flow :
- * 1. User signup -> Tenants provisionnés (Notifuse + Prospection)
- * 2. User /dashboard -> état des tenants
- * 3. Clic "Open" :
+ * Flow on-demand (depuis 2026-05-18) :
+ * 1. User signup -> AUCUN provisioning automatique.
+ * 2. User /dashboard -> voit les cartes d'apps avec "Commencer l'essai gratuit".
+ * 3. Clic "Commencer" -> POST /api/tenants/start { app } -> provisionne UNE app
+ *    -> reload + auto-open dans nouvel onglet.
+ * 4. Clic "Open" sur une app déjà provisionnée :
  *    - Notifuse : magic link auto-login Hub→Notifuse
  *    - Prospection : login token one-shot
  */
@@ -92,17 +93,11 @@ export default async function DashboardPage() {
       </div>
 
       {!tenant && (
-        <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-          <div className="flex items-center gap-2">
-            <span className="text-yellow-600 font-semibold">Provisioning in progress...</span>
-          </div>
-          <p className="text-sm text-yellow-700 mt-1">
-            Your workspaces are being created. This may take a few moments. Please refresh the page.
+        <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <p className="text-sm text-blue-900">
+            👋 Bienvenue ! Démarre ton essai gratuit sur l&apos;app de ton choix
+            ci-dessous. Pas de carte bancaire, 15 jours offerts par app.
           </p>
-          <p className="text-xs text-yellow-600 mt-2">
-            If this message persists for more than 2 minutes, try the button below.
-          </p>
-          <RetryProvisionButton />
         </div>
       )}
 
@@ -110,7 +105,8 @@ export default async function DashboardPage() {
         <div className="mb-4">
           <h2 className="text-2xl font-semibold tracking-tight">Vos SaaS</h2>
           <p className="text-sm text-muted-foreground">
-            Vos espaces de travail provisionnés automatiquement à l&apos;inscription.
+            Active chaque app indépendamment. Tu peux tester juste celle qui
+            t&apos;intéresse.
           </p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -157,16 +153,25 @@ export default async function DashboardPage() {
       </section>
 
       <div className="mt-12 p-6 bg-muted/50 rounded-lg border">
-        <h3 className="font-semibold mb-3">How it works</h3>
+        <h3 className="font-semibold mb-3">Comment ça marche</h3>
         <div className="space-y-2 text-sm text-muted-foreground">
           <p>
-            <strong>Notifuse :</strong> Click &ldquo;Open&rdquo; pour ouvrir la console via un magic link auto-login (TTL 60s, généré à la volée par le Hub).
+            <strong>Démarrage à la demande :</strong> chaque app est
+            provisionnée quand tu cliques &ldquo;Commencer l&apos;essai&rdquo;.
+            Tu peux n&apos;activer que ce dont tu as besoin.
           </p>
           <p>
-            <strong>Prospection :</strong> Click &ldquo;Open Prospection&rdquo; pour accéder au dashboard de qualification de leads. Lien sécurisé one-shot.
+            <strong>Notifuse :</strong> magic link auto-login généré à la volée
+            par le Hub (TTL 60s). Pas de mot de passe à gérer côté Notifuse.
+          </p>
+          <p>
+            <strong>Prospection :</strong> lien sécurisé one-shot, session
+            longue durée côté app pour ne pas avoir à re-cliquer chaque jour.
           </p>
           <p className="mt-4 text-xs">
-            Astuce : Ton mot de passe dashboard fonctionne pour tous les services. Garde-le en sécurité.
+            Sécurité : tous les accès passent par le Hub. Les apps downstream
+            ne stockent aucun mot de passe — l&apos;authentification se fait
+            par lien magique.
           </p>
         </div>
       </div>

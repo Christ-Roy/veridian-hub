@@ -12,7 +12,8 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, ExternalLink, Info, RefreshCw } from 'lucide-react';
+import { Loader2, ExternalLink, Info } from 'lucide-react';
+import { StartTrialButton } from './StartTrialButton';
 
 interface ProspectionCardProps {
   configured: boolean;
@@ -112,9 +113,14 @@ export function ProspectionCard({
             </div>
           </div>
         ) : (
-          <div className="py-6 text-center text-sm text-muted-foreground">
-            <p>Workspace will be created automatically</p>
-            <p className="text-xs mt-1">when you sign up to the dashboard</p>
+          <div className="py-6 text-center text-sm text-muted-foreground space-y-2">
+            <p className="font-medium text-foreground">
+              Qualifie tes leads .fr en quelques clics
+            </p>
+            <p className="text-xs">
+              Essai gratuit 15 jours — 300 prospects inclus, aucune carte
+              bancaire demandée.
+            </p>
           </div>
         )}
       </CardContent>
@@ -135,14 +141,12 @@ export function ProspectionCard({
             ) : (
               <>
                 <ExternalLink className="mr-2 h-4 w-4" />
-                {tokenValid ? 'Open Prospection' : 'Open Prospection'}
+                Open Prospection
               </>
             )}
           </Button>
         ) : (
-          <Button disabled className="w-full" variant="outline" size="lg">
-            Provisioning...
-          </Button>
+          <StartTrialButton app="prospection" openAfter="login_url" />
         )}
       </CardFooter>
     </Card>
