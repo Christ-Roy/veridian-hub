@@ -52,4 +52,13 @@ describe('POST /api/tenants/retry', () => {
     const res = await POST();
     expect(res.status).toBe(200);
   });
+
+  it('calls provisionTenants with new 2-arg signature (no password)', async () => {
+    tenantRow = null;
+    const provisionMod = await import('@/utils/tenants/provision');
+    const { POST } = await import('@/app/api/tenants/retry/route');
+    await POST();
+    // Nouvelle signature post-2026-05-18 : (email, userId), pas de password
+    expect(provisionMod.provisionTenants).toHaveBeenCalledWith('a@test', 'uuid-1');
+  });
 });

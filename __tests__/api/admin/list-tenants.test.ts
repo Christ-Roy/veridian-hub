@@ -27,7 +27,8 @@ vi.mock('@/lib/prisma', () => ({
           prospectionPlan: 'freemium',
           prospectionProvisionedAt: new Date(),
           notifuseWorkspaceSlug: 'test-ws',
-          metadata: {},
+          notifusePlan: 'business',
+          metadata: { notifuse_plan: 'free' },
           trialEndsAt: new Date(),
           createdAt: new Date(),
         },
@@ -54,6 +55,14 @@ describe('GET /api/admin/list-tenants', () => {
     expect(body.tenants[0].services).toHaveProperty('notifuse');
     expect(body.tenants[0].services).toHaveProperty('prospection');
     expect(body.tenants[0].services).not.toHaveProperty('twenty');
+  });
+
+  it('exposes typed notifuse_plan from notifusePlan column (not metadata)', async () => {
+    const { GET } = await import('@/app/api/admin/list-tenants/route');
+    const res = await GET({} as any);
+    const body = await res.json();
+    // La colonne typée a priorité sur metadata.notifuse_plan (rétrocompat)
+    expect(body.tenants[0].services.notifuse.plan).toBe('business');
   });
 
   it('refuses non-admin via requireAdmin denial', async () => {

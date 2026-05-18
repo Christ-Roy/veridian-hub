@@ -21,7 +21,8 @@ WHERE metadata ? 'notifuse_plan'
   AND metadata->>'notifuse_plan' IS NOT NULL
   AND ("notifuse_plan" IS NULL OR "notifuse_plan" = 'free');
 
--- @safe: CREATE INDEX sans CONCURRENTLY — table `tenants` < 50 rows en prod,
--- lock exclusive < 10ms. Pas de downtime perceptible.
+-- Justification de l'@safe : table `tenants` < 50 rows en prod, lock
+-- exclusive < 10ms, pas de downtime perceptible.
+-- @safe: CREATE INDEX sans CONCURRENTLY — table petite, lock négligeable
 CREATE INDEX IF NOT EXISTS "tenants_notifuse_plan_idx"
   ON "hub_app"."tenants" ("notifuse_plan");
