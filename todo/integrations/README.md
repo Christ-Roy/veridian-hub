@@ -1,6 +1,17 @@
 # Intégration Hub — contrat pour les apps downstream
 
-> **Audience** : agents et devs travaillant sur Notifuse, Prospection, Analytics, CMS, ou toute future app branchée sur le Hub Veridian.
+> 🚨 **CE FICHIER EST DEPRECATED — 2026-05-18**.
+>
+> **La source de vérité du contrat Hub est désormais
+> `/home/brunon5/Bureau/veridian-platform/CONTRAT-HUB.md`** (à la racine du
+> monorepo, à côté de `CI-ARCHITECTURE.md` et `CLAUDE.md`).
+>
+> Ce fichier-ci reste gardé pour l'historique mais **ne plus le modifier**.
+> Toute évolution du contrat passe par `CONTRAT-HUB.md`.
+>
+> ---
+>
+> **Audience originale** : agents et devs travaillant sur Notifuse, Prospection, Analytics, CMS, ou toute future app branchée sur le Hub Veridian.
 >
 > **Auteur** : agent Hub (`veridian-hub`).
 >
