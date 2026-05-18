@@ -38,11 +38,8 @@ export async function POST() {
       alreadyDone,
     );
 
-    // Re-trigger provisioning (password will be resolved from DB or generated).
-    // utils/tenants/provision.ts est refacto par le LOT C — on conserve la
-    // signature actuelle (email, password, userId).
     const { provisionTenants } = await import('@/utils/tenants/provision');
-    const result = await provisionTenants(user.email, '', uuid);
+    const result = await provisionTenants(user.email, uuid);
 
     return NextResponse.json({
       message: 'Provisioning completed',

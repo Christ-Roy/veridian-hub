@@ -2,16 +2,16 @@
 //
 // Auth.js v5 ne fournit pas de signup natif pour CredentialsProvider, donc on
 // gère la création nous-mêmes :
-// 1. Hash bcrypt du password
+// 1. Hash bcrypt du password (stocké UNIQUEMENT côté Hub — les apps downstream
+//    sont magic-link only, jamais de password partagé)
 // 2. Création User + Account (provider='credentials', access_token=hash)
 // 3. supabaseUserId = randomUUID() pour cohérence avec les users migrés
 //    (ces ID servent de pont vers tenants.user_id et subscriptions.user_id qui
 //    sont en UUID).
-// 4. Provisioning tenants (async, non bloquant — préserve la logique métier
-//    Supabase pré-migration).
 //
-// Le client (SignupForm) appellera ensuite signIn('credentials', ...) pour
-// créer la session JWT Auth.js.
+// Plus de provisioning automatique des tenants ici : le user atterrit sur
+// /dashboard et clique "Commencer l'essai" par app (POST /api/tenants/start).
+// Ça permet de tester une seule app sans engager les autres.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { randomUUID } from 'crypto';
@@ -19,7 +19,6 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 
 import { prisma } from '@/lib/prisma';
-import { provisionTenants } from '@/utils/tenants/provision';
 
 const signupSchema = z.object({
   email: z.string().email(),
@@ -80,12 +79,6 @@ export async function POST(request: NextRequest) {
         },
       },
       select: { id: true, email: true },
-    });
-
-    // Provisioning Notifuse + Prospection en background.
-    // Pas de await — on ne veut pas bloquer la réponse.
-    provisionTenants(user.email, password, user.id).catch((err) => {
-      console.error('[Signup] Tenant provisioning failed:', err);
     });
 
     return NextResponse.json({ id: user.id, email: user.email }, { status: 201 });

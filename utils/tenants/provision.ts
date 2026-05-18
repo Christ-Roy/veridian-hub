@@ -283,36 +283,56 @@ export async function provisionProspectionTenant(
 
 export async function provisionTenants(
   email: string,
-  _password: string,
-  userId: string
+  userId: string,
+  options: { app?: 'notifuse' | 'prospection' | 'all' } = {},
 ): Promise<{
   success: boolean;
   notifuse?: any;
   prospection?: any;
   errors?: string[];
 }> {
+  const app = options.app ?? 'all';
   const startTime = Date.now();
   logProvisionStart(email, userId);
 
   const errors: string[] = [];
 
-  const [notifuseResult, prospectionResult] = await Promise.allSettled([
-    provisionNotifuseTenant(email, userId),
-    provisionProspectionTenant(email, userId),
-  ]);
+  const tasks: Array<Promise<any>> = [];
+  const wantsNotifuse = app === 'notifuse' || app === 'all';
+  const wantsProspection = app === 'prospection' || app === 'all';
+
+  tasks.push(
+    wantsNotifuse
+      ? provisionNotifuseTenant(email, userId)
+      : Promise.resolve(null),
+  );
+  tasks.push(
+    wantsProspection
+      ? provisionProspectionTenant(email, userId)
+      : Promise.resolve(null),
+  );
+
+  const [notifuseResult, prospectionResult] = await Promise.allSettled(tasks);
 
   const notifuse = notifuseResult.status === 'fulfilled' ? notifuseResult.value : null;
   const prospection = prospectionResult.status === 'fulfilled' ? prospectionResult.value : null;
 
-  if (notifuseResult.status === 'rejected') errors.push(`Notifuse: ${notifuseResult.reason}`);
-  else if (!notifuse?.success) errors.push(`Notifuse: ${notifuse?.error}`);
-
-  if (prospectionResult.status === 'rejected') errors.push(`Prospection: ${prospectionResult.reason}`);
-  else if (!prospection?.success && prospection?.error !== 'Not configured') {
-    errors.push(`Prospection: ${prospection?.error}`);
+  if (wantsNotifuse) {
+    if (notifuseResult.status === 'rejected') errors.push(`Notifuse: ${notifuseResult.reason}`);
+    else if (!notifuse?.success) errors.push(`Notifuse: ${notifuse?.error}`);
   }
 
-  const success = !!(notifuse?.success || prospection?.success);
+  if (wantsProspection) {
+    if (prospectionResult.status === 'rejected') errors.push(`Prospection: ${prospectionResult.reason}`);
+    else if (!prospection?.success && prospection?.error !== 'Not configured') {
+      errors.push(`Prospection: ${prospection?.error}`);
+    }
+  }
+
+  const success = !!(
+    (wantsNotifuse && notifuse?.success) ||
+    (wantsProspection && prospection?.success)
+  );
   const duration = Date.now() - startTime;
 
   logProvisionEnd(success, duration, errors.length > 0 ? errors : undefined);

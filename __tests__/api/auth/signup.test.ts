@@ -1,20 +1,16 @@
 /**
- * Test smoke pour POST /api/auth/signup après removal Twenty (2026-05-18).
+ * Test smoke pour POST /api/auth/signup après bascule provisioning on-demand
+ * (2026-05-18).
  *
  * Vérifie que :
  *   1. Refuse JSON invalide (400).
  *   2. Refuse email/password manquants (400).
  *   3. Refuse doublon email (409).
- *   4. Crée user + déclenche provisioning (sans Twenty).
+ *   4. Crée user et NE déclenche PAS de provisioning automatique
+ *      (le user choisira ses apps depuis le dashboard via /api/tenants/start).
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-
-const provisionTenantsMock = vi.fn(async () => ({ success: true }));
-
-vi.mock('@/utils/tenants/provision', () => ({
-  provisionTenants: (...args: any[]) => provisionTenantsMock(...args),
-}));
 
 const userStore: Map<string, any> = new Map();
 
@@ -63,11 +59,12 @@ describe('POST /api/auth/signup', () => {
     expect(res.status).toBe(409);
   });
 
-  it('creates user + triggers provisionTenants without twenty', async () => {
+  it('creates user without auto-provisioning tenants (on-demand flow)', async () => {
     const { POST } = await import('@/app/api/auth/signup/route');
     const res = await POST(makeReq({ email: 'new@test.io', password: 'longenough' }));
     expect(res.status).toBe(201);
-    // provisionTenants est non-bloquant — vérification minimale
-    expect(provisionTenantsMock).toHaveBeenCalled();
+    const body = await res.json();
+    expect(body.email).toBe('new@test.io');
+    expect(body.id).toBeTruthy();
   });
 });
