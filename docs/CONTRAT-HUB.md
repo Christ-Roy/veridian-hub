@@ -12,8 +12,12 @@
 >   audit log, soft delete). Ce contrat-ci **n'y duplique rien**, il pointe.
 > - `CI-ARCHITECTURE.md` — pipeline CI/CD cross-app. Idem, pas de duplication.
 >
-> **Versionnage** : `v1` (2026-05-18). Toute évolution majeure → bump version + section
+> **Versionnage** : `v1.1` (2026-05-18). Toute évolution majeure → bump version + section
 > "Changements" en bas.
+>
+> 🔥 **Règle absolue (gravée en v1.1)** : tout ce qui est décrit dans ce contrat
+> fait l'objet d'un **contrôle accru en CI ET d'un smoke manuel via navigateur
+> avant prod**. Cf §11.5 (Contrôle qualité obligatoire).
 
 ---
 
@@ -24,15 +28,28 @@
 3. [Plans Veridian — matrice cross-app](#3-plans-veridian--matrice-cross-app)
 4. [Flow signup utilisateur](#4-flow-signup-utilisateur)
 5. [Endpoints obligatoires côté apps downstream](#5-endpoints-obligatoires-côté-apps-downstream)
+   - 5.1–5.6 Endpoints standards
+   - 5.7 [Cycle de vie tenant](#57-cycle-de-vie-tenant-machine-à-états)
+   - 5.8 [Endpoints lifecycle (soft-delete / restore / purge / touch / usage-summary)](#58-endpoints-lifecycle)
+   - 5.9 [Mode dégradé paywall obfusqué cross-app](#59-mode-dégradé-paywall-obfusqué)
+   - 5.10 [Format d'erreurs standardisé](#510-format-derreurs-standardisé)
+   - 5.11 [Idempotency-Key header](#511-idempotency-key-header)
 6. [Authentification — 3 patterns](#6-authentification--3-patterns)
+   - 6.5 [Convention env vars staging / prod](#65-convention-env-vars-stagingprod)
+   - 6.6 [Mode dev local (SKIP_HMAC)](#66-mode-dev-local-skip_hmac)
 7. [Webhooks app → Hub](#7-webhooks-app--hub)
-8. [Pilotage des plans depuis le Hub](#8-pilotage-des-plans-depuis-le-hub)
+8. [Pilotage des plans + lifecycle depuis le Hub](#8-pilotage-des-plans-depuis-le-hub)
+   - 8.5 [Admin lifecycle panel](#85-admin-lifecycle-panel)
+   - 8.6 [Restriction réseau admin (Tailscale)](#86-restriction-réseau-admin-tailscale)
+   - 8.7 [Config lifecycle ENV Hub](#87-config-lifecycle-env-hub)
 9. [Inventaire features payantes par app](#9-inventaire-features-payantes-par-app)
 10. [Matrice de conformité](#10-matrice-de-conformité)
 11. [Onboarding d'une nouvelle app](#11-onboarding-dune-nouvelle-app)
+    - 11.5 [Contrôle qualité obligatoire (CI + smoke manuel navigateur)](#115-contrôle-qualité-obligatoire-règle-absolue)
 12. [Tests d'intégration exigés](#12-tests-dintégration-exigés)
-13. [Versionnement et évolution](#13-versionnement-et-évolution)
-14. [Changements](#14-changements)
+13. [Observabilité et logs standards](#13-observabilité-et-logs-standards)
+14. [Versionnement et évolution](#14-versionnement-et-évolution)
+15. [Changements](#15-changements)
 
 ---
 
@@ -405,6 +422,469 @@ le résultat (table `hub_app.tenant_health_check` à créer côté Hub, roadmap 
 L'`api_key` **doit être scoped à un seul workspace** côté app. Si l'app détecte
 qu'une api_key est partagée entre workspaces → 409 systématique.
 
+### 5.7 Cycle de vie tenant (machine à états)
+
+> 🔥 Gravé en v1.1 (2026-05-18). Source de vérité absolue du flow lifecycle.
+
+```
+                       [tenants.status × tenants.deleted_at × tenants.purge_eligible_at]
+
+         (no row)
+            │
+            │ POST /api/tenants/start  (user click "Commencer essai")
+            ▼
+        ┌──────────┐
+        │  active  │◀────────────────────────┐
+        └────┬─────┘                         │
+             │                               │ resume
+             │ suspend (Stripe past_due,     │
+             │          admin action,        │
+             │          quota exceeded)      │
+             ▼                               │
+        ┌──────────────┐                     │
+        │  suspended   │─────────────────────┘
+        └────┬─────────┘
+             │
+             │ soft_delete (admin OU Stripe canceled OU trial expired confirmé)
+             ▼
+        ┌─────────────────────────────────────────────┐
+        │  soft_deleted                               │
+        │                                             │
+        │  - tenants.deleted_at = NOW()               │
+        │  - tenants.purge_eligible_at =              │
+        │      NOW() + SOFT_DELETE_GRACE_DAYS         │
+        │  - data INTACTE côté app                    │
+        │  - accès user = paywall obfusqué (§5.9)     │
+        │  - écritures bloquées                       │
+        └────┬────────────────────────────────────────┘
+             │
+             │ ┌─────────────────────────────────────┐
+             │ │ TOUCH (webhook tenant.touched)      │
+             │ │ User détecté actif → repousse :     │
+             │ │ purge_eligible_at =                 │
+             │ │   NOW() + TOUCH_RESET_DAYS          │
+             │ └─────────────────────────────────────┘
+             │
+             │ restore (admin click "Restore" — annule soft_delete)
+             ▼
+        ┌──────────────┐
+        │  suspended   │  (l'admin doit ensuite resume manuellement)
+        └──────────────┘
+
+             OU si purge_eligible_at < NOW() ET aucun touch :
+             ▼
+        ┌──────────────────┐
+        │  purge_eligible  │  visible dans /dashboard/admin/lifecycle
+        │                  │  countdown vert/orange/rouge
+        │                  │  ATTEND une action HUMAINE
+        └────┬─────────────┘
+             │
+             │ purge (admin click "Purger maintenant" + confirm slug)
+             │ JAMAIS via cron, JAMAIS auto.
+             ▼
+        ┌──────────┐
+        │  purged  │  ligne DB conservée (audit), data effacée côté apps
+        └──────────┘     status='purged', tous champs data-related = NULL
+```
+
+**Règles dures gravées** :
+
+1. **Aucune transition automatique vers `purged`.** Seul un humain (Robert, ou
+   un agent sur ordre explicite de Robert) déclenche `purge`. Aucun cron.
+2. **`soft_delete` est immédiat et réversible** pendant toute la fenêtre
+   `purge_eligible_at - now`.
+3. **`restore` ramène vers `suspended`**, jamais directement vers `active`. C'est
+   à l'admin de juger s'il faut `resume`.
+4. **Le mécanisme `touch`** (§5.8.4) repousse `purge_eligible_at` à chaque
+   signe de vie qualifié (cf §5.8.4 pour la définition exacte de "qualifié").
+   Un tenant qui montre des signes de vie n'est jamais purgeable.
+5. **Pendant `soft_deleted`, l'app reste accessible** mais en mode dégradé
+   paywall obfusqué (§5.9). Le user voit son contenu floutés, peut payer
+   pour réactiver, contacter le support.
+6. **Stripe n'a aucun pouvoir de purge.** Un Stripe `subscription.deleted` peut
+   au maximum déclencher `soft_delete`, jamais `purge`.
+7. **Les plans `lifetime_*` et `internal` sont immune au `soft_delete` automatique
+   par Stripe** (cf §3.3 immunité plan_source).
+
+**Transitions légales** (un agent qui veut implémenter ça doit respecter cette
+table — toute autre transition = 409 Conflict côté Hub et côté apps) :
+
+| Depuis ↓ Vers → | active | suspended | soft_deleted | purge_eligible | purged |
+|---|---|---|---|---|---|
+| `(no row)` | ✅ provision | ❌ | ❌ | ❌ | ❌ |
+| `active` | — | ✅ suspend | ✅ soft_delete | ❌ | ❌ |
+| `suspended` | ✅ resume | — | ✅ soft_delete | ❌ | ❌ |
+| `soft_deleted` | ❌ | ✅ restore | — | ✅ auto (timer) | ❌ |
+| `purge_eligible` | ❌ | ✅ restore | ✅ auto (touch) | — | ✅ purge (humain) |
+| `purged` | ❌ | ❌ | ❌ | ❌ | — |
+
+### 5.8 Endpoints lifecycle
+
+Tous obligatoires en v1.1. Tous sous HMAC Hub (§6.1). Remplacent le `DELETE
+/api/tenants/{id}` ambigu de v1.
+
+#### 5.8.1 `POST /api/tenants/{id}/soft-delete`
+
+**Request** :
+```json
+{
+  "tenant_id": "string",
+  "reason": "admin_action|stripe_canceled|trial_expired|abuse|user_request",
+  "purge_eligible_at": "ISO8601 (calculé par Hub via SOFT_DELETE_GRACE_DAYS)"
+}
+```
+
+**Response 200** :
+```json
+{
+  "tenant_id": "string",
+  "soft_deleted_at": "ISO8601",
+  "purge_eligible_at": "ISO8601 (echo)",
+  "previous_status": "active|suspended"
+}
+```
+
+**Comportement obligatoire côté app** :
+- Marquer `deleted_at = NOW()` sur la ligne tenant/workspace.
+- **NE PAS supprimer** la data (emails, leads, settings, owner, api_key, etc.).
+- **Toutes les routes API en lecture** doivent désormais appliquer le mode
+  dégradé §5.9 (obfuscation serveur des champs sensibles).
+- **Toutes les routes API en écriture** doivent retourner `402 Payment Required`
+  avec le body standard §5.10 (`{ error: "tenant_soft_deleted", upgrade_url: "<hub_pricing_url>" }`).
+- L'`api_key` reste **valide pour le Hub** (`generateMagicLink` continue de
+  fonctionner — c'est ce qui permet à l'user de revenir voir son paywall).
+- Le user qui consomme un magic link reçoit une session JWT normale, mais
+  toutes ses requêtes sont en mode dégradé.
+
+**Idempotent** : si déjà `soft_deleted`, retourne 200 avec les valeurs actuelles
+(no-op).
+
+#### 5.8.2 `POST /api/tenants/{id}/restore`
+
+**Request** :
+```json
+{
+  "tenant_id": "string",
+  "reason": "string (optionnel, audit)"
+}
+```
+
+**Response 200** :
+```json
+{
+  "tenant_id": "string",
+  "restored_at": "ISO8601",
+  "new_status": "suspended"
+}
+```
+
+**Comportement** :
+- Mettre `deleted_at = NULL`, `purge_eligible_at = NULL`.
+- **Passer en `suspended`** (pas `active` — c'est à l'admin de resume manuellement).
+- Lever toutes les obfuscations §5.9.
+- Lever tous les blocages en écriture.
+
+**Idempotent** : si déjà restauré, retourne 200.
+
+**Erreur** : `409 Conflict` avec body `{ error: "tenant_not_soft_deleted" }` si
+le tenant n'est pas en `soft_deleted`.
+
+#### 5.8.3 `POST /api/tenants/{id}/purge`
+
+> ⚠️ **HARD DELETE — IRRÉVERSIBLE.** Cet endpoint ne peut être appelé que par
+> action humaine via l'admin Hub. Le Hub refuse l'appel si le tenant n'est pas
+> en `purge_eligible` (i.e. `purge_eligible_at < NOW()` ET status `soft_deleted`).
+
+**Request** :
+```json
+{
+  "tenant_id": "string",
+  "confirm_slug": "string (doit matcher le slug du tenant, anti-erreur)",
+  "reason": "string (obligatoire, audit GDPR)"
+}
+```
+
+**Response 200** :
+```json
+{
+  "tenant_id": "string",
+  "purged_at": "ISO8601",
+  "rows_deleted": {
+    "emails": 12453,
+    "leads": 320,
+    "user_workspaces": 2,
+    "...": "..."
+  }
+}
+```
+
+**Comportement obligatoire côté app** :
+- **DELETE physique** de toute la data tenant (emails, leads, settings,
+  attachments, audit logs spécifiques au tenant, etc.).
+- L'`api_key` est révoquée.
+- Le workspace lui-même est supprimé.
+- Optionnel mais recommandé : conserver une ligne `tenants` avec
+  `status='purged'`, `purged_at=NOW()`, tous les champs PII NULL, pour audit
+  GDPR (preuve que la suppression a eu lieu).
+
+**Erreur** : `409 Conflict` avec `{ error: "tenant_not_purge_eligible", purge_eligible_at }`
+si le tenant n'est pas éligible.
+
+**Garantie** : un appel `purge` réussi n'a aucun rollback. La data est perdue
+en dehors d'un restore complet du backup DB (qui n'est pas une procédure
+opérationnelle — c'est un dernier recours).
+
+#### 5.8.4 `POST /api/webhooks/<app>/tenant.touched` (app → Hub)
+
+> 🔥 **Mécanisme "revient = repousse"**. Gravé en v1.1.
+
+**Émis par l'app** à chaque détection de **session user authentifiée** sur un
+tenant en `soft_deleted` :
+- Magic link consommé (user qui clique le lien d'auto-login Hub→app)
+- Cookie session JWT app valide qui hit une **route protégée nécessitant
+  authentification** (pas les routes publiques, pas les requêtes anonymes)
+
+**Faux positifs à éviter** :
+- ❌ Ne pas émettre pour les bots / crawlers (User-Agent suspect, pas de cookie
+  session valide).
+- ❌ Ne pas émettre pour les health checks internes Hub.
+- ❌ Ne pas émettre plus d'une fois par tenant et par jour (l'app debounce
+  localement avec un cache 24h).
+- ❌ Ne pas émettre pour une session sans `tenant_id` résolvable.
+
+**Headers** : Bearer Hub webhook token (§6.3).
+
+**Body** :
+```json
+{
+  "event": "tenant.touched",
+  "tenant_id": "string",
+  "occurred_at": "ISO8601",
+  "data": {
+    "user_email": "string (optionnel, audit)",
+    "user_action": "magic_link_consumed|session_route_hit",
+    "route_hit": "string (optionnel, ex /api/leads)"
+  },
+  "idempotency_key": "string (uuid v4)"
+}
+```
+
+**Comportement Hub** :
+- Si tenant trouvé et status = `soft_deleted` :
+  - `purge_eligible_at = NOW() + TOUCH_RESET_DAYS` (cf §8.7)
+  - Status reste `soft_deleted` (pas de restore auto).
+  - Log audit : `lifecycle.touched`, avec contexte.
+- Si tenant trouvé et status ≠ `soft_deleted` : 200 OK no-op (futur-proof,
+  si l'app touche par erreur).
+- Si tenant introuvable : 404.
+
+**Response Hub** :
+```json
+{
+  "tenant_id": "string",
+  "previous_purge_eligible_at": "ISO8601|null",
+  "new_purge_eligible_at": "ISO8601",
+  "status": "soft_deleted (echo)"
+}
+```
+
+#### 5.8.5 `GET /api/tenants/{id}/usage-summary`
+
+> 🔥 Gravé en v1.1. Permet à l'admin Hub de **voir l'usage agrégé d'un tenant**
+> avant de purger, pour décision humaine éclairée.
+
+**Auth** : HMAC Hub (§6.1).
+
+**Response 200** :
+```json
+{
+  "tenant_id": "string",
+  "workspace_id": "string",
+  "data_volume": {
+    "rows_total": 13245,
+    "size_mb_estimate": 42.7
+  },
+  "activity": {
+    "last_user_activity_at": "ISO8601|null",
+    "last_machine_activity_at": "ISO8601|null",
+    "active_users_30d": 1
+  },
+  "domain_specific": {
+    "...": "champs propres à chaque app, ex pour Notifuse: emails_sent_total, emails_last_30d"
+  },
+  "checked_at": "ISO8601"
+}
+```
+
+Chaque app remplit `domain_specific` avec ses metrics pertinentes. Le Hub
+affiche dans l'admin panel pour aider à la décision purge / restore.
+
+### 5.9 Mode dégradé paywall obfusqué
+
+> 🔥 Pattern cross-app obligatoire gravé en v1.1. Inspiré de Prospection
+> (`src/components/ui/blurred-text.tsx` + `src/components/layout/paywall.tsx`).
+
+#### 5.9.1 Quand activer
+
+L'app downstream doit appliquer le mode dégradé dans les **3 cas suivants** :
+
+1. Tenant en `soft_deleted` (cf §5.7 — déclenché par Hub).
+2. Trial expiré (`trial_ends_at < NOW()`) sur plan freemium.
+3. Plan insuffisant pour la feature requise (ex: user free essaie d'exporter en
+   masse — feature pro+).
+
+**Pas concerné** : tenants `lifetime_*` ou `internal` — ils n'ont jamais de
+mode dégradé même si Stripe webhook leur envoie n'importe quoi.
+
+#### 5.9.2 Comportement serveur (DEFENSE EN PROFONDEUR — JAMAIS faire confiance au front)
+
+Sur **chaque route API en lecture** qui retourne des champs sensibles, l'app
+doit **obfusquer côté serveur** avant de répondre au client :
+
+```ts
+// Pattern de référence Prospection (src/app/api/leads/[domain]/route.ts:41-64)
+if (degradedMode) {
+  for (const field of SENSITIVE_FIELDS) {
+    const val = record[field];
+    if (typeof val === "string" && val.length > 0) {
+      const cutoff = Math.max(1, Math.floor(val.length * 0.33));
+      record[field] = val.slice(0, cutoff) + "•".repeat(val.length - cutoff);
+    }
+  }
+}
+```
+
+**Convention** : les 33 % premiers caractères en clair, le reste remplacé par
+bullets Unicode (`•`) — garde la longueur visuelle.
+
+Sur **chaque route API en écriture**, l'app retourne `402 Payment Required` :
+
+```json
+{
+  "error": "tenant_paywall",
+  "reason": "soft_deleted|trial_expired|plan_insufficient",
+  "upgrade_url": "https://app.veridian.site/pricing?plan=...&redirect=...",
+  "support_url": "https://app.veridian.site/contact"
+}
+```
+
+#### 5.9.3 Comportement UI (cosmétique en plus de la sécurité serveur)
+
+Composant `<BlurredText>` qui pose `blur-[4px]` sur les caractères au-delà du
+ratio visible. **C'est cosmétique uniquement** — la data réelle ne doit JAMAIS
+arriver côté client en clair quand le mode dégradé est actif.
+
+Composant `<Paywall>` (modale) qui s'affiche sur :
+- Premier load de l'app (auto).
+- Click sur une action premium (export, détail, écriture).
+- Click sur un CTA "Débloquer".
+
+**Spec de la modale** (alignement visuel cross-app) :
+- Backdrop noir 60 % + blur backdrop.
+- Card centrée max-width 3xl (768px).
+- Header : badge rouge "X jours restants" ou "Compte désactivé".
+- Body : 3 plans côte à côte (extend trial / pro / enterprise — ou équivalent
+  par app).
+- Footer : "Paiement sécurisé par Stripe. Annulation à tout moment."
+- Bouton CTA → redirige vers Hub `/pricing?plan=<id>&redirect=<app_url>`.
+- Bouton "Contacter le support" → `mailto:` ou Hub `/contact`.
+
+#### 5.9.4 Liste des champs sensibles par app
+
+> 🚧 À remplir par chaque agent app dans son `<app>/docs/features-by-plan.md`.
+
+Format standard :
+
+```markdown
+# Champs sensibles (obfuscation paywall)
+
+## Routes serveur impactées
+- GET /api/<resource>/...
+- POST /api/<resource>/... (écriture → 402 paywall)
+
+## Fields à obfusquer (constant SENSITIVE_FIELDS dans le code)
+- `phone`
+- `email`
+- `dirigeant`
+- ...
+
+## Format obfuscation
+- 33% premiers caractères en clair + bullets • pour le reste
+```
+
+### 5.10 Format d'erreurs standardisé
+
+> 🔥 Gravé en v1.1. Toute réponse d'erreur HTTP côté app **doit** respecter ce
+> format. Sinon le Hub log un warning observable (§13) et peut bloquer le merge
+> en CI.
+
+```json
+{
+  "error": "string (code machine-readable, snake_case)",
+  "message": "string (description humaine FR, pour log/debug)",
+  "details": {
+    "...": "champs spécifiques au code d'erreur"
+  }
+}
+```
+
+**Codes standard cross-app** :
+
+| Code HTTP | `error` | Quand |
+|---|---|---|
+| 400 | `invalid_payload` | Body JSON invalide ou champ manquant |
+| 400 | `invalid_plan` | Plan inconnu (avec `details.allowed_plans`) |
+| 401 | `unauthorized` | HMAC invalide ou timestamp drift > 5min |
+| 401 | `api_key_revoked` | Bearer api_key révoquée |
+| 402 | `tenant_paywall` | Mode dégradé actif (cf §5.9) |
+| 403 | `forbidden` | Auth OK mais pas les droits |
+| 404 | `tenant_not_found` | tenant_id inexistant côté app |
+| 404 | `user_not_member` | user_email pas membre du workspace |
+| 409 | `tenant_conflict_owner` | provision avec owner différent |
+| 409 | `api_key_multi_workspace` | api_key partagée entre workspaces |
+| 409 | `idempotency_key_replay` | webhook déjà traité (idempotence) |
+| 409 | `transition_illegal` | transition lifecycle non autorisée (§5.7) |
+| 409 | `plan_source_immutable` | tentative downgrade plan_source=lifetime_* |
+| 409 | `tenant_not_purge_eligible` | purge appelé trop tôt |
+| 422 | `validation_failed` | données sémantiquement invalides (email malformé...) |
+| 429 | `rate_limited` | trop de requêtes (avec `details.retry_after_ms`) |
+| 500 | `internal_error` | bug app (avec `details.request_id` pour debug) |
+| 502 | `upstream_error` | dépendance externe (DB, Stripe) en panne |
+| 503 | `service_unavailable` | maintenance planifiée |
+
+### 5.11 Idempotency-Key header
+
+> 🔥 Gravé en v1.1. Protection contre les replays côté `provision`, `update-plan`,
+> `soft-delete`, `restore`, `purge`.
+
+**Header** :
+```
+Idempotency-Key: <uuid v4>
+```
+
+**Comportement côté app** :
+- Cache la réponse pendant 24h.
+- Si même clé reçue dans la fenêtre : retourne la réponse cachée (200 ou erreur,
+  identique au premier appel).
+- TTL 24h, après quoi la clé peut être réutilisée pour une nouvelle opération.
+
+**Stockage côté app** :
+```sql
+CREATE TABLE veridian_idempotency_keys (
+  key TEXT PRIMARY KEY,
+  response_status INT NOT NULL,
+  response_body JSONB NOT NULL,
+  expires_at TIMESTAMP NOT NULL
+);
+CREATE INDEX ON veridian_idempotency_keys(expires_at);  -- pour cleanup cron
+```
+
+**Cleanup** : un cron supprime les entrées `expires_at < NOW()` toutes les heures.
+
+**Comportement Hub** : génère systématiquement un UUID v4 et le passe dans le
+header pour chaque appel sortant qui mute un tenant. Côté Hub, log la
+correspondance `idempotency_key → tenant_id + action` pour debug.
+
 ---
 
 ## 6. Authentification — 3 patterns
@@ -469,6 +949,69 @@ Stocké :
 - **Pas de password user partagé**. Le Hub bcrypt côté lui, les apps font magic
   link only. Cf §1.
 
+### 6.5 Convention env vars staging/prod
+
+> 🔥 Gravé en v1.1 suite au bug staging Hub↔Notifuse découvert le 2026-05-18
+> (`NOTIFUSE_HUB_API_SECRET` factice côté Hub vs vrai secret côté Notifuse).
+
+**Côté Hub** :
+
+| Env var | Prod | Staging |
+|---|---|---|
+| HMAC secret app | `<APP>_HUB_API_SECRET` | `<APP>_HUB_API_SECRET_STAGING` |
+| Webhook token app | `<APP>_WEBHOOK_TOKEN` | `<APP>_WEBHOOK_TOKEN_STAGING` |
+| Hub webhook token (envoi vers app) | `HUB_WEBHOOK_TOKEN_<APP>` | `HUB_WEBHOOK_TOKEN_<APP>_STAGING` |
+| App URL | `<APP>_API_URL` | `<APP>_API_URL_STAGING` (ou via `${NOTIFUSE_API_URL:-default}` dans compose) |
+| Admin secret Hub | `ADMIN_SECRET` | `ADMIN_SECRET` (idem var, valeur staging-only différente) |
+
+Le compose Hub référence ces vars via `${VAR_STAGING:-default}` selon
+l'environnement. Cf `compose/base.yml` + `compose/staging.yml` + `compose/prod.yml`.
+
+**Côté app downstream** :
+
+| Env var | Convention |
+|---|---|
+| HMAC secret (vient du Hub) | `HUB_API_SECRET` (identique prod/staging — c'est le `.env` qui change) |
+| Hub webhook token (envoi vers Hub) | `HUB_WEBHOOK_TOKEN` |
+| Hub URL | `HUB_API_URL` (ex `https://app.veridian.site` ou `https://hub.staging.veridian.site`) |
+
+**Garde-fou obligatoire** : au boot, chaque app doit logger (sans le secret en
+clair) les 8 premiers caractères du `HUB_API_SECRET` + l'environnement détecté
+(`NODE_ENV` ou équivalent). Permet de débugger les désynchronisations en lisant
+les logs côté Hub + côté app et comparant les empreintes.
+
+**Rotation** : tous les 6 mois, coordonnée par l'agent Hub. Procédure de
+bascule :
+1. Génère un nouveau secret.
+2. Stocke côté app dans `HUB_API_SECRET_NEXT` (pas `HUB_API_SECRET` encore).
+3. App accepte les 2 secrets pendant 24h (compare avec les 2 en parallèle).
+4. Hub passe au nouveau secret.
+5. Après 24h, app supprime `HUB_API_SECRET_NEXT`, renomme `HUB_API_SECRET`.
+
+### 6.6 Mode dev local (SKIP_HMAC)
+
+> 🔥 Gravé en v1.1. Permet aux agents de coder en local sans monter un
+> faux Hub HMAC.
+
+Chaque app downstream **doit** supporter une env var `SKIP_HMAC=true` qui :
+
+1. **N'est JAMAIS lue en production ou staging.** Une garde au boot vérifie :
+   ```
+   if SKIP_HMAC=true && NODE_ENV != "test" && NODE_ENV != "development":
+     panic("SKIP_HMAC interdit en " + NODE_ENV)
+   ```
+2. Quand active : accepte n'importe quel header HMAC (ou aucun) et log un
+   warning explicite à chaque request `WARN: HMAC bypass via SKIP_HMAC, NEVER in prod`.
+3. Documenté dans le README de l'app (`Local development` section).
+
+**Justification** : permet à un agent qui code en local de tester ses endpoints
+contrat sans monter un mini-Hub. Le dev local doit rester rapide.
+
+**Le contrat exige aussi** : tests unitaires en CI tournent **avec** HMAC vérifié
+(SKIP_HMAC=false). Les tests E2E en CI peuvent utiliser SKIP_HMAC ou un Hub
+mock — au choix de l'app, du moment que le test couvre le scénario contrat
+(§12).
+
 ---
 
 ## 7. Webhooks app → Hub
@@ -483,7 +1026,9 @@ Endpoint Hub : `POST https://app.veridian.site/api/webhooks/<app_name>`
 |---|---|---|
 | `tenant.suspended` | App suspend localement (quota, admin) | `{suspended_at, reason}` |
 | `tenant.resumed` | App resume localement | `{resumed_at}` |
-| `tenant.deleted` | App hard-delete localement | `{deleted_at}` |
+| `tenant.soft_deleted` | App passe en soft_deleted localement (devrait jamais arriver — Hub initiateur, mais sécurité) | `{soft_deleted_at, reason}` |
+| `tenant.touched` | User authentifié actif sur un tenant soft_deleted (cf §5.8.4) | `{user_email, user_action, route_hit}` |
+| `tenant.purged` | App a purgé sa data localement après ordre Hub | `{purged_at, rows_deleted}` |
 | `tenant.owner_changed` | App change l'owner (admin action) | `{old_owner_email, new_owner_email}` |
 | `tenant.quota_exceeded` | Soft alert (pas blocking) | `{quota_type, current, limit}` |
 
@@ -509,7 +1054,7 @@ Endpoint Hub : `POST https://app.veridian.site/api/webhooks/<app_name>`
 
 ---
 
-## 8. Pilotage des plans depuis le Hub
+## 8. Pilotage des plans + lifecycle depuis le Hub
 
 ### 8.1 Endpoints admin Hub (livrés 2026-05-18)
 
@@ -556,6 +1101,157 @@ Endpoint Hub : `POST https://app.veridian.site/api/webhooks/<app_name>`
   externe (pour scripts d'automatisation hors session admin web — à concevoir)
 - ⚪ Webhook Stripe → mapping automatique `stripe_price_id` → `plan` côté Hub
   (aujourd'hui partiel dans `utils/stripe/prisma-sync.ts`)
+
+### 8.5 Admin lifecycle panel
+
+> 🔥 Gravé en v1.1. Page `/dashboard/admin/lifecycle` côté Hub. Restriction
+> réseau §8.6.
+
+#### 8.5.1 Vue agrégée
+
+Tableau filtrable par status :
+- `active` (default hidden)
+- `suspended` (combien, depuis quand)
+- `soft_deleted` (countdown affiché — vert si > 30j restants, orange 7-30j, rouge < 7j)
+- `purge_eligible` (badge rouge "À PURGER OU RESTORE")
+- `purged` (archive, lecture seule)
+
+Colonnes par ligne :
+- Email user owner
+- Status + badge couleur
+- Plan actuel (par app)
+- `soft_deleted_at` si applicable
+- `purge_eligible_at` countdown
+- `last_touched_at` (le plus récent `tenant.touched` reçu, ou `last_user_activity_at` de l'usage-summary)
+- Volume data agrégé (somme cross-app via `usage-summary`)
+- Actions disponibles : `Suspend` / `Resume` / `Soft delete` / `Restore` / `Purge` / `View detail`
+
+#### 8.5.2 Vue détail tenant
+
+Page `/dashboard/admin/lifecycle/<tenant_id>` :
+- Tous les champs du tenant Hub.
+- Historique plan (cf §5.2 audit history).
+- Historique lifecycle (transitions, qui les a déclenchées, quand).
+- Section "Usage par app" : fan-out vers chaque `<app>/api/tenants/<id>/usage-summary`,
+  affiche les metrics domain-specific.
+- Section "Webhooks reçus" : 10 derniers événements `tenant.*` de cet tenant.
+- Boutons d'action avec confirmation explicite (cf §8.5.3).
+
+#### 8.5.3 Bouton "Purge maintenant"
+
+> ⚠️ Critique. Action irréversible.
+
+**UX obligatoire** :
+1. Click "Purger maintenant" → modale s'ouvre.
+2. Modale affiche :
+   - Le slug du tenant en gros.
+   - Un résumé du `usage-summary` (data volume, dernière activité).
+   - Un input "Pour confirmer, tape le slug exact ci-dessous".
+3. Bouton "Confirmer la purge" reste **disabled** tant que l'input ne matche pas
+   exactement le slug.
+4. Au click confirmer → POST `/api/admin/tenants/<id>/purge` avec le slug.
+5. Loader pendant la propagation cross-app (chaque app fan-out → toutes les
+   réponses agrégées).
+6. Affiche le résumé `rows_deleted` par app.
+7. Redirige vers la liste avec le tenant disparu (status `purged`).
+
+#### 8.5.4 Action "Soft delete"
+
+Plus simple, mais quand même confirmation modale :
+- "Cela passera le tenant en mode dégradé paywall pour 90 jours."
+- "Le tenant pourra encore voir son contenu floutés et payer pour réactiver."
+- Bouton "Confirmer soft delete".
+
+#### 8.5.5 Action "Restore"
+
+Confirmation light (1 clic suffit) :
+- "Annule le soft delete, le tenant repasse en `suspended`. À toi de cliquer
+  `Resume` ensuite si tu veux le réactiver complètement."
+
+#### 8.5.6 Bouton bulk "Tenants inactifs"
+
+Filtre : `last_touched_at < NOW() - 90j AND status = 'active' AND plan IN ('free', 'freemium')`.
+Affiche les candidats au soft delete proactif. Action de masse possible (mais
+chaque ligne confirme individuellement — pas de "soft-delete all" en 1 clic).
+
+### 8.6 Restriction réseau admin (Tailscale)
+
+> 🔥 Gravé en v1.1.
+
+#### 8.6.1 Objectif
+
+`/dashboard/admin/*` + `/api/admin/*` accessibles **uniquement via le réseau
+Tailscale Veridian**. Double protection avec `requireAdmin()` Auth.js.
+
+#### 8.6.2 Implémentation v1.1 (rapide)
+
+Middleware Next.js dans `middleware.ts` :
+
+```ts
+const TAILSCALE_CGNAT = "100.64.0.0/10";  // Tailscale official range
+const LOCAL_TRUSTED = ["127.0.0.1", "::1"];  // pour ADMIN_SECRET via curl interne
+
+function isAdminPath(pathname: string) {
+  return pathname.startsWith("/dashboard/admin") ||
+         pathname.startsWith("/api/admin");
+}
+
+function clientIp(req: NextRequest): string {
+  // Lire X-Forwarded-For (Traefik en amont), prendre la première IP réelle.
+  const xff = req.headers.get("x-forwarded-for") || "";
+  return xff.split(",")[0].trim() || req.ip || "";
+}
+
+function isAllowedIp(ip: string): boolean {
+  if (LOCAL_TRUSTED.includes(ip)) return true;
+  if (ipInCidr(ip, TAILSCALE_CGNAT)) return true;
+  return false;
+}
+
+// Dans le middleware :
+if (isAdminPath(pathname) && !isAllowedIp(clientIp(req))) {
+  // 404 (pas 403 — on ne révèle pas que la route existe)
+  return new NextResponse(null, { status: 404 });
+}
+```
+
+**Bypass autorisé** : la var `ALLOW_ADMIN_PUBLIC=true` en NODE_ENV=test ou
+NODE_ENV=development (pour les tests CI). Une garde au boot refuse cette var
+en production.
+
+#### 8.6.3 Implémentation v2 (sous-domaine dédié — futur)
+
+Plus tard : exposer admin sur `admin.hub.veridian.site` avec un bind Traefik
+spécifique à l'IP Tailscale. Plus de middleware, séparation réseau pure.
+
+#### 8.6.4 Tests obligatoires
+
+- Test CI : `curl http://hub-staging/api/admin/list-tenants` depuis une IP non-Tailscale → 404.
+- Test CI : `curl http://hub-staging/api/admin/list-tenants` depuis localhost interne avec ADMIN_SECRET → 200.
+- Smoke manuel : depuis ton Mac sur Tailscale → accède à `/dashboard/admin`,
+  vérifie auth + accès. Depuis 4G mobile → vérifie 404.
+
+### 8.7 Config lifecycle ENV Hub
+
+> 🔥 Gravé en v1.1. Variables globales pour v1.1, path d'évolution vers
+> per-plan/per-tenant.
+
+Côté Hub `.env` :
+
+| Variable | Default | Rôle |
+|---|---|---|
+| `SOFT_DELETE_GRACE_DAYS` | `90` | Délai initial entre `soft_delete` et `purge_eligible` |
+| `TOUCH_RESET_DAYS` | `90` | Délai ajouté à `purge_eligible_at` à chaque `tenant.touched` qualifié |
+| `TOUCH_DEBOUNCE_HOURS` | `24` | Min entre 2 touches comptabilisées pour un même tenant |
+| `HARD_DELETE_MIN_GRACE_DAYS` | `30` | Refuse une purge si `soft_deleted_at > NOW() - 30j` (sécurité même pour Robert) |
+| `LIFECYCLE_AUDIT_RETENTION_DAYS` | `365` | Durée de conservation des logs lifecycle pour audit GDPR |
+
+**Évolution v2 (roadmap)** :
+- Map `PLAN_LIFECYCLE_OVERRIDES` qui permet d'avoir des durées différentes
+  par plan (`lifetime_*` → 365j de grâce).
+- Endpoint `POST /api/admin/tenants/<id>/lifecycle { graceDays, touchResetDays }`
+  pour override par tenant.
+- Path d'évolution lié à l'analyse "coût compute par tenant".
 
 ---
 
@@ -626,7 +1322,11 @@ Chaque app doit déclarer dans `<app>/docs/features-by-plan.md` :
 | 5. `POST resume` | ⚠️ Partiel | ❌ | ❌ | ❌ |
 | 6. `GET health` | ✅ | ❌ | ❌ | ❌ |
 | 7. `POST generateMagicLink` | ✅ | ⚠️ Custom (`regenerate-login`) | ❌ | ❌ |
-| 8. `DELETE tenant` | ⚠️ Partiel | ❌ | ❌ | ❌ |
+| 8. `POST soft-delete` (v1.1) | ❌ | ❌ | ❌ | ❌ |
+| 9. `POST restore` (v1.1) | ❌ | ❌ | ❌ | ❌ |
+| 10. `POST purge` (v1.1) | ❌ | ❌ | ❌ | ❌ |
+| 11. `GET usage-summary` (v1.1) | ❌ | ❌ | ❌ | ❌ |
+| 12. `tenant.touched` webhook (v1.1) | ❌ | ❌ | ❌ | ❌ |
 
 ### 10.2 Plans supportés
 
@@ -669,6 +1369,42 @@ Chaque app doit déclarer dans `<app>/docs/features-by-plan.md` :
 | Scénario attach-owner | ✅ | ❌ | — | — |
 | Scénario suspend/resume cycle | ⚠️ Partiel | ❌ | — | — |
 | Scénario health avant/après attach | ✅ | ❌ | — | — |
+| Scénario soft-delete + paywall obfuscation (v1.1) | ❌ | ❌ | ❌ | ❌ |
+| Scénario touch → repousse purge_eligible (v1.1) | ❌ | ❌ | ❌ | ❌ |
+| Scénario purge avec garde-fous (v1.1) | ❌ | ❌ | ❌ | ❌ |
+| Scénario plan_source immunité Stripe (v1.1) | ❌ | ❌ | ❌ | ❌ |
+| Format erreurs standardisé §5.10 (v1.1) | ❌ | ❌ | ❌ | ❌ |
+
+### 10.6 Mode dégradé paywall obfusqué (v1.1)
+
+| Item | Notifuse | Prospection | Analytics | CMS |
+|---|---|---|---|---|
+| Liste `SENSITIVE_FIELDS` documentée | ❌ | ✅ (code, à doc) | ❌ | ❌ |
+| Obfuscation côté serveur (33% + bullets) | ❌ | ✅ | ❌ | ❌ |
+| 402 sur écritures | ❌ | ⚠️ Partiel | ❌ | ❌ |
+| Composant `<Paywall>` modale | ❌ | ✅ | ❌ | ❌ |
+| Composant `<BlurredText>` UI | ❌ | ✅ | ❌ | ❌ |
+| Activation sur `soft_deleted` | ❌ | ❌ (pas encore de soft_delete) | ❌ | ❌ |
+| Activation sur `trial_expired` | ❌ | ✅ | ❌ | ❌ |
+
+### 10.7 Observabilité §13 (v1.1)
+
+| Item | Notifuse | Prospection | Analytics | CMS |
+|---|---|---|---|---|
+| Logs JSON structurés avec `tenant_id` | ⚠️ À vérifier | ⚠️ À vérifier | ❌ | ❌ |
+| Endpoint `/metrics` Prometheus | ❌ | ❌ | ❌ | ❌ |
+| Alertes Grafana (cf §13.4) | ❌ | ❌ | ❌ | ❌ |
+
+### 10.8 Idempotency-Key (v1.1)
+
+| Endpoint | Notifuse | Prospection | Analytics | CMS |
+|---|---|---|---|---|
+| `provision` accepte Idempotency-Key | ❌ | ❌ | ❌ | ❌ |
+| `update-plan` accepte Idempotency-Key | ❌ | ❌ | ❌ | ❌ |
+| `soft-delete` accepte Idempotency-Key | ❌ | ❌ | ❌ | ❌ |
+| `purge` accepte Idempotency-Key | ❌ | ❌ | ❌ | ❌ |
+| Stockage `veridian_idempotency_keys` | ❌ | ❌ | ❌ | ❌ |
+| Cleanup cron expired | ❌ | ❌ | ❌ | ❌ |
 
 ---
 
@@ -710,6 +1446,68 @@ L'agent Hub doit :
 - [ ] Smoke E2E manuel : signup Hub → start app → provisioning → magic link →
       change plan admin → verify health.
 - [ ] Documentation mise à jour dans ce contrat (§10).
+
+### 11.5 Contrôle qualité obligatoire (RÈGLE ABSOLUE)
+
+> 🔥 Gravé en v1.1 par Robert Brunon. **Aucune modification couverte par ce
+> contrat ne va en prod sans passer ces 3 contrôles.** Si un agent ship sans
+> ces contrôles, c'est faute professionnelle.
+
+#### 11.5.1 Tests CI robustes ET actionnables manuellement
+
+Pour chaque endpoint contrat, l'app doit avoir :
+
+1. **Test unitaire** qui mock le HMAC + valide la logique pure (idempotence,
+   transitions, validation payload).
+2. **Test d'intégration** qui hit l'endpoint réel avec un Hub mock ou un Hub
+   staging réel.
+3. **Test E2E** qui rejoue le scénario §12 complet.
+
+Tous les tests doivent :
+- Tourner en CI bloquant sur chaque PR.
+- Pouvoir tourner en **local en 1 commande** (`pnpm test`, `go test`, etc.).
+- Pouvoir tourner contre **staging** via une commande explicite (`pnpm test:e2e:staging`)
+  pour smoke en cas de doute prod.
+- Logger en clair les hypothèses qu'ils valident (pas juste "test1 passed",
+  mais "Test scénario provision idempotent — appel 2× retourne created=false").
+
+#### 11.5.2 Smoke manuel via navigateur (Chrome MCP ou équivalent)
+
+Avant chaque mise en prod d'une modif touchant le contrat, l'agent doit :
+
+1. **Ouvrir un navigateur** (MCP Chrome, ou un Chrome local si l'agent tourne
+   sur la machine humaine).
+2. **Refaire le flow user complet** : signup Hub → click "Commencer essai" →
+   ouvrir l'auto-login URL → vérifier que l'app downstream s'affiche
+   correctement → faire une action sensible → vérifier que le résultat est
+   cohérent avec le code modifié.
+3. **Si la modif touche le lifecycle** : provoquer le state qui est concerné
+   (ex: soft_delete via admin → ouvrir l'app en magic link → vérifier que
+   le mode dégradé s'active correctement → vérifier que le paywall apparaît).
+4. **Si la modif touche le pricing/plan** : passer le tenant en plan upgrade
+   → vérifier UI + features débloquées → revenir au plan free → vérifier que
+   les features sont reverrouillées.
+
+**Sortie attendue** : screenshot ou log de session du smoke + confirmation
+"flow ok, pas de régression visible". À mettre en commentaire du PR ou du
+commit.
+
+#### 11.5.3 Sanction de l'ignorance
+
+- Modif shippée sans test CI couvrant le scope → bloque le merge automatiquement
+  (Nuclear mode CI Hub, cf `CI-ARCHITECTURE.md`).
+- Modif shippée sans smoke navigateur → si une régression apparaît en prod,
+  c'est de la responsabilité de l'agent qui a shipé.
+- Modif qui touche les §5.7-§5.11 sans bumper la matrice §10 → PR refusée par
+  reviewer humain.
+
+#### 11.5.4 Exceptions admises
+
+Travail purement docs (modif `.md` non incluse dans path-skip CI) : pas besoin
+de smoke navigateur. Test CI suffit.
+
+Hotfix critique en prod (incident actif) : smoke peut être post-deploy, mais
+DOIT être fait dans les 30 minutes suivant le ship.
 
 ---
 
@@ -764,6 +1562,37 @@ valide le scénario complet :
 
 13. attach-owner(tenant_id=T1, owner_email=charlie@test) [replay]
     → already_attached=true (idempotence)
+
+14. soft-delete(tenant_id=T1, reason=test)
+    → assert HTTP 200, purge_eligible_at = now + SOFT_DELETE_GRACE_DAYS
+    → health → assert status=soft_deleted
+
+15. GET /api/<resource> [en tant qu'user alice via magic link]
+    → assert SENSITIVE_FIELDS obfusqués côté serveur (33% clear + bullets)
+
+16. POST /api/<resource> écriture [en tant qu'user]
+    → assert HTTP 402 + body { error: "tenant_paywall", upgrade_url }
+
+17. webhook tenant.touched émis par l'app (simulation magic link consumed)
+    → assert Hub repousse purge_eligible_at de TOUCH_RESET_DAYS
+
+18. webhook tenant.touched émis 2× dans la même heure
+    → assert debounce — la 2e n'est pas comptabilisée
+
+19. purge(tenant_id=T1, confirm_slug=wrong)
+    → assert HTTP 400 ou 409 (slug mismatch)
+
+20. purge(tenant_id=T1, confirm_slug=correct) ALORS QUE soft_deleted_at < 30j
+    → assert HTTP 409 { error: "tenant_not_purge_eligible" }
+
+21. [admin "force" tenant à purge_eligible en avançant l'horloge ou via fixture]
+    purge(tenant_id=T1, confirm_slug=correct, reason="test cleanup")
+    → assert HTTP 200, rows_deleted détaillé
+    → health → 404 (tenant n'existe plus côté app)
+
+22. restore(tenant_id=T2 différent, en soft_deleted depuis 10j)
+    → assert HTTP 200, new_status=suspended
+    → health → assert status=suspended (PAS active — admin doit resume manuellement)
 ```
 
 **Localisation suggérée du test** :
@@ -774,11 +1603,75 @@ valide le scénario complet :
 **Le test doit pouvoir tourner contre l'app déployée en staging** (HUB_API_SECRET
 de staging) pour permettre des E2E réels en plus des unit tests.
 
+**Format de sortie obligatoire** : chaque étape log explicitement
+`STEP N: <description> → ASSERTION: <expected> → RESULT: <actual> ✓` pour
+qu'un agent qui debug puisse savoir où le scénario s'est cassé.
+
 ---
 
-## 13. Versionnement et évolution
+## 13. Observabilité et logs standards
 
-### 13.1 Politique de versionning
+> 🔥 Gravé en v1.1. Toutes les apps doivent émettre ces logs/metrics pour que
+> le Hub puisse débugger les flows cross-app.
+
+### 13.1 Logs structurés (JSON)
+
+Chaque app downstream doit émettre des logs JSON structurés (pas du texte
+libre) pour toutes les routes contrat. Format obligatoire :
+
+```json
+{
+  "ts": "ISO8601",
+  "level": "info|warn|error",
+  "service": "<app>",
+  "route": "/api/tenants/provision",
+  "method": "POST",
+  "tenant_id": "string (si applicable)",
+  "request_id": "string (UUID v4 généré par middleware)",
+  "duration_ms": 42,
+  "status": 200,
+  "hub_request_signature_prefix": "string (8 premiers chars HMAC signature, debug)",
+  "msg": "Tenant provisioned successfully"
+}
+```
+
+**Champs obligatoires** : `ts`, `level`, `service`, `route`, `tenant_id`,
+`request_id`.
+
+### 13.2 Metrics Prometheus (recommandées)
+
+Chaque app expose `/metrics` Prometheus avec :
+
+| Metric | Type | Labels | Description |
+|---|---|---|---|
+| `veridian_contract_request_duration_ms` | histogram | route, status | Latence par endpoint contrat |
+| `veridian_contract_request_total` | counter | route, status, error_code | Compteur de requêtes par endpoint contrat |
+| `veridian_lifecycle_tenants_total` | gauge | status | Nombre de tenants par status (active/suspended/soft_deleted/...) |
+| `veridian_paywall_displayed_total` | counter | reason | Compteur d'affichages paywall par raison |
+| `veridian_touch_events_emitted_total` | counter | debounced | Compteur de tenant.touched émis (et débouncés) |
+
+### 13.3 Tracing (futur)
+
+Roadmap v2 : propagation `traceparent` W3C entre Hub et apps pour suivre un
+flow user complet (signup → provision → magic link → app session) dans Grafana
+Tempo.
+
+### 13.4 Alertes minimales obligatoires
+
+Chaque app doit configurer ces alertes (Grafana ou équivalent) :
+
+- Endpoint contrat down > 5min → page Robert.
+- Taux d'erreur HMAC > 5 % sur 10min → page Robert (probable rotation secret
+  cassée).
+- Tenant.touched non émis pendant 24h alors qu'un tenant soft_deleted existe
+  → warning (anomalie potentielle).
+- Purge appelée → notification (jamais bloquant, mais audit).
+
+---
+
+## 14. Versionnement et évolution
+
+### 14.1 Politique de versionning
 
 - **Ajout de champs response** : OK sans bump (le Hub fait optional chaining).
 - **Ajout d'endpoints obligatoires** : bump minor (v1.1, v1.2...). Délai de
@@ -787,7 +1680,7 @@ de staging) pour permettre des E2E réels en plus des unit tests.
   en parallèle pendant 1 mois. Le Hub bascule progressivement avec feature flag.
 - **Suppression d'endpoint** : 3 mois de préavis + path `/api/v1/...` deprecated.
 
-### 13.2 Process d'évolution
+### 14.2 Process d'évolution
 
 1. Un agent (Hub ou app) propose un changement via PR sur ce fichier
    `CONTRAT-HUB.md`.
@@ -796,7 +1689,7 @@ de staging) pour permettre des E2E réels en plus des unit tests.
 4. Tickets automatiquement déposés dans `<app>/todo/` pour chaque app impactée.
 5. Suivi de compliance dans §10 de ce fichier.
 
-### 13.3 Compatibilité backward
+### 14.3 Compatibilité backward
 
 Aucune app downstream ne PEUT casser un comportement décrit dans une version
 précédente sans :
@@ -806,9 +1699,54 @@ précédente sans :
 
 ---
 
-## 14. Changements
+## 15. Changements
 
-### v1 — 2026-05-18
+### v1.1 — 2026-05-18 (après-midi)
+
+**Ajouts majeurs** (suite brainstorm avec Robert sur lifecycle + paywall) :
+
+- §5.7 **Cycle de vie tenant** : machine à états explicite avec transitions
+  légales (table). Aucune purge auto, "revient = repousse" via touch.
+- §5.8 **5 endpoints lifecycle** : soft-delete, restore, purge, webhook
+  tenant.touched, usage-summary. Remplace le `DELETE /api/tenants/{id}` ambigu
+  de v1.
+- §5.9 **Mode dégradé paywall obfusqué cross-app** : pattern Prospection
+  généralisé. Obfuscation côté serveur, paywall modale standard, plans offerts
+  immune.
+- §5.10 **Format d'erreurs standardisé** : table de 20 codes machine-readable
+  cross-app.
+- §5.11 **Header `Idempotency-Key`** : spec figée pour provision, update-plan,
+  soft-delete, restore, purge.
+- §6.5 **Convention env vars staging/prod** : suite au bug
+  `NOTIFUSE_HUB_API_SECRET_STAGING` désynchro découvert le 2026-05-18.
+- §6.6 **Mode dev local `SKIP_HMAC`** : permet dev local rapide sans monter
+  un faux Hub HMAC. Garde au boot interdit en prod/staging.
+- §8.5 **Admin lifecycle panel** : page `/dashboard/admin/lifecycle` côté Hub
+  avec vue agrégée, vue détail, action "Purger maintenant" avec confirm slug.
+- §8.6 **Restriction réseau admin (Tailscale)** : middleware IP filter sur
+  `/admin/*` et `/api/admin/*`, double protection avec Auth.js admin.
+- §8.7 **Config lifecycle ENV Hub** : variables `SOFT_DELETE_GRACE_DAYS`,
+  `TOUCH_RESET_DAYS`, `TOUCH_DEBOUNCE_HOURS`, etc. avec defaults
+  conservateurs. Path d'évolution vers per-plan/per-tenant.
+- §11.5 **Contrôle qualité obligatoire (RÈGLE ABSOLUE)** : tests CI robustes
+  + smoke navigateur obligatoire avant prod sur toute modif touchant le
+  contrat. Posé par Robert.
+- §12 **Tests scénario étendus** : ajout 9 étapes (14-22) couvrant
+  soft-delete, paywall obfuscation, touch, purge avec garde-fous.
+- §13 **Observabilité et logs standards** : logs JSON structurés obligatoires
+  + metrics Prometheus + alertes minimales.
+
+**Révisions** :
+
+- §7.1 webhooks app→Hub : ajout `tenant.touched`, `tenant.soft_deleted`,
+  `tenant.purged` (remplace `tenant.deleted` ambigu).
+- §8 renommé "Pilotage des plans + lifecycle".
+- En-tête : règle absolue contrôle qualité ajoutée.
+
+**Inchangé depuis v1** : §1-§4, §5.1-§5.6, §6.1-§6.4, §7.2-§7.3, §8.1-§8.4,
+§9, §10, §11.1-§11.4, §14 (renuméroté).
+
+### v1 — 2026-05-18 (matin)
 
 - Initial. Récupère et grave le contrat précédemment dans
   `veridian-hub/todo/integrations/README.md`.
