@@ -52,7 +52,12 @@ export async function GET(request: NextRequest) {
         notifuse: {
           provisioned: !!t.notifuseWorkspaceSlug,
           workspace_id: t.notifuseWorkspaceSlug,
-          plan: typeof meta.notifuse_plan === 'string' ? meta.notifuse_plan : null,
+          // Source de vérité : colonne typée `notifuse_plan` (2026-05-18).
+          // Fallback metadata.notifuse_plan pour la rétrocompat le temps que
+          // tous les tenants migrent.
+          plan:
+            t.notifusePlan ??
+            (typeof meta.notifuse_plan === 'string' ? meta.notifuse_plan : null),
           plan_source:
             typeof meta.notifuse_plan_source === 'string' ? meta.notifuse_plan_source : null,
           suspended_at:

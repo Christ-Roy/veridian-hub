@@ -19,6 +19,23 @@ type Tenant = {
   services?: TenantServices;
 };
 
+const NOTIFUSE_PLAN_OPTIONS = [
+  'free',
+  'pro',
+  'business',
+  'enterprise',
+  'lifetime_site_vitrine',
+  'lifetime_partner',
+  'internal',
+] as const;
+
+const PROSPECTION_PLAN_OPTIONS = [
+  'freemium',
+  'starter',
+  'pro',
+  'enterprise',
+] as const;
+
 export default function AdminTenantsPage() {
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState(true);
@@ -65,21 +82,56 @@ export default function AdminTenantsPage() {
     }
   }
 
-  async function grantPlan(email: string, plan: string) {
+  async function setPlan(
+    tenantId: string,
+    app: 'notifuse' | 'prospection',
+    plan: string,
+  ) {
     try {
-      const res = await fetch("/api/admin/grant-plan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, plan }),
+      const res = await fetch(`/api/admin/tenants/${tenantId}/plan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ app, plan }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error || `status ${res.status}`);
       }
-      toast.success(`Plan ${plan} accordé à ${email}`);
+      const data = await res.json();
+      toast.success(`Plan ${app}=${plan} appliqué`, {
+        description: data.warning ?? undefined,
+      });
       await fetchTenants();
     } catch (e) {
-      toast.error(`Grant plan échoué: ${e instanceof Error ? e.message : "?"}`);
+      toast.error(`Set plan échoué: ${e instanceof Error ? e.message : '?'}`);
+    }
+  }
+
+  async function setTrial(tenantId: string, value: string | null) {
+    try {
+      const res = await fetch(`/api/admin/tenants/${tenantId}/plan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          // app requis par le validateur — on choisit prospection comme no-op
+          // côté apps downstream (DB only). Le seul effet est trialEndsAt.
+          app: 'prospection',
+          plan: 'freemium',
+          trialEndsAt: value,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `status ${res.status}`);
+      }
+      toast.success(
+        value
+          ? `Trial étendu jusqu'au ${new Date(value).toLocaleDateString('fr-FR')}`
+          : 'Trial supprimé (free pour toujours)',
+      );
+      await fetchTenants();
+    } catch (e) {
+      toast.error(`Set trial échoué: ${e instanceof Error ? e.message : '?'}`);
     }
   }
 
@@ -95,7 +147,8 @@ export default function AdminTenantsPage() {
         <div>
           <h1 className="text-2xl font-bold">Tenants</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Tous les tenants de la plateforme. Actions: impersonate, grant plan.
+            Plans par app + trial editable. Source de vérité : DB Hub +
+            propagation Notifuse via HMAC.
           </p>
         </div>
         <input
@@ -112,8 +165,9 @@ export default function AdminTenantsPage() {
           <thead className="bg-gray-50 border-b">
             <tr>
               <th className="text-left px-4 py-2 font-medium">Email</th>
-              <th className="text-left px-4 py-2 font-medium">Plan (prospection)</th>
-              <th className="text-left px-4 py-2 font-medium">Trial</th>
+              <th className="text-left px-4 py-2 font-medium">Plan Prospection</th>
+              <th className="text-left px-4 py-2 font-medium">Plan Notifuse</th>
+              <th className="text-left px-4 py-2 font-medium">Trial expire</th>
               <th className="text-left px-4 py-2 font-medium">Créé le</th>
               <th className="text-left px-4 py-2 font-medium">Notifuse</th>
               <th className="text-right px-4 py-2 font-medium">Actions</th>
@@ -122,75 +176,116 @@ export default function AdminTenantsPage() {
           <tbody>
             {loading && (
               <tr>
-                <td colSpan={6} className="text-center text-muted-foreground py-8">
+                <td colSpan={7} className="text-center text-muted-foreground py-8">
                   Chargement...
                 </td>
               </tr>
             )}
             {!loading && filtered.length === 0 && (
               <tr>
-                <td colSpan={6} className="text-center text-muted-foreground py-8">
+                <td colSpan={7} className="text-center text-muted-foreground py-8">
                   Aucun tenant.
                 </td>
               </tr>
             )}
             {!loading &&
-              filtered.map((t) => (
-                <tr key={t.tenant_id ?? t.email} className="border-b hover:bg-gray-50">
-                  <td className="px-4 py-2 font-medium">{t.email}</td>
-                  <td className="px-4 py-2">
-                    <span className="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-xs">
-                      {t.plan ?? "-"}
-                    </span>
-                  </td>
-                  <td className="px-4 py-2 text-xs text-muted-foreground">
-                    {t.trial_ends_at
-                      ? new Date(t.trial_ends_at).toLocaleDateString("fr-FR")
-                      : "-"}
-                  </td>
-                  <td className="px-4 py-2 text-xs text-muted-foreground">
-                    {t.created_at
-                      ? new Date(t.created_at).toLocaleDateString("fr-FR")
-                      : "-"}
-                  </td>
-                  <td className="px-4 py-2 relative">
-                    {t.tenant_id && t.services?.notifuse ? (
-                      <NotifuseAdminPanel
-                        tenantId={t.tenant_id}
-                        email={t.email ?? ""}
-                        initial={t.services.notifuse}
-                        onChanged={fetchTenants}
-                      />
-                    ) : (
-                      <span className="text-xs text-muted-foreground">-</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-2 text-right">
-                    <button
-                      onClick={() => impersonate(t.email ?? "")}
-                      className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 mr-1"
-                    >
-                      Impersonate
-                    </button>
-                    <select
-                      onChange={(e) => {
-                        if (e.target.value) {
-                          grantPlan(t.email ?? "", e.target.value);
-                          e.target.value = "";
+              filtered.map((t) => {
+                const notifusePlan = t.services?.notifuse?.plan ?? 'free';
+                const prospectionPlan = t.services?.prospection?.plan ?? 'freemium';
+                const trialValue = t.trial_ends_at
+                  ? t.trial_ends_at.slice(0, 10)
+                  : '';
+                return (
+                  <tr key={t.tenant_id ?? t.email} className="border-b hover:bg-gray-50">
+                    <td className="px-4 py-2 font-medium">{t.email}</td>
+
+                    <td className="px-4 py-2">
+                      <select
+                        value={prospectionPlan}
+                        onChange={(e) => {
+                          if (t.tenant_id) setPlan(t.tenant_id, 'prospection', e.target.value);
+                        }}
+                        className="text-xs px-2 py-1 rounded border bg-white"
+                      >
+                        {PROSPECTION_PLAN_OPTIONS.map((p) => (
+                          <option key={p} value={p}>{p}</option>
+                        ))}
+                      </select>
+                    </td>
+
+                    <td className="px-4 py-2">
+                      <select
+                        value={notifusePlan}
+                        onChange={(e) => {
+                          if (t.tenant_id) setPlan(t.tenant_id, 'notifuse', e.target.value);
+                        }}
+                        disabled={!t.services?.notifuse?.provisioned}
+                        className="text-xs px-2 py-1 rounded border bg-white disabled:opacity-50"
+                        title={
+                          t.services?.notifuse?.provisioned
+                            ? ''
+                            : 'Workspace Notifuse non provisionné'
                         }
-                      }}
-                      className="text-xs px-2 py-1 rounded border"
-                      defaultValue=""
-                    >
-                      <option value="">Grant plan...</option>
-                      <option value="freemium">freemium</option>
-                      <option value="starter">starter</option>
-                      <option value="pro">pro</option>
-                      <option value="enterprise">enterprise</option>
-                    </select>
-                  </td>
-                </tr>
-              ))}
+                      >
+                        {NOTIFUSE_PLAN_OPTIONS.map((p) => (
+                          <option key={p} value={p}>{p}</option>
+                        ))}
+                      </select>
+                    </td>
+
+                    <td className="px-4 py-2 text-xs">
+                      <input
+                        type="date"
+                        defaultValue={trialValue}
+                        onBlur={(e) => {
+                          if (!t.tenant_id) return;
+                          const current = trialValue;
+                          const next = e.target.value;
+                          if (next === current) return;
+                          if (next === '') {
+                            if (confirm(`Supprimer le trial pour ${t.email} (free pour toujours) ?`)) {
+                              setTrial(t.tenant_id, null);
+                            } else {
+                              e.target.value = current;
+                            }
+                          } else {
+                            setTrial(t.tenant_id, new Date(next).toISOString());
+                          }
+                        }}
+                        className="text-xs px-2 py-1 rounded border w-36"
+                      />
+                    </td>
+
+                    <td className="px-4 py-2 text-xs text-muted-foreground">
+                      {t.created_at
+                        ? new Date(t.created_at).toLocaleDateString("fr-FR")
+                        : "-"}
+                    </td>
+
+                    <td className="px-4 py-2 relative">
+                      {t.tenant_id && t.services?.notifuse ? (
+                        <NotifuseAdminPanel
+                          tenantId={t.tenant_id}
+                          email={t.email ?? ""}
+                          initial={t.services.notifuse}
+                          onChanged={fetchTenants}
+                        />
+                      ) : (
+                        <span className="text-xs text-muted-foreground">-</span>
+                      )}
+                    </td>
+
+                    <td className="px-4 py-2 text-right">
+                      <button
+                        onClick={() => impersonate(t.email ?? "")}
+                        className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200"
+                      >
+                        Impersonate
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
           </tbody>
         </table>
       </div>
