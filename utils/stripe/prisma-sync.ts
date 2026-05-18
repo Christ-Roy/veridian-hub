@@ -1,136 +1,29 @@
-// Helpers Prisma pour le webhook Stripe — porte la logique de
-// `utils/supabase/admin.ts` (upsertProductRecord, upsertPriceRecord,
-// manageSubscriptionStatusChange) vers Prisma + hub_app.
+// utils/stripe/prisma-sync.ts
 //
-// Source de vérité : Stripe. La DB ne fait que mirror.
+// Helpers Prisma pour le webhook Stripe.
 //
-// Customer mapping : l'ancien schema avait une table `customers` (id UUID →
-// stripe_customer_id). Le nouveau schema n'a pas cette table — on retrouve
-// l'utilisateur via :
-//  1. `Subscription.findFirst({ where: { stripeCustomerId } })` (cas le plus
-//     fréquent — la sub existe déjà chez nous)
-//  2. `stripeCustomer.metadata.supabaseUUID` (set lors du createOrRetrieveCustomer)
-//  3. `Profile.findUnique({ where: { email } })` (fallback par email)
+// Architecture post-refactor 2026-05-18 :
+// - Stripe reste source de vérité pour l'ÉTAT des subscriptions (active/canceled,
+//   trial_end, current_period_end). On sync ça dans `hub_app.subscriptions`.
+// - Le CATALOGUE de plans vit dans lib/pricing/plans.ts (versionné). Plus de
+//   table products/prices à maintenir — les fonctions upsert*/delete*
+//   correspondantes ont été dégagées.
+// - La mapping `stripe_price_id` → `PlanKey` passe par
+//   getPlanByStripePriceId() qui regarde le catalogue ET le mapping legacy.
 
 import Stripe from 'stripe';
 
 import { prisma } from '@/lib/prisma';
 import { stripe } from '@/utils/stripe/config';
 import { toDateTime } from '@/utils/helpers';
-
-const TRIAL_PERIOD_DAYS = 0;
-
-export async function upsertProductRecord(product: Stripe.Product): Promise<void> {
-  console.log(`[Admin] Upserting product ${product.id}:`, {
-    name: product.name,
-    active: product.active,
-  });
-
-  const data = {
-    id: product.id,
-    active: product.active,
-    name: product.name,
-    description: product.description ?? null,
-    image: product.images?.[0] ?? null,
-    metadata: (product.metadata ?? {}) as object,
-  };
-
-  try {
-    await prisma.product.upsert({
-      where: { id: product.id },
-      create: data,
-      update: data,
-    });
-    console.log(`[Admin] ✅ Product ${product.id} upserted successfully`);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'unknown';
-    console.error(`[Admin] Product upsert failed (${product.id}):`, message);
-    throw new Error(`Product insert/update failed: ${message}`);
-  }
-}
-
-export async function upsertPriceRecord(
-  price: Stripe.Price,
-  retryCount = 0,
-  maxRetries = 3,
-): Promise<void> {
-  console.log(`[Admin] Upserting price ${price.id} (retry ${retryCount}/${maxRetries})`);
-
-  const data = {
-    id: price.id,
-    productId: typeof price.product === 'string' ? price.product : null,
-    active: price.active,
-    currency: price.currency,
-    description: price.nickname ?? null,
-    type: price.type as 'one_time' | 'recurring',
-    unitAmount: price.unit_amount != null ? BigInt(price.unit_amount) : null,
-    interval: (price.recurring?.interval ?? null) as
-      | 'day'
-      | 'week'
-      | 'month'
-      | 'year'
-      | null,
-    intervalCount: price.recurring?.interval_count ?? null,
-    trialPeriodDays: price.recurring?.trial_period_days ?? TRIAL_PERIOD_DAYS,
-    metadata: ({
-      ...(price.metadata || {}),
-      lookup_key: price.lookup_key || null,
-    } as unknown) as object,
-  };
-
-  try {
-    await prisma.price.upsert({
-      where: { id: price.id },
-      create: data,
-      update: data,
-    });
-    console.log(`[Admin] ✅ Price ${price.id} upserted successfully`);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'unknown';
-    if (message.includes('foreign key') || message.toLowerCase().includes('foreign')) {
-      console.warn(`[Admin] FK constraint error for price ${price.id}, retrying...`);
-      if (retryCount < maxRetries) {
-        await new Promise((resolve) => setTimeout(resolve, 2000));
-        await upsertPriceRecord(price, retryCount + 1, maxRetries);
-        return;
-      }
-    }
-    console.error(`[Admin] Price upsert failed (${price.id}):`, message);
-    throw new Error(`Price insert/update failed: ${message}`);
-  }
-}
-
-export async function deleteProductRecord(product: Stripe.Product): Promise<void> {
-  try {
-    await prisma.product.delete({ where: { id: product.id } });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'unknown';
-    // Ignore "not found" — already deleted
-    if (!message.includes('not found') && !message.includes('Record to delete')) {
-      console.error(`[Admin] Product deletion failed (${product.id}):`, message);
-      throw new Error(`Product deletion failed: ${message}`);
-    }
-  }
-}
-
-export async function deletePriceRecord(price: Stripe.Price): Promise<void> {
-  try {
-    await prisma.price.delete({ where: { id: price.id } });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'unknown';
-    if (!message.includes('not found') && !message.includes('Record to delete')) {
-      console.error(`[Admin] Price deletion failed (${price.id}):`, message);
-      throw new Error(`Price deletion failed: ${message}`);
-    }
-  }
-}
+import { getPlanByStripePriceId, getAppPlansForBundle } from '@/lib/pricing/helpers';
 
 /**
- * Resolve the user UUID linked to a Stripe customer.
- * Order of resolution :
- *  1. Existing Subscription with this stripeCustomerId
- *  2. Stripe customer metadata `supabaseUUID` / `supabase_uuid`
- *  3. Stripe customer email → User.supabaseUserId via User by email
+ * Résout le user UUID Hub lié à un Stripe customer ID.
+ * Ordre :
+ *  1. Existing Subscription avec ce stripeCustomerId
+ *  2. Stripe customer metadata `userUuid` / `supabaseUUID` (legacy)
+ *  3. Stripe customer email → User.supabaseUserId via lookup par email
  */
 async function resolveUserUuid(customerId: string): Promise<string> {
   const existingSub = await prisma.subscription.findFirst({
@@ -145,6 +38,7 @@ async function resolveUserUuid(customerId: string): Promise<string> {
   }
 
   const metadataUuid =
+    (stripeCustomer.metadata?.userUuid as string | undefined) ??
     (stripeCustomer.metadata?.supabaseUUID as string | undefined) ??
     (stripeCustomer.metadata?.supabase_uuid as string | undefined);
   if (metadataUuid) return metadataUuid;
@@ -165,6 +59,17 @@ async function resolveUserUuid(customerId: string): Promise<string> {
   return user.supabaseUserId;
 }
 
+/**
+ * Sync de l'état Stripe → DB Hub pour une subscription, et propagation des
+ * plans aux apps downstream concernées (notifuse, prospection) via le mapping
+ * catalogue.
+ *
+ * Appelé par le webhook Stripe sur les events :
+ *  - customer.subscription.created
+ *  - customer.subscription.updated
+ *  - customer.subscription.deleted
+ *  - checkout.session.completed (via subscriptionId)
+ */
 export async function manageSubscriptionStatusChange(
   subscriptionId: string,
   customerId: string,
@@ -176,14 +81,35 @@ export async function manageSubscriptionStatusChange(
     expand: ['default_payment_method'],
   });
 
-  const priceId = subscription.items.data[0]?.price.id ?? null;
+  const stripePriceId = subscription.items.data[0]?.price.id ?? null;
+  const isActive = ['active', 'trialing'].includes(subscription.status);
 
+  // ─── Lookup PlanKey depuis le catalogue ───
+  // Priorité 1 : metadata `plan_key` qu'on a posée lors du checkout
+  // (cf app/api/billing/checkout/route.ts). Source de vérité explicite.
+  // Priorité 2 : mapping stripe_price_id → PlanKey via catalogue + legacy.
+  let planKey: string | null =
+    (subscription.metadata?.plan_key as string | undefined) ?? null;
+
+  if (!planKey && stripePriceId) {
+    const planFromPriceId = getPlanByStripePriceId(stripePriceId);
+    if (planFromPriceId) {
+      planKey = planFromPriceId.key;
+    } else {
+      console.warn(
+        `[stripe-sync] Unknown stripe_price_id ${stripePriceId} for sub ${subscription.id} ` +
+          `— add it to LEGACY_STRIPE_PRICE_MAPPING in lib/pricing/plans.ts`,
+      );
+    }
+  }
+
+  // ─── Sync subscription state ───
   const data = {
     userId: uuid,
     stripeCustomerId: subscription.customer as string,
     stripeSubscriptionId: subscription.id,
-    stripePriceId: priceId,
-    priceId,
+    stripePriceId,
+    priceId: stripePriceId,
     status: subscription.status as
       | 'trialing'
       | 'active'
@@ -193,6 +119,7 @@ export async function manageSubscriptionStatusChange(
       | 'incomplete_expired'
       | 'unpaid',
     metadata: (subscription.metadata ?? {}) as object,
+    planName: planKey, // 🔥 Catalogue PlanKey, source de vérité côté Hub
     quantity:
       typeof (subscription as unknown as { quantity?: number }).quantity === 'number'
         ? (subscription as unknown as { quantity: number }).quantity
@@ -208,49 +135,70 @@ export async function manageSubscriptionStatusChange(
     trialEnd: subscription.trial_end ? toDateTime(subscription.trial_end) : null,
   };
 
-  // Upsert by stripeSubscriptionId (unique)
   await prisma.subscription.upsert({
     where: { stripeSubscriptionId: subscription.id },
     create: data,
     update: data,
   });
 
-  // Sync prospection plan based on Stripe subscription status
-  try {
-    if (priceId) {
-      const price = await prisma.price.findUnique({
-        where: { id: priceId },
-        select: { productId: true },
+  // ─── Propagation aux apps downstream via mapping catalogue ───
+  // Cf docs/CONTRAT-HUB.md §7.4 (chaîne Stripe → Hub → apps).
+  if (planKey) {
+    try {
+      const tenant = await prisma.tenant.findFirst({
+        where: { userId: uuid },
+        select: { id: true, notifusePlan: true, prospectionPlan: true, metadata: true },
       });
 
-      if (price?.productId) {
-        const product = await prisma.product.findUnique({
-          where: { id: price.productId },
-          select: { metadata: true },
-        });
+      if (tenant) {
+        // Plans actifs → applique le bundle. Inactifs → on retombe sur free.
+        const appPlans = isActive
+          ? getAppPlansForBundle(planKey as Parameters<typeof getAppPlansForBundle>[0])
+          : [];
 
-        const planKey = (product?.metadata as Record<string, string> | null)?.planKey;
-        const isActive = ['active', 'trialing'].includes(subscription.status);
-        const prospectionPlan = isActive
-          ? planKey === 'ENTERPRISE'
-            ? 'enterprise'
-            : planKey === 'PRO'
-              ? 'pro'
-              : 'freemium'
+        // Default conservateur : si subscription inactive, downgrade aux plans free.
+        // ATTENTION : ne JAMAIS toucher un tenant avec plan_source ∈ lifetime_*/internal
+        // (cf §3.3 contrat — immunité Stripe). On vérifie via metadata.
+        const meta = (tenant.metadata as Record<string, unknown> | null) ?? {};
+        const notifusePlanSource =
+          (meta.notifuse_plan_source as string | undefined) ?? 'manual';
+        const isImmuneNotifuse = ['lifetime_site_vitrine', 'lifetime_partner', 'internal'].includes(
+          notifusePlanSource,
+        );
+
+        const targetNotifuse = isImmuneNotifuse
+          ? tenant.notifusePlan
+          : isActive
+            ? appPlans.find((p) => p.app === 'notifuse')?.plan?.replace(/^notifuse-/, '') ?? 'free'
+            : 'free';
+
+        const targetProspection = isActive
+          ? appPlans.find((p) => p.app === 'prospection')?.plan?.replace(/^prospection-/, '') ?? 'freemium'
           : 'freemium';
 
-        await prisma.tenant.updateMany({
-          where: { userId: uuid },
-          data: { prospectionPlan },
+        await prisma.tenant.update({
+          where: { id: tenant.id },
+          data: {
+            notifusePlan: targetNotifuse,
+            prospectionPlan: targetProspection,
+          },
         });
 
         console.log(
-          `[Admin] Synced prospection_plan=${prospectionPlan} for user ${uuid} (stripe status: ${subscription.status}, planKey: ${planKey})`,
+          `[stripe-sync] Tenant ${tenant.id} updated: notifuse=${targetNotifuse}, prospection=${targetProspection} ` +
+            `(planKey=${planKey}, isActive=${isActive}, immune=${isImmuneNotifuse})`,
         );
+
+        // TODO §7.4 : propagation HMAC vers les apps downstream via
+        // `/api/tenants/update-plan`. Aujourd'hui DB-only (warning explicite
+        // côté admin endpoint). À câbler dans une session dédiée — non
+        // bloquant car les apps ont leur propre sync via lecture DB Hub.
       }
+    } catch (syncErr) {
+      console.error(
+        `[stripe-sync] Failed to propagate plan to tenant for user ${uuid} (non-blocking):`,
+        syncErr,
+      );
     }
-  } catch (syncErr) {
-    const message = syncErr instanceof Error ? syncErr.message : 'unknown';
-    console.error(`[Admin] Failed to sync prospection_plan (non-blocking):`, message);
   }
 }
