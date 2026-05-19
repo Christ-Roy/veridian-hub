@@ -2,6 +2,10 @@ import { NextResponse } from 'next/server';
 
 import { requireUser, userUuid } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
+import {
+  createProspectionClientFromEnv,
+  ProspectionError,
+} from '@/lib/prospection/client';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -23,10 +27,8 @@ export async function POST() {
     }
     const uuid = userUuid(user);
 
-    const PROSPECTION_URL = process.env.PROSPECTION_API_URL;
-    const PROSPECTION_SECRET = process.env.PROSPECTION_TENANT_API_SECRET;
-
-    if (!PROSPECTION_URL || !PROSPECTION_SECRET) {
+    const client = createProspectionClientFromEnv();
+    if (!client) {
       return NextResponse.json(
         { error: 'Prospection not configured' },
         { status: 500 },
@@ -35,30 +37,28 @@ export async function POST() {
 
     const displayName = user.name || user.email.split('@')[0];
 
-    // Call provision endpoint (upsert — creates a new token each time)
-    const res = await fetch(`${PROSPECTION_URL}/api/tenants/provision`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${PROSPECTION_SECRET}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
+    let data;
+    try {
+      data = await client.provisionTenant({
         email: user.email,
         name: displayName,
+        userId: uuid,
         plan: 'freemium',
-      }),
-    });
-
-    if (!res.ok) {
-      const errorText = await res.text();
-      console.error('[Prospection Regenerate] API error:', res.status, errorText);
-      return NextResponse.json(
-        { error: `Provision failed: ${res.status}` },
-        { status: 502 },
-      );
+      });
+    } catch (err) {
+      if (err instanceof ProspectionError) {
+        console.error(
+          '[Prospection Regenerate] API error:',
+          err.code,
+          err.message,
+        );
+        return NextResponse.json(
+          { error: `Provision failed: ${err.code}` },
+          { status: 502 },
+        );
+      }
+      throw err;
     }
-
-    const data = await res.json();
 
     // Update the tenant record with the new token
     const tenant = await prisma.tenant.findFirst({

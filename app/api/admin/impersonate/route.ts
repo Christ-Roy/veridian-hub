@@ -4,6 +4,7 @@ import { randomBytes } from 'crypto';
 import { auth } from '@/auth';
 import { isPlatformAdmin } from '@/lib/admin/check-admin';
 import { prisma } from '@/lib/prisma';
+import { createProspectionClientFromEnv } from '@/lib/prospection/client';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -68,38 +69,29 @@ export async function POST(request: NextRequest) {
 
   // Generate Prospection auto-login token
   let prospectionUrl: string | null = null;
-  const prospectionApiUrl = process.env.PROSPECTION_API_URL;
-  const prospectionSecret = process.env.PROSPECTION_TENANT_API_SECRET;
+  const prospectionClient = createProspectionClientFromEnv();
+  const targetUserUuid = user.supabaseUserId ?? user.id;
 
-  if (prospectionApiUrl && prospectionSecret) {
+  if (prospectionClient) {
     try {
-      const provRes = await fetch(`${prospectionApiUrl}/api/tenants/provision`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${prospectionSecret}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email,
-          name: email.split('@')[0],
-          plan: tenant?.prospectionPlan || 'freemium',
-        }),
+      const provData = await prospectionClient.provisionTenant({
+        email,
+        name: email.split('@')[0],
+        userId: targetUserUuid,
+        plan: tenant?.prospectionPlan || 'freemium',
       });
-      if (provRes.ok) {
-        const provData = await provRes.json();
-        prospectionUrl = provData.login_url ?? null;
+      prospectionUrl = provData.login_url ?? null;
 
-        if (provData.login_url && tenant) {
-          const token = String(provData.login_url).split('t=')[1];
-          await prisma.tenant.update({
-            where: { id: tenant.id },
-            data: {
-              prospectionLoginToken: token ?? null,
-              prospectionLoginTokenCreatedAt: new Date(),
-              prospectionLoginTokenUsed: false,
-            },
-          });
-        }
+      if (provData.login_url && tenant) {
+        const token = String(provData.login_url).split('t=')[1];
+        await prisma.tenant.update({
+          where: { id: tenant.id },
+          data: {
+            prospectionLoginToken: token ?? null,
+            prospectionLoginTokenCreatedAt: new Date(),
+            prospectionLoginTokenUsed: false,
+          },
+        });
       }
     } catch {
       /* non-blocking */

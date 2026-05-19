@@ -9,6 +9,10 @@ import { logProvisionStart, logProvisionEnd, logStep, logError } from './debug';
 import { NotifuseClient } from '@/lib/notifuse/client';
 import { NotifuseError } from '@/lib/notifuse/types';
 import { workspaceIdFromEmail } from '@/lib/notifuse/workspace-id';
+import {
+  createProspectionClientFromEnv,
+  ProspectionError,
+} from '@/lib/prospection/client';
 import { prisma } from '@/lib/prisma';
 
 function slugify(email: string): string {
@@ -161,41 +165,22 @@ export async function provisionProspectionTenant(
   apiKey?: string;
   error?: string;
 }> {
-  const PROSPECTION_URL = process.env.PROSPECTION_API_URL;
-  const PROSPECTION_SECRET = process.env.PROSPECTION_TENANT_API_SECRET;
-
-  if (!PROSPECTION_URL || !PROSPECTION_SECRET) {
-    logStep('PROSPECTION', 'Not configured (missing PROSPECTION_API_URL or PROSPECTION_TENANT_API_SECRET), skipping');
+  const client = createProspectionClientFromEnv();
+  if (!client) {
+    logStep('PROSPECTION', 'Not configured (missing PROSPECTION_API_URL or PROSPECTION_HUB_API_SECRET/PROSPECTION_TENANT_API_SECRET), skipping');
     return { success: false, error: 'Not configured' };
   }
 
   try {
     logStep('PROSPECTION', 'Starting provisioning', { email, userId });
 
-    const timestamp = Date.now();
-    const { createHmac: hmac } = await import('crypto');
-    const signature = hmac('sha256', PROSPECTION_SECRET)
-      .update(`${email}:${timestamp}`)
-      .digest('hex');
-
-    const res = await fetch(`${PROSPECTION_URL}/api/tenants/provision`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email,
-        name: email.split('@')[0],
-        plan: 'freemium',
-        timestamp,
-        signature,
-      }),
+    const data = await client.provisionTenant({
+      email,
+      name: email.split('@')[0],
+      userId,
+      plan: 'freemium',
     });
 
-    if (!res.ok) {
-      const errorText = await res.text();
-      throw new Error(`Provision failed: ${res.status} - ${errorText}`);
-    }
-
-    const data = await res.json();
     logStep('PROSPECTION', 'Provisioned', { tenantId: data.tenant_id, created: data.created });
 
     const prospectionData = {
