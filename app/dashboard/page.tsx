@@ -2,10 +2,12 @@ import { redirect } from 'next/navigation';
 import { TenantCard } from './components/TenantCard';
 import { ProspectionCard } from './components/ProspectionCard';
 import { ServiceCard } from './components/ServiceCard';
+import { ShadowAppCard } from './components/ShadowAppCard';
 import { RefreshButton } from './components/RefreshButton';
 import { LayoutDashboard } from 'lucide-react';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
+import { APPS } from '@/lib/pricing/plans';
 
 /**
  * DASHBOARD PAGE — Auth.js + Prisma
@@ -34,12 +36,24 @@ export default async function DashboardPage() {
       status: true,
       notifuseWorkspaceSlug: true,
       notifuseInvitationSentAt: true,
+      notifusePlan: true,
       prospectionProvisionedAt: true,
       prospectionLoginToken: true,
       prospectionLoginTokenCreatedAt: true,
       prospectionPlan: true,
+      metadata: true,
     },
   });
+
+  // §8.9.4 : tenants avec un plan offert "lifetime_site_vitrine" voient
+  // Analytics + CMS comme apps actives. Détecté via metadata.notifuse_plan_source
+  // (la seule trace du plan_source qu'on a aujourd'hui côté Hub — à étendre
+  // quand on aura une colonne typée plan_source).
+  const meta = (tenant?.metadata as Record<string, unknown> | null) ?? {};
+  const planSource = meta.notifuse_plan_source as string | undefined;
+  const hasLifetimeSiteVitrine =
+    planSource === 'lifetime_site_vitrine' ||
+    tenant?.notifusePlan === 'lifetime_site_vitrine';
 
   let prospectionTokenValid = false;
   if (tenant?.prospectionLoginToken && tenant?.prospectionLoginTokenCreatedAt) {
@@ -130,25 +144,51 @@ export default async function DashboardPage() {
 
       <section className="mb-12">
         <div className="mb-4">
-          <h2 className="text-2xl font-semibold tracking-tight">Services de suivi</h2>
+          <h2 className="text-2xl font-semibold tracking-tight">
+            Apps réservées clients sites vitrines
+          </h2>
           <p className="text-sm text-muted-foreground">
-            Outils de tracking et reporting pour piloter vos performances.
+            {hasLifetimeSiteVitrine
+              ? "Apps incluses dans ton offre site vitrine Veridian."
+              : "Ces apps sont incluses avec l'achat d'un site vitrine Veridian."}
           </p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <ServiceCard
-            name="Veridian Analytics"
-            description="Dashboard multi-tenant : pageviews, formulaires, SEO (GSC), appels SIP."
-            url="https://analytics.app.veridian.site"
-            icon="BarChart3"
-            badge="BETA"
-            features={[
-              'Tracker JS humain-only',
-              'Sync Google Search Console',
-              'Tracking appels OVH SIP',
-              'Vue par client (multi-tenant)',
-            ]}
-          />
+          {hasLifetimeSiteVitrine ? (
+            <>
+              <ServiceCard
+                name={APPS.analytics.display_name}
+                description={APPS.analytics.tagline}
+                url="https://analytics.app.veridian.site"
+                icon="BarChart3"
+                badge="BETA"
+                features={[
+                  'Tracker JS humain-only',
+                  'Sync Google Search Console',
+                  'Tracking appels OVH SIP',
+                  'Vue par client (multi-tenant)',
+                ]}
+              />
+              <ServiceCard
+                name={APPS.cms.display_name}
+                description={APPS.cms.tagline}
+                url="https://cms.app.veridian.site"
+                icon="FileText"
+                badge="BETA"
+                features={[
+                  'CMS multi-tenant (Payload)',
+                  'Édition pages site vitrine',
+                  'Upload assets / medias',
+                  'Preview avant publication',
+                ]}
+              />
+            </>
+          ) : (
+            <>
+              <ShadowAppCard app={APPS.analytics} />
+              <ShadowAppCard app={APPS.cms} />
+            </>
+          )}
         </div>
       </section>
 
