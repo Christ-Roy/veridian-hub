@@ -80,4 +80,25 @@ describe('POST /api/admin/impersonate', () => {
     expect(body.links).toHaveProperty('notifuse');
     expect(body.links).not.toHaveProperty('twenty');
   });
+
+  it('appelle Prospection en HMAC standard (pas de Bearer legacy)', async () => {
+    const { POST } = await import('@/app/api/admin/impersonate/route');
+    await POST(makeReq({ email: 'a@test.io' }, 'test-secret'));
+
+    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
+    expect(fetchMock).toHaveBeenCalled();
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    const headers = init.headers as Record<string, string>;
+
+    // HMAC standard
+    expect(headers['X-Veridian-Timestamp']).toMatch(/^\d+$/);
+    expect(headers['X-Veridian-Hub-Signature']).toMatch(/^[a-f0-9]{64}$/);
+    // Plus de Bearer legacy
+    expect(headers.Authorization).toBeUndefined();
+
+    // Body inclut user_id (contrat §5.1)
+    const body = JSON.parse(init.body as string);
+    expect(body.user_id).toBe('uuid-1');
+    expect(body.metadata).toEqual({ hub_user_id: 'uuid-1' });
+  });
 });
