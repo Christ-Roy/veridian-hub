@@ -52,6 +52,8 @@ export interface AppQuotas {
   } | null;
 }
 
+export type VeridianApp = 'notifuse' | 'prospection' | 'analytics' | 'cms';
+
 export interface Plan {
   key: PlanKey;
   /** Nom affiché côté UI marketing. */
@@ -69,7 +71,15 @@ export interface Plan {
   };
   /** Apps débloquées par ce plan. */
   apps: ('notifuse' | 'prospection')[];
-  /** Quotas par app pour ce plan. */
+  /**
+   * 🔥 v1.3 — Quota seats CROSS-APP. Le owner compte pour 1.
+   * Un seat = 1 user humain qui peut accéder à TOUTES les apps souscrites
+   * par ce tenant (cf §3.5 contrat). Membres invités via Hub
+   * `/api/admin/tenants/<id>/invite-member`.
+   */
+  members_seats: number | 'unlimited';
+  /** Quotas par app pour ce plan (members_max ici = info app-locale, le vrai
+   *  quota cross-app est members_seats ci-dessus). */
   quotas: AppQuotas;
   /** Features affichées sur la page pricing (FR). */
   features: PlanFeature[];
@@ -82,6 +92,66 @@ export interface Plan {
   /** Cf §3.3 contrat — détermine l'immunité face aux downgrades Stripe. */
   plan_source: 'stripe' | 'manual' | 'lifetime_site_vitrine' | 'lifetime_partner' | 'internal';
 }
+
+/**
+ * 🔥 v1.3 — Métadonnées par APP (pas par plan). Détermine l'affichage Hub
+ * Dashboard (self-serve vs shadow marketing) et le routing CTA.
+ */
+export interface AppMetadata {
+  key: VeridianApp;
+  display_name: string;
+  /** True si l'app est accessible self-serve via signup Hub + checkout Stripe. */
+  self_serve: boolean;
+  /**
+   * True si l'app est réservée aux clients ayant acheté un site vitrine
+   * Veridian (lifetime_site_vitrine). Affichée grisée dans le dashboard
+   * pour les autres tenants. Cf §3.6 + §8.9 contrat.
+   */
+  client_only: boolean;
+  /** Tagline courte pour la card Dashboard. */
+  tagline: string;
+  /** Emoji icon. */
+  icon: string;
+  /** URL marketing pour CTA shadow (si client_only). */
+  marketing_url?: string;
+}
+
+export const APPS: Record<VeridianApp, AppMetadata> = {
+  notifuse: {
+    key: 'notifuse',
+    display_name: 'Notifuse',
+    self_serve: true,
+    client_only: false,
+    tagline: 'Emails transactionnels',
+    icon: '📧',
+  },
+  prospection: {
+    key: 'prospection',
+    display_name: 'Prospection',
+    self_serve: true,
+    client_only: false,
+    tagline: 'Qualification de leads .fr',
+    icon: '🎯',
+  },
+  analytics: {
+    key: 'analytics',
+    display_name: 'Veridian Analytics',
+    self_serve: false,
+    client_only: true,
+    tagline: 'Dashboard multi-tenant (pageviews, GSC, appels SIP)',
+    icon: '📊',
+    marketing_url: 'https://veridian.site/sites',
+  },
+  cms: {
+    key: 'cms',
+    display_name: 'Veridian CMS',
+    self_serve: false,
+    client_only: true,
+    tagline: 'CMS multi-tenant (Payload) pour vos sites',
+    icon: '📝',
+    marketing_url: 'https://veridian.site/sites',
+  },
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CATALOGUE
@@ -97,6 +167,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     price_eur_yearly_per_month: null,
     stripePriceId: { month: null, year: null },
     apps: ['notifuse'],
+    members_seats: 1, // §3.5 : free = solo
     quotas: {
       notifuse: { emails_per_month: 1_000, members_max: 1 },
     },
@@ -119,6 +190,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     price_eur_yearly_per_month: 16, // 🚧 TODO_PRICE — -15 % standard SaaS
     stripePriceId: { month: null, year: null }, // 🚧 TODO_STRIPE
     apps: ['notifuse'],
+    members_seats: 5, // §3.5 : pro = 5 seats
     quotas: {
       notifuse: { emails_per_month: 50_000, members_max: 5 },
     },
@@ -141,6 +213,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     price_eur_yearly_per_month: 41, // 🚧 TODO_PRICE
     stripePriceId: { month: null, year: null }, // 🚧 TODO_STRIPE
     apps: ['notifuse'],
+    members_seats: 25, // §3.5 : business = 25 seats
     quotas: {
       notifuse: { emails_per_month: 500_000, members_max: 'unlimited' },
     },
@@ -164,6 +237,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     price_eur_yearly_per_month: null,
     stripePriceId: { month: null, year: null },
     apps: ['prospection'],
+    members_seats: 1,
     quotas: {
       prospection: { leads_total: 300, members_max: 1 },
     },
@@ -186,6 +260,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     price_eur_yearly_per_month: 24, // 🚧 TODO_PRICE
     stripePriceId: { month: null, year: null }, // 🚧 TODO_STRIPE
     apps: ['prospection'],
+    members_seats: 5,
     quotas: {
       prospection: { leads_total: 100_000, members_max: 5 },
     },
@@ -208,6 +283,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     price_eur_yearly_per_month: 41, // 🚧 TODO_PRICE
     stripePriceId: { month: null, year: null }, // 🚧 TODO_STRIPE
     apps: ['prospection'],
+    members_seats: 25,
     quotas: {
       prospection: { leads_total: 500_000, members_max: 'unlimited' },
     },
@@ -232,6 +308,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     price_eur_yearly_per_month: 33, // 🚧 TODO_PRICE
     stripePriceId: { month: null, year: null }, // 🚧 TODO_STRIPE
     apps: ['notifuse', 'prospection'],
+    members_seats: 5,
     quotas: {
       notifuse: { emails_per_month: 50_000, members_max: 5 },
       prospection: { leads_total: 100_000, members_max: 5 },
@@ -257,6 +334,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     price_eur_yearly_per_month: 66, // 🚧 TODO_PRICE
     stripePriceId: { month: null, year: null }, // 🚧 TODO_STRIPE
     apps: ['notifuse', 'prospection'],
+    members_seats: 25,
     quotas: {
       notifuse: { emails_per_month: 500_000, members_max: 'unlimited' },
       prospection: { leads_total: 500_000, members_max: 'unlimited' },
@@ -264,7 +342,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     features: [
       { label: 'Notifuse Business inclus (500k emails/mois)', included: true },
       { label: 'Prospection Enterprise inclus (500k prospects)', included: true },
-      { label: 'Membres illimités cross-app', included: true },
+      { label: '25 membres cross-app', included: true },
       { label: 'Support prioritaire', included: true },
       { label: 'SLA 99,9 % uptime', included: true },
     ],
@@ -282,6 +360,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     price_eur_yearly_per_month: null,
     stripePriceId: { month: null, year: null },
     apps: ['notifuse', 'prospection'],
+    members_seats: 5, // équivalent pro
     quotas: {
       notifuse: { emails_per_month: 50_000, members_max: 5 },
       prospection: { leads_total: 100_000, members_max: 5 },
@@ -303,6 +382,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     price_eur_yearly_per_month: null,
     stripePriceId: { month: null, year: null },
     apps: ['notifuse', 'prospection'],
+    members_seats: 25, // équivalent business
     quotas: {
       notifuse: { emails_per_month: 500_000, members_max: 'unlimited' },
       prospection: { leads_total: 500_000, members_max: 'unlimited' },
@@ -324,6 +404,7 @@ export const PLANS: Record<PlanKey, Plan> = {
     price_eur_yearly_per_month: null,
     stripePriceId: { month: null, year: null },
     apps: ['notifuse', 'prospection'],
+    members_seats: 'unlimited',
     quotas: {
       notifuse: { emails_per_month: 'unlimited', members_max: 'unlimited' },
       prospection: { leads_total: 'unlimited', members_max: 'unlimited' },

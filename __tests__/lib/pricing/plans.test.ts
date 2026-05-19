@@ -6,6 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   PLANS,
+  APPS,
   PUBLIC_PLANS,
   PAYABLE_PLANS,
   MANUAL_PLANS,
@@ -102,6 +103,70 @@ describe('PLANS catalogue', () => {
     const valid = ['stripe', 'manual', 'lifetime_site_vitrine', 'lifetime_partner', 'internal'];
     for (const plan of Object.values(PLANS)) {
       expect(valid).toContain(plan.plan_source);
+    }
+  });
+
+  // ─── v1.3 — members_seats cross-app ───
+
+  it('CONTRAT §3.5 : chaque plan a un quota members_seats défini', () => {
+    for (const plan of Object.values(PLANS)) {
+      expect(plan.members_seats).toBeDefined();
+    }
+  });
+
+  it('CONTRAT §3.5 : free plans = 1 seat solo', () => {
+    expect(PLANS['notifuse-free'].members_seats).toBe(1);
+    expect(PLANS['prospection-free'].members_seats).toBe(1);
+  });
+
+  it('CONTRAT §3.5 : pro plans (incl. bundle) = 5 seats', () => {
+    expect(PLANS['notifuse-pro'].members_seats).toBe(5);
+    expect(PLANS['prospection-pro'].members_seats).toBe(5);
+    expect(PLANS['veridian-pro'].members_seats).toBe(5);
+    expect(PLANS['lifetime-site-vitrine'].members_seats).toBe(5);
+  });
+
+  it('CONTRAT §3.5 : business/enterprise (incl. bundle) = 25 seats', () => {
+    expect(PLANS['notifuse-business'].members_seats).toBe(25);
+    expect(PLANS['prospection-enterprise'].members_seats).toBe(25);
+    expect(PLANS['veridian-business'].members_seats).toBe(25);
+    expect(PLANS['lifetime-partner'].members_seats).toBe(25);
+  });
+
+  it('CONTRAT §3.5 : internal = unlimited', () => {
+    expect(PLANS['internal'].members_seats).toBe('unlimited');
+  });
+});
+
+describe('APPS catalogue (v1.3)', () => {
+  it('contient les 4 apps Veridian', () => {
+    expect(Object.keys(APPS).sort()).toEqual(['analytics', 'cms', 'notifuse', 'prospection']);
+  });
+
+  it('CONTRAT §3.6 : Notifuse + Prospection = self_serve, pas client_only', () => {
+    expect(APPS.notifuse.self_serve).toBe(true);
+    expect(APPS.notifuse.client_only).toBe(false);
+    expect(APPS.prospection.self_serve).toBe(true);
+    expect(APPS.prospection.client_only).toBe(false);
+  });
+
+  it('CONTRAT §3.6 : Analytics + CMS = client_only (shadow marketing)', () => {
+    expect(APPS.analytics.client_only).toBe(true);
+    expect(APPS.analytics.self_serve).toBe(false);
+    expect(APPS.cms.client_only).toBe(true);
+    expect(APPS.cms.self_serve).toBe(false);
+  });
+
+  it('apps client_only ont une marketing_url définie pour CTA shadow', () => {
+    expect(APPS.analytics.marketing_url).toBeTruthy();
+    expect(APPS.cms.marketing_url).toBeTruthy();
+  });
+
+  it('chaque app a un display_name + tagline + icon', () => {
+    for (const app of Object.values(APPS)) {
+      expect(app.display_name).toBeTruthy();
+      expect(app.tagline).toBeTruthy();
+      expect(app.icon).toBeTruthy();
     }
   });
 });
