@@ -144,9 +144,22 @@ jobs:
             "docker logs hub-staging --tail 100" || true
           exit 1
 
+      # Staging accessible UNIQUEMENT via le tailnet Veridian depuis 2026-05-19
+      # (cf docs/CONTRAT-HUB.md §8.6). DNS *.staging.veridian.site → IP
+      # Tailscale 100.92.215.42, Traefik écoute uniquement cette interface.
+      # Le runner GitHub Actions rejoint le tailnet via OAuth (tag:ci-github)
+      # avant de hit l'URL staging.
+      - name: Tailscale (connect runner to tailnet for staging smoke)
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci-github
+          version: latest
+
       - name: Smoke test staging URL
         run: |
-          echo "Smoke test: ${{ env.STAGING_URL }}/api/health"
+          echo "Smoke test: ${{ env.STAGING_URL }}/api/health (via Tailscale)"
           for i in $(seq 1 6); do
             if curl -sf --max-time 10 "${{ env.STAGING_URL }}/api/health" | grep -q '"status":"ok"'; then
               echo "✓ Staging healthy: ${{ env.STAGING_URL }}"
