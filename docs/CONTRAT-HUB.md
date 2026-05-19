@@ -1764,62 +1764,112 @@ Filtre : `last_touched_at < NOW() - 90j AND status = 'active' AND plan IN ('free
 Affiche les candidats au soft delete proactif. Action de masse possible (mais
 chaque ligne confirme individuellement — pas de "soft-delete all" en 1 clic).
 
-### 8.6 Restriction réseau admin (Tailscale)
+### 8.6 Restriction réseau staging via Tailscale ✅ shipé 2026-05-19
 
-> 🔥 Gravé en v1.1.
+> 🔥 Gravé en v1.1, **shipé en intégralité 2026-05-19** (élargi du scope
+> "/admin/*" initial à TOUT le staging).
 
-#### 8.6.1 Objectif
+#### 8.6.1 État final shipé
 
-`/dashboard/admin/*` + `/api/admin/*` accessibles **uniquement via le réseau
-Tailscale Veridian**. Double protection avec `requireAdmin()` Auth.js.
+**Tout `*.staging.veridian.site` est accessible uniquement via le tailnet
+Veridian.** Effet net :
 
-#### 8.6.2 Implémentation v1.1 (rapide)
+- Robert + machines Tailscale → accès complet à toutes les apps staging.
+- Internet public → connection refused (Traefik ne bind plus l'IP publique).
+- CI GitHub Actions → rejoint le tailnet via OAuth + step
+  `tailscale/github-action@v3` avant le smoke test.
 
-Middleware Next.js dans `middleware.ts` :
+Plus besoin du middleware Next.js IP filter — la restriction est faite au
+niveau réseau (Traefik ne sert que sur l'interface Tailscale).
 
-```ts
-const TAILSCALE_CGNAT = "100.64.0.0/10";  // Tailscale official range
-const LOCAL_TRUSTED = ["127.0.0.1", "::1"];  // pour ADMIN_SECRET via curl interne
+#### 8.6.2 Composants concrets en place
 
-function isAdminPath(pathname: string) {
-  return pathname.startsWith("/dashboard/admin") ||
-         pathname.startsWith("/api/admin");
-}
+**A — DNS Cloudflare** : `*.staging.veridian.site → 100.92.215.42` (IP
+Tailscale de `dev-server-1`). Record A, proxied=false (CF ne peut pas
+relayer vers IPs privées).
 
-function clientIp(req: NextRequest): string {
-  // Lire X-Forwarded-For (Traefik en amont), prendre la première IP réelle.
-  const xff = req.headers.get("x-forwarded-for") || "";
-  return xff.split(",")[0].trim() || req.ip || "";
-}
+**B — Traefik bind Tailscale-only** : `~/traefik-staging/docker-compose.yml`
+sur dev-pub :
 
-function isAllowedIp(ip: string): boolean {
-  if (LOCAL_TRUSTED.includes(ip)) return true;
-  if (ipInCidr(ip, TAILSCALE_CGNAT)) return true;
-  return false;
-}
-
-// Dans le middleware :
-if (isAdminPath(pathname) && !isAllowedIp(clientIp(req))) {
-  // 404 (pas 403 — on ne révèle pas que la route existe)
-  return new NextResponse(null, { status: 404 });
-}
+```yaml
+ports:
+  - "100.92.215.42:80:80"
+  - "100.92.215.42:443:443"
 ```
 
-**Bypass autorisé** : la var `ALLOW_ADMIN_PUBLIC=true` en NODE_ENV=test ou
-NODE_ENV=development (pour les tests CI). Une garde au boot refuse cette var
-en production.
+Backup compose pré-modif : `~/traefik-staging/docker-compose.yml.bak-2026-05-19`.
 
-#### 8.6.3 Implémentation v2 (sous-domaine dédié — futur)
+**C — Tailscale ACL** : section `tagOwners` avec `tag:ci-github` (cf
+`~/tmp/tailscale-acl-veridian.jsonc` pour le format). Grant pour
+`tag:ci-github` → `dst: ["*"]`.
 
-Plus tard : exposer admin sur `admin.hub.veridian.site` avec un bind Traefik
-spécifique à l'IP Tailscale. Plus de middleware, séparation réseau pure.
+**D — Tailscale OAuth client** : généré dans Trust credentials, scope
+**Auth Keys Read+Write** avec tag `tag:ci-github`. Client ID +
+Secret stockés en GitHub Secrets `TS_OAUTH_CLIENT_ID` /
+`TS_OAUTH_SECRET` sur 3 repos (veridian-hub, veridian-prospection,
+veridian-cms).
 
-#### 8.6.4 Tests obligatoires
+**E — Workflows CI** : step `tailscale/github-action@v3` inséré AVANT
+les curl smoke staging :
 
-- Test CI : `curl http://hub-staging/api/admin/list-tenants` depuis une IP non-Tailscale → 404.
-- Test CI : `curl http://hub-staging/api/admin/list-tenants` depuis localhost interne avec ADMIN_SECRET → 200.
-- Smoke manuel : depuis ton Mac sur Tailscale → accède à `/dashboard/admin`,
-  vérifie auth + accès. Depuis 4G mobile → vérifie 404.
+```yaml
+- name: Tailscale (connect runner to tailnet for staging smoke)
+  uses: tailscale/github-action@v3
+  with:
+    oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+    oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+    tags: tag:ci-github
+    version: latest
+```
+
+Repos concernés (où les smoke steps tournent sur `ubuntu-latest`) :
+- `veridian-hub/.github/workflows/hub-staging.yml`
+- `veridian-prospection/.github/workflows/prospection-deploy-staging.yml`
+- `veridian-cms/.github/workflows/cms-staging.yml`
+
+**Notifuse skip** car son `deploy-staging` job tourne sur self-hosted
+runner (= dev-pub lui-même = déjà sur tailnet).
+
+**F — SSH port 22 reste public** : le `Deploy stack` step de chaque CI
+SSH dans dev-pub via le port 22 public (clés autorisées dans
+`/home/staging-deploy/.ssh/authorized_keys`). Non concerné par Tailscale.
+
+#### 8.6.3 Piège connu — Tailscale Serve
+
+Avant la mise en place, **un `tailscale serve` actif sur dev-pub
+interceptait le port 443 Tailscale** et empêchait Traefik d'y répondre.
+Symptôme : `TLS alert internal error` (TLS 80) sur tout SNI inconnu.
+
+Diagnostic : `sudo tailscale serve status` sur dev-pub doit retourner
+"No serve config". Si autre chose, fix avec :
+
+```bash
+sudo tailscale serve reset
+```
+
+ou bouger Tailscale Serve sur un autre port (`--https=8443`).
+
+#### 8.6.4 Tests à conserver
+
+- ✅ Test CI : Hub staging CI (run 26101569107, 2026-05-19) — step
+  Tailscale + smoke = vert. Preuve end-to-end.
+- ✅ Test manuel depuis device Tailscale : `curl
+  https://hub.staging.veridian.site/api/health` = 200.
+- ✅ Test manuel depuis device hors Tailscale (ou avec
+  `--resolve hub.staging.veridian.site:443:37.187.199.185`) : connection
+  refused (000).
+
+#### 8.6.5 Restauration en cas de problème
+
+Si on doit rebasculer staging public (urgence) :
+
+1. **DNS** : `curl PATCH cloudflare dns_record content=37.187.199.185`.
+2. **Traefik** : `cp ~/traefik-staging/docker-compose.yml.bak-2026-05-19
+   ~/traefik-staging/docker-compose.yml && cd ~/traefik-staging && sudo
+   docker compose down && sudo docker compose up -d`.
+3. **CI** : `git revert <commit Tailscale step>` sur les 3 repos.
+
+Backup intégral utilisable.
 
 ### 8.7 Config lifecycle ENV Hub
 
