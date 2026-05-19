@@ -308,6 +308,10 @@ if [ "$FAILED" -gt 0 ]; then
   echo "${RED}║ PUSH REFUSÉ — $FAILED violation(s) de la règle 1-pour-1     ║${NC}"
   echo "${RED}╚════════════════════════════════════════════════════════════╝${NC}"
   echo "Fix puis re-tente. JAMAIS --no-verify (Constitution CI §3)."
+  echo
+  echo "${YELLOW}message de robert: NE BACLE PAS LES TESTS, il faut les tester${NC}"
+  echo "${YELLOW}et s'assurer qu'ils soient pertinent et ne casse pas la ci pour${NC}"
+  echo "${YELLOW}rien et qu'ils durent !${NC}"
   exit 1
 fi
 
