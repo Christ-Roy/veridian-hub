@@ -12,7 +12,7 @@
 >   audit log, soft delete). Ce contrat-ci **n'y duplique rien**, il pointe.
 > - `CI-ARCHITECTURE.md` — pipeline CI/CD cross-app. Idem, pas de duplication.
 >
-> **Versionnage** : `v1.2` (2026-05-18 soir). Toute évolution majeure → bump version + section
+> **Versionnage** : `v1.3` (2026-05-19). Toute évolution majeure → bump version + section
 > "Changements" en bas.
 >
 > 🔥 **Règle absolue (gravée en v1.1)** : tout ce qui est décrit dans ce contrat
@@ -34,6 +34,8 @@
 1. [Pourquoi ce contrat](#1-pourquoi-ce-contrat)
 2. [Le modèle en 1 schéma](#2-le-modèle-en-1-schéma)
 3. [Plans Veridian — matrice cross-app](#3-plans-veridian--matrice-cross-app)
+   - 3.5 [Multi-membre = feature payante (v1.3)](#35-multi-membre--feature-payante-gravé-v13)
+   - 3.6 [Apps self-serve vs client_only (v1.3)](#36-apps-self-serve-vs-apps-shadow-marketing-gravé-v13)
 4. [Flow signup utilisateur](#4-flow-signup-utilisateur)
 5. [Endpoints obligatoires côté apps downstream](#5-endpoints-obligatoires-côté-apps-downstream)
    - 5.1–5.6 Endpoints standards
@@ -48,6 +50,10 @@
    - 5.15 [Rotation api_key (v1.2)](#515-rotation-api_key-tenant)
    - 5.16 [Transfer ownership (v1.2)](#516-transfert-downership)
    - 5.17 [Quotas exposés au provision (v1.2)](#517-quotas-exposés-à-lapp-au-provisioning)
+   - 5.18 [Sync membres tenant cross-app — Option C (v1.3)](#518-sync-des-membres-tenant-cross-app-option-c)
+   - 5.19 [Retrait d'un membre (v1.3)](#519-retrait-dun-membre)
+   - 5.20 [Restauration d'un membre (v1.3)](#520-restauration-dun-membre)
+   - 5.21 [Seat overage — soft warning 7j (v1.3)](#521-seat-overage--soft-warning-7-jours)
 6. [Authentification — 3 patterns](#6-authentification--3-patterns)
    - 6.5 [Convention env vars staging / prod](#65-convention-env-vars-stagingprod)
    - 6.6 [Mode dev local (SKIP_HMAC)](#66-mode-dev-local-skip_hmac)
@@ -58,6 +64,7 @@
    - 8.6 [Restriction réseau admin (Tailscale)](#86-restriction-réseau-admin-tailscale)
    - 8.7 [Config lifecycle ENV Hub](#87-config-lifecycle-env-hub)
    - 8.8 [Migration tenants existants vers v1.x (v1.2)](#88-migration-des-tenants-existants-vers-v1x)
+   - 8.9 [Shadow marketing apps (v1.3)](#89-affichage-shadow-marketing-pour-les-apps-client_only)
 9. [Inventaire features payantes par app](#9-inventaire-features-payantes-par-app)
 10. [Matrice de conformité](#10-matrice-de-conformité)
 11. [Onboarding d'une nouvelle app](#11-onboarding-dune-nouvelle-app)
@@ -196,6 +203,52 @@ implémenté via `plan_source` (cf `veridian-hub/app/api/admin/notifuse/update-p
 **Bundle Veridian** (à concevoir post-brainstorm) : prix dégressif vs cumul des
 plans individuels. Permet l'upsell "tu paies X pour Notifuse OU Y pour tout
 Veridian (économise N €)". Spec à graver une fois validée avec Robert.
+
+### 3.5 Multi-membre = feature payante (gravé v1.3)
+
+> 🔥 Décision business 2026-05-19 : la notion de membre additionnel est **réservée
+> aux plans payants**. Free/freemium = 1 user solo (le owner). Tout invité
+> nécessite un upgrade.
+
+**Quota seats par tier** (gravé dans `lib/pricing/plans.ts` champ `members_seats`) :
+
+| Tier | Seats inclus (owner compris) | Apps cross-app |
+|---|---|---|
+| `free` / `freemium` | **1** (owner solo) | Notifuse free, Prospection free |
+| `starter` (optionnel) | 1 ou 2 selon app | — |
+| `pro` | **5** | Notifuse pro, Prospection pro, Veridian pro bundle |
+| `business` / `enterprise` | **25** | Notifuse business, Prospection enterprise, Veridian business bundle |
+| `lifetime_site_vitrine` | 5 (équivalent pro) | toutes apps |
+| `lifetime_partner` | 25 (équivalent business) | toutes apps |
+| `internal` | `unlimited` | toutes apps |
+
+**Règle clé** : le quota seats est **cross-app**. Un user invité sur le tenant a
+accès à TOUTES les apps souscrites par le tenant. Si l'user A invite B sur un
+plan Veridian Pro, B voit Notifuse ET Prospection avec son magic link Hub.
+
+Cf §5.18 pour l'endpoint `invite-member` Hub qui applique le quota.
+
+### 3.6 Apps self-serve vs apps "shadow marketing" (gravé v1.3)
+
+> 🔥 Décision business 2026-05-19 : les apps Veridian se répartissent en deux
+> catégories selon le mode d'acquisition client.
+
+**Apps self-serve** (`self_serve: true` dans le catalogue) :
+- L'user peut s'inscrire au Hub, choisir un plan, payer via Stripe Checkout.
+- Visibles **actives** dans le Hub Dashboard.
+- Exemple : **Notifuse**, **Prospection**.
+
+**Apps "client_only"** (`client_only: true` dans le catalogue) :
+- L'app n'est PAS accessible via signup Hub direct.
+- Réservée aux **clients qui ont acheté un site vitrine Veridian** (offert dans
+  la vente, plan `lifetime_site_vitrine`).
+- Visibles **grisées** dans le Hub Dashboard pour tout autre user, avec badge
+  "Inclus avec un site Veridian".
+- Au click : **modal explicative** + CTA vers `https://veridian.site/sites`
+  (page marketing).
+- Exemple : **Analytics**, **CMS**.
+
+Cf §8.9 pour l'implémentation côté Hub Dashboard.
 
 ---
 
@@ -1145,6 +1198,228 @@ Quand `quotas` est envoyé par Hub, **il prime sur le hardcoded local**. Permet
 Pour modifier les quotas d'un tenant existant, le Hub appelle `update-plan`
 avec un nouveau champ `quotas` (extension de §5.2). L'app le merge.
 
+### 5.18 Sync des membres tenant cross-app (Option C)
+
+> 🔥 Gravé en v1.3 (2026-05-19). Source de vérité = Hub. Les apps gardent leurs
+> rôles internes (admin/member/visibility_scope pour Prospection, etc.) mais
+> reçoivent les members via webhook Hub.
+
+#### 5.18.1 Décision archi — Option C "modèle hybride"
+
+Le Hub stocke le **lien minimal** `user ↔ tenant` dans une nouvelle table
+`hub_app.tenant_members`. Chaque app downstream stocke ses propres `members`
+internes avec ses propres rôles. Hub propage les nouveaux membres aux apps
+via HMAC; chaque app applique localement.
+
+**Le Hub ne gère PAS les permissions fines.** Il sait juste "ce humain peut
+entrer dans ce tenant via SSO". L'app décide ce qu'il peut faire dedans.
+
+#### 5.18.2 Endpoint Hub `POST /api/admin/tenants/<id>/invite-member`
+
+**Auth** : admin Hub (`requireAdmin` + Tailscale §8.6) OU le user owner du
+tenant (pour self-service depuis `/dashboard/team`).
+
+**Request** :
+```json
+{
+  "email": "string (member to invite)",
+  "role": "member|admin (default: member, applied as default in each app)"
+}
+```
+
+**Comportement Hub** :
+1. Vérifie le quota `members_seats` du plan actuel (cf §3.5).
+   - Si dépassement → applique la politique soft warning 7j (cf §5.21).
+2. Crée ou réutilise un user Hub pour cet email.
+3. Crée invitation Hub (`hub_app.invitations` réutilisée) avec token magique.
+4. Envoie email d'invitation au nouvel email (via Notifuse Hub).
+5. À l'acceptation par l'invité (click magic link) :
+   - Ajoute ligne `hub_app.tenant_members` avec `joined_at`
+   - Propage **en synchrone** à chaque app downstream avec un `POST
+     /api/tenants/<id>/sync-member` HMAC (cf §5.18.3).
+   - Si une app retourne 5xx : retry 3× backoff, puis log warning. Hub
+     reste autoritatif.
+
+**Response 200** (invitation créée) :
+```json
+{
+  "tenant_id": "string",
+  "invited_email": "string",
+  "invitation_id": "string",
+  "magic_link": "string (URL acceptation, TTL 7 jours)",
+  "seats_used": 3,
+  "seats_total": 5,
+  "seats_warning": false
+}
+```
+
+**Response 402** (quota dépassé, soft warning actif) :
+```json
+{
+  "error": "seat_quota_exceeded_soft_warning",
+  "details": {
+    "seats_used": 6,
+    "seats_total": 5,
+    "warning_started_at": "ISO8601",
+    "warning_expires_at": "ISO8601 (now + 7j)",
+    "upgrade_url": "https://app.veridian.site/pricing?plan=veridian-business"
+  }
+}
+```
+
+**Response 402** (quota dépassé, soft warning expiré) :
+```json
+{
+  "error": "seat_quota_exceeded_hard",
+  "details": {
+    "seats_used": 6,
+    "seats_total": 5,
+    "frozen_members": ["x@y.com"],
+    "upgrade_url": "https://app.veridian.site/pricing?plan=veridian-business"
+  }
+}
+```
+
+#### 5.18.3 Endpoint app `POST /api/tenants/<id>/sync-member`
+
+**Auth** : HMAC Hub (§6.1).
+
+**Request** :
+```json
+{
+  "user_email": "string",
+  "hub_user_id": "string (Hub User.id, ref stable)",
+  "role": "member|admin (default role, app peut le surcharger en interne après)",
+  "invited_at": "ISO8601",
+  "joined_at": "ISO8601"
+}
+```
+
+**Response 200** :
+```json
+{
+  "tenant_id": "string",
+  "user_email": "string",
+  "synced": true,
+  "app_user_id": "string (id user côté app, peut différer de hub_user_id)",
+  "app_role": "string (rôle effectif côté app — peut être supérieur si l'app a élevé)"
+}
+```
+
+**Comportement obligatoire côté app** :
+1. Crée le user app local s'il n'existe pas (type=user, sans password, email
+   non vérifié — c'est le magic link Hub qui vérifie).
+2. Ajoute le user au workspace tenant (Prospection : `workspace_members` avec
+   rôle par défaut. Notifuse : `user_workspaces` avec rôle `member`).
+3. Idempotent : si user déjà membre, retourne 200 sans rien changer.
+4. **Ne JAMAIS retirer** un user existant (additif). Pour retrait, voir §5.19.
+
+#### 5.18.4 Webhook app → Hub `tenant.member_role_changed`
+
+Quand un app admin élève/abaisse un member en interne (ex: passer un member
+Prospection à admin via UI Prospection), l'app **doit** émettre ce webhook
+pour notifier le Hub (audit + cohérence cross-app).
+
+**Le Hub n'est PAS autoritatif sur les rôles internes app.** Ce webhook est
+informationnel uniquement. Hub stocke dans `tenant_members.last_known_app_role`
+pour visibilité admin, mais ne change rien.
+
+**Payload** :
+```json
+{
+  "event": "tenant.member_role_changed",
+  "tenant_id": "string",
+  "data": {
+    "user_email": "string",
+    "old_role": "string|null",
+    "new_role": "string",
+    "changed_by": "string (email admin app)"
+  },
+  "idempotency_key": "uuid v4"
+}
+```
+
+### 5.19 Retrait d'un membre
+
+#### 5.19.1 Endpoint Hub `POST /api/admin/tenants/<id>/remove-member`
+
+**Auth** : admin Hub ou owner du tenant.
+
+**Request** : `{"email": "string", "reason": "user_request|admin_action"}`
+
+**Response 200** :
+```json
+{
+  "tenant_id": "string",
+  "removed_email": "string",
+  "removed_at": "ISO8601",
+  "seats_used": 4,
+  "seats_total": 5
+}
+```
+
+**Comportement Hub** :
+1. Soft delete `tenant_members.deleted_at = NOW()`.
+2. Propage à chaque app via `POST /api/tenants/<id>/remove-member` HMAC.
+3. Libère un seat pour le quota.
+
+**Garde-fou** : impossible de retirer le owner. 409 `cannot_remove_owner`.
+Pour transférer l'ownership, utiliser §5.16 (transfer-owner).
+
+#### 5.19.2 Endpoint app `POST /api/tenants/<id>/remove-member`
+
+**Comportement obligatoire** : soft delete localement (le user reste en DB
+pour audit + restauration éventuelle), bloque ses accès en lecture/écriture
+côté app. Sa data (leads créés, emails envoyés) reste attachée au tenant.
+
+### 5.20 Restauration d'un membre
+
+Si l'admin Hub a retiré un membre par erreur :
+
+**Endpoint Hub** `POST /api/admin/tenants/<id>/restore-member { email }`
+
+**Comportement** : annule le soft delete `tenant_members.deleted_at = NULL`,
+propage à chaque app via webhook `tenant.member_restored`, chaque app annule
+son soft delete local.
+
+### 5.21 Seat overage — Soft warning 7 jours
+
+> 🔥 Politique gravée en v1.3 par Robert : ni refus dur, ni overage automatique.
+> Soft warning donne au user 7j pour décider (upgrade ou retirer un membre).
+
+#### 5.21.1 Détection
+
+À chaque invitation acceptée (passage `invited_at` → `joined_at`), Hub
+recalcule `seats_used = count(tenant_members WHERE deleted_at IS NULL)`.
+
+Si `seats_used > seats_total` (plan dépassé) :
+- Hub crée/update `hub_app.seat_warnings { tenant_id, started_at, expires_at = started_at + 7j }`.
+- Hub envoie email au owner : "⚠️ Tu as dépassé ton quota de seats. Tu as 7
+  jours pour upgrader ou retirer un membre."
+- L'invitation passe (ce N+1 membre est actif normalement pendant 7j).
+
+#### 5.21.2 Comportement pendant les 7j
+
+- Tous les members existants restent actifs (rétro-actif gentil).
+- Toute **nouvelle** invitation pendant la fenêtre → 402 `seat_quota_exceeded_soft_warning`
+  (l'invité supplémentaire est bloqué tant que la situation n'est pas réglée).
+- Hub envoie rappel email à J+3, J+6.
+
+#### 5.21.3 À J+7 si pas résolu
+
+- Hub envoie email final : "❌ Quota dépassé. Les N derniers membres invités
+  passent en lecture seule jusqu'à upgrade."
+- Hub propage à chaque app via webhook `tenant.member_frozen { user_emails: [...] }`.
+- Apps mettent ces users en mode dégradé paywall obfusqué (§5.9) côté lecture,
+  402 sur écriture.
+- L'owner upgrade → Hub envoie `tenant.member_unfrozen` → apps lèvent le gel.
+
+#### 5.21.4 Default conservateur si l'app n'implémente pas le freeze
+
+Si l'app n'a pas câblé le freeze de membres : log warning Hub, mais le
+flag soft warning Hub reste actif. Le quota côté Hub bloque les nouvelles
+invitations, c'est suffisant comme protection minimale.
+
 ---
 
 ## 6. Authentification — 3 patterns
@@ -1606,6 +1881,54 @@ auront `plan_source = NULL` côté DB locale. Hub détecte ça via le diff
 **Conclusion** : la migration manquante est rattrapée automatiquement, mais
 c'est de la dette explicite à corriger sous 1 semaine après déploiement.
 
+### 8.9 Affichage shadow marketing pour les apps client_only
+
+> 🔥 Gravé en v1.3 (2026-05-19). Cf §3.6 pour la décision business.
+
+#### 8.9.1 Logique d'affichage Hub Dashboard
+
+Dans `app/dashboard/page.tsx`, chaque card d'app a 3 états possibles :
+
+1. **Active visible** : l'app est `self_serve: true` OU le tenant a un plan qui
+   l'inclut (typiquement `lifetime_site_vitrine`). Card normale avec bouton
+   "Open" ou "Commencer l'essai gratuit".
+
+2. **Shadow grisée** : l'app est `client_only: true` ET le tenant n'a PAS de
+   plan qui l'inclut. Card grisée, badge "Inclus avec un site Veridian",
+   pas de bouton actif. Au click → modal explicative (§8.9.2).
+
+3. **Cachée** : aucune (toutes les apps sont au moins en shadow pour
+   discoverability marketing).
+
+#### 8.9.2 Modal explicative (CTA shadow apps)
+
+Quand un user click une card shadow grisée, une modale s'ouvre :
+
+- **Titre** : "Veridian Analytics" (ou nom de l'app)
+- **Body** : "Cette application est incluse avec l'achat d'un site vitrine
+  Veridian. Découvre nos offres clé en main pour entrepreneurs et TPE."
+- **Bouton primaire** : "Voir les sites Veridian" → ouvre
+  `https://veridian.site/sites` dans un nouvel onglet (`target="_blank"
+  rel="noopener"`).
+- **Bouton secondaire** : "Fermer".
+
+#### 8.9.3 Source de vérité
+
+Le flag `client_only` / `self_serve` vient de `lib/pricing/plans.ts` (catalogue).
+Une app n'est jamais hardcodée comme "shadow" — c'est dérivé du catalogue.
+
+Si demain Robert décide qu'Analytics devient self-serve aussi, il flip le flag
+dans le catalogue et la card devient automatiquement active pour tout le monde.
+
+#### 8.9.4 Exception : owner de plan lifetime_site_vitrine
+
+Pour un tenant avec un plan offert `lifetime_site_vitrine` (client qui a
+acheté un site) :
+- Les cards Analytics + CMS s'affichent **actives** (pas grisées).
+- Bouton "Open Analytics" / "Open CMS" actif (même flow magic link que
+  Notifuse).
+- L'invité (member) de ce tenant voit aussi les cards actives.
+
 ---
 
 ## 9. Inventaire features payantes par app
@@ -1758,6 +2081,26 @@ Chaque app doit déclarer dans `<app>/docs/features-by-plan.md` :
 | `purge` accepte Idempotency-Key | ❌ | ❌ | ❌ | ❌ |
 | Stockage `veridian_idempotency_keys` | ❌ | ❌ | ❌ | ❌ |
 | Cleanup cron expired | ❌ | ❌ | ❌ | ❌ |
+
+### 10.9 Multi-membre cross-app (v1.3)
+
+| Item | Notifuse | Prospection | Analytics | CMS |
+|---|---|---|---|---|
+| `POST /api/tenants/<id>/sync-member` | ❌ | ❌ | ❌ | ❌ |
+| `POST /api/tenants/<id>/remove-member` | ❌ | ❌ | ❌ | ❌ |
+| Webhook `tenant.member_role_changed` | ❌ | ❌ | ❌ | ❌ |
+| Migration backfill `hub_app.tenant_members` au deploy | — | ❌ ticket déposé | — | — |
+| Freeze members soft warning §5.21 | ❌ | ❌ | ❌ | ❌ |
+| Mode dégradé paywall sur members frozen | ❌ | ❌ | ❌ | ❌ |
+
+### 10.10 Shadow marketing apps (v1.3)
+
+| Item | Hub | Notifuse | Prospection | Analytics | CMS |
+|---|---|---|---|---|---|
+| Flag `self_serve`/`client_only` dans catalogue | ✅ v1.3 | self_serve | self_serve | client_only | client_only |
+| Card grisée + badge si client_only et pas lifetime | ❌ TODO | — | — | — | — |
+| Modal CTA "Voir les sites Veridian" | ❌ TODO | — | — | — | — |
+| Activation auto si tenant=lifetime_site_vitrine | ❌ TODO | — | — | — | — |
 
 ---
 
@@ -2202,6 +2545,52 @@ chaque app retry indéfiniment avec backoff plafond 1h.
 ---
 
 ## 16. Changements
+
+### v1.3 — 2026-05-19
+
+Suite brainstorm Robert sur SSO multi-membre cross-app et apps client_only.
+
+**Décisions business gravées** :
+
+- §3.5 Multi-membre = feature payante. Free=1 seat solo, Pro=5 seats,
+  Business=25 seats. Cross-app (1 membre voit toutes les apps souscrites).
+- §3.6 Apps `self_serve` (Notifuse, Prospection) vs `client_only` (Analytics,
+  CMS — réservées aux clients sites vitrines via lifetime_site_vitrine).
+
+**Archi Option C — modèle hybride multi-membre** :
+
+- §5.18 `POST /api/admin/tenants/<id>/invite-member` côté Hub : check quota
+  seats, crée invitation Hub avec magic link, propage HMAC à chaque app via
+  `POST /api/tenants/<id>/sync-member`.
+- §5.18.3 `POST /api/tenants/<id>/sync-member` côté apps : crée user local +
+  ajoute au workspace avec rôle par défaut. Idempotent. Additif uniquement.
+- §5.18.4 Webhook `tenant.member_role_changed` app→Hub : informationnel pour
+  audit cross-app, Hub NON-autoritatif sur les rôles internes app.
+- §5.19 `POST /api/admin/tenants/<id>/remove-member` + propagation `POST
+  /api/tenants/<id>/remove-member` aux apps (soft delete local).
+- §5.20 `POST /api/admin/tenants/<id>/restore-member` pour annuler retrait
+  par erreur.
+- §5.21 Seat overage : politique soft warning 7j (pas refus dur, pas overage
+  facturable). Email J+0, J+3, J+6. À J+7 si non résolu : freeze des
+  derniers invités en lecture seule via webhook `tenant.member_frozen` /
+  `tenant.member_unfrozen` après upgrade.
+
+**Refonte Hub Dashboard** :
+
+- §8.9 Logique 3 états : Active visible / Shadow grisée / (Cachée non utilisé).
+- §8.9.2 Modal explicative au click shadow → CTA "Voir les sites Veridian"
+  vers `https://veridian.site/sites`.
+- §8.9.4 Exception : tenants `lifetime_site_vitrine` voient Analytics + CMS
+  comme des apps actives normales.
+
+**Migration des données existantes** :
+
+- §10.9 Prospection backfille `hub_app.tenant_members` depuis ses
+  `workspace_members` au prochain deploy v1.3 (migration douce). Notifuse
+  pareil pour `user_workspaces`.
+
+**Inchangé depuis v1.2** : §1-§2, §3.1-§3.4, §4, §5.1-§5.17, §6, §7,
+§8.1-§8.8, §9, §11-§15.
 
 ### v1.2 — 2026-05-18 (soir)
 
