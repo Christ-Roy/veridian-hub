@@ -115,7 +115,7 @@ jobs:
   structural-gate:
     name: Structural change gate (staging fresh)
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     outputs:
       has-structural: ${{ steps.detect.outputs.has-structural }}
     steps:
@@ -135,7 +135,7 @@ jobs:
 
   docker:
     needs: [test, audit, trivy-fs, structural-gate]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     # GitHub-hosted depuis extraction polyrepo (2026-05-13). Le self-hosted
     # runner [self-hosted, veridian] n'est pas enregistré sur ce repo.
     runs-on: ubuntu-latest
@@ -264,7 +264,7 @@ jobs:
 
   e2e-prod-smoke:
     needs: deploy-prod
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
