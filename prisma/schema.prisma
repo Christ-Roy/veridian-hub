@@ -401,3 +401,24 @@ model UsageMetric {
   @@map("usage_metrics")
   @@schema("hub_app")
 }
+
+// ============================================================================
+// AUDIT LOG — traces des actions admin (API admin, scripts, agents IA)
+// ============================================================================
+// Append-only. Aucune route ne fait UPDATE ni DELETE sur cette table.
+// Cible : forensics + reproductibilité des actions de provisioning manuel.
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  action     String // ex: 'admin.user.create', 'admin.tenant.link', 'admin.tenant.unlink'
+  actor      String // ex: 'admin:robert.brunon@veridian.site', 'token:HUB_ADMIN_TOKEN'
+  targetType String?  @map("target_type") // 'user' | 'tenant' | 'app_link'
+  targetId   String?  @map("target_id")
+  payload    Json?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([action, createdAt])
+  @@index([targetId])
+  @@map("audit_log")
+  @@schema("hub_app")
+}
