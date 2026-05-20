@@ -40,10 +40,15 @@ de l'admin API. **9 issues trouvées**, 6 fixées en prod dans la session,
 
 ## ⏳ Restent à fixer (créer tickets dédiés)
 
-### MEDIUM — Headers de sécurité HTTP manquants
+### ✅ MEDIUM — Headers de sécurité HTTP — FIXÉ 2026-05-20 (veridian-infra commit `7030d94`)
 
-Pas de HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy
-sur les responses Traefik. Ticket déposé dans `veridian-infra/todo/2026-05-20-traefik-security-headers.md`.
+Middleware `veridian-security-headers` câblé en global sur l'entryPoint
+websecure de Traefik prod (HSTS 6 mois, frameDeny, contentTypeNosniff,
+referrerPolicy strict-origin, Permissions-Policy bloquant camera/mic/geo).
+S'applique à toutes les apps prod (Hub, Notifuse, CMS, Prospection,
+Analytics, verger-shop, Dokploy).
+
+CSP non livré (trop complexe générique, ticket dédié si besoin).
 
 ### ✅ MEDIUM — Brute-force password limité à 30/min/IP — FIXÉ 2026-05-20 (commit `5330dfe`)
 
