@@ -134,3 +134,14 @@ export const adminApiLimiter = new RateLimiter({
   windowMs: 60_000,
   name: 'admin-api',
 });
+
+// Anti-DoS sur l'endpoint signup public. Sans ça, un attaquant peut créer
+// des milliers de users en quelques secondes → pollution DB + spam MX
+// (chaque user crédentiels reçoit potentiellement un email bienvenue) +
+// stats produit corrompues. 5/min/IP est généreux pour un humain légitime
+// (qui ne signup qu'une fois dans sa vie) tout en bloquant les bots.
+export const signupLimiter = new RateLimiter({
+  capacity: 5,
+  windowMs: 60_000,
+  name: 'signup',
+});

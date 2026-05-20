@@ -27,23 +27,51 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks();
   userStore.clear();
+  // Reset rate-limit entre les tests (sinon les 5+ tests successifs saturent)
+  const { signupLimiter } = await import('@/lib/auth/rate-limit');
+  signupLimiter.reset();
 });
 
+let testIpCounter = 0;
 function makeReq(body: any) {
+  // Chaque test utilise une IP différente pour éviter la saturation au sein
+  // du fichier (les beforeEach reset le limiter aussi, double sécu).
+  testIpCounter += 1;
   return {
     json: async () => body,
+    headers: new Headers({ 'x-forwarded-for': `10.0.0.${testIpCounter}` }),
   } as any;
 }
 
 describe('POST /api/auth/signup', () => {
   it('rejects invalid JSON', async () => {
     const { POST } = await import('@/app/api/auth/signup/route');
-    const req = { json: async () => { throw new Error('bad'); } } as any;
+    const req = {
+      json: async () => { throw new Error('bad'); },
+      headers: new Headers({ 'x-forwarded-for': '10.99.0.1' }),
+    } as any;
     const res = await POST(req);
     expect(res.status).toBe(400);
+  });
+
+  it('rate-limit : 6e signup depuis même IP → 429', async () => {
+    const { POST } = await import('@/app/api/auth/signup/route');
+    const sameIpReq = (body: any) => ({
+      json: async () => body,
+      headers: new Headers({ 'x-forwarded-for': '10.42.0.99' }),
+    } as any);
+    // 5 signups successifs (mêmes credentials → rate-limit AVANT validation Zod)
+    for (let i = 0; i < 5; i++) {
+      const res = await POST(sameIpReq({ email: `flood-${i}@x.io`, password: 'longenough' }));
+      expect([200, 201, 409]).toContain(res.status);
+    }
+    // 6e doit être 429
+    const blocked = await POST(sameIpReq({ email: 'flood-6@x.io', password: 'longenough' }));
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers.get('Retry-After')).toBeTruthy();
   });
 
   it('rejects missing email/password', async () => {

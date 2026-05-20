@@ -19,6 +19,7 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 
 import { prisma } from '@/lib/prisma';
+import { signupLimiter, extractClientIp } from '@/lib/auth/rate-limit';
 
 const signupSchema = z.object({
   email: z.string().email(),
@@ -26,6 +27,25 @@ const signupSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  // Anti-DoS : 5 signups/min/IP. Au-delà → 429 + Retry-After.
+  const ip = extractClientIp(request.headers);
+  const rate = signupLimiter.enforce(ip);
+  if (!rate.ok) {
+    console.warn(
+      JSON.stringify({
+        tag: '[signup-ratelimit]',
+        level: 'warn',
+        ip,
+        retry_after_s: rate.retryAfterSeconds,
+        ts: new Date().toISOString(),
+      })
+    );
+    return NextResponse.json(
+      { error: 'rate_limited', message: 'Trop de tentatives. Patientez avant de réessayer.' },
+      { status: 429, headers: { 'Retry-After': String(rate.retryAfterSeconds) } }
+    );
+  }
+
   let payload: unknown;
   try {
     payload = await request.json();

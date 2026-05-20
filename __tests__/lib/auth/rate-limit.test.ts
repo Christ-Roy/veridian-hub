@@ -156,4 +156,14 @@ describe('exported limiter instances', () => {
     expect(oauthCallbackLimiter.enforce('test-ip-cb').ok).toBe(false);
     oauthCallbackLimiter.reset();
   });
+
+  it('exports signupLimiter avec capacity 5/min (anti-DoS signup public)', async () => {
+    const { signupLimiter } = await import('@/lib/auth/rate-limit');
+    signupLimiter.reset();
+    for (let i = 0; i < 5; i++) {
+      expect(signupLimiter.enforce('test-ip-signup').ok).toBe(true);
+    }
+    expect(signupLimiter.enforce('test-ip-signup').ok).toBe(false);
+    signupLimiter.reset();
+  });
 });
