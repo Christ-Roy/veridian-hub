@@ -4,6 +4,24 @@
 > **Sévérité** : 🟡 P2 (bonne UX, attendu sur tout SaaS standard)
 > **Owner** : agent Hub
 > **Créé** : 2026-05-20
+> **✅ LIVRÉ** : 2026-05-20 (commit `8cdd83a`, smoke prod OK)
+>
+> **Réalisé** :
+> - `GET /api/account/connected-providers` — liste safe (zéro token leak)
+> - `DELETE /api/account/connected-providers/[provider]` — anti-lockout
+>   strict (409 si dernier provider), refuse 'credentials' (400),
+>   404 si pas connecté, happy paths 200
+> - `components/account/ConnectedProvidersList.tsx` — UI client : liste +
+>   bouton "Connecter Google/Microsoft" + "Déconnecter"
+> - Intégré dans `app/dashboard/settings/page.tsx` (Card "Méthodes de connexion")
+> - 13 tests vitest (7 API + 6 RTL), total 360/360 vert
+> - Smoke prod : `/api/account/connected-providers` → 401 sans auth ✓
+>
+> **Non livré (hors scope minimum, à reprendre si besoin métier)** :
+> - Provider "primary" (peu utile avec 2 OAuth providers seulement)
+> - Audit log `hub_app.audit_log` (table à créer — ticket dédié)
+> - Révocation refresh token Google via `oauth2.googleapis.com/revoke`
+>   (pas critique : la row DB supprimée invalide déjà le login via ce provider)
 
 ## Contexte
 
