@@ -1,5 +1,11 @@
 // Boolean toggles to determine which auth types are allowed
-const allowOauth = true;
+//
+// allowOauth gated sur DEPLOY_ENV : OAuth Google/Microsoft désactivé côté
+// staging car hub.staging.veridian.site est derrière Tailscale (cf. memory
+// reference_staging_tailscale_privatisation.md). Une redirect URI privée
+// déclarée chez Google/Microsoft fait du red flag réputation potentiel.
+// Test OAuth = local-dev avec Client dev → localhost:3000, ou en prod direct.
+const allowOauth = process.env.DEPLOY_ENV !== 'staging';
 const allowEmail = true;
 const allowPassword = true;
 

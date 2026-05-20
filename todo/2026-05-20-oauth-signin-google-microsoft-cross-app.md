@@ -40,8 +40,14 @@ qui détaille les 13 scénarios A-M et leur priorité de traitement.
 qui spécifie le refactor du flow invitation Prospection pour passer par le Hub.
 
 **Reste côté infra (non bloquant pour Phase 1)** :
-- Staging Google + Microsoft OAuth : workflow `hub-staging.yml` patch commit
-  `b85b6b9` câble les ENV au .env dev server (en cours de redéploy)
+- ❌ **Staging OAuth Google + Microsoft INTENTIONNELLEMENT DÉSACTIVÉ**
+  (décision Robert 2026-05-20 après mise en place) : `hub.staging.veridian.site`
+  est derrière Tailscale (IP privée 100.92.215.42), déclarer cette redirect
+  URI chez Google/Microsoft = red flag réputation potentiel sur le Client
+  OAuth partagé avec prod. Boutons OAuth gated `DEPLOY_ENV !== 'staging'`
+  dans `utils/auth-helpers/settings.ts`. Tests OAuth = local-dev avec
+  `localhost:3000` (déjà déclaré dans Client Google), ou prod direct.
+  Cf. memory `feedback_oauth_pas_sur_staging_tailscale.md`.
 - Brand verification Google (optionnel, ~2-3j review) à soumettre si on
   bascule en "In production" (cap 100 users en Testing actuel)
 - Publisher Verification Microsoft (optionnel, exige Microsoft AI Cloud

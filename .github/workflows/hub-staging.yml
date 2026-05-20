@@ -111,14 +111,19 @@ jobs:
           PROSPECTION_TENANT_API_SECRET_STAGING: ${{ secrets.PROSPECTION_TENANT_API_SECRET_STAGING }}
           NOTIFUSE_HUB_API_SECRET_STAGING: ${{ secrets.NOTIFUSE_HUB_API_SECRET_STAGING }}
           NOTIFUSE_HUB_WEBHOOK_SECRET_STAGING: ${{ secrets.NOTIFUSE_HUB_WEBHOOK_SECRET_STAGING }}
-          # OAuth Sign-in providers staging (Google réutilise le client prod ;
-          # Microsoft réutilise le client multi-tenant créé via az ad app create
-          # 2026-05-20). Sans ces secrets, le compose staging fallback à des
-          # valeurs vides → boutons OAuth retournent ?error=Configuration.
-          GOOGLE_OAUTH_CLIENT_ID_STAGING: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID_STAGING }}
-          GOOGLE_OAUTH_CLIENT_SECRET_STAGING: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET_STAGING }}
-          MICROSOFT_OAUTH_CLIENT_ID_STAGING: ${{ secrets.MICROSOFT_OAUTH_CLIENT_ID_STAGING }}
-          MICROSOFT_OAUTH_CLIENT_SECRET_STAGING: ${{ secrets.MICROSOFT_OAUTH_CLIENT_SECRET_STAGING }}
+          # ⚠️ OAuth Sign-in (Google/Microsoft) PAS configuré côté staging
+          # à cause de la privatisation Tailscale (hub.staging.veridian.site
+          # → IP Tailscale 100.92.215.42 non résolvable publiquement). Si on
+          # déclarait cette redirect URI côté Google/Microsoft, les providers
+          # feraient un check public qui échouerait → red flag réputation
+          # potentiel pour le Client OAuth Veridian Hub partagé avec prod.
+          #
+          # Décision 2026-05-20 (cf. memory reference_staging_tailscale_privatisation.md) :
+          # - Staging = test du flow non-OAuth (credentials + magic link)
+          # - Test OAuth = en local-dev (avec Client dev → localhost:3000) ou
+          #   en prod direct
+          # - LoginForm.tsx + SignupForm.tsx cachent les boutons OAuth si
+          #   DEPLOY_ENV=staging via NEXT_PUBLIC_DEPLOY_ENV
         run: |
           set -euo pipefail
 
@@ -136,10 +141,6 @@ jobs:
             printf 'PROSPECTION_TENANT_API_SECRET_STAGING=%s\n' "$PROSPECTION_TENANT_API_SECRET_STAGING"
             printf 'NOTIFUSE_HUB_API_SECRET_STAGING=%s\n' "$NOTIFUSE_HUB_API_SECRET_STAGING"
             printf 'NOTIFUSE_HUB_WEBHOOK_SECRET_STAGING=%s\n' "$NOTIFUSE_HUB_WEBHOOK_SECRET_STAGING"
-            printf 'GOOGLE_OAUTH_CLIENT_ID_STAGING=%s\n' "$GOOGLE_OAUTH_CLIENT_ID_STAGING"
-            printf 'GOOGLE_OAUTH_CLIENT_SECRET_STAGING=%s\n' "$GOOGLE_OAUTH_CLIENT_SECRET_STAGING"
-            printf 'MICROSOFT_OAUTH_CLIENT_ID_STAGING=%s\n' "$MICROSOFT_OAUTH_CLIENT_ID_STAGING"
-            printf 'MICROSOFT_OAUTH_CLIENT_SECRET_STAGING=%s\n' "$MICROSOFT_OAUTH_CLIENT_SECRET_STAGING"
           } > "$ENVFILE"
           scp -i ~/.ssh/staging_key "$ENVFILE" "$DEV_USER@$DEV_HOST:${{ env.STAGING_DIR }}/.env"
           rm -f "$ENVFILE"
