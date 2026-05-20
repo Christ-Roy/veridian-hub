@@ -162,6 +162,11 @@ describe('APPS catalogue (v1.3)', () => {
     expect(APPS.cms.marketing_url).toBeTruthy();
   });
 
+  it('marketing_url shadow pointe vers la racine veridian.site (pas /sites qui n_existe pas)', () => {
+    expect(APPS.analytics.marketing_url).toBe('https://veridian.site');
+    expect(APPS.cms.marketing_url).toBe('https://veridian.site');
+  });
+
   it('chaque app a un display_name + tagline + icon', () => {
     for (const app of Object.values(APPS)) {
       expect(app.display_name).toBeTruthy();

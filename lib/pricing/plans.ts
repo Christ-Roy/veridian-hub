@@ -140,7 +140,7 @@ export const APPS: Record<VeridianApp, AppMetadata> = {
     client_only: true,
     tagline: 'Dashboard multi-tenant (pageviews, GSC, appels SIP)',
     icon: '📊',
-    marketing_url: 'https://veridian.site/sites',
+    marketing_url: 'https://veridian.site',
   },
   cms: {
     key: 'cms',
@@ -149,7 +149,7 @@ export const APPS: Record<VeridianApp, AppMetadata> = {
     client_only: true,
     tagline: 'CMS multi-tenant (Payload) pour vos sites',
     icon: '📝',
-    marketing_url: 'https://veridian.site/sites',
+    marketing_url: 'https://veridian.site',
   },
 };
 
