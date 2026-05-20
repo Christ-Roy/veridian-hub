@@ -4,6 +4,26 @@
 > **Sévérité** : 🟡 P2 (pas urgent tant que trafic faible, devient critique à scale)
 > **Owner** : agent Hub
 > **Créé** : 2026-05-20
+> **🟡 LIVRÉ PARTIELLEMENT** : 2026-05-20 (commit `f0daf44`)
+>
+> **✅ Phase 1 livrée** :
+> - Rate limiter IP-based in-memory (`lib/auth/rate-limit.ts`) :
+>     * 10 req/min/IP sur `/api/auth/signin*`
+>     * 30 req/min/IP sur `/api/auth/callback*`
+>     * Autres routes Auth.js (`/session`, `/csrf`, `/providers`) NON limitées
+> - Wrap des handlers Auth.js avec 429 + Retry-After header
+> - Logger structuré `[auth-error][critical]` sur Configuration et
+>   OAuthCallbackError (déjà livré dans le commit error-banner via `auth.ts`
+>   logger override — JSON stderr, prêt pour pipeline Grafana Loki)
+> - 22 tests vitest (382/382 vert)
+> - Smoke prod validé : `/signin x12` → 10× 302 puis 429 dès la 11e
+>
+> **⏳ Reste à faire** (phases 2-3, à découpler en tickets dédiés) :
+> - Table `hub_app.oauth_signin_events` (migration Prisma) — pour audit log
+> - Endpoint admin `GET /api/admin/oauth-events` (consultation timeline)
+> - Alerting Telegram via cron Grafana ou webhook si > 50 callback
+>   failures Hub en 5 min
+> - Migration `console.log` → Pino partout (gros refactor, à découpler)
 
 ## Contexte
 
