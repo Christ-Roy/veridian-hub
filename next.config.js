@@ -3,14 +3,32 @@ const nextConfig = {
   // Enable standalone output for Docker
   output: 'standalone',
 
-  // Image optimization
+  // Image optimization — WHITELIST STRICTE pour bloquer SSRF (CVE-2024-34351)
+  // et abuse de bande passante via /_next/image?url=<anything>.
+  //
+  // Avant 2026-05-20 : `hostname: '**'` = catastrophe sécu (wildcard total).
+  // Maintenant : on whitelist UNIQUEMENT les hostnames vraiment utilisés.
+  // Si on ajoute un nouveau provider d'avatars (ex. Microsoft Graph), il
+  // faudra l'ajouter explicitement ici. Le `<Image>` avec un hostname non-
+  // whitelisté retourne 400.
   images: {
     remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: '**',
-      },
+      // Avatars Google OAuth (User.image après login Google)
+      { protocol: 'https', hostname: 'lh3.googleusercontent.com' },
+      // Avatars Microsoft Graph (futur — pas utilisé actuellement mais
+      // l'OAuth Microsoft retourne potentiellement une URL ici)
+      { protocol: 'https', hostname: 'graph.microsoft.com' },
+      // Assets internes Veridian (CDN futur, logos, etc.)
+      { protocol: 'https', hostname: 'cdn.veridian.site' },
+      { protocol: 'https', hostname: 'assets.internal.veridian.site' },
     ],
+    // Sert les images Next-optimisées avec Content-Disposition: attachment
+    // → empêche le rendu inline de fichiers non-image qui auraient passé
+    // les filtres (défense en profondeur).
+    contentDispositionType: 'attachment',
+    // CSP minimaliste pour les images servies par /_next/image : interdit
+    // toute action active (script, frame). Cf. doc Next.js sur image security.
+    contentSecurityPolicy: "default-src 'none'; script-src 'none'; sandbox;",
   },
 
   // Allow cross-origin requests in dev mode (behind Traefik reverse proxy)
