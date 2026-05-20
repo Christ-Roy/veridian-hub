@@ -40,6 +40,9 @@ yarn-error.log*
 # editors
 .vscode
 
+# Claude Code runtime state (par machine, jamais commit)
+.claude/scheduled_tasks.lock
+
 # certificates
 certificates
 .env*.local
