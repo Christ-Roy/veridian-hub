@@ -7,6 +7,7 @@
 
 import type { NextAuthConfig } from 'next-auth';
 import Google from 'next-auth/providers/google';
+import MicrosoftEntraID from 'next-auth/providers/microsoft-entra-id';
 
 export const authConfig = {
   // Cookies session : 90 jours (3 mois)
@@ -32,6 +33,13 @@ export const authConfig = {
           prompt: 'select_account',
         },
       },
+    }),
+    // Multi-tenant (issuer par défaut common/v2.0/) — accepte comptes Microsoft
+    // Work/School ET personnels (Outlook, Xbox, Skype). Cf. décision D4 du ticket
+    // todo/2026-05-20-oauth-signin-google-microsoft-cross-app.md.
+    MicrosoftEntraID({
+      clientId: process.env.MICROSOFT_OAUTH_CLIENT_ID,
+      clientSecret: process.env.MICROSOFT_OAUTH_CLIENT_SECRET,
     }),
     // Le CredentialsProvider (email/password legacy) est branché uniquement
     // dans auth.ts (Node runtime) parce qu'il a besoin de Prisma + bcrypt.

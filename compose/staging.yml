@@ -19,6 +19,7 @@
 #
 # Optionnels (fallback values pour permettre au container de démarrer) :
 #   GOOGLE_OAUTH_CLIENT_ID_STAGING / _SECRET_STAGING
+#   MICROSOFT_OAUTH_CLIENT_ID_STAGING / _SECRET_STAGING
 #   NOTIFUSE_*_STAGING
 #   PROSPECTION_TENANT_API_SECRET_STAGING
 # ============================================================================
@@ -41,6 +42,8 @@ services:
       NEXTAUTH_URL: https://hub.staging.veridian.site
       GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID_STAGING:-}
       GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET_STAGING:-}
+      MICROSOFT_OAUTH_CLIENT_ID: ${MICROSOFT_OAUTH_CLIENT_ID_STAGING:-}
+      MICROSOFT_OAUTH_CLIENT_SECRET: ${MICROSOFT_OAUTH_CLIENT_SECRET_STAGING:-}
 
       # ─── DB locale à la stack ──────────────────────────────────────────
       DATABASE_URL: postgresql://hub:${POSTGRES_PASSWORD:-staging-pwd}@hub-db:5432/hub?schema=hub_app

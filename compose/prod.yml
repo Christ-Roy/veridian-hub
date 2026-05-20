@@ -25,6 +25,8 @@ services:
       NEXTAUTH_URL: https://app.veridian.site
       GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID}
       GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET}
+      MICROSOFT_OAUTH_CLIENT_ID: ${MICROSOFT_OAUTH_CLIENT_ID:-}
+      MICROSOFT_OAUTH_CLIENT_SECRET: ${MICROSOFT_OAUTH_CLIENT_SECRET:-}
 
       # ─── DB prod partagée ──────────────────────────────────────────────
       DATABASE_URL: postgresql://veridian:${VERIDIAN_CORE_DB_PASSWORD}@veridian-core-db:5432/veridian?schema=hub_app
