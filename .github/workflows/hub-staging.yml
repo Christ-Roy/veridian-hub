@@ -103,6 +103,14 @@ jobs:
           IMAGE_TAG: ${{ steps.tag.outputs.image-tag }}
           HUB_AUTH_SECRET: ${{ secrets.STAGING_HUB_AUTH_SECRET }}
           POSTGRES_PASSWORD: ${{ secrets.STAGING_POSTGRES_PASSWORD }}
+          # Secrets cross-app : doivent être identiques aux containers
+          # prospection-staging (TENANT_API_SECRET) et notifuse-staging
+          # (HUB_API_SECRET / HUB_WEBHOOK_SECRET). Sans ça, le compose
+          # fallback sur "staging-secret" → 401 Invalid signature sur tous
+          # les appels Hub → Prospection / Notifuse.
+          PROSPECTION_TENANT_API_SECRET_STAGING: ${{ secrets.PROSPECTION_TENANT_API_SECRET_STAGING }}
+          NOTIFUSE_HUB_API_SECRET_STAGING: ${{ secrets.NOTIFUSE_HUB_API_SECRET_STAGING }}
+          NOTIFUSE_HUB_WEBHOOK_SECRET_STAGING: ${{ secrets.NOTIFUSE_HUB_WEBHOOK_SECRET_STAGING }}
         run: |
           set -euo pipefail
 
@@ -117,6 +125,9 @@ jobs:
             printf 'HUB_IMAGE_TAG=%s\n' "$IMAGE_TAG"
             printf 'HUB_AUTH_SECRET=%s\n' "$HUB_AUTH_SECRET"
             printf 'POSTGRES_PASSWORD=%s\n' "$POSTGRES_PASSWORD"
+            printf 'PROSPECTION_TENANT_API_SECRET_STAGING=%s\n' "$PROSPECTION_TENANT_API_SECRET_STAGING"
+            printf 'NOTIFUSE_HUB_API_SECRET_STAGING=%s\n' "$NOTIFUSE_HUB_API_SECRET_STAGING"
+            printf 'NOTIFUSE_HUB_WEBHOOK_SECRET_STAGING=%s\n' "$NOTIFUSE_HUB_WEBHOOK_SECRET_STAGING"
           } > "$ENVFILE"
           scp -i ~/.ssh/staging_key "$ENVFILE" "$DEV_USER@$DEV_HOST:${{ env.STAGING_DIR }}/.env"
           rm -f "$ENVFILE"
