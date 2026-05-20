@@ -260,20 +260,29 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
+      # Filtre fin : `[risk:low]` doit être dans le subject (1ère ligne).
+      # Si présent uniquement dans le body (ex: agent qui mentionne "pas de
+      # marker [risk:low]" pour expliquer son absence), on skip silencieusement
+      # les steps de promotion — le job reste vert pour ne pas polluer les
+      # notifs Telegram avec des "failures" cosmétiques.
       - name: Check [risk:low] is in subject line (not just body)
+        id: check_subject
         env:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
           set -euo pipefail
           SUBJECT=$(echo "$COMMIT_MSG" | head -1)
-          if ! echo "$SUBJECT" | grep -q '\[risk:low\]'; then
-            echo "::error::Marker [risk:low] présent dans le body mais pas dans le subject — promotion bloquée. Cf. CI-ARCHITECTURE §20.4."
+          if echo "$SUBJECT" | grep -q '\[risk:low\]'; then
+            echo "in_subject=true" >> "$GITHUB_OUTPUT"
+            echo "✓ Marker [risk:low] dans le subject — auto-promote autorisée"
+          else
+            echo "in_subject=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Marker [risk:low] absent du subject (présent dans le body uniquement) — promotion non déclenchée. Cf. CI-ARCHITECTURE §20.4."
             echo "Subject : $SUBJECT"
-            exit 1
           fi
-          echo "✓ Marker [risk:low] dans le subject — auto-promote autorisée"
 
       - name: Fast-forward main to staging
+        if: steps.check_subject.outputs.in_subject == 'true'
         env:
           STAGING_SHA: ${{ github.sha }}
         run: |
@@ -292,6 +301,7 @@ jobs:
       # fait par GITHUB_TOKEN (sécurité anti-loop). On déclenche hub-ci.yml
       # explicitement pour que l'étage 3 prod tourne.
       - name: Trigger hub-ci.yml on main
+        if: steps.check_subject.outputs.in_subject == 'true'
         env:
           GH_TOKEN: ${{ secrets.AUTO_PROMOTE_PAT || secrets.GH_AUTOPROMOTE_PAT || secrets.GITHUB_TOKEN }}
         run: |
@@ -299,7 +309,11 @@ jobs:
           echo "✓ hub-ci.yml déclenché sur main"
 
       - name: Telegram notify
-        if: always()
+        # Notifier seulement si on a réellement promu (marker dans subject).
+        # Si le marker n'était que dans le body, le job sort vert sans rien
+        # faire — l'autre job (notify-promotion-needed) gère la notif "reco
+        # attendue". Pas besoin de spammer "auto-promote skipped".
+        if: always() && steps.check_subject.outputs.in_subject == 'true'
         env:
           TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}

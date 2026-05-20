@@ -66,10 +66,20 @@ Migration `20260520180000_add_audit_log_actor_index` appliquée DB staging +
 prod. Index `(actor, created_at DESC)`. Endpoint forensics dédié
 `GET /api/admin/audit-log?actor=...` qui exerce l'index.
 
-### LOW — Erreur Auth.js details exposés ?
+### ✅ LOW — Erreur Auth.js details exposés ? — VÉRIFIÉ NO-LEAK 2026-05-20
 
-Vérifier que Auth.js v5 ne fuit pas de stack trace en prod (NODE_ENV=production
-devrait masquer, mais à valider sur une route qui throw).
+Test prod direct :
+- `POST /api/auth/callback/credentials` avec creds bidons → 302 propre,
+  body vide.
+- `GET /api/auth/callback/google?error=bla&error_description=test` →
+  302 vers `/login?error=Configuration` → page rend une bannière i18n
+  user-friendly ("Le provider de connexion n'est pas correctement configuré.
+  L'équipe Veridian a été notifiée. Réessayez plus tard ou utilisez
+  email/mot de passe.").
+
+Pas de stack trace, pas de chemin filesystem, pas de digest exposé,
+pas de noms de modules internes. Auth.js v5 + Next 15.5.18 + NODE_ENV=production
+font le job par défaut. Aucune action requise.
 
 ### NOT-A-BUG (acceptés)
 
