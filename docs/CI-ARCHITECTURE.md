@@ -1656,30 +1656,68 @@ sur Prospection ; les autres apps doivent en avoir un (warning).
 > promotion. **L'agent arbitre seul et exécute** ; Robert est manager, pas valideur
 > obligatoire. Objectif : zéro casse prod sans ralentir la vitesse de dev.
 
-### 20.1 Principe — l'agent est responsable, pas demandeur
+### 20.1 Principe — l'agent est un dev senior, pas un stagiaire qui demande
 
-Chaque commit/série de commits sur `staging` est **classifié par l'agent** selon
-le risque qu'il représente pour la prod. Le chemin de promotion `staging → main`
-dépend de cette classification.
+> 🔥 **Esprit de la section** : §20 fournit un **cadre d'aide à l'arbitrage**,
+> PAS une checklist rigide à suivre aveuglément. L'agent est un dev senior
+> de confiance qui arbitre par jugement, en utilisant la grille comme un
+> outil — pas comme une religion.
 
-**Inversion 2026-05-20** : l'agent ne demande plus la permission `go/stop`
-sur chaque promo. C'est un **subordonné senior de confiance**, pas un junior
-qui valide chaque action. Le cadre §20 lui donne :
-- une **grille de classification objective** (§20.3),
-- des **protocoles de validation par tier** (§20.4-20.7),
-- des **garde-fous techniques** (pre-push, CI gates, marker `[risk:low]`),
-- une **piste d'audit** (la reco écrite est la trace, pas la demande).
+**Posture attendue de l'agent** :
 
-L'agent **exécute la promo** dès que :
-1. Le tier est correctement classifié (validation auto par garde-fous).
-2. Le protocole de validation du tier est exécuté et vert.
-3. La reco écrite est produite (et envoyée à Robert pour audit/info).
+- Tu lis le diff, tu réfléchis à ce que ça change pour les users, tu décides.
+- La grille §20.3 est une **aide à la décision**, pas un oracle. Si elle dit
+  "🔴 HAUT" mais que ton jugement de senior dit "en vrai c'est anodin
+  (ex : ajout d'un commentaire dans `lib/auth/`)", tu **arbitres au jugement**
+  et tu documentes pourquoi dans la reco. À l'inverse, si elle dit "🟡 MOYEN"
+  mais que tu sens un risque caché (ex : un changement de surface API
+  invisible), tu **escalades de toi-même**.
+- Tu n'attends **JAMAIS** de validation pour un truc évident. Demander `go`
+  sur une promo tier 🟡 propre = junior qui ne se mouille pas. Honteux.
+- Tu n'invoques pas le "protocole" pour te dédouaner. C'est TOI qui réponds
+  du résultat, pas le protocole. Si tu promotes et ça casse, tu rollback et
+  tu fais le post-mortem — pas "j'ai suivi la checklist donc c'est pas ma faute".
 
-L'agent **demande explicitement** seulement pour le **tier 💀 CRITIQUE**
-(cf. §20.7). Pour les autres tiers, Robert intervient **uniquement par veto
-explicite** : "stop", "rollback", "attends", "annule". L'agent doit alors :
+**Le cadre §20 te donne** :
+- une **grille de classification** (§20.3) pour partir d'une base raisonnable,
+- des **protocoles types par tier** (§20.4-20.7) qui sont des *patterns*, pas
+  des *commandements*,
+- des **garde-fous techniques automatiques** (pre-push, CI gates, marker
+  `[risk:low]`) qui rattrapent les erreurs grossières,
+- une **piste d'audit** (la reco écrite) que Robert peut lire pour comprendre
+  ta décision après coup.
+
+**L'agent exécute la promo** dès qu'il a fait le travail de senior :
+1. Lire le diff, comprendre l'impact réel.
+2. Classifier avec jugement (la grille aide, ne décide pas).
+3. Valider selon le tier (CI, E2E, monitoring — choisir ce qui est pertinent).
+4. Produire la reco écrite (audit + explication du raisonnement).
+5. Promote, monitorer, rollback si problème.
+
+**L'agent demande explicitement** seulement pour le **tier 💀 CRITIQUE**
+(cf. §20.7) — actions irréversibles qui engagent le business. Pour tout le
+reste, Robert intervient **uniquement par veto explicite** : "stop",
+"rollback", "attends", "annule". L'agent doit alors :
 - Si la promo n'est pas encore faite → annuler le merge.
 - Si la promo est faite → exécuter le rollback documenté dans la reco.
+
+**Anti-pattern à NE PLUS JAMAIS faire** :
+- ❌ Produire une reco écrite + "Pour promote, réponds `go`." → tu as déjà
+  décidé, exécute.
+- ❌ "Je propose la promo, valide quand tu veux." → friction inutile.
+- ❌ Lancer la batterie complète E2E + smoke + monitoring pour un commit de
+  doc parce que "le tier global est 🔴" — utiliser le jugement, doc dans un
+  pack mixte ne nécessite pas la même validation que le code applicatif.
+- ❌ Demander "Je peux promote maintenant ?" → c'est NON par construction,
+  la question elle-même est la faute (cf. CLAUDE.md global §7).
+
+**Pattern correct** :
+- ✅ "Décision agent : PROMOTE PROD MAINTENANT (rollback prêt). → Veto via
+  stop/rollback si tu vois passer ça." + exécution immédiate.
+- ✅ Choisir le niveau de validation au jugement (pas toutes les étapes
+  systématiquement — adapter au vrai risque vu dans le diff).
+- ✅ Si dans le doute entre 2 tiers, prendre le plus haut **et expliquer
+  pourquoi** dans la reco.
 
 ### 20.1.1 Veto manager — comment Robert reprend la main
 
@@ -1757,126 +1795,218 @@ le staging passe vert.
 `lib/auth/**` ou `prisma/**`. Le pre-push hook a un check qui détecte les
 incohérences (cf. §20.7).
 
-### 20.5 Protocole tier 🟡 MOYEN — agent promote après reco écrite
+### 20.5 Boîte à outils de validation — anti-régression à la demande
 
-**Séquence agent** (autonome, pas de go Robert) :
+> 🔥 **Idée clé** : l'agent dispose d'une **bibliothèque d'outils de validation**
+> à dégainer selon le risque qu'il voit dans le diff. Plus le doute est fort,
+> plus l'agent pioche profond. Aucune obligation rigide : c'est du **jugement
+> senior** appliqué à la liste.
+>
+> **Les outils "lourds" ne tournent PAS en CI** — volontairement. Les empiler
+> dans la CI à chaque push staging exploserait le temps de feedback (CI Hub
+> actuelle ~6-8 min, on ne veut pas la mettre à 20+ min). Ces outils sont
+> **opt-in agent**, à exécuter localement quand la situation le justifie.
 
-1. Push staging → attendre staging CI vert.
-2. Produire la **reco écrite** dans le chat (audit / info Robert).
-3. **Exécuter la promo** : `git checkout main && git merge --ff-only origin/staging && git push origin main`.
-4. Watch run CI prod jusqu'à vert.
-5. Smoke prod (curl /api/health + check chunks JS hash si pertinent).
-6. **Si Robert poste un veto pendant les étapes 2-5** → arrêter la promo OU
-   rollback selon où on en est (cf. §20.1.1).
+#### Outils CI automatiques (à chaque push staging)
 
-Format de la reco écrite (audit log, pas demande de validation) :
+Ces outils tournent **toujours** sur staging et fournissent la **base de
+validation gratuite**. L'agent les considère comme acquis.
+
+| Outil | Coût | Couverture |
+|---|---|---|
+| `pnpm test` (vitest 298 tests) | ~15s | Unitaires + intégration légers |
+| `pnpm exec tsc --noEmit` | ~30s | Type safety stricte |
+| `pnpm exec eslint` (next lint) | ~10s | Lint + best practices |
+| `pnpm exec playwright test e2e/core` | ~30s | Smoke headless : health, login render, auth-guards, public-pages |
+| `scripts/ci/check-test-mapping.sh` | <1s | Mapping 1-pour-1 (mode Nuclear) |
+| `scripts/ci/check-compose-sync.sh` | ~2s | Cohérence compose base/prod/staging |
+| `scripts/ci/check-migration-safety.sh` | <1s | Détection DROP/RENAME bloquants |
+| `scripts/ci/check-risk-marker.sh` | <1s | Marker `[risk:low]` cohérent avec diff |
+| Trivy FS + Image scan | ~60s | CVE + secrets + license |
+| Build Docker + smoke staging `/api/health` | ~3min | Image fonctionne post-deploy |
+
+Si une seule de ces étapes est rouge → **STOP**, l'agent fix avant toute promo.
+Pas de "passe quand même parce que je suis pressé".
+
+#### Outils lourds opt-in agent (hors CI, lancés à la main)
+
+L'agent les pioche **quand il sent que la base CI ne suffit pas**. Pas de
+règle "tier X = outil Y obligatoire" — c'est du jugement.
+
+| Outil | Coût | Quand l'agent le dégaine |
+|---|---|---|
+| `pnpm e2e:staging:full` (Playwright headfull, config dédiée §20.9) | ~5-15 min | Touche au flow auth, billing, OAuth, signup, dashboard critique |
+| Chrome MCP `navigate` + parcours manuel | 5-30 min selon scope | Flow visuel critique (form complexe, paiement, UX nuancée). Screenshots possibles. **Le plus fidèle du réel.** |
+| `mcp__claude-in-chrome__read_console_messages` | qq sec | Vérifier qu'aucune erreur JS ne casse silencieusement la page |
+| `mcp__claude-in-chrome__read_network_requests` | qq sec | Vérifier que l'app n'appelle pas une URL morte ou ne fuite pas un endpoint |
+| Test DB clone prod → staging | 10-30 min | Migration DB sensible, valider que le `prisma migrate` ne casse rien sur de la vraie data |
+| Dry-run sur compte test prod | variable | Rotation secret, modif Stripe pricing, refactor flow webhook — valider sur un compte isolé |
+| Tail logs prod 30 min post-deploy via Dokploy API | passif | Détection de patterns d'erreurs qui n'apparaissent que sous trafic réel |
+| `docker logs prod-hub --since 5m \| grep -E "ERR|WARN"` | qq sec | Spot-check ad hoc |
+| Comparaison HTML/JS hash prod vs staging via curl | qq sec | Vérifier que le déploiement a vraiment poussé le code attendu (cf §18.1) |
+
+**Règle d'or** : à chaque promo, l'agent se pose la question :
+
+> *"Si demain la prod casse à cause de ce commit, qu'est-ce que j'aurais aimé
+> avoir testé avant ?"*
+
+S'il y a une réponse claire, il dégaine l'outil correspondant **maintenant**,
+pas après.
+
+#### Batteries de tests lourds spécifiques à câbler (à venir)
+
+Selon le besoin réel rencontré, l'agent peut **créer de nouvelles batteries
+lourdes** dans `e2e/staging-full/` ou ailleurs. Exemples qui pourraient
+émerger :
+
+- `e2e/billing-full/` — parcours Stripe complet : signup → choisir plan →
+  payer test card → vérifier webhook reçu → dashboard montre l'abonnement
+- `e2e/multi-tenant/` — créer 3 tenants en parallèle, vérifier l'isolation
+- `e2e/oauth-real-accounts/` — vraies sessions Google + Microsoft avec
+  comptes de test dédiés
+- `e2e/cross-app-flow/` — Hub → Notifuse magic link → Hub → Prospection
+
+**Toutes en local uniquement, jamais dans la CI partagée.** Si une batterie
+devient stable et rapide (< 1 min), elle peut migrer vers le smoke CI
+`e2e/core/`. Sinon elle reste opt-in agent.
+
+### 20.6 Patterns d'arbitrage — exemples, pas commandements
+
+> 🔥 **Lis bien : ce sont des PATTERNS, pas des règles**. L'agent adapte
+> selon le diff réel. La grille §20.3 sert d'orientation initiale, le
+> jugement senior fait le reste.
+
+#### Pattern tier 🟢 BAS — auto-promote via marker
+
+L'agent juge que le commit ne peut pas casser la prod (doc, todo, test
+ajouté sans modif source, refactor purement interne). Il ajoute `[risk:low]`
+**dans le subject** du commit. La CI fait le merge ff-only main + push +
+trigger CI prod automatiquement.
+
+L'agent ne fait **rien de plus**. Pas de monitoring, pas de reco écrite —
+juste un commit propre + push.
+
+**Anti-pattern** : taguer `[risk:low]` "pour aller vite" sur un truc qui
+touche du code applicatif. Le pre-push hook `check-risk-marker.sh` détecte
+les incohérences et refuse le push. Tentative de bypass = faute grave.
+
+#### Pattern tier 🟡 MOYEN — promo après reco écrite
+
+Pattern de référence :
+
+1. Push staging → attendre CI staging vert (outils §20.5 niveau "CI automatique").
+2. L'agent **regarde le diff** et se demande s'il a besoin de plus.
+   - Modif UI dashboard avec un peu de logique React ? → Chrome MCP rapide pour vérifier visuellement.
+   - Nouvelle route API non-auth ? → curl rapide depuis staging pour valider la réponse réelle.
+   - Bump dépendance patch ? → le smoke CI suffit, rien à ajouter.
+3. Produire la **reco écrite** (audit log).
+4. **Exécuter la promo** : `git checkout main && git merge --ff-only origin/staging && git push origin main` + watch CI prod.
+5. Spot-check prod après deploy (curl /api/health, chunks hash si pertinent).
+6. Si veto Robert pendant la fenêtre → annuler ou rollback selon §20.1.1.
+
+Le tier 🟡 ne **nécessite pas** systématiquement le headfull. L'agent juge.
+
+#### Pattern tier 🔴 HAUT — promo après validation lourde
+
+Le diff touche un chemin critique. L'agent **pioche dans la boîte à outils
+opt-in** ce qui est pertinent pour CE diff précis :
+
+- Modif `auth.config.ts` ajout provider OAuth → `pnpm e2e:staging:full` (qui
+  couvre le redirect provider) + Chrome MCP pour cliquer le vrai bouton et
+  voir le consent screen.
+- Modif `lib/stripe/` flow billing → dry-run sur compte Stripe test + vérif
+  webhook reçu + comparaison schéma DB.
+- Migration Prisma Expand/Contract → clone DB prod sur staging, `prisma
+  migrate deploy`, vérifier que rows existants survivent + test backward-
+  compat avec image précédente.
+- Modif workflow CI lui-même → tester en dry-run sur une branche jetable
+  avant push staging si possible ; sinon E2E headfull pour vérifier que
+  l'app rend normalement après le redéploiement.
+
+Puis :
+1. Produire la **reco écrite** détaillée (tous les outils dégaīnés listés).
+2. **Exécuter la promo**.
+3. **Monitoring renforcé 10-30 min post-deploy** :
+   - Smoke prod toutes les 1-2 min.
+   - Tail logs Hub via Dokploy API.
+   - Si Grafana alert / 5xx > 1% / health 500 → **auto-rollback** sans demander.
+4. Fermer la reco à T+30min avec "✅ prod stable" ou "✗ rollback effectué".
+
+**Si un outil opt-in échoue** : l'agent n'invente pas une excuse pour
+contourner — il fix sur staging et relance. La règle d'or §20.5 vaut
+toujours : *"qu'est-ce que j'aurais aimé avoir testé avant ?"*
+
+#### Format de la reco écrite
+
+C'est un **audit log**, pas une demande de validation. Format souple,
+contenu obligatoire :
 
 ```
-🟡 PROMO STAGING → PROD — Hub commit <sha7>
+🟡/🔴 PROMO STAGING → PROD — Hub commit <sha7>
 
 Changement : <résumé 1 phrase>
-Tier de risque : MOYEN
-Justification : <pourquoi MOYEN et pas HAUT/BAS>
+Tier de risque : <BAS/MOYEN/HAUT> (cf grille §20.3)
+Justification du tier : <pourquoi ce tier et pas un autre>
 
 Surface touchée :
   - <fichier 1> (<raison brève>)
   - <fichier 2> (<raison brève>)
 
-Validation effectuée :
+Validation effectuée (outils dégaīnés depuis §20.5) :
   ✅ CI staging vert (run #<n> — <lien>)
-  ✅ Tests unitaires : <X>/<X> passent
-  ✅ Smoke headless staging : 200 sur /api/health, dashboard render
-  ✅ Pas de migration DB
-  ✅ Fail-safe vérifié : <comment ça dégrade si X tombe>
+  ✅ <outil 1 utilisé> : <résultat>
+  ✅ <outil 2 utilisé> : <résultat>
+  [ajouter autant que pertinent, ne pas mettre des cases vides pour faire joli]
 
 Risques résiduels :
-  - <risque 1 + impact>
-  - <risque 2 + mitigation>
+  - <risque 1 + impact + mitigation>
 
-Décision agent : PROMOTE PROD MAINTENANT (rollback prêt sur <SHA précédent>)
-              ou  HOLD (raison : <...>)
+Décision agent : PROMOTE PROD MAINTENANT (rollback prêt sur <SHA>)
+              ou  HOLD (raison : <...>) + ticket dans todo/
+
+Monitoring post-deploy : <durée et outils utilisés, ou "smoke ponctuel">
 
 → Veto Robert via "stop" / "rollback" si tu vois passer ça.
 ```
 
-**Si l'agent décide HOLD** (rare en tier 🟡) : le commit reste sur staging,
-l'agent écrit une note dans `todo/` expliquant pourquoi, et continue à
-travailler. Pas d'attente passive de Robert.
+**HOLD légitime** (agent refuse de promote de lui-même) : si l'agent a un
+doute qu'aucun outil opt-in ne peut lever (ex : changement de surface API
+externe qui dépend d'un provider tiers indisponible pour test), il écrit
+une note dans `todo/` et continue à bosser. Pas d'attente passive.
 
-### 20.6 Protocole tier 🔴 HAUT — agent promote après E2E headfull + monitoring
+### 20.7 Tier 💀 CRITIQUE — la seule exception au "agent arbitre seul"
 
-Tier HAUT = l'agent **doit** lancer le script E2E headfull avant de promote :
+**SEUL TIER** où l'agent demande explicitement go/stop à Robert.
+Justification : ces actions sont **irréversibles ou business-engageantes**
+au point qu'un rollback ne suffit pas à réparer les dégâts.
 
-```bash
-pnpm e2e:staging:full
-```
+Exemples (non exhaustif) :
+- DROP COLUMN / ALTER NOT NULL sur table avec rows actifs en prod
+- Rotation secret avec sessions actives en cours
+- Suppression de tenant prod actif
+- Modification du contrat HMAC Hub↔app downstream
+- Modif pricing Stripe avec impact tenants existants
+- Refactor du flow webhook Stripe (revenue à risque)
 
-Ce script (cf. §20.8) parcourt en navigateur réel sur `hub.staging.veridian.site`
-les 5-8 user journeys critiques (signup, login Google, login Microsoft si secret
-configuré, dashboard, billing portal, settings, etc.).
+**Process** :
 
-**Séquence agent** (autonome, pas de go Robert) :
+1. L'agent décrit la modif et le tier à Robert **avant même le push staging**
+   ("c'est un tier 💀 CRITIQUE parce que…").
+2. Robert répond `ok` ou `stop` (ou demande à voir le plan détaillé).
+3. L'agent prépare un **plan de rollback exhaustif** (commandes exactes,
+   secret de bascule, trigger de revert, fallback DB, etc.).
+4. Push staging seulement après le `ok`. Toute la **boîte à outils §20.5**
+   est dégainée (E2E headfull + Chrome MCP + dry-run sur compte test + clone
+   DB si migration + tail logs sandbox + ...).
+5. L'agent fournit la **reco tier 🔴 enrichie** : diff annoté ligne par
+   ligne sur les chemins sensibles, résultats de tous les outils opt-in
+   utilisés, plan de rollback complet.
+6. **Deuxième `go` de Robert nécessaire avant la promo main**.
+7. Promo + monitoring renforcé 30 min post-deploy + agent reste actif
+   pendant toute la fenêtre.
 
-1. Push staging → attendre staging CI vert.
-2. Lancer `pnpm e2e:staging:full` → exiger 100% des parcours verts.
-3. Produire la **reco écrite** (cf. format 20.5, avec section "E2E headfull").
-4. **Exécuter la promo** : ff-merge + push main + trigger hub-ci.yml.
-5. Watch CI prod jusqu'à vert.
-6. **Monitoring 10 min post-deploy** :
-   - Smoke prod toutes les 1 min (`curl https://app.veridian.site/api/health`).
-   - Tail logs Hub via Dokploy API (`docker.getContainerLogs`) — chercher errors.
-   - Si Grafana alert / 5xx > 1% / health 500 → **auto-rollback** sans demander.
-7. Si tout vert à T+10 min → fermer la reco avec "✅ prod stable, monitoring OK".
-
-**Si E2E headfull échoue à au moins 1 parcours** : pas de promo, l'agent
-investigue et fix sur staging d'abord. Reco écrite avec section "BLOQUÉ".
-
-La reco ajoute par rapport au tier 🟡 :
-
-```
-🔴 PROMO STAGING → PROD — Hub commit <sha7>
-
-[... même format que 20.5 ...]
-
-Validation effectuée :
-  ✅ CI staging vert
-  ✅ Tests unitaires
-  ✅ Smoke headless CI
-  ✅ E2E headfull staging : 9/9 parcours OK (rapport : e2e-headfull-<sha7>.json)
-  ✅ Monitoring post-deploy programmé : 10 min smoke + tail logs
-  ✅ Plan rollback : git revert <sha> + push main (auto si trigger)
-
-[... idem ...]
-
-Décision agent : PROMOTE PROD MAINTENANT
-                + monitoring auto 10 min
-                + rollback auto si anomalie
-
-→ Veto Robert via "stop" / "rollback" pendant la fenêtre.
-```
-
-### 20.7 Protocole tier 💀 CRITIQUE — 4 yeux + dry-run
-
-**SEUL TIER** où l'agent demande explicitement go/stop. Justification :
-ces actions sont **irréversibles** (DROP COLUMN, rotation secret en cours
-de session active, suppression de tenant) et engagent le business.
-
-L'agent ne pousse même pas le commit sur staging sans avoir préalablement :
-
-1. Décrit la modif et le tier à Robert ("c'est un tier CRITIQUE parce que…").
-2. Reçu un `ok pour staging` explicite.
-3. Préparé un plan de rollback détaillé (commandes exactes, secret de bascule,
-   trigger de revert, etc.).
-
-Après staging vert et toute la batterie de tests :
-
-- L'agent fournit la reco tier 🔴 + un **diff annoté ligne par ligne** des
-  changements sur les chemins sensibles.
-- L'agent propose un **dry-run** si possible (ex : test du flow de rotation
-  secret sur un compte test, sans toucher au compte principal).
-- Robert répond `go` ou `stop`.
-- Sur `go` : promotion main + monitoring renforcé 30 min post-deploy.
-- Sur `stop` : freeze automatique de l'app jusqu'à `unfreeze`.
+Sur `stop` à n'importe quelle étape : freeze automatique de l'app jusqu'à
+`unfreeze`. L'agent n'insiste pas.
 
 ### 20.8 Outil agent — script E2E headfull staging
 
