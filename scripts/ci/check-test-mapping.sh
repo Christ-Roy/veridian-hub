@@ -287,14 +287,26 @@ for f in $CHANGED; do
 done
 
 # ─── Migrations Prisma ───────────────────────────────────────────────────────
+# Une migration Prisma impose un test qui exerce ou valide le nouveau schéma.
+# Deux emplacements acceptés (selon le type de migration) :
+#   - __tests__/api/...           → migration qui ajoute/modifie une route
+#     (le test API instancie le client Prisma sur le nouveau modèle)
+#   - __tests__/integration/migration-*.test.ts → migration DB-only
+#     (test d'intégrité du SQL + schema Prisma, pattern de
+#     `migration-drop-twenty.test.ts` éprouvé en prod)
 PRISMA_CHANGES=$(echo "$CHANGED" | grep -E '^prisma/migrations/.*\.sql$' || true)
 if [ -n "$PRISMA_CHANGES" ]; then
   echo
   echo "${BLUE}── Migrations Prisma détectées ──${NC}"
-  INT_TESTS_TOUCHED=$(echo "$CHANGED" | grep -E '^__tests__/api/.*\.test\.ts$' || true)
-  if [ -z "$INT_TESTS_TOUCHED" ]; then
+  API_TESTS_TOUCHED=$(echo "$CHANGED" | grep -E '^__tests__/api/.*\.test\.ts$' || true)
+  INT_MIGRATION_TESTS_TOUCHED=$(echo "$CHANGED" | grep -E '^__tests__/integration/migration-.*\.test\.ts$' || true)
+  if [ -z "$API_TESTS_TOUCHED" ] && [ -z "$INT_MIGRATION_TESTS_TOUCHED" ]; then
     echo "${RED}✗ Migration Prisma sans aucun test integration modifié${NC}"
-    echo "  Une migration impose un test integration qui exerce le nouveau schéma."
+    echo "  Une migration impose un test, au choix :"
+    echo "    - __tests__/api/<route>.test.ts (si la migration ajoute/modifie une route API)"
+    echo "    - __tests__/integration/migration-<slug>.test.ts (migration DB-only,"
+    echo "      pattern : valider le SQL + cohérence schema Prisma — cf."
+    echo "      __tests__/integration/migration-drop-twenty.test.ts)"
     FAILED=$((FAILED + 1))
   else
     echo "${GREEN}✓ Migration accompagnée de tests integration${NC}"

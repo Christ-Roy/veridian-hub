@@ -44,6 +44,9 @@ model User {
   sessions Session[]
   mfaCodes MfaCode[]
 
+  crossAppInvitationsSent     CrossAppInvitation[] @relation("CrossAppInvitationsSent")
+  crossAppInvitationsAccepted CrossAppInvitation[] @relation("CrossAppInvitationsAccepted")
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -189,6 +192,52 @@ model Invitation {
 
   @@index([email, workspaceId])
   @@map("invitations")
+  @@schema("hub_app")
+}
+
+// ============================================================================
+// Invitations cross-app (P1 invitation endpoints — créé 2026-05-20)
+//
+// Flow :
+//   1. App downstream (Notifuse, Prospection, ...) appelle Hub
+//      POST /api/invitations/create avec HMAC. Body inclut target_app +
+//      target_workspace_id externe à l'app (pas une FK Hub).
+//   2. Hub crée une row, génère token, envoie magic link via Notifuse.
+//   3. Destinataire clique /invite/[token] sur le Hub, se logge (n'importe
+//      quel provider), accepte → Hub appelle l'app downstream pour attacher
+//      l'user au workspace cible (HMAC contract HUB→app).
+//   4. acceptedAt + acceptedByUserId renseignés, l'app downstream renvoie
+//      l'URL d'auto-login.
+//
+// Distinct du modèle `Invitation` ci-dessus qui couvre les invitations
+// internes au workspace Hub (multi-membre billing Hub). Ici on parle
+// d'invitations EXTERNES qui rattachent un Hub user à un workspace
+// downstream — `target_workspace_id` n'est pas une FK Prisma car la table
+// vit dans une autre DB (DB Notifuse, DB Prospection, etc.).
+// ============================================================================
+
+model CrossAppInvitation {
+  id                String    @id @default(cuid())
+  token             String    @unique // 32 bytes hex, URL-safe
+  inviterUserId     String    @map("inviter_user_id")
+  inviterEmail      String    @map("inviter_email")
+  inviteeEmail      String    @map("invitee_email")
+  targetApp         String    @map("target_app") // 'notifuse' | 'prospection' | 'analytics' | 'cms'
+  targetWorkspaceId String    @map("target_workspace_id")
+  targetRole        String    @default("member") @map("target_role")
+  message           String?
+  expiresAt         DateTime  @map("expires_at")
+  acceptedAt        DateTime? @map("accepted_at")
+  acceptedByUserId  String?   @map("accepted_by_user_id")
+  createdAt         DateTime  @default(now()) @map("created_at")
+
+  inviter    User  @relation("CrossAppInvitationsSent", fields: [inviterUserId], references: [id])
+  acceptedBy User? @relation("CrossAppInvitationsAccepted", fields: [acceptedByUserId], references: [id])
+
+  @@index([inviteeEmail])
+  @@index([targetApp, targetWorkspaceId])
+  @@index([expiresAt])
+  @@map("cross_app_invitations")
   @@schema("hub_app")
 }
 
