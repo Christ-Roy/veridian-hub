@@ -7,6 +7,17 @@
 > **Bloque** :
 >   - `veridian-prospection/todo/2026-05-20-prospection-invite-flow.md`
 >   - `notifuse-veridian/todo/2026-05-20-hub-invitation-flow-multi-membre.md`
+>
+> **Progrès** :
+>   - ✅ Étape 1 livrée 2026-05-20 (commit `d2d5b01`) : modèle Prisma
+>     `CrossAppInvitation` + migration `20260520210000_add_cross_app_invitations`
+>     + 17 tests d'intégrité. Table créée sur staging, **PAS encore appliquée
+>     sur prod** (suit la convention `reference_hub_prod_no_auto_migrate.md`).
+>     Décision terrain : modèle séparé du `Invitation` existant (qui couvre
+>     les invitations workspace INTERNES Hub) — cf
+>     `memory/reference_hub_invitation_model_split.md`.
+>   - ⏳ Étapes 2-9 : endpoints HTTP, page `/invite/[token]`, email template,
+>     E2E, doc CONTRAT-HUB.md.
 
 ## Contexte
 
