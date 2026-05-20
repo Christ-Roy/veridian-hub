@@ -55,6 +55,23 @@ export default async function DashboardPage() {
     planSource === 'lifetime_site_vitrine' ||
     tenant?.notifusePlan === 'lifetime_site_vitrine';
 
+  // Fallback "mode service" (cf. ticket admin-api-tenant-provisioning) :
+  // si un tenant a été provisionné via `POST /api/admin/tenants/link-app`,
+  // les metadata.cms / metadata.analytics contiennent les infos d'accès.
+  // C'est le quick-win en attendant le pattern discovery (3-4 semaines).
+  type AppMetadata = {
+    external_tenant_slug?: string;
+    tenant_name?: string;
+    plan?: string;
+    fallback_url?: string;
+  } | null;
+  const cmsMeta = (meta.cms as AppMetadata) ?? null;
+  const analyticsMeta = (meta.analytics as AppMetadata) ?? null;
+  const hasServiceCms = !!cmsMeta?.fallback_url;
+  const hasServiceAnalytics = !!analyticsMeta?.fallback_url;
+  const showActiveAnalytics = hasLifetimeSiteVitrine || hasServiceAnalytics;
+  const showActiveCms = hasLifetimeSiteVitrine || hasServiceCms;
+
   let prospectionTokenValid = false;
   if (tenant?.prospectionLoginToken && tenant?.prospectionLoginTokenCreatedAt) {
     const tokenAge =
@@ -148,46 +165,53 @@ export default async function DashboardPage() {
             Apps réservées clients sites vitrines
           </h2>
           <p className="text-sm text-muted-foreground">
-            {hasLifetimeSiteVitrine
+            {hasLifetimeSiteVitrine || hasServiceCms || hasServiceAnalytics
               ? "Apps incluses dans ton offre site vitrine Veridian."
               : "Ces apps sont incluses avec l'achat d'un site vitrine Veridian."}
           </p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {hasLifetimeSiteVitrine ? (
-            <>
-              <ServiceCard
-                name={APPS.analytics.display_name}
-                description={APPS.analytics.tagline}
-                url="https://analytics.app.veridian.site"
-                icon="BarChart3"
-                badge="BETA"
-                features={[
-                  'Tracker JS humain-only',
-                  'Sync Google Search Console',
-                  'Tracking appels OVH SIP',
-                  'Vue par client (multi-tenant)',
-                ]}
-              />
-              <ServiceCard
-                name={APPS.cms.display_name}
-                description={APPS.cms.tagline}
-                url="https://cms.app.veridian.site"
-                icon="FileText"
-                badge="BETA"
-                features={[
-                  'CMS multi-tenant (Payload)',
-                  'Édition pages site vitrine',
-                  'Upload assets / medias',
-                  'Preview avant publication',
-                ]}
-              />
-            </>
+          {showActiveAnalytics ? (
+            <ServiceCard
+              name={
+                analyticsMeta?.tenant_name
+                  ? `${APPS.analytics.display_name} — ${analyticsMeta.tenant_name}`
+                  : APPS.analytics.display_name
+              }
+              description={APPS.analytics.tagline}
+              url={analyticsMeta?.fallback_url ?? 'https://analytics.app.veridian.site'}
+              icon="BarChart3"
+              badge="BETA"
+              features={[
+                'Tracker JS humain-only',
+                'Sync Google Search Console',
+                'Tracking appels OVH SIP',
+                'Vue par client (multi-tenant)',
+              ]}
+            />
           ) : (
-            <>
-              <ShadowAppCard app={APPS.analytics} />
-              <ShadowAppCard app={APPS.cms} />
-            </>
+            <ShadowAppCard app={APPS.analytics} />
+          )}
+          {showActiveCms ? (
+            <ServiceCard
+              name={
+                cmsMeta?.tenant_name
+                  ? `${APPS.cms.display_name} — ${cmsMeta.tenant_name}`
+                  : APPS.cms.display_name
+              }
+              description={APPS.cms.tagline}
+              url={cmsMeta?.fallback_url ?? 'https://cms.app.veridian.site'}
+              icon="FileText"
+              badge="BETA"
+              features={[
+                'CMS multi-tenant (Payload)',
+                'Édition pages site vitrine',
+                'Upload assets / medias',
+                'Preview avant publication',
+              ]}
+            />
+          ) : (
+            <ShadowAppCard app={APPS.cms} />
           )}
         </div>
       </section>
