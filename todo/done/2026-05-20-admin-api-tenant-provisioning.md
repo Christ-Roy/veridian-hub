@@ -5,6 +5,41 @@
 > **Owner** : agent Hub
 > **Créé** : 2026-05-20
 > **Bloque** : `todo/2026-05-20-quick-win-avse-cms-card-fallback.md`
+> **✅ PHASE 1 LIVRÉE** : 2026-05-20 (commit `a2a96f0`, smoke prod OK)
+>
+> **Réalisé** :
+> - Migration Prisma `20260520160000_add_audit_log_table` (CREATE TABLE +
+>   2 index, additive, appliquée manuellement staging + prod 2026-05-20)
+> - Modèle `AuditLog` dans schema.prisma
+> - `lib/admin/audit-log.ts` : writeAuditLog best-effort + resolveActor
+> - `lib/admin/users.ts` : upsertHubUser idempotent (gère backfill
+>   supabaseUserId pour users legacy)
+> - `lib/admin/link-app.ts` : linkApp + unlinkApp, stratégie par app
+>   (notifuse/prospection = colonnes dédiées ; cms/analytics = metadata)
+> - `POST   /api/admin/users/create`        (auth + Zod + idempotent + audit)
+> - `GET    /api/admin/users/[email]`       (state complet user + tenants)
+> - `POST   /api/admin/tenants/link-app`    (404 si user inexistant,
+>   idempotent via upsert, audit)
+> - `DELETE /api/admin/tenants/unlink-app`  (soft unlink + audit)
+> - 45 nouveaux tests vitest (445/445 vert)
+> - Smoke prod : 3 routes admin → 401 sans auth (guards OK)
+>
+> **⏳ Phases 2-3 à découpler en tickets dédiés** :
+> - Skill agent IA `~/.claude/skills/hub-admin/` qui appelle ces endpoints
+> - Intégration côté skills `cms-provision` / `analytics-provision`
+>   (remplacer les INSERT SQL bruts par des curl vers cette API)
+> - POST /api/admin/users/migrate-to-discovery (après pattern discovery)
+>
+> **Migration prod (procédure utilisée 2026-05-20)** :
+> ```bash
+> # Container DB prod : compose-parse-multi-byte-feed-ywg73b-veridian-core-db-1
+> scp prisma/migrations/20260520160000_add_audit_log_table/migration.sql \
+>   prod-pub:/tmp/audit_log_migration.sql
+> ssh prod-pub "docker cp /tmp/audit_log_migration.sql \
+>   compose-parse-multi-byte-feed-ywg73b-veridian-core-db-1:/tmp/m.sql && \
+>   docker exec compose-parse-multi-byte-feed-ywg73b-veridian-core-db-1 \
+>   psql -U veridian -d veridian -f /tmp/m.sql"
+> ```
 
 ## Contexte
 
