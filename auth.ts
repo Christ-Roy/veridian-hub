@@ -23,6 +23,40 @@ const credentialsSchema = z.object({
 export const { auth, handlers, signIn, signOut } = NextAuth({
   ...authConfig,
   adapter: PrismaAdapter(prisma),
+  // Logger structuré (JSON sur stderr) pour les erreurs Auth.js.
+  // Cible prioritaire : `Configuration` (provider mal câblé côté serveur) et
+  // `OAuthCallbackError` (provider en panne ou réponse invalide) — ces 2 codes
+  // signalent un incident infrastructure et doivent ressortir dans Grafana
+  // Loki via le pipeline stderr. Les autres warnings restent en JSON pour
+  // grep/structured queries. Le ticket monitoring OAuth (rate-limiting +
+  // alerting Telegram) câblera l'alerting sur `[auth-error][critical]`.
+  logger: {
+    error(error) {
+      const name = error?.name ?? 'UnknownAuthError';
+      const message = error?.message ?? String(error);
+      const critical = name === 'Configuration' || name === 'OAuthCallbackError';
+      const tag = critical ? '[auth-error][critical]' : '[auth-error]';
+      console.error(
+        JSON.stringify({
+          tag,
+          level: 'error',
+          name,
+          message,
+          cause: error?.cause ? String(error.cause) : undefined,
+          stack: error?.stack,
+          ts: new Date().toISOString(),
+        })
+      );
+    },
+    warn(code) {
+      console.warn(JSON.stringify({ tag: '[auth-warn]', level: 'warn', code, ts: new Date().toISOString() }));
+    },
+    debug(message, metadata) {
+      if (process.env.AUTH_DEBUG === 'true') {
+        console.debug(JSON.stringify({ tag: '[auth-debug]', level: 'debug', message, metadata, ts: new Date().toISOString() }));
+      }
+    },
+  },
   providers: [
     ...authConfig.providers,
     Credentials({

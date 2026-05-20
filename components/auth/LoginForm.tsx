@@ -14,6 +14,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
+import { LoginErrorBanner } from "@/components/auth/LoginErrorBanner";
 
 export function LoginForm({
   className,
@@ -72,6 +73,7 @@ export function LoginForm({
             Accédez à votre espace Veridian
           </p>
         </div>
+        <LoginErrorBanner />
         {allowEmail && (
           <>
             <Field>
