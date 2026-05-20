@@ -59,53 +59,31 @@ pour publier :
 
 - [ ] **Application home page** : `https://app.veridian.site`
       (déjà live, OK)
-- [ ] **Application privacy policy link** : URL publique vers une page
-      Privacy Policy.
-      ⚠️ **À VÉRIFIER** : existe-t-elle déjà côté Hub ? Sinon créer
-      `https://app.veridian.site/privacy` (page statique minimale OK
-      pour Google — voir spec contenu plus bas).
-- [ ] **Application terms of service link** : URL publique vers Terms
-      of service. Même remarque, créer `https://app.veridian.site/terms`
-      si absent.
+- [x] **Application privacy policy link** : ✅ **DÉJÀ EXISTE** —
+      utiliser `https://app.veridian.site/legal` (page live 200 OK,
+      385 lignes, contient Privacy + Terms + RGPD + GDPR combinés).
+      Google accepte volontiers la même URL pour Privacy ET Terms si
+      la page couvre les deux — c'est une pratique standard.
+- [x] **Application terms of service link** : ✅ **DÉJÀ EXISTE** —
+      utiliser `https://app.veridian.site/legal` (même page).
 
-### Contenu minimal Privacy Policy (RGPD-compliant)
+> 💡 **À noter** : si tu veux séparer plus tard Privacy et Terms en
+> 2 URLs distinctes pour respecter la convention `/privacy` + `/terms`,
+> c'est un follow-up cosmétique, **pas un bloquant pour publish**. La
+> page combinée actuelle suffit largement pour Google.
 
-Si à créer côté Hub (page Next statique) :
+### Vérification page `/legal` existante (déjà fait pour ce ticket)
 
-```
-1. Identité du responsable de traitement : Veridian, robert.brunon@veridian.site
-2. Données collectées via OAuth Google :
-   - email, nom, image profil (scopes: openid email profile)
-   - utilisées UNIQUEMENT pour identifier l'utilisateur sur la plateforme
-   - JAMAIS revendues, JAMAIS partagées hors Veridian
-3. Base légale : exécution contrat (CGU) + consentement (OAuth Google explicite)
-4. Durée de conservation : compte actif + 36 mois après suppression (logs audit)
-5. Droits utilisateur : accès, rectification, effacement, portabilité — contact
-   robert.brunon@veridian.site
-6. Sous-traitants : Stripe (paiements), Notifuse (emails), Google (auth OAuth),
-   Microsoft (auth OAuth), Cloudflare (hébergement)
-7. Cookies : session Auth.js (essentiel), pas de tracking publicitaire
-8. CNIL : registre de traitement à disposition sur demande
-```
+Page live : `https://app.veridian.site/legal` → HTTP 200, 385 lignes,
+contient Privacy + Terms + RGPD + GDPR + Conditions + Politique.
+Source : `app/(marketing)/legal/page.tsx`. ✅ Suffit pour Google.
 
-### Contenu minimal Terms of Service
-
-```
-1. Objet : SaaS Veridian pour gestion clients, emails, analytics, prospection
-2. Acceptation : créer un compte = accepter les CGU
-3. Compte utilisateur : email valide, password ≥8 chars OU OAuth Google/Microsoft
-4. Tarification : abonnement Stripe mensuel/annuel (pas de remboursement
-   pro rata après début mois)
-5. Suspension/résiliation : Veridian peut suspendre un compte en cas
-   d'abus, fraude, ou non-paiement
-6. Responsabilité : service "tel quel", best-effort, pas de SLA contractuel
-   en plan gratuit
-7. Loi applicable : France
-8. Contact : robert.brunon@veridian.site
-```
-
-→ Ces 2 pages doivent être **statiques Next** sous `app/(marketing)/`,
-indexables (pas de robots.txt block), accessibles sans login.
+À vérifier vite fait avant Publish (ouvrir la page dans Chrome) :
+- [ ] Identité responsable (Veridian + email contact)
+- [ ] Liste scopes OAuth utilisés (openid, email, profile uniquement)
+- [ ] Mention sous-traitants (Stripe, Notifuse, Google, Microsoft,
+      Cloudflare) — si absent, ajouter en 1 PR rapide avant publish
+- [ ] Pas de robots.txt qui bloque l'indexation
 
 ### Procédure Publish (5 minutes)
 
@@ -208,6 +186,8 @@ Pas d'équivalent "publish/test users" côté Microsoft :
 
 ## Effort
 
-- Phase 1 publish : ~30 min (créer pages privacy/terms si absentes) + 5 min Google Console
-- Phase 2 brand verification : ~1h prep + 2-3j review Google
-- Total bloquant immédiat : 30 min
+- Phase 1 publish : **~10 min** (vérif rapide contenu /legal + 5 min
+  Google Console) — page legal déjà live, pas de création de pages
+- Phase 2 brand verification : ~1h prep (logo, vidéo demo optionnelle)
+  + 2-3j review Google
+- Total bloquant immédiat : **~10 min**
