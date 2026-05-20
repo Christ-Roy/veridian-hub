@@ -24,6 +24,8 @@ export default function robots(): MetadataRoute.Robots {
           '/pricing',
           '/docs',
           '/legal',
+          '/privacy',
+          '/terms',
         ],
         disallow: [
           // Zones privées - Désactivées

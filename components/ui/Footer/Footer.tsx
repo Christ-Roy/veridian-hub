@@ -116,7 +116,7 @@ export default function Footer() {
             </li>
             <li className="py-3 md:py-0 md:pb-4">
               <Link
-                href="/legal#confidentialite"
+                href="/privacy"
                 className="text-foreground transition duration-150 ease-in-out hover:text-muted-foreground"
               >
                 Privacy Policy
@@ -124,10 +124,18 @@ export default function Footer() {
             </li>
             <li className="py-3 md:py-0 md:pb-4">
               <Link
-                href="/legal#cgv"
+                href="/terms"
                 className="text-foreground transition duration-150 ease-in-out hover:text-muted-foreground"
               >
                 Terms of Use
+              </Link>
+            </li>
+            <li className="py-3 md:py-0 md:pb-4">
+              <Link
+                href="/legal"
+                className="text-foreground transition duration-150 ease-in-out hover:text-muted-foreground"
+              >
+                Mentions légales
               </Link>
             </li>
           </ul>

@@ -59,31 +59,37 @@ pour publier :
 
 - [ ] **Application home page** : `https://app.veridian.site`
       (déjà live, OK)
-- [x] **Application privacy policy link** : ✅ **DÉJÀ EXISTE** —
-      utiliser `https://app.veridian.site/legal` (page live 200 OK,
-      385 lignes, contient Privacy + Terms + RGPD + GDPR combinés).
-      Google accepte volontiers la même URL pour Privacy ET Terms si
-      la page couvre les deux — c'est une pratique standard.
-- [x] **Application terms of service link** : ✅ **DÉJÀ EXISTE** —
-      utiliser `https://app.veridian.site/legal` (même page).
+- [x] **Application privacy policy link** : utiliser
+      `https://app.veridian.site/privacy` (page dédiée RGPD-compliant
+      livrée 2026-05-21).
+- [x] **Application terms of service link** : utiliser
+      `https://app.veridian.site/terms` (page dédiée CGU/CGV livrée
+      2026-05-21).
 
-> 💡 **À noter** : si tu veux séparer plus tard Privacy et Terms en
-> 2 URLs distinctes pour respecter la convention `/privacy` + `/terms`,
-> c'est un follow-up cosmétique, **pas un bloquant pour publish**. La
-> page combinée actuelle suffit largement pour Google.
+> 💡 Les 2 pages sont **séparées et dédiées**, conformément aux bonnes
+> pratiques RGPD/Google/Stripe (URL distinctes = meilleur signal de
+> sérieux et SEO). La page `/legal` est conservée pour les mentions
+> légales LCEN au sens strict (éditeur, hébergeur, signalement).
 
-### Vérification page `/legal` existante (déjà fait pour ce ticket)
+### Pages /privacy et /terms livrées (commit `<à compléter>` 2026-05-21)
 
-Page live : `https://app.veridian.site/legal` → HTTP 200, 385 lignes,
-contient Privacy + Terms + RGPD + GDPR + Conditions + Politique.
-Source : `app/(marketing)/legal/page.tsx`. ✅ Suffit pour Google.
+- ✅ `https://app.veridian.site/privacy` — politique de confidentialité
+  RGPD-compliant, mentionne explicitement les scopes Google
+  (`openid email profile`), affirme "n'accède PAS à Gmail/Drive/Calendar",
+  liste les 6 sous-traitants (Stripe, Google, Microsoft, Cloudflare, OVH,
+  Notifuse) avec mention CCT UE + EU-US DPF, droits RGPD (art. 15-21) +
+  réclamation CNIL.
+- ✅ `https://app.veridian.site/terms` — CGU/CGV avec rétractation
+  L221-18 (14 jours), paiement Stripe, résiliation, RGPD article 6.
+- ✅ `https://app.veridian.site/legal` — mentions légales LCEN art. 6
+  (éditeur, SIREN, hébergeur OVH, signalement contenu illicite).
+- ✅ 29 tests de non-régression sur les 3 pages (validation contenu
+  obligatoire : RGPD, scopes, sous-traitants, emails contact).
+- ✅ Footer mis à jour avec les 3 URLs séparées.
 
-À vérifier vite fait avant Publish (ouvrir la page dans Chrome) :
-- [ ] Identité responsable (Veridian + email contact)
-- [ ] Liste scopes OAuth utilisés (openid, email, profile uniquement)
-- [ ] Mention sous-traitants (Stripe, Notifuse, Google, Microsoft,
-      Cloudflare) — si absent, ajouter en 1 PR rapide avant publish
-- [ ] Pas de robots.txt qui bloque l'indexation
+À vérifier visuellement avant Publish (10 min Chrome) :
+- [ ] Charger les 3 pages depuis prod, vérifier rendu propre
+- [ ] Le `robots.txt` n'interdit pas l'indexation (à check côté Hub)
 
 ### Procédure Publish (5 minutes)
 

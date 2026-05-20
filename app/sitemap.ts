@@ -44,6 +44,29 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: 'weekly',
       priority: 0.8,
     },
-    // Note: /legal exclu du sitemap (économie de budget crawl, page sans valeur SEO)
+    // Pages légales : ajoutées au sitemap pour Google OAuth brand verification
+    // (Google attend que Privacy + Terms soient indexables et accessibles via
+    // sitemap, cf. doc OAuth verification 2024+) — la décision précédente de
+    // les exclure pour "budget crawl" était une fausse économie, Google
+    // crawl ces pages de toute façon et les compte comme manquantes au
+    // sitemap pendant la review brand verification.
+    {
+      url: `${baseUrl}/privacy`,
+      lastModified: currentDate,
+      changeFrequency: 'monthly',
+      priority: 0.4,
+    },
+    {
+      url: `${baseUrl}/terms`,
+      lastModified: currentDate,
+      changeFrequency: 'monthly',
+      priority: 0.4,
+    },
+    {
+      url: `${baseUrl}/legal`,
+      lastModified: currentDate,
+      changeFrequency: 'yearly',
+      priority: 0.3,
+    },
   ];
 }
