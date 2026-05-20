@@ -57,6 +57,11 @@
 6. [Authentification — 3 patterns](#6-authentification--3-patterns)
    - 6.5 [Convention env vars staging / prod](#65-convention-env-vars-stagingprod)
    - 6.6 [Mode dev local (SKIP_HMAC)](#66-mode-dev-local-skip_hmac)
+6bis. [Autologin SSO-stack Veridian (3 couches)](#6bis-autologin-sso-stack-veridian-3-couches)
+   - 6bis.1 [Vue d'ensemble — 3 couches dégradées](#6bis1-vue-densemble--3-couches-dégradées)
+   - 6bis.2 [Couche 2 — détails techniques](#6bis2-couche-2--détails-techniques)
+   - 6bis.3 [Couche 3 — détails techniques](#6bis3-couche-3--détails-techniques)
+   - 6bis.6 [État au 2026-05-20](#6bis6-état-au-2026-05-20)
 7. [Webhooks app → Hub](#7-webhooks-app--hub)
    - 7.4 [Stripe → Hub → apps chaîne billing (v1.2)](#74-stripe--hub--apps-chaîne-billing-complète)
 8. [Pilotage des plans + lifecycle depuis le Hub](#8-pilotage-des-plans-depuis-le-hub)
@@ -1555,6 +1560,198 @@ contrat sans monter un mini-Hub. Le dev local doit rester rapide.
 (SKIP_HMAC=false). Les tests E2E en CI peuvent utiliser SKIP_HMAC ou un Hub
 mock — au choix de l'app, du moment que le test couvre le scénario contrat
 (§12).
+
+---
+
+## 6bis. Autologin SSO-stack Veridian (3 couches)
+
+> 🔥 Section ajoutée 2026-05-20 après brainstorm. **Scope** : ce SSO est
+> **maison, interne à la stack Veridian** (Hub + apps downstream). Ce n'est
+> **pas** du SSO entreprise au sens SAML/OIDC formel — voir
+> `todo/2026-05-20-sso-entreprise-on-demand.md` (P5 on-demand pour quand
+> un prospect en aura besoin).
+>
+> Le but ici est d'éviter au user de retaper email/password ou de cliquer
+> sur un magic-link mail à chaque app qu'il visite dans la stack, tout en
+> gardant une **résilience totale** si Hub tombe.
+
+### 6bis.1 Vue d'ensemble — 3 couches dégradées
+
+L'utilisateur arrive sur une app downstream (`<app>.app.veridian.site`).
+L'app tente l'authentification dans cet ordre, premier succès gagne :
+
+1. **Couche 1 — Hub broker (cas normal)**
+   User clique "Open <app>" depuis Hub → Hub appelle
+   `POST <app>.app.veridian.site/api/tenants/provision` (ou
+   `/api/auth/issue-token`) en HMAC § 6.1 → l'app génère son **propre**
+   token autologin local (cookie session app), redirige l'user vers
+   `/auth/token?t=<token>` qui set le cookie et home la session.
+
+2. **Couche 2 — Cookie cross-subdomain Hub (cas user direct)**
+   User tape l'URL app direct dans son navigateur (bookmark, lien externe)
+   → arrive sur `/login` app → la page check si un cookie
+   `__Secure-authjs.session-token` est présent sur le domaine
+   `.veridian.site` (visible depuis tous les subdomains) → si oui, l'app
+   appelle `GET app.veridian.site/api/sso/whoami` server-side en forwardant
+   le cookie → Hub valide la session et retourne
+   `{user_id, email, exp, signature}` signé HMAC → l'app match `user_id`
+   contre un workspace local et set sa propre session locale → redirect
+   home. Pas de mail, pas de password, pas de friction.
+
+3. **Couche 3 — Magic-link mail app (fallback Hub down OU pas de cookie)**
+   Si couches 1 + 2 échouent (Hub HS, cookie absent, user inconnu) :
+   l'user tape son email sur `/login` app → l'app génère un
+   `magic_link_token` local (table `<app>_magic_links`, TTL 15 min) →
+   envoie un mail via son propre canal SMTP (Brevo, Sendgrid, peu
+   importe — **pas de dépendance Notifuse pour ne pas créer une chaîne
+   de dépendance**) → click → cookie session app local → home. **Zéro
+   dépendance Hub.** Résilience absolue.
+
+### 6bis.2 Couche 2 — détails techniques
+
+#### Cookie cross-subdomain côté Hub
+
+Auth.js v5 par défaut set le cookie sur le domaine exact
+(`app.veridian.site`). Il faut **explicitement** le forcer sur
+`.veridian.site` (notez le `.` initial) :
+
+```ts
+// auth.ts Hub
+cookies: {
+  sessionToken: {
+    name: '__Secure-authjs.session-token',
+    options: {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
+      path: '/',
+      domain: '.veridian.site',  // ← critique
+    },
+  },
+},
+```
+
+**Sécurité** : tous les subdomains `*.veridian.site` peuvent **lire** ce
+cookie. Conséquences :
+
+- Le cookie **doit rester `HttpOnly`** (lecture serveur via header Cookie
+  uniquement, jamais via JS) pour qu'une XSS sur app A ne puisse pas
+  l'exfiltrer.
+- **Aucun subdomain user-content** (genre `user-uploads.veridian.site`
+  où un user peut héberger du JS arbitraire) toléré. C'est un invariant
+  d'archi.
+
+#### Endpoint Hub `GET /api/sso/whoami`
+
+- **Auth** : session Hub valide via le cookie cross-subdomain.
+- **Réponse 200** :
+  ```json
+  {
+    "user_id": "uuid-bridge",
+    "email": "alice@bigcorp.com",
+    "exp": 1234567890,
+    "signature": "<hex hmac_sha256(per_app_secret, '${user_id}.${email}.${exp}')>"
+  }
+  ```
+- **Réponse 401** si pas de session ou session expirée.
+- **Signature HMAC par app** : chaque app a un secret distinct
+  (`<APP>_HUB_API_SECRET` cf §6.5). Une compromission d'app A ne permet
+  pas à app A de forger un whoami valide pour app B.
+- **Côté app** : middleware `/login` Next.js qui call whoami server-side,
+  valide la signature, match user_id contre un workspace local, crée la
+  session locale, redirect.
+
+#### Garde-fous
+
+- **Anti-fixation** : `exp` court (~120s). Le user ne peut pas réutiliser
+  une réponse whoami volée 1h après.
+- **TimingSafeEqual** : la validation HMAC côté app doit utiliser
+  `crypto.timingSafeEqual` (cf §6.1).
+- **Pas d'auto-création** : si `user_id` ne matche aucun workspace local
+  côté app, on **ne crée pas** un workspace en silence — on tombe en
+  couche 3. La création de workspace passe par le flow Hub explicite
+  (signup + provision §5.1).
+
+### 6bis.3 Couche 3 — détails techniques
+
+Chaque app maintient localement :
+
+- Table `<app>_magic_links` : `(token, email, expires_at, used_at)`.
+- Endpoint `POST /api/login/magic-link` qui prend `{email}`, génère token,
+  envoie mail SMTP, log audit. **Rate limit** par IP + email (5 / 15 min).
+- Endpoint `GET /auth/token?t=<token>` qui valide token, marque
+  `used_at`, set cookie session app, redirect.
+
+**Indépendance Hub** : aucun appel à Hub dans ce flow. L'app utilise sa
+propre identité connue (workspaces déjà provisionnés). Si Hub est HS
+pendant 1h, l'utilisateur connu de l'app peut toujours se logger.
+
+**Mot de passe optionnel** : un user peut depuis "Settings → Security"
+de l'app set un password local (bcrypt, table `<app>_passwords`). Le flow
+devient : tente couche 1 → 2 → 3 → password en bypass total. Cette
+feature est P3, non bloquante.
+
+### 6bis.4 Mapping rôle / workspace
+
+Au login (couches 1 et 2), l'app reçoit `{user_id, email}` du Hub.
+L'app cherche en local :
+
+- Membership existante via `user_id` → use cette workspace + rôle.
+- Sinon, fallback sur le mapping email-domain → workspace par défaut
+  (utile pour les enterprise futurs, sinon le user est isolé).
+- Sinon, l'app **refuse** le login auto et tombe en couche 3.
+
+Pas de création silencieuse de workspace. Le provisioning reste Hub-driven.
+
+### 6bis.5 Diagramme de séquence (couche 2)
+
+```
+User browser              prospection.app.v.site       app.veridian.site
+(cookie .v.site set)
+       │                          │                            │
+       │ GET / direct             │                            │
+       ├─────────────────────────►│                            │
+       │                          │ check cookie hub.session   │
+       │                          │ → présent                  │
+       │                          │                            │
+       │                          │ GET /api/sso/whoami        │
+       │                          │ (forward cookie)           │
+       │                          ├───────────────────────────►│
+       │                          │                            │ valide session
+       │                          │                            │ retourne user_id
+       │                          │ {user_id, email, sig}      │
+       │                          │◄───────────────────────────┤
+       │                          │ valide sig HMAC            │
+       │                          │ match workspace local      │
+       │                          │ set cookie prospection.    │
+       │                          │ session locale             │
+       │ 302 → /                  │                            │
+       │◄─────────────────────────┤                            │
+```
+
+### 6bis.6 État au 2026-05-20
+
+| Couche | État Hub | État Prospection | État Notifuse | État Analytics | État CMS |
+|---|---|---|---|---|---|
+| 1 broker HMAC | ✅ | 🟠 cassé (valide contre Supabase au lieu de HMAC, ticket P1 ouvert) | ✅ | n/a | n/a |
+| 2 cookie cross-sub | ❌ pas câblé | ❌ | ❌ | ❌ | ❌ |
+| 3 magic-link app | n/a | ⚠️ partiel | ✅ | n/a | n/a |
+
+**Couche 1** : à fixer côté Prospection (ticket déposé), puis
+opérationnelle. Notifuse déjà OK.
+
+**Couche 2** : pas encore livrée nulle part. Roadmap :
+1. Hub pose le cookie cross-subdomain `.veridian.site` (1 commit
+   `auth.ts`).
+2. Hub expose `GET /api/sso/whoami` (~30 lignes + tests).
+3. Chaque app cable son middleware `/login` (~30 lignes par app +
+   tests).
+4. Coordination cross-agent via tickets `todo/`.
+
+**Couche 3** : à généraliser. Notifuse OK natif. Prospection a la dette
+de retirer Supabase (cf cleanup global). Autres apps : pas applicable
+tant que pas d'app self-serve self-login (Analytics et CMS sont
+client_only via shadow cards aujourd'hui).
 
 ---
 
