@@ -1653,29 +1653,59 @@ sur Prospection ; les autres apps doivent en avoir un (warning).
 > 🔥 **Section décidée 2026-05-20 par Robert.** Le mode "auto-promote si staging
 > vert" décrit en §19.3 n'offre pas assez de filtres pour les apps critiques.
 > §20 introduit une **échelle de risque par commit** qui détermine le chemin de
-> promotion. L'agent évalue, propose, Robert tranche. Objectif : zéro casse prod
-> sans ralentir significativement la vitesse de dev sur les changements bénins.
+> promotion. **L'agent arbitre seul et exécute** ; Robert est manager, pas valideur
+> obligatoire. Objectif : zéro casse prod sans ralentir la vitesse de dev.
 
-### 20.1 Principe
+### 20.1 Principe — l'agent est responsable, pas demandeur
 
 Chaque commit/série de commits sur `staging` est **classifié par l'agent** selon
 le risque qu'il représente pour la prod. Le chemin de promotion `staging → main`
 dépend de cette classification.
 
-L'agent **ne promote jamais en prod sans avoir** :
-1. Vérifié que le tier de risque est correct.
-2. Exécuté le protocole de validation du tier.
-3. Produit une **reco écrite structurée** à Robert.
-4. Reçu un go explicite de Robert (sauf pour le tier 🟢 BAS auto-promote).
+**Inversion 2026-05-20** : l'agent ne demande plus la permission `go/stop`
+sur chaque promo. C'est un **subordonné senior de confiance**, pas un junior
+qui valide chaque action. Le cadre §20 lui donne :
+- une **grille de classification objective** (§20.3),
+- des **protocoles de validation par tier** (§20.4-20.7),
+- des **garde-fous techniques** (pre-push, CI gates, marker `[risk:low]`),
+- une **piste d'audit** (la reco écrite est la trace, pas la demande).
+
+L'agent **exécute la promo** dès que :
+1. Le tier est correctement classifié (validation auto par garde-fous).
+2. Le protocole de validation du tier est exécuté et vert.
+3. La reco écrite est produite (et envoyée à Robert pour audit/info).
+
+L'agent **demande explicitement** seulement pour le **tier 💀 CRITIQUE**
+(cf. §20.7). Pour les autres tiers, Robert intervient **uniquement par veto
+explicite** : "stop", "rollback", "attends", "annule". L'agent doit alors :
+- Si la promo n'est pas encore faite → annuler le merge.
+- Si la promo est faite → exécuter le rollback documenté dans la reco.
+
+### 20.1.1 Veto manager — comment Robert reprend la main
+
+Robert peut intervenir à tout moment :
+
+| Mot-clé Robert | Effet attendu agent |
+|---|---|
+| `stop` / `attends` | Annuler la promo en cours OU bloquer la prochaine sur ce push staging |
+| `rollback` | `git revert` du commit promu + push main + monitoring jusqu'à recovery |
+| `freeze` | Geler tous les push staging → main sur cette app jusqu'à `unfreeze` |
+| `unfreeze` | Reprendre le flow normal |
+
+Robert n'a pas besoin de justifier. L'agent obtempère sans débat, met à jour
+les memories pertinentes ("project: freeze Hub décidé YYYY-MM-DD parce que
+[...]"), et reste en standby.
 
 ### 20.2 Échelle de risque (4 niveaux)
 
-| Tier | Exemples typiques | Validation requise |
+| Tier | Exemples typiques | Action agent |
 |---|---|---|
-| 🟢 **BAS** | doc, todo/CHANGELOG, README, test ajouté sans modif code, refactor sans changement de surface API publique, rename de variable interne, fix typo, bump version cosmetic | **Auto-promote OK** si CI staging verte. Agent rend compte en 1 ligne. |
-| 🟡 **MOYEN** | nouvelle route API non-auth, modif UI dashboard sans impact billing, nouvelle ENV optionnelle avec fallback, ajout d'un provider OAuth (cf. commit aab5a68), fix bug non-critique, bump dépendance patch | **Reco écrite agent** + smoke CI vert + Robert valide en 30s |
-| 🔴 **HAUT** | modif auth (callbacks, sessions, providers), modif billing/Stripe, migration DB (même Expand/Contract), modif lib partagée (lib/auth, lib/stripe, lib/prisma), refactor d'un endpoint Hub consommé par d'autres apps, modif compose.yml prod | **Reco écrite + smoke headless CI + E2E headfull staging + test manuel browser** + Robert valide |
-| 💀 **CRITIQUE** | rotation secret prod, DROP COLUMN, suppression de tenant, refactor du système de session, modif du contrat HMAC Hub↔app, modif du flow Stripe webhook, modif du provisioning | **Reco + tous les checks tier 🔴 + 4-yeux** : Robert relit la reco ET le diff. L'agent peut proposer un dry-run sur un compte test prod sandbox. |
+| 🟢 **BAS** | doc, todo/CHANGELOG, README, test ajouté sans modif code, refactor sans changement de surface API publique, rename de variable interne, fix typo, bump version cosmetic | **Auto-promote via marker `[risk:low]`** dans le subject. Agent rend compte en 1 ligne post-promo. |
+| 🟡 **MOYEN** | nouvelle route API non-auth, modif UI dashboard sans impact billing, nouvelle ENV optionnelle avec fallback, ajout d'un provider OAuth (cf. commit aab5a68), fix bug non-critique, bump dépendance patch | **Agent promote après** smoke CI vert + reco écrite produite pour audit. Pas de validation Robert requise. |
+| 🔴 **HAUT** | modif auth (callbacks, sessions, providers), modif billing/Stripe, migration DB (même Expand/Contract), modif lib partagée (lib/auth, lib/stripe, lib/prisma), refactor d'un endpoint Hub consommé par d'autres apps, modif compose.yml prod | **Agent promote après** smoke CI + E2E headfull staging vert + reco écrite + auto-monitoring 10 min post-deploy. Pas de validation Robert requise. |
+| 💀 **CRITIQUE** | rotation secret prod, DROP COLUMN, suppression de tenant, refactor du système de session, modif du contrat HMAC Hub↔app, modif du flow Stripe webhook, modif du provisioning | **Agent DEMANDE explicitement** avant push staging ET avant promo prod. Seul tier où Robert valide en go/stop. 4 yeux obligatoire. |
+
+**Veto Robert** applicable à tous les tiers via les mots-clés §20.1.1.
 
 ### 20.3 Comment l'agent classifie
 
@@ -1727,9 +1757,19 @@ le staging passe vert.
 `lib/auth/**` ou `prisma/**`. Le pre-push hook a un check qui détecte les
 incohérences (cf. §20.7).
 
-### 20.5 Protocole tier 🟡 MOYEN — reco écrite + go Robert
+### 20.5 Protocole tier 🟡 MOYEN — agent promote après reco écrite
 
-Après staging vert, l'agent produit cette reco dans le chat :
+**Séquence agent** (autonome, pas de go Robert) :
+
+1. Push staging → attendre staging CI vert.
+2. Produire la **reco écrite** dans le chat (audit / info Robert).
+3. **Exécuter la promo** : `git checkout main && git merge --ff-only origin/staging && git push origin main`.
+4. Watch run CI prod jusqu'à vert.
+5. Smoke prod (curl /api/health + check chunks JS hash si pertinent).
+6. **Si Robert poste un veto pendant les étapes 2-5** → arrêter la promo OU
+   rollback selon où on en est (cf. §20.1.1).
+
+Format de la reco écrite (audit log, pas demande de validation) :
 
 ```
 🟡 PROMO STAGING → PROD — Hub commit <sha7>
@@ -1753,18 +1793,19 @@ Risques résiduels :
   - <risque 1 + impact>
   - <risque 2 + mitigation>
 
-Recommandation : PROMOTE PROD MAINTENANT (rollback prêt sur <SHA précédent>)
-              ou  NE PAS PROMOTE (raison : <...>)
+Décision agent : PROMOTE PROD MAINTENANT (rollback prêt sur <SHA précédent>)
+              ou  HOLD (raison : <...>)
 
-Pour promote, répondre "go". Pour annuler, "stop".
+→ Veto Robert via "stop" / "rollback" si tu vois passer ça.
 ```
 
-Robert répond `go` ou `stop`. Sur `go`, l'agent exécute le merge ff-only et
-trigger le CI prod. Sur `stop`, l'agent garde le commit sur staging et attend.
+**Si l'agent décide HOLD** (rare en tier 🟡) : le commit reste sur staging,
+l'agent écrit une note dans `todo/` expliquant pourquoi, et continue à
+travailler. Pas d'attente passive de Robert.
 
-### 20.6 Protocole tier 🔴 HAUT — E2E headfull obligatoire
+### 20.6 Protocole tier 🔴 HAUT — agent promote après E2E headfull + monitoring
 
-Tier HAUT = l'agent **doit** lancer le script E2E headfull avant la reco :
+Tier HAUT = l'agent **doit** lancer le script E2E headfull avant de promote :
 
 ```bash
 pnpm e2e:staging:full
@@ -1774,7 +1815,23 @@ Ce script (cf. §20.8) parcourt en navigateur réel sur `hub.staging.veridian.si
 les 5-8 user journeys critiques (signup, login Google, login Microsoft si secret
 configuré, dashboard, billing portal, settings, etc.).
 
-La reco ajoute alors :
+**Séquence agent** (autonome, pas de go Robert) :
+
+1. Push staging → attendre staging CI vert.
+2. Lancer `pnpm e2e:staging:full` → exiger 100% des parcours verts.
+3. Produire la **reco écrite** (cf. format 20.5, avec section "E2E headfull").
+4. **Exécuter la promo** : ff-merge + push main + trigger hub-ci.yml.
+5. Watch CI prod jusqu'à vert.
+6. **Monitoring 10 min post-deploy** :
+   - Smoke prod toutes les 1 min (`curl https://app.veridian.site/api/health`).
+   - Tail logs Hub via Dokploy API (`docker.getContainerLogs`) — chercher errors.
+   - Si Grafana alert / 5xx > 1% / health 500 → **auto-rollback** sans demander.
+7. Si tout vert à T+10 min → fermer la reco avec "✅ prod stable, monitoring OK".
+
+**Si E2E headfull échoue à au moins 1 parcours** : pas de promo, l'agent
+investigue et fix sur staging d'abord. Reco écrite avec section "BLOQUÉ".
+
+La reco ajoute par rapport au tier 🟡 :
 
 ```
 🔴 PROMO STAGING → PROD — Hub commit <sha7>
@@ -1786,32 +1843,40 @@ Validation effectuée :
   ✅ Tests unitaires
   ✅ Smoke headless CI
   ✅ E2E headfull staging : 9/9 parcours OK (rapport : e2e-headfull-<sha7>.json)
-  ✅ Test manuel browser : login Google + bouton Microsoft visible (screenshot joint)
-  ✅ Pas de regression sur les flows existants
+  ✅ Monitoring post-deploy programmé : 10 min smoke + tail logs
+  ✅ Plan rollback : git revert <sha> + push main (auto si trigger)
 
 [... idem ...]
+
+Décision agent : PROMOTE PROD MAINTENANT
+                + monitoring auto 10 min
+                + rollback auto si anomalie
+
+→ Veto Robert via "stop" / "rollback" pendant la fenêtre.
 ```
 
-**Si E2E headfull échoue à au moins 1 parcours** : pas de reco "PROMOTE",
-l'agent investigue et fix sur staging d'abord.
-
 ### 20.7 Protocole tier 💀 CRITIQUE — 4 yeux + dry-run
+
+**SEUL TIER** où l'agent demande explicitement go/stop. Justification :
+ces actions sont **irréversibles** (DROP COLUMN, rotation secret en cours
+de session active, suppression de tenant) et engagent le business.
 
 L'agent ne pousse même pas le commit sur staging sans avoir préalablement :
 
 1. Décrit la modif et le tier à Robert ("c'est un tier CRITIQUE parce que…").
 2. Reçu un `ok pour staging` explicite.
-3. Préparé un plan de rollback détaillé (commandes exactes, secret de bascule, etc.).
+3. Préparé un plan de rollback détaillé (commandes exactes, secret de bascule,
+   trigger de revert, etc.).
 
 Après staging vert et toute la batterie de tests :
 
 - L'agent fournit la reco tier 🔴 + un **diff annoté ligne par ligne** des
   changements sur les chemins sensibles.
-- Robert relit le diff complet.
 - L'agent propose un **dry-run** si possible (ex : test du flow de rotation
   secret sur un compte test, sans toucher au compte principal).
-- Promotion main seulement après go explicite + un délai de 5 min "annule si
-  nécessaire" pendant lequel l'agent reste actif.
+- Robert répond `go` ou `stop`.
+- Sur `go` : promotion main + monitoring renforcé 30 min post-deploy.
+- Sur `stop` : freeze automatique de l'app jusqu'à `unfreeze`.
 
 ### 20.8 Outil agent — script E2E headfull staging
 
@@ -1894,13 +1959,18 @@ Branché dans `.husky/pre-push` après `check-test-mapping.sh`.
 
 - **KPI prod stability** : nombre de rollback prod / mois. Cible : 0.
 - **KPI vitesse dev** : médiane du délai `push staging → promote main` par tier.
-  - Tier 🟢 : < 10 min (auto-promote)
-  - Tier 🟡 : < 30 min (reco + go Robert)
-  - Tier 🔴 : < 2h (reco + E2E + go)
+  - Tier 🟢 : < 10 min (auto-promote CI)
+  - Tier 🟡 : < 30 min (agent promote autonome après reco)
+  - Tier 🔴 : < 1h (agent promote après E2E headfull + monitoring 10 min)
   - Tier 💀 : < 24h (4-yeux + dry-run)
 - **KPI précision agent** : % de commits où le tier annoncé correspond
   rétrospectivement à l'impact réel. Si l'agent sous-évalue régulièrement
   (annonce 🟡 mais c'était 🔴), durcir la grille §20.3.
+- **KPI veto Robert** : nombre de veto `stop`/`rollback` / mois.
+  - Cible : < 1/mois. Au-dessus = signal que l'agent classifie trop bas
+    ou que la grille §20.3 a un trou.
+  - Chaque veto déclenche un debrief mémoire : pourquoi Robert a vetoé,
+    quel pattern ajouter à la grille pour éviter de reproduire.
 
 Audit mensuel : `scripts/ci/audit-promotion-tiers.sh` (à câbler) qui scanne
 `git log origin/main` et compte les commits par tier (marker dans le message
