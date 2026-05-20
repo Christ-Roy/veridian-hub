@@ -14,7 +14,7 @@ import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 const findUniqueMock = vi.fn();
 const unlinkAppMock = vi.fn();
 const writeAuditLogMock = vi.fn();
-const authMock = vi.fn();
+const authenticateAdminMock = vi.fn();
 
 vi.mock('@/lib/prisma', () => ({
   prisma: { user: { findUnique: findUniqueMock }, tenant: {} },
@@ -26,18 +26,24 @@ vi.mock('@/lib/admin/audit-log', () => ({
   writeAuditLog: (...args: unknown[]) => writeAuditLogMock(...args),
   resolveActor: () => 'token:ADMIN_SECRET',
 }));
-vi.mock('@/auth', () => ({ auth: (...args: unknown[]) => authMock(...args) }));
-vi.mock('@/lib/admin/check-admin', () => ({
-  isPlatformAdmin: () => false,
+vi.mock('@/lib/admin/authenticate', () => ({
+  authenticateAdmin: (...args: unknown[]) => authenticateAdminMock(...args),
 }));
 
 const ORIG_SECRET = process.env.ADMIN_SECRET;
+
+const authOK = { ok: true, sessionEmail: null };
+const authDenied401 = {
+  ok: false,
+  response: new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 }),
+};
 
 beforeEach(() => {
   findUniqueMock.mockReset();
   unlinkAppMock.mockReset();
   writeAuditLogMock.mockReset();
-  authMock.mockReset();
+  authenticateAdminMock.mockReset();
+  authenticateAdminMock.mockResolvedValue(authOK);
   process.env.ADMIN_SECRET = 'admin-test-secret';
 });
 
@@ -58,7 +64,7 @@ const makeReq = (body: unknown, headers: Record<string, string> = {}) =>
 
 describe('DELETE /api/admin/tenants/unlink-app', () => {
   it('401 sans auth', async () => {
-    authMock.mockResolvedValueOnce(null);
+    authenticateAdminMock.mockResolvedValueOnce(authDenied401);
     const { DELETE } = await import('@/app/api/admin/tenants/unlink-app/route');
     const res = await DELETE(makeReq(validPayload) as never);
     expect(res.status).toBe(401);

@@ -10,14 +10,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const findOrphansMock = vi.fn();
-const requireAdminMock = vi.fn();
+const authenticateAdminMock = vi.fn();
 
 vi.mock('@/lib/admin/find-orphan-users', () => ({
   findOrphanUsers: (...args: unknown[]) => findOrphansMock(...args),
 }));
 
-vi.mock('@/lib/admin/require-admin', () => ({
-  requireAdmin: (...args: unknown[]) => requireAdminMock(...args),
+vi.mock('@/lib/admin/authenticate', () => ({
+  authenticateAdmin: (...args: unknown[]) => authenticateAdminMock(...args),
 }));
 
 vi.mock('@/lib/prisma', () => ({
@@ -26,7 +26,7 @@ vi.mock('@/lib/prisma', () => ({
 
 beforeEach(() => {
   findOrphansMock.mockReset();
-  requireAdminMock.mockReset();
+  authenticateAdminMock.mockReset();
   vi.resetModules();
 });
 
@@ -34,9 +34,9 @@ const makeReq = (query = '') =>
   new Request(`http://x/api/admin/users/orphans${query}`);
 
 describe('GET /api/admin/users/orphans', () => {
-  it('renvoie le 401/403 de requireAdmin si non autorisé', async () => {
+  it('renvoie le denyResponse de authenticateAdmin si non autorisé', async () => {
     const denyResponse = new Response(JSON.stringify({ error: 'forbidden' }), { status: 403 });
-    requireAdminMock.mockResolvedValueOnce(denyResponse);
+    authenticateAdminMock.mockResolvedValueOnce({ ok: false, response: denyResponse });
 
     const { GET } = await import('@/app/api/admin/users/orphans/route');
     const res = await GET(makeReq() as never);
@@ -45,7 +45,7 @@ describe('GET /api/admin/users/orphans', () => {
   });
 
   it('retourne le scan result quand admin OK', async () => {
-    requireAdminMock.mockResolvedValueOnce(null);
+    authenticateAdminMock.mockResolvedValueOnce({ ok: true, sessionEmail: null });
     findOrphansMock.mockResolvedValueOnce({
       scannedAt: '2026-05-20T00:00:00.000Z',
       minAgeDays: 7,
@@ -62,7 +62,7 @@ describe('GET /api/admin/users/orphans', () => {
   });
 
   it('passe minAgeDays et limit depuis les query params', async () => {
-    requireAdminMock.mockResolvedValueOnce(null);
+    authenticateAdminMock.mockResolvedValueOnce({ ok: true, sessionEmail: null });
     findOrphansMock.mockResolvedValueOnce({
       scannedAt: '2026-05-20T00:00:00.000Z',
       minAgeDays: 14,

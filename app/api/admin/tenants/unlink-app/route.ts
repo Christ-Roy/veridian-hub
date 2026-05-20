@@ -14,10 +14,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { prisma } from '@/lib/prisma';
-import { auth } from '@/auth';
-import { isPlatformAdmin } from '@/lib/admin/check-admin';
 import { unlinkApp, type AppLinkApp } from '@/lib/admin/link-app';
 import { writeAuditLog, resolveActor } from '@/lib/admin/audit-log';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -28,33 +27,8 @@ const bodySchema = z.object({
   reason: z.string().max(500).optional(),
 });
 
-async function authenticate(request: NextRequest): Promise<
-  | { ok: true; sessionEmail: string | null }
-  | { ok: false; response: NextResponse }
-> {
-  const adminSecret = process.env.ADMIN_SECRET;
-  const headerSecret = request.headers.get('x-admin-secret');
-  if (adminSecret && headerSecret === adminSecret) {
-    return { ok: true, sessionEmail: null };
-  }
-  const session = await auth();
-  if (!session?.user) {
-    return {
-      ok: false,
-      response: NextResponse.json({ error: 'unauthorized' }, { status: 401 }),
-    };
-  }
-  if (!isPlatformAdmin(session.user)) {
-    return {
-      ok: false,
-      response: NextResponse.json({ error: 'forbidden' }, { status: 403 }),
-    };
-  }
-  return { ok: true, sessionEmail: session.user.email ?? null };
-}
-
 export async function DELETE(request: NextRequest) {
-  const authResult = await authenticate(request);
+  const authResult = await authenticateAdmin(request);
   if (!authResult.ok) return authResult.response;
 
   const json = await request.json().catch(() => null);

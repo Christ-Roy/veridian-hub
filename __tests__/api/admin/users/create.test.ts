@@ -14,8 +14,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const upsertHubUserMock = vi.fn();
 const writeAuditLogMock = vi.fn();
-const authMock = vi.fn();
-const isPlatformAdminMock = vi.fn();
+const authenticateAdminMock = vi.fn();
 
 vi.mock('@/lib/admin/users', () => ({
   upsertHubUser: (...args: unknown[]) => upsertHubUserMock(...args),
@@ -24,21 +23,29 @@ vi.mock('@/lib/admin/audit-log', () => ({
   writeAuditLog: (...args: unknown[]) => writeAuditLogMock(...args),
   resolveActor: () => 'token:ADMIN_SECRET',
 }));
-vi.mock('@/auth', () => ({
-  auth: (...args: unknown[]) => authMock(...args),
-}));
-vi.mock('@/lib/admin/check-admin', () => ({
-  isPlatformAdmin: (...args: unknown[]) => isPlatformAdminMock(...args),
+vi.mock('@/lib/admin/authenticate', () => ({
+  authenticateAdmin: (...args: unknown[]) => authenticateAdminMock(...args),
 }));
 vi.mock('@/lib/prisma', () => ({ prisma: {} }));
 
 const ORIG_SECRET = process.env.ADMIN_SECRET;
 
+const authOK = { ok: true, sessionEmail: null };
+const authDenied401 = {
+  ok: false,
+  response: new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 }),
+};
+const authDenied403 = {
+  ok: false,
+  response: new Response(JSON.stringify({ error: 'forbidden' }), { status: 403 }),
+};
+
 beforeEach(() => {
   upsertHubUserMock.mockReset();
   writeAuditLogMock.mockReset();
-  authMock.mockReset();
-  isPlatformAdminMock.mockReset();
+  authenticateAdminMock.mockReset();
+  // Default : auth passe. Les tests qui veulent tester le refus override.
+  authenticateAdminMock.mockResolvedValue(authOK);
   process.env.ADMIN_SECRET = 'admin-test-secret';
 });
 
@@ -54,7 +61,7 @@ const makeReq = (
 
 describe('POST /api/admin/users/create', () => {
   it('retourne 401 sans auth', async () => {
-    authMock.mockResolvedValueOnce(null);
+    authenticateAdminMock.mockResolvedValueOnce(authDenied401);
     const { POST } = await import('@/app/api/admin/users/create/route');
     const res = await POST(makeReq({ email: 'a@x.com' }) as never);
     expect(res.status).toBe(401);
@@ -98,7 +105,7 @@ describe('POST /api/admin/users/create', () => {
   });
 
   it('refuse 401 avec x-admin-secret incorrect (et pas de session)', async () => {
-    authMock.mockResolvedValueOnce(null);
+    authenticateAdminMock.mockResolvedValueOnce(authDenied401);
     const { POST } = await import('@/app/api/admin/users/create/route');
     const res = await POST(
       makeReq({ email: 'a@x.com' }, { 'x-admin-secret': 'wrong' }) as never
@@ -107,10 +114,10 @@ describe('POST /api/admin/users/create', () => {
   });
 
   it('passe avec session admin', async () => {
-    authMock.mockResolvedValueOnce({
-      user: { email: 'robert@veridian.site', id: 'admin-1' },
+    authenticateAdminMock.mockResolvedValueOnce({
+      ok: true,
+      sessionEmail: 'robert@veridian.site',
     });
-    isPlatformAdminMock.mockReturnValueOnce(true);
     upsertHubUserMock.mockResolvedValueOnce({
       userId: 'u1',
       supabaseUserId: 'uuid-1',
@@ -125,10 +132,7 @@ describe('POST /api/admin/users/create', () => {
   });
 
   it('403 si session non-admin', async () => {
-    authMock.mockResolvedValueOnce({
-      user: { email: 'random@x.com', id: 'u-random' },
-    });
-    isPlatformAdminMock.mockReturnValueOnce(false);
+    authenticateAdminMock.mockResolvedValueOnce(authDenied403);
     const { POST } = await import('@/app/api/admin/users/create/route');
     const res = await POST(makeReq({ email: 'a@x.com' }) as never);
     expect(res.status).toBe(403);
@@ -145,6 +149,29 @@ describe('POST /api/admin/users/create', () => {
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toBe('invalid_payload');
+  });
+
+  it('400 si name contient < ou > (anti-XSS downstream)', async () => {
+    const { POST } = await import('@/app/api/admin/users/create/route');
+    const res = await POST(
+      makeReq(
+        { email: 'a@x.com', name: 'Hello <script>' },
+        { 'x-admin-secret': 'admin-test-secret' }
+      ) as never
+    );
+    expect(res.status).toBe(400);
+    expect(upsertHubUserMock).not.toHaveBeenCalled();
+  });
+
+  it('400 si name contient un caractère contrôle (CRLF, etc.)', async () => {
+    const { POST } = await import('@/app/api/admin/users/create/route');
+    const res = await POST(
+      makeReq(
+        { email: 'a@x.com', name: 'Robert\r\nBcc: evil@x' },
+        { 'x-admin-secret': 'admin-test-secret' }
+      ) as never
+    );
+    expect(res.status).toBe(400);
   });
 
   it('idempotent : appel 2 retourne already_existed=true', async () => {

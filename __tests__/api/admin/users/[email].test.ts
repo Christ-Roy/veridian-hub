@@ -13,10 +13,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const findUniqueMock = vi.fn();
 const findManyMock = vi.fn();
-const requireAdminMock = vi.fn();
+const authenticateAdminMock = vi.fn();
 
-vi.mock('@/lib/admin/require-admin', () => ({
-  requireAdmin: (...args: unknown[]) => requireAdminMock(...args),
+vi.mock('@/lib/admin/authenticate', () => ({
+  authenticateAdmin: (...args: unknown[]) => authenticateAdminMock(...args),
 }));
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -28,17 +28,21 @@ vi.mock('@/lib/prisma', () => ({
 beforeEach(() => {
   findUniqueMock.mockReset();
   findManyMock.mockReset();
-  requireAdminMock.mockReset();
+  authenticateAdminMock.mockReset();
 });
 
 const makeReq = () => new Request('http://x/api/admin/users/x');
 const makeCtx = (email: string) => ({ params: Promise.resolve({ email }) });
 
+const authOK = { ok: true, sessionEmail: null };
+const authDenied = {
+  ok: false,
+  response: new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 }),
+};
+
 describe('GET /api/admin/users/:email', () => {
-  it('renvoie le denyResponse de requireAdmin si non autorisé', async () => {
-    requireAdminMock.mockResolvedValueOnce(
-      new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 })
-    );
+  it('renvoie le denyResponse de authenticateAdmin si non autorisé', async () => {
+    authenticateAdminMock.mockResolvedValueOnce(authDenied);
     const { GET } = await import('@/app/api/admin/users/[email]/route');
     const res = await GET(makeReq() as never, makeCtx('a@x.com') as never);
     expect(res.status).toBe(401);
@@ -46,7 +50,7 @@ describe('GET /api/admin/users/:email', () => {
   });
 
   it('400 si email param invalide', async () => {
-    requireAdminMock.mockResolvedValueOnce(null);
+    authenticateAdminMock.mockResolvedValueOnce(authOK);
     const { GET } = await import('@/app/api/admin/users/[email]/route');
     const res = await GET(makeReq() as never, makeCtx('not-an-email') as never);
     expect(res.status).toBe(400);
@@ -54,7 +58,7 @@ describe('GET /api/admin/users/:email', () => {
   });
 
   it('404 si user inexistant', async () => {
-    requireAdminMock.mockResolvedValueOnce(null);
+    authenticateAdminMock.mockResolvedValueOnce(authOK);
     findUniqueMock.mockResolvedValueOnce(null);
     const { GET } = await import('@/app/api/admin/users/[email]/route');
     const res = await GET(makeReq() as never, makeCtx('ghost@x.com') as never);
@@ -62,7 +66,7 @@ describe('GET /api/admin/users/:email', () => {
   });
 
   it('200 + state complet user + tenants', async () => {
-    requireAdminMock.mockResolvedValueOnce(null);
+    authenticateAdminMock.mockResolvedValueOnce(authOK);
     findUniqueMock.mockResolvedValueOnce({
       id: 'u1',
       email: 'a@x.com',
@@ -89,7 +93,7 @@ describe('GET /api/admin/users/:email', () => {
   });
 
   it('tenants=[] si user sans supabaseUserId', async () => {
-    requireAdminMock.mockResolvedValueOnce(null);
+    authenticateAdminMock.mockResolvedValueOnce(authOK);
     findUniqueMock.mockResolvedValueOnce({
       id: 'u1',
       email: 'a@x.com',

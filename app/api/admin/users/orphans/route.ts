@@ -17,15 +17,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { prisma } from '@/lib/prisma';
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 import { findOrphanUsers } from '@/lib/admin/find-orphan-users';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-  const denied = await requireAdmin(request);
-  if (denied) return denied;
+  const authResult = await authenticateAdmin(request);
+  if (!authResult.ok) return authResult.response;
 
   const url = new URL(request.url);
   const minAgeDays = Number(url.searchParams.get('minAgeDays') ?? '7');

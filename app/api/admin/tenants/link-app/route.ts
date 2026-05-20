@@ -16,10 +16,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { prisma } from '@/lib/prisma';
-import { auth } from '@/auth';
-import { isPlatformAdmin } from '@/lib/admin/check-admin';
 import { linkApp, type AppLinkApp } from '@/lib/admin/link-app';
 import { writeAuditLog, resolveActor } from '@/lib/admin/audit-log';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,43 +26,58 @@ export const dynamic = 'force-dynamic';
 const bodySchema = z.object({
   user_email: z.string().email(),
   app: z.enum(['cms', 'analytics', 'notifuse', 'prospection']),
-  external_tenant_id: z.string().min(1),
-  external_tenant_slug: z.string().min(1).max(120),
-  tenant_name: z.string().min(1).max(255),
+  // external_tenant_id : juste imposer min/max et caractères safe (pas de
+  // CRLF/control chars). Souvent un UUID ou un integer côté app downstream.
+  external_tenant_id: z
+    .string()
+    .min(1)
+    .max(255)
+    .regex(/^[A-Za-z0-9_-]+$/, 'external_tenant_id: alphanumeric + _ - only'),
+  // slug DNS-safe + URL-safe (sera utilisé dans Tenant.slug et metadata).
+  // Refuse <, >, /, espaces, etc. pour empêcher XSS/path traversal en aval.
+  external_tenant_slug: z
+    .string()
+    .min(1)
+    .max(120)
+    .regex(/^[a-z0-9][a-z0-9-]*$/, 'external_tenant_slug: lowercase alphanumeric + hyphens, must start with alphanumeric'),
+  // tenant_name : affiché en clair dans le dashboard. React échappe par
+  // défaut, mais on bloque quand même les caractères contrôle pour pas
+  // surprendre les downstream (exports CSV, emails, etc.).
+  tenant_name: z
+    .string()
+    .min(1)
+    .max(255)
+    .refine((s) => !/[\x00-\x1f<>]/.test(s), {
+      message: 'tenant_name: no control characters or < >',
+    }),
   plan: z.string().optional(),
-  fallback_url: z.string().url().optional(),
+  // Whitelist http/https : z.string().url() accepte javascript:, data: et file:
+  // qui sont des XSS triviaux quand le user clique sur "Open" depuis le dashboard.
+  fallback_url: z
+    .string()
+    .url()
+    .refine((u) => u.startsWith('https://') || u.startsWith('http://'), {
+      message: 'fallback_url must use http or https scheme',
+    })
+    .optional(),
   magic_link_capable: z.boolean().optional(),
-  provisioning_source: z.string().max(120).optional(),
-  notes: z.string().max(1000).optional(),
+  provisioning_source: z
+    .string()
+    .max(120)
+    .regex(/^[A-Za-z0-9._:-]+$/, 'provisioning_source: alphanumeric + . _ : - only')
+    .optional(),
+  // notes : autorise le texte libre mais filtre les caractères contrôle.
+  notes: z
+    .string()
+    .max(1000)
+    .refine((s) => !/[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(s), {
+      message: 'notes: no control characters except newline/tab',
+    })
+    .optional(),
 });
 
-async function authenticate(request: NextRequest): Promise<
-  | { ok: true; sessionEmail: string | null }
-  | { ok: false; response: NextResponse }
-> {
-  const adminSecret = process.env.ADMIN_SECRET;
-  const headerSecret = request.headers.get('x-admin-secret');
-  if (adminSecret && headerSecret === adminSecret) {
-    return { ok: true, sessionEmail: null };
-  }
-  const session = await auth();
-  if (!session?.user) {
-    return {
-      ok: false,
-      response: NextResponse.json({ error: 'unauthorized' }, { status: 401 }),
-    };
-  }
-  if (!isPlatformAdmin(session.user)) {
-    return {
-      ok: false,
-      response: NextResponse.json({ error: 'forbidden' }, { status: 403 }),
-    };
-  }
-  return { ok: true, sessionEmail: session.user.email ?? null };
-}
-
 export async function POST(request: NextRequest) {
-  const authResult = await authenticate(request);
+  const authResult = await authenticateAdmin(request);
   if (!authResult.ok) return authResult.response;
 
   const json = await request.json().catch(() => null);

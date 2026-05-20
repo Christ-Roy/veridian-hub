@@ -14,8 +14,7 @@ import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 const findUniqueMock = vi.fn();
 const linkAppMock = vi.fn();
 const writeAuditLogMock = vi.fn();
-const authMock = vi.fn();
-const isPlatformAdminMock = vi.fn();
+const authenticateAdminMock = vi.fn();
 
 vi.mock('@/lib/prisma', () => ({
   prisma: { user: { findUnique: findUniqueMock }, tenant: {} },
@@ -27,19 +26,25 @@ vi.mock('@/lib/admin/audit-log', () => ({
   writeAuditLog: (...args: unknown[]) => writeAuditLogMock(...args),
   resolveActor: () => 'token:ADMIN_SECRET',
 }));
-vi.mock('@/auth', () => ({ auth: (...args: unknown[]) => authMock(...args) }));
-vi.mock('@/lib/admin/check-admin', () => ({
-  isPlatformAdmin: (...args: unknown[]) => isPlatformAdminMock(...args),
+vi.mock('@/lib/admin/authenticate', () => ({
+  authenticateAdmin: (...args: unknown[]) => authenticateAdminMock(...args),
 }));
 
 const ORIG_SECRET = process.env.ADMIN_SECRET;
+
+const authOK = { ok: true, sessionEmail: null };
+const authDenied401 = {
+  ok: false,
+  response: new Response(JSON.stringify({ error: 'unauthorized' }), { status: 401 }),
+};
 
 beforeEach(() => {
   findUniqueMock.mockReset();
   linkAppMock.mockReset();
   writeAuditLogMock.mockReset();
-  authMock.mockReset();
-  isPlatformAdminMock.mockReset();
+  authenticateAdminMock.mockReset();
+  // Default : auth passe. Tests qui veulent tester le refus override.
+  authenticateAdminMock.mockResolvedValue(authOK);
   process.env.ADMIN_SECRET = 'admin-test-secret';
 });
 
@@ -68,7 +73,7 @@ const auth = { 'x-admin-secret': 'admin-test-secret' };
 
 describe('POST /api/admin/tenants/link-app', () => {
   it('401 sans auth', async () => {
-    authMock.mockResolvedValueOnce(null);
+    authenticateAdminMock.mockResolvedValueOnce(authDenied401);
     const { POST } = await import('@/app/api/admin/tenants/link-app/route');
     const res = await POST(makeReq(validPayload) as never);
     expect(res.status).toBe(401);
@@ -85,6 +90,86 @@ describe('POST /api/admin/tenants/link-app', () => {
     const { POST } = await import('@/app/api/admin/tenants/link-app/route');
     const res = await POST(makeReq({ ...validPayload, tenant_name: '' }, auth) as never);
     expect(res.status).toBe(400);
+  });
+
+  it('400 si fallback_url utilise javascript: scheme (anti-XSS)', async () => {
+    const { POST } = await import('@/app/api/admin/tenants/link-app/route');
+    const res = await POST(
+      makeReq(
+        { ...validPayload, fallback_url: 'javascript:alert(1)' },
+        auth
+      ) as never
+    );
+    expect(res.status).toBe(400);
+    expect(linkAppMock).not.toHaveBeenCalled();
+  });
+
+  it('400 si fallback_url utilise data: scheme (anti-XSS)', async () => {
+    const { POST } = await import('@/app/api/admin/tenants/link-app/route');
+    const res = await POST(
+      makeReq(
+        { ...validPayload, fallback_url: 'data:text/html,<script>alert(1)</script>' },
+        auth
+      ) as never
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('400 si external_tenant_slug contient < > / etc (anti-XSS/path traversal)', async () => {
+    const { POST } = await import('@/app/api/admin/tenants/link-app/route');
+    const tests = [
+      '<script>alert(1)</script>',
+      '../etc/passwd',
+      'avse/admin',
+      'AVSE', // uppercase rejeté (DNS unsafe)
+      '-avse', // ne peut pas commencer par hyphen
+    ];
+    for (const slug of tests) {
+      const res = await POST(
+        makeReq({ ...validPayload, external_tenant_slug: slug }, auth) as never
+      );
+      expect(res.status).toBe(400);
+    }
+  });
+
+  it('400 si external_tenant_id contient des caractères non-safe', async () => {
+    const { POST } = await import('@/app/api/admin/tenants/link-app/route');
+    const res = await POST(
+      makeReq({ ...validPayload, external_tenant_id: '1; DROP TABLE--' }, auth) as never
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('400 si tenant_name contient < ou > (anti-XSS downstream)', async () => {
+    const { POST } = await import('@/app/api/admin/tenants/link-app/route');
+    const res = await POST(
+      makeReq(
+        { ...validPayload, tenant_name: 'Hello <img src=x>' },
+        auth
+      ) as never
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('200 si fallback_url est un https valide (happy path préservé)', async () => {
+    findUniqueMock.mockResolvedValueOnce({ id: 'u1', supabaseUserId: 'uuid-1' });
+    linkAppMock.mockResolvedValueOnce({
+      tenantId: 't1',
+      userUuid: 'uuid-1',
+      app: 'cms',
+      metadataPath: 'tenants.metadata.cms',
+      created: true,
+    });
+    writeAuditLogMock.mockResolvedValueOnce(undefined);
+
+    const { POST } = await import('@/app/api/admin/tenants/link-app/route');
+    const res = await POST(
+      makeReq(
+        { ...validPayload, fallback_url: 'https://cms.veridian.site/admin' },
+        auth
+      ) as never
+    );
+    expect(res.status).toBe(200);
   });
 
   it("404 si user n'existe pas", async () => {

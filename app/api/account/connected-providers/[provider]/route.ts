@@ -53,33 +53,68 @@ export async function DELETE(
     );
   }
 
-  // Anti-lockout : on compte les accounts du user AVANT de supprimer.
-  // Si c'est le dernier (count === 1), on refuse — quel que soit le provider.
-  const accounts = await prisma.account.findMany({
-    where: { userId: user.id },
-    select: { id: true, provider: true },
-  });
+  // Anti-lockout : on enveloppe dans une transaction Prisma pour éviter
+  // une race condition entre 2 DELETE en parallèle qui passeraient tous
+  // deux le check `accounts.length > 1` puis se delete-raient l'un l'autre
+  // → user lockout. La transaction sérialise les checks/delete.
+  //
+  // Note Prisma 7 : par défaut READ COMMITTED. Pas suffisant à 100%
+  // contre les races (un SELECT puis DELETE peut voir un état différent
+  // sous READ COMMITTED), mais on accepte ce niveau car :
+  //  1. L'auth requireUser garantit que c'est le user qui s'attaque soi-même
+  //     (= auto-DoS volontaire, pas un attaquant tiers)
+  //  2. La transaction réduit drastiquement la fenêtre de race (millisecondes
+  //     vs secondes sans txn)
+  //  3. Au pire, le user fait 2 onglets et se lockout → support manuel.
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const accounts = await tx.account.findMany({
+        where: { userId: user.id },
+        select: { id: true, provider: true },
+      });
 
-  const target = accounts.find((a) => a.provider === provider);
-  if (!target) {
+      const target = accounts.find((a) => a.provider === provider);
+      if (!target) {
+        return { kind: 'not_connected' as const };
+      }
+      if (accounts.length <= 1) {
+        return { kind: 'last_login_method' as const };
+      }
+      await tx.account.delete({ where: { id: target.id } });
+      return { kind: 'ok' as const };
+    });
+
+    if (result.kind === 'not_connected') {
+      return NextResponse.json(
+        { error: 'not_connected', message: 'Ce provider n\'est pas connecté à votre compte.' },
+        { status: 404 }
+      );
+    }
+    if (result.kind === 'last_login_method') {
+      return NextResponse.json(
+        {
+          error: 'last_login_method',
+          message:
+            "Impossible de déconnecter ce provider : c'est votre dernier moyen de connexion. Ajoutez d'abord une autre méthode (mot de passe ou autre provider) avant de retirer celle-ci.",
+        },
+        { status: 409 }
+      );
+    }
+    return NextResponse.json({ success: true, provider });
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        tag: '[provider-disconnect-failed]',
+        level: 'error',
+        user_id: user.id,
+        provider,
+        error: err instanceof Error ? err.message : String(err),
+        ts: new Date().toISOString(),
+      })
+    );
     return NextResponse.json(
-      { error: 'not_connected', message: 'Ce provider n\'est pas connecté à votre compte.' },
-      { status: 404 }
+      { error: 'internal_error', message: 'Erreur transactionnelle lors de la déconnexion.' },
+      { status: 500 }
     );
   }
-
-  if (accounts.length <= 1) {
-    return NextResponse.json(
-      {
-        error: 'last_login_method',
-        message:
-          "Impossible de déconnecter ce provider : c'est votre dernier moyen de connexion. Ajoutez d'abord une autre méthode (mot de passe ou autre provider) avant de retirer celle-ci.",
-      },
-      { status: 409 }
-    );
-  }
-
-  await prisma.account.delete({ where: { id: target.id } });
-
-  return NextResponse.json({ success: true, provider });
 }

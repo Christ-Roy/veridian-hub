@@ -18,48 +18,29 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { prisma } from '@/lib/prisma';
-import { auth } from '@/auth';
-import { isPlatformAdmin } from '@/lib/admin/check-admin';
 import { upsertHubUser } from '@/lib/admin/users';
 import { writeAuditLog, resolveActor } from '@/lib/admin/audit-log';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const bodySchema = z.object({
   email: z.string().email(),
-  name: z.string().min(1).max(120).optional(),
+  // name affiché dans le dashboard, exports CSV, emails. React échappe par
+  // défaut mais on bloque quand même les chars contrôle et < > pour les
+  // downstream (CSV injection via =, +, -, @ → mitigé séparément côté export).
+  name: z
+    .string()
+    .min(1)
+    .max(120)
+    .refine((s) => !/[\x00-\x1f<>]/.test(s), {
+      message: 'name: no control characters or < >',
+    })
+    .optional(),
   supabaseUserId: z.string().uuid().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
-
-async function authenticateAdmin(request: NextRequest): Promise<
-  | { ok: true; sessionEmail: string | null }
-  | { ok: false; response: NextResponse }
-> {
-  const adminSecret = process.env.ADMIN_SECRET;
-  const headerSecret = request.headers.get('x-admin-secret');
-  if (adminSecret && headerSecret === adminSecret) {
-    return { ok: true, sessionEmail: null };
-  }
-  const session = await auth();
-  if (!session?.user) {
-    return {
-      ok: false,
-      response: NextResponse.json(
-        { error: 'unauthorized', message: 'Provide x-admin-secret or authenticate.' },
-        { status: 401 }
-      ),
-    };
-  }
-  if (!isPlatformAdmin(session.user)) {
-    return {
-      ok: false,
-      response: NextResponse.json({ error: 'forbidden' }, { status: 403 }),
-    };
-  }
-  return { ok: true, sessionEmail: session.user.email ?? null };
-}
 
 export async function POST(request: NextRequest) {
   const authResult = await authenticateAdmin(request);

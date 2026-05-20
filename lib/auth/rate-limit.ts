@@ -122,3 +122,15 @@ export const oauthCallbackLimiter = new RateLimiter({
   windowMs: 60_000,
   name: 'oauth-callback',
 });
+
+// Limit anti-brute-force pour les routes admin protégées par x-admin-secret.
+// Cap volontairement bas : un usage légitime fait quelques appels/min
+// (provisioning d'un client), pas des centaines. Un bot qui brute-force le
+// secret 48-chars n'a aucune chance même sans rate-limit (espace ~10^86),
+// mais on ajoute la défense en profondeur pour bloquer aussi les attaques
+// par dictionnaire et limiter le bruit dans les logs.
+export const adminApiLimiter = new RateLimiter({
+  capacity: 30,
+  windowMs: 60_000,
+  name: 'admin-api',
+});

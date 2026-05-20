@@ -124,3 +124,36 @@ describe('extractClientIp', () => {
     expect(extractClientIp(make({ 'x-forwarded-for': '' }))).toBe('unknown');
   });
 });
+
+describe('exported limiter instances', () => {
+  it('exports adminApiLimiter avec capacity 30/min (anti-brute-force secret)', async () => {
+    const { adminApiLimiter } = await import('@/lib/auth/rate-limit');
+    adminApiLimiter.reset();
+    // 30 hits doivent passer, 31e refusée
+    for (let i = 0; i < 30; i++) {
+      expect(adminApiLimiter.enforce('test-ip').ok).toBe(true);
+    }
+    expect(adminApiLimiter.enforce('test-ip').ok).toBe(false);
+    adminApiLimiter.reset();
+  });
+
+  it('exports oauthStartLimiter avec capacity 10/min', async () => {
+    const { oauthStartLimiter } = await import('@/lib/auth/rate-limit');
+    oauthStartLimiter.reset();
+    for (let i = 0; i < 10; i++) {
+      expect(oauthStartLimiter.enforce('test-ip-oauth').ok).toBe(true);
+    }
+    expect(oauthStartLimiter.enforce('test-ip-oauth').ok).toBe(false);
+    oauthStartLimiter.reset();
+  });
+
+  it('exports oauthCallbackLimiter avec capacity 30/min', async () => {
+    const { oauthCallbackLimiter } = await import('@/lib/auth/rate-limit');
+    oauthCallbackLimiter.reset();
+    for (let i = 0; i < 30; i++) {
+      expect(oauthCallbackLimiter.enforce('test-ip-cb').ok).toBe(true);
+    }
+    expect(oauthCallbackLimiter.enforce('test-ip-cb').ok).toBe(false);
+    oauthCallbackLimiter.reset();
+  });
+});
