@@ -4,6 +4,25 @@
 > **Sévérité** : 🟢 P3 (pas critique, mais évite l'accumulation)
 > **Owner** : agent Hub
 > **Créé** : 2026-05-20
+> **✅ LIVRÉ (DRY-RUN)** : 2026-05-20 (commit `cca2cec`, smoke prod OK)
+>
+> **Réalisé** :
+> - `lib/admin/find-orphan-users.ts` : fonction pure, exclut les users
+>   avec un Tenant via la corrélation `supabaseUserId` (UUID bridge).
+>   Protection critique anti-suppression-de-tenant.
+> - `POST /api/cron/cleanup-orphan-users` (CRON_SECRET, dry-run strict)
+> - `GET  /api/admin/users/orphans` (requireAdmin, consultation)
+> - 18 tests vitest (400/400 vert)
+> - Smoke prod 2026-05-20 : 2 orphelins réels détectés
+>   * `lemaireq.84@gmail.com` (42 jours)
+>   * `jimmybrumant@gmail.com` (40 jours)
+>
+> **⚠️ Auto-delete pas livré (volontaire)** :
+> - Politique de rétention RGPD pas encore figée (cf. page /legal)
+> - Delete sera fait manuellement par Robert via Prisma Studio ou SQL
+> - Si on veut passer en auto-delete plus tard : nouveau ticket avec
+>   politique RGPD claire + double cooling-off (genre dry-run 30j puis
+>   delete 30j plus tard)
 
 ## Contexte
 
