@@ -11,6 +11,44 @@
 
 ---
 
+## ✅ LIVRÉ EN PROD — 2026-05-20 18h00 UTC+2
+
+**Status final Phase 1** : tous les chemins critiques sont en prod et validés
+manuellement par Robert.
+
+- ✅ **Google OAuth Sign-in** : 12 test users Gmail autorisés, scope minimal
+  `openid email profile`, mode Testing OK pour 100 users max
+- ✅ **Microsoft OAuth Sign-in** : App Registration multi-tenant créée via
+  `az ad app create`, scope `openid + profile + email + User.Read`, accepte
+  tous les comptes Microsoft (Work/School + personnels)
+- ✅ **`allowDangerousEmailAccountLinking: true`** sur les 2 providers : un
+  user existant Hub (créé via Credentials/magic) peut maintenant se logger
+  via Google ou Microsoft sans `OAuthAccountNotLinked`
+- ✅ **Secrets** stockés dans `~/credentials/.all-creds.env` + Dokploy compose
+  `_kxAHDCv1LhvsdwNRX3Vk` (prod) + GitHub Actions secrets (staging)
+- ✅ **Tests validés** :
+  - Tests RTL : 10/10 (LoginForm + SignupForm)
+  - E2E Playwright staging headfull : 9/9
+  - Manuel Robert prod : Google `brunon5robert@gmail.com` ✓ + Microsoft `robert.brunon@veridian.site` ✓
+
+**Scénarios non couverts** : voir ticket dédié
+[`todo/2026-05-20-oauth-scenarios-coverage.md`](./2026-05-20-oauth-scenarios-coverage.md)
+qui détaille les 13 scénarios A-M et leur priorité de traitement.
+
+**Cross-app Prospection** : voir ticket dédié
+[`todo/integrations/2026-05-20-prospection-invite-flow.md`](./integrations/2026-05-20-prospection-invite-flow.md)
+qui spécifie le refactor du flow invitation Prospection pour passer par le Hub.
+
+**Reste côté infra (non bloquant pour Phase 1)** :
+- Staging Google + Microsoft OAuth : workflow `hub-staging.yml` patch commit
+  `b85b6b9` câble les ENV au .env dev server (en cours de redéploy)
+- Brand verification Google (optionnel, ~2-3j review) à soumettre si on
+  bascule en "In production" (cap 100 users en Testing actuel)
+- Publisher Verification Microsoft (optionnel, exige Microsoft AI Cloud
+  Partner Program) — skip Phase 1
+
+---
+
 ## 🔥 Update agent Hub — 2026-05-20
 
 **Découverte de la reconnaissance terrain** : la Phase 1.C "Backend Hub" du ticket
