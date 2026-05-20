@@ -4,6 +4,20 @@
 > **Sévérité** : 🟢 P3 (cosmetic, mais user-visible)
 > **Owner** : agent Hub
 > **Créé** : 2026-05-20
+> **✅ LIVRÉ** : 2026-05-20 (commits `deba9ab` + `27d80c4`, smoke prod OK)
+>
+> **Réalisé** :
+> - `components/auth/LoginErrorBanner.tsx` — mapping 9 codes Auth.js
+>   (OAuthAccountNotLinked, OAuthCallbackError, OAuthSigninError,
+>    Configuration, AccessDenied, Verification, CredentialsSignin,
+>    SessionRequired, Default) → titre + message FR + variant Alert
+> - Intégré dans `LoginForm.tsx` + `SignupForm.tsx` via `useSearchParams`
+> - Logger Auth.js structuré JSON dans `auth.ts` avec tag
+>   `[auth-error][critical]` sur Configuration + OAuthCallbackError
+>   (prêt à câbler alerting Loki/Telegram via ticket monitoring)
+> - 18 nouveaux tests vitest (LoginErrorBanner: 13, LoginForm: 3,
+>   SignupForm: 2) — total 347/347 vert
+> - Smoke prod : `/login?error=AccessDenied` render bien banner
 
 ## Contexte
 
