@@ -45,23 +45,21 @@ de l'admin API. **9 issues trouvées**, 6 fixées en prod dans la session,
 Pas de HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy
 sur les responses Traefik. Ticket déposé dans `veridian-infra/todo/2026-05-20-traefik-security-headers.md`.
 
-### MEDIUM — Brute-force password limité à 30/min/IP
+### ✅ MEDIUM — Brute-force password limité à 30/min/IP — FIXÉ 2026-05-20 (commit `5330dfe`)
 
-Les routes `/api/auth/callback/credentials` sont rate-limitées à 30/min/IP
-via le wrapper Auth.js livré aujourd'hui. Mais 30 tentatives/min = 43k/jour/IP,
-ce qui reste exploitable contre des passwords faibles.
+Limiter dédié `credentialsLoginLimiter` 5/min/IP appliqué prioritairement
+sur `/api/auth/callback/credentials` dans le wrapper Auth.js.
 
-**Fix proposé** : rate-limit séparé par couple (IP, email_target). 5
-tentatives/15min/email serait standard industriel (banking).
+**Reste à faire (P3 si attaques observées)** : rate-limit par couple
+(IP, email_target) pour empêcher un botnet de répartir l'attaque sur N
+IPs contre un même email. Nécessite de parser le body x-www-form-urlencoded
+avant Auth.js. À câbler si attaques observées dans audit_log.
 
-**Effort** : 1-2h. Tier 🟡 MOYEN, autonome Hub.
+### ✅ LOW — Index `audit_log.actor` — FIXÉ 2026-05-20 (commit `c32badb`)
 
-### LOW — Pas d'index sur `audit_log.actor`
-
-Pour les requêtes forensics "qui a fait quoi", on a besoin d'index sur
-`actor`. Pas urgent (volume faible), à ajouter si volume > 100k rows.
-
-**Fix proposé** : migration Prisma `CREATE INDEX CONCURRENTLY audit_log_actor_idx ON audit_log(actor, created_at DESC)`.
+Migration `20260520180000_add_audit_log_actor_index` appliquée DB staging +
+prod. Index `(actor, created_at DESC)`. Endpoint forensics dédié
+`GET /api/admin/audit-log?actor=...` qui exerce l'index.
 
 ### LOW — Erreur Auth.js details exposés ?
 
