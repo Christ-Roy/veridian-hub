@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { issueAndSendMfaCode } from '@/lib/mfa';
 import { authConfig } from './auth.config';
+import { createSignInCallback } from '@/lib/auth/sign-in-callback';
 
 const credentialsSchema = z.object({
   email: z.string().email(),
@@ -77,47 +78,9 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
   ],
   callbacks: {
     ...authConfig.callbacks,
-    async signIn({ user, account }) {
-      // Hook 2FA : quand un user avec mfaEnabled=true se login via Google ou
-      // Credentials, on génère un code et on redirige vers /auth/mfa.
-      //
-      // Auth.js n'a pas de "pre-session" natif, donc le pattern est :
-      // 1. signIn callback retourne `/auth/mfa?userId=...` (un path = "allow
-      //    with redirect" selon la doc Auth.js v5)
-      // 2. Le handler POST /api/auth/mfa/verify crée la vraie session
-      //
-      // On déclenche l'envoi du mail côté serveur ici (pas dans le middleware).
-
-      if (!user.email) {
-        return false;
-      }
-
-      // Fetch le user Prisma pour vérifier mfaEnabled
-      const dbUser = await prisma.user.findUnique({
-        where: { email: user.email },
-        select: { id: true, email: true, mfaEnabled: true },
-      });
-
-      if (!dbUser) {
-        // Premier login Google / Credentials → le PrismaAdapter va créer le
-        // user. On laisse passer (pas de 2FA au premier login).
-        return true;
-      }
-
-      if (dbUser.mfaEnabled) {
-        try {
-          await issueAndSendMfaCode({ id: dbUser.id, email: dbUser.email });
-        } catch (err) {
-          console.error('[auth] failed to issue MFA code', err);
-          return false;
-        }
-        // Rediriger vers /auth/mfa avec l'id du user encodé en cookie
-        // temporaire (géré par le handler ci-dessous via Set-Cookie)
-        return `/auth/mfa?uid=${encodeURIComponent(dbUser.id)}`;
-      }
-
-      return true;
-    },
+    // Callback signIn extrait dans lib/auth/sign-in-callback.ts pour le tester
+    // unitairement. Gère MFA + retour boolean/string (path) selon spec Auth.js v5.
+    signIn: createSignInCallback({ prisma, issueAndSendMfaCode }),
     async jwt({ token, user }) {
       if (user) {
         token.uid = user.id;

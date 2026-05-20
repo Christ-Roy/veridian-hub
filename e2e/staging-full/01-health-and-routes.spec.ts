@@ -18,21 +18,18 @@ test.describe('Journey 1 — Fondations', () => {
     await expect(page).toHaveTitle(/Veridian/i);
   });
 
-  test('GET /login affiche les 3 voies (Credentials + Google + Microsoft)', async ({ page }) => {
+  test('GET /login affiche le form Credentials (OAuth désactivé en staging Tailscale-only)', async ({ page }) => {
     const res = await page.goto('/login');
     expect(res?.status()).toBe(200);
     await expect(page.locator('input[name="email"]')).toBeVisible();
     await expect(page.locator('input[name="password"]')).toBeVisible();
-    await expect(page.getByRole('button', { name: /Continuer avec Google/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Continuer avec Microsoft/i })).toBeVisible();
+    // En staging, OAuth Google/Microsoft sont désactivés (cf. journey 2).
   });
 
-  test('GET /signup affiche les 3 voies (Credentials + Google + Microsoft)', async ({ page }) => {
+  test('GET /signup affiche le form Credentials (OAuth désactivé en staging)', async ({ page }) => {
     const res = await page.goto('/signup');
     expect(res?.status()).toBe(200);
     await expect(page.locator('input[name="email"]')).toBeVisible();
-    await expect(page.getByRole('button', { name: /Continuer avec Google/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Continuer avec Microsoft/i })).toBeVisible();
   });
 
   test('GET /legal (Privacy + Terms) accessible publiquement', async ({ page }) => {
