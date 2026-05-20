@@ -26,6 +26,18 @@ de l'admin API. **9 issues trouvées**, 6 fixées en prod dans la session,
 6. **HIGH** — Pas de rate-limit sur signup public (15 signups // = 15× 201)
    → `signupLimiter` 5/min/IP
 
+7. **HIGH** — `next.config.js` `remotePatterns: [{hostname:'**'}]` = wildcard
+   total. Latente CVE-2024-34351 SSRF + DoS bande passante via /_next/image.
+   → Whitelist explicite (lh3.googleusercontent.com, graph.microsoft.com,
+   cdn.veridian.site, assets.internal.veridian.site) + contentDisposition
+   attachment + CSP sandbox. Smoke prod 400 sur hostnames non-whitelist,
+   200 sur vrai avatar Google AVSE.
+
+8. **CLEANUP** — `SUPABASE_ANON_KEY` + `SUPABASE_SERVICE_ROLE_KEY` traînaient
+   dans ENV Dokploy Hub prod alors que Hub n'utilise plus Supabase depuis
+   2026-05-08 (Auth.js v5). Nettoyé via Dokploy API. Pas une vuln directe
+   (pas exposé NEXT_PUBLIC), juste du dead weight.
+
 ## ⏳ Restent à fixer (créer tickets dédiés)
 
 ### MEDIUM — Headers de sécurité HTTP manquants
