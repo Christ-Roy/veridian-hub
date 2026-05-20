@@ -64,3 +64,37 @@ export function resolveActor(
   if (headers.get('x-hub-admin-token')) return 'token:HUB_ADMIN_TOKEN';
   return 'unknown';
 }
+
+/**
+ * Query forensics : récupère les N dernières actions d'un actor donné.
+ * Utilise l'index `audit_log_actor_created_at_idx` (actor, created_at DESC)
+ * pour un lookup O(log n) sur des volumes même larges.
+ *
+ * Cas d'usage type : "que s'est-il passé avec le token HUB_ADMIN_SECRET la
+ * dernière fois ?" ou "toutes les actions de robert@veridian.site cette
+ * semaine ?".
+ */
+export async function findAuditByActor(
+  prisma: PrismaClient,
+  actor: string,
+  options: { limit?: number; since?: Date } = {}
+): Promise<
+  Array<{
+    id: string;
+    action: string;
+    actor: string;
+    targetType: string | null;
+    targetId: string | null;
+    payload: unknown;
+    createdAt: Date;
+  }>
+> {
+  const limit = options.limit ?? 100;
+  const where: { actor: string; createdAt?: { gte: Date } } = { actor };
+  if (options.since) where.createdAt = { gte: options.since };
+  return prisma.auditLog.findMany({
+    where,
+    orderBy: { createdAt: 'desc' },
+    take: limit,
+  });
+}

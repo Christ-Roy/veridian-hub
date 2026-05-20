@@ -419,6 +419,7 @@ model AuditLog {
 
   @@index([action, createdAt])
   @@index([targetId])
+  @@index([actor, createdAt(sort: Desc)], map: "audit_log_actor_created_at_idx")
   @@map("audit_log")
   @@schema("hub_app")
 }

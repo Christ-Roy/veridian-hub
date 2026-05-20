@@ -8,13 +8,17 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { writeAuditLog, resolveActor } from '@/lib/admin/audit-log';
+import { writeAuditLog, resolveActor, findAuditByActor } from '@/lib/admin/audit-log';
 
 const createMock = vi.fn();
-const prisma = { auditLog: { create: createMock } } as never;
+const findManyMock = vi.fn();
+const prisma = {
+  auditLog: { create: createMock, findMany: findManyMock },
+} as never;
 
 beforeEach(() => {
   createMock.mockReset();
+  findManyMock.mockReset();
 });
 
 describe('writeAuditLog', () => {
@@ -84,5 +88,54 @@ describe('resolveActor', () => {
   it('retourne "unknown" si rien', () => {
     expect(resolveActor(new Headers({}), null)).toBe('unknown');
     expect(resolveActor(new Headers({}), undefined)).toBe('unknown');
+  });
+});
+
+describe('findAuditByActor', () => {
+  it('query par actor avec orderBy createdAt DESC et limit default 100', async () => {
+    findManyMock.mockResolvedValueOnce([]);
+    await findAuditByActor(prisma, 'admin:robert@x');
+
+    expect(findManyMock).toHaveBeenCalledWith({
+      where: { actor: 'admin:robert@x' },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+  });
+
+  it('respecte le limit fourni', async () => {
+    findManyMock.mockResolvedValueOnce([]);
+    await findAuditByActor(prisma, 'token:ADMIN_SECRET', { limit: 20 });
+    expect(findManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({ take: 20 })
+    );
+  });
+
+  it('filtre par date si `since` fourni', async () => {
+    findManyMock.mockResolvedValueOnce([]);
+    const since = new Date('2026-05-01');
+    await findAuditByActor(prisma, 'admin:x@y', { since });
+    expect(findManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { actor: 'admin:x@y', createdAt: { gte: since } },
+      })
+    );
+  });
+
+  it('retourne les rows tels quels (forensics raw, pas de transformation)', async () => {
+    const fakeRows = [
+      {
+        id: 'a1',
+        action: 'admin.user.create',
+        actor: 'admin:x',
+        targetType: 'user',
+        targetId: 'u1',
+        payload: { email: 'a@x.com' },
+        createdAt: new Date('2026-05-20'),
+      },
+    ];
+    findManyMock.mockResolvedValueOnce(fakeRows);
+    const result = await findAuditByActor(prisma, 'admin:x');
+    expect(result).toEqual(fakeRows);
   });
 });
