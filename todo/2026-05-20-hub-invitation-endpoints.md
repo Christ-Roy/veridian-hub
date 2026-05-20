@@ -11,13 +11,27 @@
 > **Progrès** :
 >   - ✅ Étape 1 livrée 2026-05-20 (commit `d2d5b01`) : modèle Prisma
 >     `CrossAppInvitation` + migration `20260520210000_add_cross_app_invitations`
->     + 17 tests d'intégrité. Table créée sur staging, **PAS encore appliquée
->     sur prod** (suit la convention `reference_hub_prod_no_auto_migrate.md`).
->     Décision terrain : modèle séparé du `Invitation` existant (qui couvre
->     les invitations workspace INTERNES Hub) — cf
->     `memory/reference_hub_invitation_model_split.md`.
->   - ⏳ Étapes 2-9 : endpoints HTTP, page `/invite/[token]`, email template,
->     E2E, doc CONTRAT-HUB.md.
+>     + 17 tests d'intégrité. Décision terrain : modèle séparé du
+>     `Invitation` existant — cf `memory/reference_hub_invitation_model_split.md`.
+>   - ✅ Étape 2 livrée 2026-05-21 (commit `857bdb3`) : `POST
+>     /api/invitations/create` (HMAC m2m, idempotence, validation Zod stricte,
+>     rate-limit 60/min/IP, audit_log). +53 tests. Contrat HMAC documenté
+>     dans `memory/reference_hub_invitation_hmac_contract.md`.
+>     ⚠️ Secrets ENV à provisionner par app avant utilisation :
+>     `HUB_INVITATION_SECRET_{NOTIFUSE,PROSPECTION,ANALYTICS,CMS}`.
+>   - ✅ Étape 3 livrée 2026-05-21 (commit `186b59a`) : `GET
+>     /api/invitations/[token]/verify` (public, structurée valid/expired/
+>     already_accepted/not_found, pas de leak invitee_email/inviter sur
+>     états non-valid). +10 tests.
+>   - 🟡 Étape 4a livrée 2026-05-21 (commit `e8adb50`) : `POST
+>     /api/invitations/[token]/accept` (session Hub, transaction atomique
+>     accept, redirect_url calculée, 202 Accepted). Phase 4b à câbler quand
+>     les apps downstream ont leur endpoint `attach-member`. +24 tests.
+>   - ⏳ Étapes 5-9 : page UI `/invite/[token]`, email template MJML
+>     (Notifuse), DELETE /api/invitations/[id] (révocation), phase 4b
+>     downstream call HMAC, E2E Playwright, doc `CONTRAT-HUB.md §3.6`.
+>
+> **État tests Hub** : 498 → 586 vert (+88 tests P1).
 
 ## Contexte
 
