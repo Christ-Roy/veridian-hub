@@ -4,7 +4,34 @@
 > **Sévérité** : 🟡 P2 (utile mais pas bloquant — workaround acceptable)
 > **Owner** : agent Hub
 > **Créé** : 2026-05-20
-> **Bloqué par** : aucun (peut être livré tout de suite)
+> **✅ LIVRÉ** : 2026-05-20 (commit `73130a8`)
+>
+> **Réalisé** :
+> - `app/dashboard/page.tsx` lit `tenant.metadata.cms` et
+>   `tenant.metadata.analytics` (provisionnés via API admin)
+> - Décision d'affichage par app : `showActiveAnalytics` et `showActiveCms`
+>   sont OR entre `hasLifetimeSiteVitrine` et la présence du metadata
+> - Title de la card inclut le `tenant_name` du provisioning quand fourni
+>   ("Veridian CMS — AVSE Monétique")
+> - URL utilise `fallback_url` du metadata si présent, sinon URL par défaut
+>
+> **Workflow type AVSE Monétique** (à exécuter quand prêt) :
+> ```bash
+> curl -X POST https://app.veridian.site/api/admin/users/create \
+>   -H "x-admin-secret: $ADMIN_SECRET" \
+>   -d '{"email":"avse.monetique@gmail.com","name":"Didier Bollard"}'
+>
+> curl -X POST https://app.veridian.site/api/admin/tenants/link-app \
+>   -H "x-admin-secret: $ADMIN_SECRET" \
+>   -d '{"user_email":"avse.monetique@gmail.com","app":"cms",
+>        "external_tenant_id":"1","external_tenant_slug":"avse",
+>        "tenant_name":"AVSE Monétique","plan":"complimentary",
+>        "fallback_url":"https://cms.veridian.site/admin"}'
+> ```
+> Puis AVSE se logge → OAuth auto-link → voit sa card CMS au dashboard.
+>
+> **Plus de script SQL bash** : tout passe par l'API admin (cf.
+> [admin-api-tenant-provisioning](./2026-05-20-admin-api-tenant-provisioning.md)).
 
 ## Contexte
 
