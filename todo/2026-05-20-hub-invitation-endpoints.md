@@ -27,11 +27,20 @@
 >     /api/invitations/[token]/accept` (session Hub, transaction atomique
 >     accept, redirect_url calculée, 202 Accepted). Phase 4b à câbler quand
 >     les apps downstream ont leur endpoint `attach-member`. +24 tests.
->   - ⏳ Étapes 5-9 : page UI `/invite/[token]`, email template MJML
->     (Notifuse), DELETE /api/invitations/[id] (révocation), phase 4b
->     downstream call HMAC, E2E Playwright, doc `CONTRAT-HUB.md §3.6`.
+>   - ✅ Étape 6 livrée 2026-05-21 (commit `dce6f78`) : `POST
+>     /api/invitations/revoke/[id]` (révocation par inviter, soft expire
+>     pour audit, anti-leak forbidden-prioritaire). +14 tests.
+>   - 🔵 Étape 4b — **bloquée par tickets downstream déposés 2026-05-21** :
+>     - `veridian-prospection/todo/2026-05-21-hub-attach-member-endpoint.md`
+>     - `notifuse-veridian/todo/2026-05-21-hub-attach-member-endpoint.md`
+>     Une fois ces endpoints livrés côté apps, l'agent Hub câblera
+>     `lib/invitations/accept.ts:112` (TODO P1-step4b) et basculera
+>     202 → 200 sur /accept.
+>   - ⏳ Étapes 5, 7, 8, 9 : page UI `/invite/[token]`, email template
+>     MJML auto-envoyé via Notifuse, E2E Playwright complet, doc
+>     `CONTRAT-HUB.md §3.6`.
 >
-> **État tests Hub** : 498 → 586 vert (+88 tests P1).
+> **État tests Hub** : 498 → 600 vert (+102 tests P1, 5/9 étapes livrées).
 
 ## Contexte
 
