@@ -176,4 +176,14 @@ describe('exported limiter instances', () => {
     expect(credentialsLoginLimiter.enforce('test-ip-creds').ok).toBe(false);
     credentialsLoginLimiter.reset();
   });
+
+  it('exports invitationCreateLimiter avec capacity 60/min (anti-flood HMAC)', async () => {
+    const { invitationCreateLimiter } = await import('@/lib/auth/rate-limit');
+    invitationCreateLimiter.reset();
+    for (let i = 0; i < 60; i++) {
+      expect(invitationCreateLimiter.enforce('test-ip-inv').ok).toBe(true);
+    }
+    expect(invitationCreateLimiter.enforce('test-ip-inv').ok).toBe(false);
+    invitationCreateLimiter.reset();
+  });
 });

@@ -161,3 +161,16 @@ export const credentialsLoginLimiter = new RateLimiter({
   windowMs: 60_000,
   name: 'credentials-login',
 });
+
+// Anti-flood sur POST /api/invitations/create (machine-to-machine HMAC).
+// Une app downstream légitime ne crée que quelques invitations/min (un humain
+// click). Si une app compromise spam le Hub, on plafonne à 60/min/IP — assez
+// large pour un onboarding batch légitime, étouffant pour un bot.
+// Clé = IP, pas l'app HMAC, parce qu'un attaquant qui contrôle une app
+// downstream peut faire varier x-veridian-app pour bypasser un namespace
+// per-app.
+export const invitationCreateLimiter = new RateLimiter({
+  capacity: 60,
+  windowMs: 60_000,
+  name: 'invitation-create',
+});
