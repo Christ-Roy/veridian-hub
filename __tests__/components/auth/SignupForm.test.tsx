@@ -87,4 +87,31 @@ describe('SignupForm', () => {
     expect(screen.queryByRole('button', { name: /Continuer avec Google/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /Continuer avec Microsoft/i })).toBeNull();
   });
+
+  it("n'affiche pas LoginErrorBanner sans ?error= dans l'URL (default mock)", () => {
+    render(<SignupForm />);
+    // En l'absence de ?error= et d'erreur form, aucun role=alert ne doit exister.
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
+
+describe('SignupForm avec ?error= dans searchParams', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    signInMock.mockReset();
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  it('affiche la bannière Configuration quand ?error=Configuration', async () => {
+    vi.doMock('next/navigation', () => ({
+      useRouter: () => ({ push: routerPushMock, refresh: routerRefreshMock }),
+      useSearchParams: () => new URLSearchParams('error=Configuration'),
+    }));
+    const { SignupForm: FreshSignupForm } = await import('@/components/auth/SignupForm');
+    render(<FreshSignupForm />);
+    const alert = screen.getByRole('alert');
+    expect(alert.getAttribute('data-error-code')).toBe('Configuration');
+    expect(alert.textContent).toMatch(/configuration/i);
+  });
 });

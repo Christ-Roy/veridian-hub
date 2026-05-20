@@ -87,4 +87,44 @@ describe('LoginForm', () => {
     expect(screen.queryByRole('button', { name: /Continuer avec Google/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /Continuer avec Microsoft/i })).toBeNull();
   });
+
+  it("n'affiche pas LoginErrorBanner sans ?error= dans l'URL (default mock)", () => {
+    render(<LoginForm />);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+});
+
+describe('LoginForm avec ?error= dans searchParams', () => {
+  // Mock spécifique : URLSearchParams pré-rempli avec ?error=AccessDenied
+  // pour vérifier que LoginForm intègre bien LoginErrorBanner et que celle-ci
+  // pick up le param.
+  beforeEach(() => {
+    vi.resetModules();
+    signInMock.mockReset();
+    routerPushMock.mockReset();
+  });
+
+  it('affiche la bannière AccessDenied quand ?error=AccessDenied', async () => {
+    vi.doMock('next/navigation', () => ({
+      useRouter: () => ({ push: routerPushMock, refresh: routerRefreshMock }),
+      useSearchParams: () => new URLSearchParams('error=AccessDenied'),
+    }));
+    const { LoginForm: FreshLoginForm } = await import('@/components/auth/LoginForm');
+    render(<FreshLoginForm />);
+    const alert = screen.getByRole('alert');
+    expect(alert.getAttribute('data-error-code')).toBe('AccessDenied');
+    expect(alert.textContent).toMatch(/annulée/i);
+  });
+
+  it('affiche la bannière OAuthAccountNotLinked quand ?error=OAuthAccountNotLinked', async () => {
+    vi.doMock('next/navigation', () => ({
+      useRouter: () => ({ push: routerPushMock, refresh: routerRefreshMock }),
+      useSearchParams: () => new URLSearchParams('error=OAuthAccountNotLinked'),
+    }));
+    const { LoginForm: FreshLoginForm } = await import('@/components/auth/LoginForm');
+    render(<FreshLoginForm />);
+    const alert = screen.getByRole('alert');
+    expect(alert.getAttribute('data-error-code')).toBe('OAuthAccountNotLinked');
+    expect(alert.textContent).toMatch(/déjà lié/i);
+  });
 });
