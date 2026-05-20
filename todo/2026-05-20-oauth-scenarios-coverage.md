@@ -112,13 +112,13 @@
 
 ### Côté Hub
 
-- `todo/2026-05-20-hub-invitation-endpoints.md` — endpoints invitation cross-app
-- `todo/2026-05-20-error-pages-ux-polish.md` — custom error pages OAuth
-- `todo/2026-05-20-account-settings-connected-providers.md` — UI Settings → Connected providers
-- `todo/2026-05-20-oauth-rate-limiting-monitoring.md` — sécurité + monitoring routes OAuth
-- `todo/2026-05-20-prisma-prevent-orphan-users-cleanup.md` — cleanup users orphelins
-- `todo/2026-05-20-google-one-tap-landing-pages.md` — Google One Tap popup auto-login
-- `todo/2026-05-20-fallback-login-apps-redirect-hub.md` — spec OAuth buttons sur pages login apps
+- ⏳ `todo/2026-05-20-hub-invitation-endpoints.md` — endpoints invitation cross-app
+- ✅ `todo/done/2026-05-20-error-pages-ux-polish.md` — custom error pages OAuth (livré 2026-05-20)
+- ✅ `todo/done/2026-05-20-account-settings-connected-providers.md` — UI Settings → Connected providers (livré 2026-05-20)
+- 🟡 `todo/2026-05-20-oauth-rate-limiting-monitoring.md` — Phase 1 livrée (rate-limit + logger), Phase 2-3 (audit table + alerting Telegram) à découpler
+- ✅ `todo/done/2026-05-20-prisma-prevent-orphan-users-cleanup.md` — cleanup users orphelins (dry-run livré 2026-05-20)
+- ⏳ `todo/2026-05-20-google-one-tap-landing-pages.md` — Google One Tap popup auto-login (feature growth, dormant)
+- ⏳ `todo/2026-05-20-fallback-login-apps-redirect-hub.md` — spec OAuth buttons sur pages login apps
 
 ### Côté apps downstream (cross-app)
 
