@@ -4,30 +4,48 @@
 > Ce fichier suit l'**implémentation** chantier par chantier — fait / en cours / à faire.
 > Mis à jour à chaque action significative sur la CI Hub.
 
-## 🚀 État actuel (post-session 2026-05-14)
+## 🚀 État actuel (post-session 2026-05-21)
 
-**Session marathon** : 3 PR mergées sur main, infra staging activée, 🔥 mode Nuclear actif.
+**Sessions 2026-05-20/21** : OAuth Sign-in livré + P1 invitation endpoints 5/9 étapes + pages légales dédiées + audit flakyness CI.
 
 ### Ce qui tourne maintenant en prod
-- ✅ Hub `/dashboard` débloqué (fix RSC Next 15) — validé visuellement Chrome
-- ✅ Compose modulaire `base + prod + staging` avec wrapper `include:` (byte-exact)
-- ✅ Pipeline complet vert sur 3 deploys consécutifs (PR #17, #18, #19)
+- ✅ Hub `/dashboard` débloqué (fix RSC Next 15)
+- ✅ Compose modulaire `base + prod + staging` avec wrapper `include:`
+- ✅ OAuth Google + Microsoft Sign-in (multi-tenant + comptes personnels)
+- ✅ Hub Admin API (4 endpoints + audit log + HUB_ADMIN_SECRET)
+- ✅ P1 invitation endpoints 5/9 livré : create / verify / accept / revoke
+  + table cross_app_invitations (migration non appliquée DB prod)
+- ✅ Pages légales dédiées : `/privacy` (RGPD), `/terms` (CGU/CGV), `/legal` (LCEN)
 
-### Garde-fous CI actifs
+### Garde-fous CI actifs (audités 2026-05-21)
 - 🔥 **Mode Nuclear** : 0 dette tolérée sur business logic (API routes, components hors ui, hooks, lib)
-- ✅ `check-test-mapping.sh` côté CI étage 1 + pre-push hook local (impossible à bypass)
-- ✅ `check-compose-sync.sh` côté CI étage 1 + pre-push hook si compose modifié
-- ✅ Supply chain : `--ignore-scripts` partout (CI + Dockerfile) + whitelist `pnpm.onlyBuiltDependencies`
+- ✅ `check-test-mapping.sh` (CI étage 1 + pre-push hook) — accepte aussi `__tests__/integration/migration-*.test.ts` depuis 2026-05-20
+- ✅ `check-compose-sync.sh` (CI étage 1 + pre-push si compose modifié)
+- ✅ `check-migration-safety.sh` — bloque DROP/RENAME/ALTER NOT NULL/CREATE INDEX sans CONCURRENTLY ; annotation `@safe:` requise
+- ✅ `check-risk-marker.sh` — refuse `[risk:low]` sur fichiers tier 🔴+ (§20.3)
+- ✅ Supply chain : `--ignore-scripts` + whitelist `pnpm.onlyBuiltDependencies`
 - ✅ Audit CVE high+critical bloquant
-- ✅ Trivy image scan
+- ✅ Trivy image scan + Trivy FS (vuln+config+secret+license)
 - ✅ Auto-rollback Docker si smoke prod fail
+- ✅ Protocole §20 promotion graduée par risque actif (Hub)
+- ✅ Auto-promote tier 🟢 `[risk:low]` câblé dans `hub-staging.yml`
+  (fix faux positif body-only 2026-05-21 commit `e911107`)
+
+### Métriques CI (mesurées 2026-05-21)
+- **Tests vitest** : 629 tests, ~25s en local, ~107s en CI (job `test`)
+- **Total push staging** : ~3-4 min (test 25s + Trivy 33s + CVE 18s + Docker 90s + deploy 30s)
+- **Flakyness vitest** : 0/60 runs sur 2 semaines (zéro retry nécessaire)
+- **Flakyness Hub CI/CD** : 0/30 runs (staging+main)
+- **Flakyness Hub Staging (dev server)** : 7/30 « failures » = 100% bug gate auto-promote `[risk:low]` body-only, fixé `e911107`
+- **Playwright** : `retries: 2` en CI (justifié — vrai network)
+- **Docker push** : `nick-fields/retry@v3` câblé sur erreurs registry GHCR
 
 ### Infrastructure staging dispo
 - ✅ Traefik standalone sur dev (`~/traefik-staging/`)
+- ✅ Tailscale privatisation 2026-05-19 (DNS → 100.92.215.42, OAuth CI tag:ci-github)
 - ✅ User SSH `staging-deploy` + clé déployée
-- ✅ Secrets/vars GitHub repo configurés (5 entrées)
-- ✅ Workflow `hub-staging.yml` prêt — déclenche sur push branche `staging`
-- ✅ URL : `https://hub.staging.veridian.site` (cert wildcard ACME)
+- ✅ Workflow `hub-staging.yml` — auto-deploy push branche `staging`
+- ✅ URL : `https://hub.staging.veridian.site` (Tailscale-only, cert ACME)
 
 ### Reste à faire (priorisé, post-session 2026-05-17)
 1. **Activer Renovate** : installer GitHub App sur l'org Christ-Roy (<https://github.com/apps/renovate>) — action humaine
