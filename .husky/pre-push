@@ -7,6 +7,8 @@
 #  2. Compose sync : base/prod/staging cohérents (scripts/ci/check-compose-sync.sh)
 #  3. Migration safety : DROP/RENAME/ALTER NOT NULL/CREATE INDEX bloquants
 #     (scripts/ci/check-migration-safety.sh) — uniquement si prisma/migrations modifié
+#  4. Risk marker [risk:low] cohérence (scripts/ci/check-risk-marker.sh)
+#     — refuse [risk:low] sur des chemins tier 🔴+ (CI-ARCHITECTURE §20.3)
 
 set -e
 
@@ -48,6 +50,15 @@ if [ -n "$MIGRATION_CHANGED" ]; then
   else
     echo "⚠ scripts/ci/check-migration-safety.sh absent ou non exécutable"
   fi
+fi
+
+# ─── 4. Risk marker [risk:low] cohérence ────────────────────────────────
+# Si le commit message porte [risk:low], vérifier qu'aucun fichier touché
+# n'est tier 🔴 HAUT ou 💀 CRITIQUE selon CI-ARCHITECTURE §20.3.
+if [ -x scripts/ci/check-risk-marker.sh ]; then
+  scripts/ci/check-risk-marker.sh
+else
+  echo "⚠ scripts/ci/check-risk-marker.sh absent ou non exécutable"
 fi
 
 exit 0

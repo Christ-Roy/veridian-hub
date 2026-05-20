@@ -189,26 +189,41 @@ jobs:
           docker image prune -f --filter "until=1h" || true
           rm -f ~/.ssh/staging_key
 
-  # Auto-promote staging → main si le deploy staging (build + smoke) est vert.
-  # Pattern aligné sur veridian-cms/.github/workflows/cms-staging.yml:promote-to-main.
+  # Auto-promote staging → main — UNIQUEMENT pour les commits tier 🟢 BAS.
+  # Cf. CI-ARCHITECTURE.md §20 "Promotion graduée par risque" (2026-05-20).
   #
-  # Garde-fous :
+  # Hub est désormais classifié 🔴 Critique (SSO central + billing + provisioning).
+  # L'auto-promote ne déclenche QUE si le commit porte explicitement le marker
+  # `[risk:low]` dans son message — pour les docs, todo, tests sans modif source,
+  # et autres changements sans impact applicatif.
+  #
+  # Pour tout autre commit (tier 🟡 MOYEN / 🔴 HAUT / 💀 CRITIQUE) :
+  #   1. CI staging s'exécute normalement (build + deploy + smoke).
+  #   2. Ce job ne fire pas.
+  #   3. Le job `notify-promotion-needed` ci-dessous alerte Robert via Telegram
+  #      qu'une reco écrite agent est attendue avant promote main.
+  #   4. L'agent produit la reco selon le protocole §20.5/20.6/20.7.
+  #   5. Robert répond `go` / `stop` ; sur `go` l'agent fait la promotion
+  #      manuelle (ff-merge + push main + trigger hub-ci.yml).
+  #
+  # Garde-fous conservés :
   #   - needs: deploy → si build ou smoke staging KO, pas de promotion
-  #   - if push staging + pas [skip-prod]/[wip] dans le message commit
   #   - merge --ff-only strict → fail si main a divergé (pas de force-push)
+  #   - marker `[risk:low]` est vérifié côté pre-push hook par check-risk-marker.sh
+  #     (refuse les commits qui claim [risk:low] mais touchent un chemin tier 🔴+)
   #
-  # Pré-requis :
+  # Pré-requis inchangés :
   #   - Secret repo AUTO_PROMOTE_PAT (PAT scope `repo` + `workflow`) si la
   #     branche main est protégée par branch protection avec status checks ;
   #     sinon GITHUB_TOKEN suffit.
-  #   - Workflow hub-ci.yml présent sur main pour prendre le relais.
   promote-to-main:
-    name: Auto-promote staging → main
+    name: Auto-promote staging → main (🟢 risk:low only)
     needs: deploy
     runs-on: ubuntu-latest
     if: |
       github.event_name == 'push' &&
       github.ref == 'refs/heads/staging' &&
+      contains(github.event.head_commit.message, '[risk:low]') &&
       !contains(github.event.head_commit.message, '[skip-prod]') &&
       !contains(github.event.head_commit.message, '[wip]')
     permissions:
@@ -265,4 +280,37 @@ jobs:
           curl -sf -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             -d chat_id=${TG_CHAT} \
             -d "text=$ICON Hub auto-promote staging→main $STATUS (${SHA7})" \
+            >/dev/null || true
+
+  # Alerte Robert quand un push staging est vert mais que l'auto-promote NE s'est
+  # PAS déclenché parce que le commit n'est pas tier 🟢 BAS. Le but : Robert sait
+  # qu'une reco écrite agent est attendue selon CI-ARCHITECTURE §20.5/20.6/20.7.
+  #
+  # Fire UNIQUEMENT si le commit n'a PAS de marker [risk:low] (sinon l'autre job
+  # gère la promo et la notif).
+  notify-promotion-needed:
+    name: Notify Robert — reco agent attendue (tier 🟡+)
+    needs: deploy
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/staging' &&
+      !contains(github.event.head_commit.message, '[risk:low]') &&
+      !contains(github.event.head_commit.message, '[skip-prod]') &&
+      !contains(github.event.head_commit.message, '[wip]')
+    steps:
+      - name: Telegram notify Robert
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then exit 0; fi
+          SHA7=$(echo "${{ github.sha }}" | cut -c1-7)
+          MSG="${{ github.event.head_commit.message }}"
+          MSG_FIRST_LINE=$(echo "$MSG" | head -1)
+          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -sf -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            -d chat_id=${TG_CHAT} \
+            -d parse_mode=Markdown \
+            -d "text=⏸ Hub staging vert (\`${SHA7}\`) — *reco agent attendue* (tier 🟡+).%0A%0A_${MSG_FIRST_LINE}_%0A%0ARun : ${RUN_URL}%0AProtocole : CI-ARCHITECTURE §20" \
             >/dev/null || true

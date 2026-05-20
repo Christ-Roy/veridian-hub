@@ -49,3 +49,9 @@ certificates
 # Exports Stripe temporaires
 stripe-config-export-*.json
 stripe-products-export.json
+
+# Playwright artifacts (générés par les runs E2E, pas du code source)
+/test-results/
+/playwright-report/
+/playwright/.cache/
+e2e-headfull-staging.json

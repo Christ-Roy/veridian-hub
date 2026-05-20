@@ -5,6 +5,7 @@
  *  - HTTP 200 (pas 500 — cf incident 2026-05-10)
  *  - Champs email + password visibles (LoginForm via auth.config.ts allowEmail)
  *  - Bouton "Continuer avec Google" présent (allowOauth)
+ *  - Bouton "Continuer avec Microsoft" présent (depuis 2026-05-20, OAuth Entra)
  *  - Bouton submit visible
  *  - Aucune console error JS sur le chargement initial
  *
@@ -51,6 +52,13 @@ test.describe('/login page', () => {
     // We assert on the text rather than a class to be resilient to UI tweaks.
     await expect(
       page.getByRole('button', { name: /Continuer avec Google/i })
+    ).toBeVisible();
+    // Microsoft OAuth CTA — ajout 2026-05-20 (commit aab5a68).
+    // Le provider est toujours rendu côté UI même si les secrets ne sont pas
+    // configurés ; Auth.js renverra une 500 au clic dans ce cas. Le but du
+    // smoke ici est seulement de valider que l'UI ne régresse pas.
+    await expect(
+      page.getByRole('button', { name: /Continuer avec Microsoft/i })
     ).toBeVisible();
 
     expect(

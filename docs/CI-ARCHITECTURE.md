@@ -1506,13 +1506,22 @@ toutes les apps.
 
 ### 19.1 Matrice par app
 
-| App | Criticité | Promotion staging→main | Tolérance casse prod |
-|---|---|---|---|
-| **Prospection** | 🔴 Critique | **Manuelle uniquement (giga MAJ)** | Très faible — c'est l'app de revenu actif |
-| Hub | 🟡 Important | Auto-promote si staging vert + e2e OK ✅ câblé 2026-05-19 | Faible — bloque flow signup mais récupérable |
-| Analytics | 🟢 Standard | Auto-promote si staging vert | Moyenne — analytics manquantes = pas de revenue lost |
-| CMS | 🟢 Standard | Auto-promote si staging vert ✅ déjà câblé | Moyenne — sites clients en lecture seule pendant downtime |
-| Notifuse | 🟢 Standard | Auto-promote si staging+e2e vert ✅ déjà câblé | Moyenne — emails transactionnels peuvent attendre 30min |
+> ⚠️ **Cette matrice est PARTIELLEMENT obsolète depuis 2026-05-20**.
+> Hub, CMS et Notifuse étaient en auto-promote inconditionnel mais le mode
+> "auto-promote si staging vert" s'avère insuffisant pour les apps qui touchent
+> à des chemins critiques (auth, billing, migration DB).
+>
+> **Voir §20 "Promotion graduée par risque"** pour le modèle actuel qui remplace
+> la colonne "Promotion staging→main" de cette matrice. §19.1 ne garde qu'une
+> valeur descriptive ("Tolérance casse prod"), pas opérationnelle.
+
+| App | Criticité | Tolérance casse prod |
+|---|---|---|
+| **Prospection** | 🔴 Critique | Très faible — c'est l'app de revenu actif |
+| Hub | 🔴 Critique | Faible — bloque flow signup, billing, et propagation session vers toutes les apps |
+| Analytics | 🟡 Important | Moyenne — analytics manquantes = pas de revenue lost mais data gap |
+| CMS | 🟡 Important | Moyenne — sites clients en lecture seule pendant downtime |
+| Notifuse | 🟡 Important | Moyenne — emails transactionnels peuvent attendre 30min |
 
 ### 19.2 Mode Prospection : "staging-only ship + giga MAJ"
 
@@ -1636,4 +1645,264 @@ fi
 
 **Critère "trou colmaté"** : aucun PR ne peut introduire de l'auto-promote
 sur Prospection ; les autres apps doivent en avoir un (warning).
+
+---
+
+## 20. Promotion graduée par risque — protocole agent
+
+> 🔥 **Section décidée 2026-05-20 par Robert.** Le mode "auto-promote si staging
+> vert" décrit en §19.3 n'offre pas assez de filtres pour les apps critiques.
+> §20 introduit une **échelle de risque par commit** qui détermine le chemin de
+> promotion. L'agent évalue, propose, Robert tranche. Objectif : zéro casse prod
+> sans ralentir significativement la vitesse de dev sur les changements bénins.
+
+### 20.1 Principe
+
+Chaque commit/série de commits sur `staging` est **classifié par l'agent** selon
+le risque qu'il représente pour la prod. Le chemin de promotion `staging → main`
+dépend de cette classification.
+
+L'agent **ne promote jamais en prod sans avoir** :
+1. Vérifié que le tier de risque est correct.
+2. Exécuté le protocole de validation du tier.
+3. Produit une **reco écrite structurée** à Robert.
+4. Reçu un go explicite de Robert (sauf pour le tier 🟢 BAS auto-promote).
+
+### 20.2 Échelle de risque (4 niveaux)
+
+| Tier | Exemples typiques | Validation requise |
+|---|---|---|
+| 🟢 **BAS** | doc, todo/CHANGELOG, README, test ajouté sans modif code, refactor sans changement de surface API publique, rename de variable interne, fix typo, bump version cosmetic | **Auto-promote OK** si CI staging verte. Agent rend compte en 1 ligne. |
+| 🟡 **MOYEN** | nouvelle route API non-auth, modif UI dashboard sans impact billing, nouvelle ENV optionnelle avec fallback, ajout d'un provider OAuth (cf. commit aab5a68), fix bug non-critique, bump dépendance patch | **Reco écrite agent** + smoke CI vert + Robert valide en 30s |
+| 🔴 **HAUT** | modif auth (callbacks, sessions, providers), modif billing/Stripe, migration DB (même Expand/Contract), modif lib partagée (lib/auth, lib/stripe, lib/prisma), refactor d'un endpoint Hub consommé par d'autres apps, modif compose.yml prod | **Reco écrite + smoke headless CI + E2E headfull staging + test manuel browser** + Robert valide |
+| 💀 **CRITIQUE** | rotation secret prod, DROP COLUMN, suppression de tenant, refactor du système de session, modif du contrat HMAC Hub↔app, modif du flow Stripe webhook, modif du provisioning | **Reco + tous les checks tier 🔴 + 4-yeux** : Robert relit la reco ET le diff. L'agent peut proposer un dry-run sur un compte test prod sandbox. |
+
+### 20.3 Comment l'agent classifie
+
+L'agent évalue le tier en regardant **ce que les commits non-promus touchent** :
+
+```bash
+# Diff vs main (commits déjà sur staging pas encore en prod)
+git diff --name-only origin/main...origin/staging
+```
+
+Puis applique cette grille :
+
+| Fichier touché | Tier minimum |
+|---|---|
+| `**/*.md`, `todo/**`, `docs/**` | 🟢 BAS |
+| `**/*.test.ts(x)`, `__tests__/**` (seul, sans source) | 🟢 BAS |
+| `components/**` hors auth/billing/dashboard sensibles | 🟡 MOYEN |
+| `app/api/**/route.ts` nouvelle route non-critique | 🟡 MOYEN |
+| `compose/staging.yml` seul (pas prod.yml) | 🟡 MOYEN |
+| `auth.ts`, `auth.config.ts`, `lib/auth/**`, `app/api/auth/**`, `middleware.ts` | 🔴 HAUT |
+| `lib/stripe/**`, `app/api/billing/**`, `app/api/webhooks/stripe/**` | 🔴 HAUT |
+| `prisma/migrations/**`, `prisma/schema.prisma` | 🔴 HAUT (ou 💀 CRITIQUE si DROP/RENAME) |
+| `compose/prod.yml`, `Dockerfile`, `.github/workflows/*-ci.yml` | 🔴 HAUT |
+| `lib/notifuse/**`, `lib/prospection/**`, `utils/tenants/provision.ts` | 🔴 HAUT |
+| Rotation secret, scripts/admin/*-prod*, modif contrat HMAC | 💀 CRITIQUE |
+
+**Règle d'escalade** : si un commit touche **plusieurs scopes**, l'agent retient
+le tier **le plus élevé**. Pas de moyenne, pas de pondération — la prudence
+gagne toujours.
+
+### 20.4 Protocole tier 🟢 BAS — auto-promote conservé
+
+L'auto-promote staging→main reste actif **uniquement** pour les commits
+classifiés 🟢 BAS. Câblage CI :
+
+```yaml
+promote-to-main:
+  if: |
+    github.event_name == 'push' &&
+    github.ref == 'refs/heads/staging' &&
+    contains(github.event.head_commit.message, '[risk:low]')
+```
+
+L'agent **doit** ajouter le marker `[risk:low]` dans le message de commit pour
+déclencher l'auto-promote. Absence du marker = pas de promotion auto, même si
+le staging passe vert.
+
+**Faute professionnelle** : taguer `[risk:low]` un commit qui touche
+`lib/auth/**` ou `prisma/**`. Le pre-push hook a un check qui détecte les
+incohérences (cf. §20.7).
+
+### 20.5 Protocole tier 🟡 MOYEN — reco écrite + go Robert
+
+Après staging vert, l'agent produit cette reco dans le chat :
+
+```
+🟡 PROMO STAGING → PROD — Hub commit <sha7>
+
+Changement : <résumé 1 phrase>
+Tier de risque : MOYEN
+Justification : <pourquoi MOYEN et pas HAUT/BAS>
+
+Surface touchée :
+  - <fichier 1> (<raison brève>)
+  - <fichier 2> (<raison brève>)
+
+Validation effectuée :
+  ✅ CI staging vert (run #<n> — <lien>)
+  ✅ Tests unitaires : <X>/<X> passent
+  ✅ Smoke headless staging : 200 sur /api/health, dashboard render
+  ✅ Pas de migration DB
+  ✅ Fail-safe vérifié : <comment ça dégrade si X tombe>
+
+Risques résiduels :
+  - <risque 1 + impact>
+  - <risque 2 + mitigation>
+
+Recommandation : PROMOTE PROD MAINTENANT (rollback prêt sur <SHA précédent>)
+              ou  NE PAS PROMOTE (raison : <...>)
+
+Pour promote, répondre "go". Pour annuler, "stop".
+```
+
+Robert répond `go` ou `stop`. Sur `go`, l'agent exécute le merge ff-only et
+trigger le CI prod. Sur `stop`, l'agent garde le commit sur staging et attend.
+
+### 20.6 Protocole tier 🔴 HAUT — E2E headfull obligatoire
+
+Tier HAUT = l'agent **doit** lancer le script E2E headfull avant la reco :
+
+```bash
+pnpm e2e:staging:full
+```
+
+Ce script (cf. §20.8) parcourt en navigateur réel sur `hub.staging.veridian.site`
+les 5-8 user journeys critiques (signup, login Google, login Microsoft si secret
+configuré, dashboard, billing portal, settings, etc.).
+
+La reco ajoute alors :
+
+```
+🔴 PROMO STAGING → PROD — Hub commit <sha7>
+
+[... même format que 20.5 ...]
+
+Validation effectuée :
+  ✅ CI staging vert
+  ✅ Tests unitaires
+  ✅ Smoke headless CI
+  ✅ E2E headfull staging : 9/9 parcours OK (rapport : e2e-headfull-<sha7>.json)
+  ✅ Test manuel browser : login Google + bouton Microsoft visible (screenshot joint)
+  ✅ Pas de regression sur les flows existants
+
+[... idem ...]
+```
+
+**Si E2E headfull échoue à au moins 1 parcours** : pas de reco "PROMOTE",
+l'agent investigue et fix sur staging d'abord.
+
+### 20.7 Protocole tier 💀 CRITIQUE — 4 yeux + dry-run
+
+L'agent ne pousse même pas le commit sur staging sans avoir préalablement :
+
+1. Décrit la modif et le tier à Robert ("c'est un tier CRITIQUE parce que…").
+2. Reçu un `ok pour staging` explicite.
+3. Préparé un plan de rollback détaillé (commandes exactes, secret de bascule, etc.).
+
+Après staging vert et toute la batterie de tests :
+
+- L'agent fournit la reco tier 🔴 + un **diff annoté ligne par ligne** des
+  changements sur les chemins sensibles.
+- Robert relit le diff complet.
+- L'agent propose un **dry-run** si possible (ex : test du flow de rotation
+  secret sur un compte test, sans toucher au compte principal).
+- Promotion main seulement après go explicite + un délai de 5 min "annule si
+  nécessaire" pendant lequel l'agent reste actif.
+
+### 20.8 Outil agent — script E2E headfull staging
+
+Localisation : `veridian-hub/scripts/e2e/staging-full.sh` (ou équivalent par app).
+
+```bash
+#!/usr/bin/env bash
+# Lance Playwright headfull sur hub.staging.veridian.site.
+# Parcourt les user journeys critiques avec un vrai navigateur.
+# Pas dans la CI (trop long+flaky pour bloquer). Outil agent opt-in.
+#
+# Usage : pnpm e2e:staging:full
+#         pnpm e2e:staging:full --update-snapshots
+#
+set -euo pipefail
+
+STAGING_URL="${STAGING_URL:-https://hub.staging.veridian.site}"
+
+# Pré-check : staging répond
+if ! curl -sf -o /dev/null "${STAGING_URL}/api/health"; then
+  echo "::error::Staging KO — abort E2E headfull"
+  exit 1
+fi
+
+# Lance Playwright avec config dédiée (headfull, slowMo, screenshots on-failure)
+HEADED=1 pnpm exec playwright test \
+  --config=playwright.staging-full.config.ts \
+  --reporter=json --output=e2e-headfull-staging.json
+
+# Genère le récap formaté pour la reco agent
+node scripts/e2e/format-staging-report.js e2e-headfull-staging.json
+```
+
+**Coverage attendu par journey** :
+
+1. **Signup credentials** : `/signup` → email/password → dashboard
+2. **Login credentials** : `/login` → email/password → dashboard
+3. **Login Google** (avec compte test) : `/login` → bouton Google → dashboard
+4. **Login Microsoft** (si secret Entra dispo en staging) : `/login` → bouton MS → dashboard
+5. **Dashboard render** : tous les widgets chargent < 2s sans erreur console
+6. **Settings → Account** : afficher email + comptes connectés
+7. **Billing portal** : redirect vers Stripe portal sans erreur
+8. **Auto-login Notifuse** : depuis dashboard, cliquer "Open Notifuse" → page Notifuse login auto
+
+**Durée cible** : 8-15 min. Si > 20 min, le script signale `::warning::` mais
+ne fail pas.
+
+### 20.9 Garde-fou pre-push — cohérence marker [risk:low]
+
+`scripts/ci/check-risk-marker.sh` (à ajouter) :
+
+```bash
+#!/usr/bin/env bash
+# Refuse un commit qui claim [risk:low] mais touche un chemin tier 🔴+.
+set -euo pipefail
+
+LAST_MSG=$(git log -1 --format=%B)
+if echo "$LAST_MSG" | grep -q '\[risk:low\]'; then
+  CHANGED=$(git diff --name-only HEAD~1)
+  if echo "$CHANGED" | grep -qE '(auth\.(ts|config\.ts)|lib/auth/|lib/stripe/|prisma/migrations/|compose/prod\.yml|app/api/auth/|app/api/billing/|app/api/webhooks/stripe/)'; then
+    echo "::error::Commit taggé [risk:low] mais touche un chemin tier 🔴+ (cf. CI-ARCHITECTURE §20.3)"
+    exit 1
+  fi
+fi
+```
+
+Branché dans `.husky/pre-push` après `check-test-mapping.sh`.
+
+### 20.10 Apps concernées par §20
+
+| App | §20 applicable | Notes |
+|---|---|---|
+| **Hub** | ✅ Oui (depuis 2026-05-20) | Re-classifiée 🔴 Critique car SSO central + billing |
+| **Prospection** | ✅ Oui — confluence avec §19.2 | Déjà en mode "staging-only ship + giga-MAJ", §20 ajoute juste la reco écrite obligatoire avant giga-MAJ |
+| Analytics | 🔵 À activer quand client réel | Tant qu'on n'a pas de tenant Analytics en prod, le risque est nul |
+| CMS | 🔵 À activer quand client réel | Idem |
+| Notifuse | ⏳ À activer Q3 2026 | Phase d'observation : auto-promote conservé, tier-grading non bloquant |
+
+### 20.11 Audit & métriques
+
+- **KPI prod stability** : nombre de rollback prod / mois. Cible : 0.
+- **KPI vitesse dev** : médiane du délai `push staging → promote main` par tier.
+  - Tier 🟢 : < 10 min (auto-promote)
+  - Tier 🟡 : < 30 min (reco + go Robert)
+  - Tier 🔴 : < 2h (reco + E2E + go)
+  - Tier 💀 : < 24h (4-yeux + dry-run)
+- **KPI précision agent** : % de commits où le tier annoncé correspond
+  rétrospectivement à l'impact réel. Si l'agent sous-évalue régulièrement
+  (annonce 🟡 mais c'était 🔴), durcir la grille §20.3.
+
+Audit mensuel : `scripts/ci/audit-promotion-tiers.sh` (à câbler) qui scanne
+`git log origin/main` et compte les commits par tier (marker dans le message
+post-promotion : `[promoted:low|medium|high|critical]`).
 
