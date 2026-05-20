@@ -28,6 +28,7 @@ vi.mock('@/auth', () => ({
 import {
   oauthStartLimiter,
   oauthCallbackLimiter,
+  credentialsLoginLimiter,
 } from '@/lib/auth/rate-limit';
 
 beforeEach(() => {
@@ -35,6 +36,7 @@ beforeEach(() => {
   upstreamPostMock.mockClear();
   oauthStartLimiter.reset();
   oauthCallbackLimiter.reset();
+  credentialsLoginLimiter.reset();
 });
 
 const buildReq = (path: string, ip = '1.2.3.4', method: 'GET' | 'POST' = 'GET') =>
@@ -87,6 +89,32 @@ describe('Rate-limit wrapper Auth.js — /api/auth/callback', () => {
     }
     const blocked = await GET(buildReq('/api/auth/callback/google'));
     expect(blocked.status).toBe(429);
+  });
+});
+
+describe('Rate-limit wrapper Auth.js — /api/auth/callback/credentials (anti-brute-force password)', () => {
+  it('laisse passer ≤ 5/min/IP, refuse la 6e avec 429 (limit STRICT)', async () => {
+    const { POST } = await import('@/app/api/auth/[...nextauth]/route');
+    for (let i = 0; i < 5; i++) {
+      const res = await POST(buildReq('/api/auth/callback/credentials', '7.7.7.7', 'POST'));
+      expect(res.status).toBe(200);
+    }
+    const blocked = await POST(buildReq('/api/auth/callback/credentials', '7.7.7.7', 'POST'));
+    expect(blocked.status).toBe(429);
+    expect(blocked.headers.get('Retry-After')).toBeTruthy();
+    // Le limiter générique callback (30/min) n'a PAS été consommé,
+    // c'est bien credentialsLoginLimiter (5/min) qui a tapé.
+  });
+
+  it('callback Google reste à 30/min (pas impacté par limiter credentials)', async () => {
+    const { GET } = await import('@/app/api/auth/[...nextauth]/route');
+    // 10 tentatives credentials (saturent credentialsLoginLimiter à 5)
+    for (let i = 0; i < 10; i++) {
+      await GET(buildReq('/api/auth/callback/credentials', '8.8.8.8'));
+    }
+    // Google callback toujours OK depuis même IP (limiter séparé)
+    const res = await GET(buildReq('/api/auth/callback/google', '8.8.8.8'));
+    expect(res.status).toBe(200);
   });
 });
 

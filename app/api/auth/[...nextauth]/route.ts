@@ -13,13 +13,21 @@ import { handlers } from '@/auth';
 import {
   oauthStartLimiter,
   oauthCallbackLimiter,
+  credentialsLoginLimiter,
   extractClientIp,
 } from '@/lib/auth/rate-limit';
 import { NextRequest, NextResponse } from 'next/server';
 
 function pickLimiter(pathname: string) {
   // Pathname typique : /api/auth/signin, /api/auth/signin/google,
-  // /api/auth/callback, /api/auth/callback/microsoft-entra-id...
+  // /api/auth/callback, /api/auth/callback/microsoft-entra-id,
+  // /api/auth/callback/credentials...
+  //
+  // Ordre important : /callback/credentials matche AVANT /callback générique
+  // pour appliquer le limiter strict (5/min) anti-brute-force password.
+  if (pathname.startsWith('/api/auth/callback/credentials')) {
+    return credentialsLoginLimiter;
+  }
   if (pathname.startsWith('/api/auth/signin')) return oauthStartLimiter;
   if (pathname.startsWith('/api/auth/callback')) return oauthCallbackLimiter;
   return null;

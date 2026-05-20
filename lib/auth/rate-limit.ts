@@ -145,3 +145,19 @@ export const signupLimiter = new RateLimiter({
   windowMs: 60_000,
   name: 'signup',
 });
+
+// Anti-brute-force password sur /api/auth/callback/credentials.
+// Le wrapper Auth.js callback générique limite déjà à 30/min/IP, mais
+// 30 tentatives/min reste exploitable contre des passwords faibles
+// (~43k tentatives/jour/IP). On ajoute un limiter dédié plus strict :
+// 5 tentatives/min/IP — suffisant pour un humain qui se trompe 2-3 fois,
+// très restrictif pour un bot.
+//
+// Pour aller plus loin (rate-limit par couple IP+email pour empêcher un
+// botnet de répartir l'attaque), il faudrait parser le body x-www-form-
+// urlencoded avant Auth.js. À faire si attaques observées.
+export const credentialsLoginLimiter = new RateLimiter({
+  capacity: 5,
+  windowMs: 60_000,
+  name: 'credentials-login',
+});

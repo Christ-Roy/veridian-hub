@@ -166,4 +166,14 @@ describe('exported limiter instances', () => {
     expect(signupLimiter.enforce('test-ip-signup').ok).toBe(false);
     signupLimiter.reset();
   });
+
+  it('exports credentialsLoginLimiter avec capacity 5/min (anti-brute-force password)', async () => {
+    const { credentialsLoginLimiter } = await import('@/lib/auth/rate-limit');
+    credentialsLoginLimiter.reset();
+    for (let i = 0; i < 5; i++) {
+      expect(credentialsLoginLimiter.enforce('test-ip-creds').ok).toBe(true);
+    }
+    expect(credentialsLoginLimiter.enforce('test-ip-creds').ok).toBe(false);
+    credentialsLoginLimiter.reset();
+  });
 });
