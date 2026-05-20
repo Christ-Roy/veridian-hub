@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import NameForm from '@/components/ui/AccountForms/NameForm';
 import EmailForm from '@/components/ui/AccountForms/EmailForm';
 import PasswordForm from '@/components/ui/AccountForms/PasswordForm';
+import ConnectedProvidersList from '@/components/account/ConnectedProvidersList';
 import {
   Card,
   CardContent,
@@ -75,6 +76,20 @@ export default async function SettingsPage() {
           </CardHeader>
           <CardContent>
             <PasswordForm />
+          </CardContent>
+        </Card>
+
+        {/* Connected providers (OAuth + Credentials) */}
+        <Card>
+          <CardHeader>
+            <CardTitle>Méthodes de connexion</CardTitle>
+            <CardDescription>
+              Gérez les providers OAuth et les identifiants associés à votre compte.
+              Au moins une méthode de connexion doit rester active.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ConnectedProvidersList />
           </CardContent>
         </Card>
 
