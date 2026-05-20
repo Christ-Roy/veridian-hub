@@ -43,16 +43,27 @@ if ! echo "$SUBJECT_LINE" | grep -q '\[risk:low\]'; then
   exit 0
 fi
 
-# ─── Détermine la liste des fichiers modifiés depuis BASE_REF ────────────────
-if ! git rev-parse --verify --quiet "$BASE_REF" >/dev/null 2>&1; then
-  echo "${YELLOW}⚠ $BASE_REF inaccessible, fallback sur HEAD~1${NC}"
-  BASE_REF="HEAD~1"
-fi
-
-CHANGED=$(git diff --name-only "$BASE_REF"...HEAD 2>/dev/null || true)
+# ─── Détermine la liste des fichiers modifiés par LE COMMIT QUI PORTE LE MARKER ─
+#
+# Le marker `[risk:low]` qualifie LE commit qui le porte, pas tout un pack.
+# On regarde donc UNIQUEMENT le diff de HEAD vs HEAD~1 (le commit courant),
+# pas du pack staging vs main.
+#
+# Cas concret : pack de 4 commits, dont le dernier seul est `[risk:low]` sur
+# de la doc. Si on regardait BASE_REF...HEAD, on verrait les fichiers tier 🔴
+# touchés par les commits précédents — faux positif, le marker du commit
+# courant est légitime.
+#
+# Limite acceptée : si quelqu'un veut taguer `[risk:low]` un commit qui ne
+# touche que de la doc MAIS qu'un commit précédent du pack touche tier 🔴+,
+# le pack global reste tier 🔴+. Le marker du dernier commit déclenche
+# l'auto-promote CI (qui ff-merge tout le pack jusqu'au HEAD) — incohérence
+# potentielle. Pour s'en prémunir : voir §20.4 (gate côté workflow CI), qui
+# vérifie aussi que le commit déclencheur fait sens vis-à-vis du pack.
+CHANGED=$(git diff --name-only HEAD~1..HEAD 2>/dev/null || true)
 
 if [ -z "$CHANGED" ]; then
-  echo "${GREEN}✓ Aucun fichier modifié vs $BASE_REF${NC}"
+  echo "${GREEN}✓ Aucun fichier modifié dans le commit HEAD${NC}"
   exit 0
 fi
 
