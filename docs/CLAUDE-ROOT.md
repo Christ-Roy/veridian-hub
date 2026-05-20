@@ -23,6 +23,19 @@ Aujourd'hui seul le Hub initie des appels. Les autres apps exposent des routes m
 
 - **Hub → Notifuse** : provision tenant, magic link, update/suspend/resume plan
 - **Hub → Prospection** : regenerate login
+- **OAuth Google + Microsoft sur Hub** (livré 2026-05-20) : Auth.js v5
+  providers avec `allowDangerousEmailAccountLinking` activé. Les users
+  existants (Credentials/magic link) peuvent se logger via Google ou
+  Microsoft sans `OAuthAccountNotLinked`. Mode "Test users" Google avec
+  12 users autorisés au Consent Screen `veridian-preprod`. App Registration
+  Microsoft multi-tenant créée via `az ad app create` — secrets dans
+  `~/credentials/.all-creds.env` + Dokploy compose Hub prod.
+
+**OAuth désactivé en staging** : `hub.staging.veridian.site` est derrière
+Tailscale (IP privée), déclarer cette redirect URI chez les providers =
+red flag réputation. Boutons OAuth gated `DEPLOY_ENV !== 'staging'` dans
+`utils/auth-helpers/settings.ts`. Test OAuth = local-dev (`localhost:3000`
+déclaré dans Client Google) ou prod direct.
 
 ## Règle opérationnelle : APIs pilotées par le Hub
 
@@ -34,17 +47,28 @@ Aujourd'hui seul le Hub initie des appels. Les autres apps exposent des routes m
 
 Une régression silencieuse sur ces routes casse le provisioning et le billing.
 
-## Vision cible — Hub comme SSO central
+## Vision cible — harmonie cross-app
 
-Pas encore implémenté, à venir :
+Partiellement implémenté, suite à livrer :
 
-- **SSO** : auth unique sur Hub, sessions propagées vers les apps
-- **Magic link cross-app** (style Prospection, session 9 mois)
-- **Workspace admin Robert** : vue cross-tenant + actions self-service (envoyer magic link, rotate key, suspend, etc.) sans passer par Claude
-- **Stripe trial intelligent** : 1 trial par app, non re-démarrable, source de vérité côté Hub
-- **Compte Veridian unique** : 1 email → 1 Stripe Customer → N subscriptions par app
+- ✅ **OAuth Sign-in Hub** (Google + Microsoft) : livré 2026-05-20
+- ✅ **Magic link cross-app** Hub → Notifuse / Prospection : éprouvé
+- ⏳ **Pattern Discovery cross-app** : Hub interroge chaque app via
+  `GET /api/users/by-email` au login (vs colonnes dénormalisées dans
+  `hub_app.tenants`). Tickets dispatchés dans chaque app downstream 2026-05-20.
+  Spec parent : `veridian-hub/todo/2026-05-20-hub-discovery-by-email-pattern.md`
+- ⏳ **API admin Hub** pour provisioning manuel propre (mode service) :
+  endpoints `POST /api/admin/users/create` + `link-app` + audit log.
+  Ticket : `veridian-hub/todo/2026-05-20-admin-api-tenant-provisioning.md`
+- ⏳ **Sync tenants 3 niveaux** (discovery pull + webhook push + cron reconcile) :
+  spec dans `veridian-hub/todo/2026-05-20-tenant-sync-strategy.md`
+- ⏳ **Flow invitation centralisé Hub** (au lieu de magic link cross-app
+  par app) : spec dans `veridian-hub/todo/2026-05-20-hub-invitation-endpoints.md`
+- ⏳ **Stripe trial intelligent** : 1 trial par app, non re-démarrable
+- ⏳ **Compte Veridian unique** : 1 email → 1 Stripe Customer → N subscriptions
 
-Détail des problèmes architecturaux dans `veridian-infra/todo/VISION-CROSS-APP.md`.
+Détail des problèmes architecturaux dans `veridian-infra/todo/VISION-CROSS-APP.md`
+et CONTRAT-HUB.md (source de vérité 2682L).
 
 ## Flow standard : un agent par app
 
@@ -118,25 +142,39 @@ Robert est arbitre business, pas reviewer CI. La friction "branche → PR → re
 3. **Maintient un trunk court** : 1 SHA staging → 1 SHA main, traçabilité linéaire
 4. **Force la qualité immédiate** : pas de "fix dans la PR plus tard", chaque push doit être livrable
 
-### Arbitrage intelligent par l'agent
+### Arbitrage intelligent par l'agent — protocole §20 (Hub)
 
-L'agent arbitre tout seul **sans demander à Robert** :
+> ⚠️ **Hub utilise §20 "Promotion graduée par risque"** depuis 2026-05-20
+> (cf. `veridian-hub/docs/CI-ARCHITECTURE.md` §20). Les autres apps suivent
+> encore le mode "auto-promote inconditionnel" — à migrer dans les semaines
+> à venir (cf. §20.10 apps concernées).
 
-| Situation | Action agent |
+Sur **Hub**, chaque commit est classifié par l'agent en 4 tiers :
+
+| Tier | Chemin de promotion |
 |---|---|
-| Smoke staging vert + diff = code applicatif normal | Auto-promote staging → main |
-| Smoke staging vert + diff = workflow CI / Dockerfile / migration | Auto-promote staging → main (le `structural-gate` côté main validera que staging est récent) |
-| Smoke staging fail | Freeze, investiguer (logs Traefik dev, logs container staging via SSH), fix sur staging, re-push |
-| Smoke prod fail post-deploy | Le `rollback-prod` automatique repush `:rollback`. Agent investigue la cause root, fix sur staging, re-cycle |
-| Plusieurs agents pushent sur staging en même temps | Le second voit `git push` rejected (non-fast-forward) → `git pull --rebase` + retry. Pas de force-push |
+| 🟢 **BAS** (doc, todo, tests-only, refactor sans surface API) | Marker `[risk:low]` dans le subject → auto-promote CI |
+| 🟡 **MOYEN** (UI dashboard, nouvelle route non-auth, bump dep patch) | Agent promote autonome après reco écrite + smoke CI |
+| 🔴 **HAUT** (auth, billing, migration, workflow CI, lib partagée) | Agent promote autonome après reco + `pnpm e2e:staging:full` + monitoring 10min post-deploy |
+| 💀 **CRITIQUE** (DROP COLUMN, rotation secret prod, suppression tenant) | **Seul tier où l'agent demande explicitement go/stop à Robert** |
 
-Robert intervient SEULEMENT pour :
+Garde-fous techniques :
+- Pre-push hook `check-risk-marker.sh` refuse `[risk:low]` si fichier tier 🔴+
+- Workflow `hub-staging.yml` job `notify-promotion-needed` notifie Robert via
+  Telegram quand staging vert sans `[risk:low]` (= reco agent attendue)
+- Outil agent opt-in : `pnpm e2e:staging:full` (Playwright headfull) à dégainer
+  selon le risque vu dans le diff
 
-- **Migration DB destructive** (DROP COLUMN, ALTER NOT NULL sur rows existantes) → même si `@safe` ack côté script, l'agent demande
+**Veto manager** : Robert peut intervenir à tout moment via mots-clés
+`stop` / `rollback` / `freeze` / `unfreeze`. L'agent obtempère sans débat.
+
+Robert intervient explicitement (tier 💀) **uniquement** pour :
+
+- **Migration DB destructive** (DROP COLUMN, ALTER NOT NULL sur rows existantes)
 - **Changement de pricing Stripe** ou plan billing (impact tenants existants)
 - **Rotation de secret en prod** (downtime potentiel)
 - **Suppression de tenant prod actif** ou cleanup massif
-- **Feature qui change l'UX** des tenants existants
+- **Refactor du contrat HMAC Hub↔app** ou du flow webhook Stripe
 
 ### Cycle complet attendu après chaque push
 
@@ -150,18 +188,19 @@ L'agent **ne quitte pas la session** tant que :
 
 ### Auto-promotion : où est-elle câblée ?
 
-Pas encore. À implémenter par chaque app :
+- ✅ **Hub** : auto-promote câblé dans `hub-staging.yml:promote-to-main` mais
+  **gated sur marker `[risk:low]` dans le subject** depuis 2026-05-20 (§20).
+  Job `notify-promotion-needed` envoie une notif Telegram à Robert quand
+  staging vert sans marker = reco agent attendue.
+- ✅ **CMS, Notifuse** : auto-promote câblé (mode inconditionnel pour l'instant).
+  À migrer vers §20 quand le trafic réel justifie le durcissement.
+- ✅ **Prospection** : pas d'auto-promote (mode "staging-only ship + giga-MAJ"
+  cf. CI-ARCHITECTURE §19.2). Promotion manuelle explicite par Robert.
+- 🔵 **Analytics** : pas en SaaS public, mode dormant.
 
-- Workflow `hub-staging.yml` (ou équivalent) : ajouter un job final `promote-to-main` `if: success()` qui fait :
-  ```bash
-  gh api -X POST /repos/Christ-Roy/<repo>/merges \
-    -F base=main -F head=staging \
-    -f commit_message="auto-promote: $(git log -1 --format=%s)"
-  ```
-  ou équivalent via `git push` avec credentials repo.
-- Ou : check côté `hub-ci.yml` qui s'auto-déclenche sur staging vert via `repository_dispatch`
-
-**Tant que l'auto-promotion n'est pas câblée**, l'agent fait la promotion manuellement (étape 2 ci-dessus) — mais reste sur le mode trunk-based pas de branche feature.
+Pour les apps tier 🟡 MOYEN et 🔴 HAUT sur Hub : promotion **par l'agent** via
+`git merge --ff-only origin/staging && git push origin main` après reco
+écrite. L'agent reste sur le mode trunk-based — pas de branche feature.
 
 ### Pré-requis CI pour autoriser ce mode (par app)
 
@@ -271,3 +310,35 @@ Dokploy orchestre les containers de **production** Veridian. **Tu peux interagir
 - **Tous les `composeId` documentés** dans les memories sessions correspondantes
 
 Liens utiles dans memory : [[project_dokploy_improvements]], [[project_dokploy_gitops_migration]], [[project_infra_pieges]].
+
+### ComposeIds Veridian (référence rapide)
+
+| App / Stack | composeId Dokploy |
+|---|---|
+| Hub prod (compose-back-up-online-pixel-nl2k9p) | `_kxAHDCv1LhvsdwNRX3Vk` |
+| Notifuse prod | `WN0jglLj5bDIrXUFZHNmw` |
+| CMS prod | `275o-9E3ZWWi0X32wY8hM` |
+| Analytics prod | `Ri8lnog40Jgxn5xWOhaQg` |
+| Supabase prod (legacy) | `xhlNGckdeiH1ZdSqZv2HT` |
+| Twenty prod (sortie de stack 2026-05-18) | `8zdqAAD1lkZFVAwuZ5USv` |
+| Crowdsec prod | `-yhkpTC6N_zh0FxNwAKJa` |
+
+Pour patcher une ENV : `POST /api/compose.update` body `{composeId, env}`
+puis `POST /api/compose.deploy` body `{composeId}`. Cf. session OAuth
+Microsoft 2026-05-20 (mémo `reference_microsoft_entra_oauth.md`).
+
+## Outils CLI installés sur la machine locale (2026-05-20)
+
+- `gcloud` (Google Cloud SDK 541.0.0) — projet actif `veridian-preprod`,
+  loggué `brunon5robert@gmail.com`. ⚠️ **Les IAP OAuth Admin APIs sont
+  dépréciées par Google depuis fin 2025 et shutdown 2026-03-19** : pas de
+  CLI pour modifier OAuth Consent Screen ou Client IDs. Passer par
+  `console.cloud.google.com/auth/*` via Chrome.
+- `az` (Azure CLI 2.86.0, installé via `pip3 install --user azure-cli`) —
+  loggué `robert.brunon@veridian.site`, tenant Entra
+  `fb247439-edf2-46d4-8691-4965a2e3bcf8`. Permet `az ad app create/update`
+  pour App Registrations Microsoft Entra.
+- `gh` (GitHub CLI) — accès `Christ-Roy/*`
+- `pnpm` (10.x) sur Hub
+- Chrome MCP (extension claude-in-chrome) — disponible pour piloter Chrome
+  réel quand l'API CLI n'existe pas (cas Google OAuth Consent Screen).
