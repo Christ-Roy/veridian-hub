@@ -29,12 +29,17 @@ YELLOW=$'\033[1;33m'
 NC=$'\033[0m'
 
 # ─── Lecture du message commit HEAD ───────────────────────────────────────────
-LAST_MSG=$(git log -1 --format=%B)
+#
+# Le marker [risk:low] doit être présent sur la PREMIÈRE LIGNE du message
+# (subject line) pour être pris en compte. Une mention dans le corps du
+# commit (doc explicative, exemples) n'active pas le gate — sinon impossible
+# de documenter le marker lui-même dans un commit message.
+SUBJECT_LINE=$(git log -1 --format=%s)
 
-if ! echo "$LAST_MSG" | grep -q '\[risk:low\]'; then
-  # Pas de marker = pas de promesse low → rien à vérifier ici. Le tier 🟡+ sera
-  # traité via le protocole "reco écrite agent" (§20.5/20.6/20.7).
-  echo "${GREEN}✓ Pas de marker [risk:low] — protocole reco écrite agent applicable${NC}"
+if ! echo "$SUBJECT_LINE" | grep -q '\[risk:low\]'; then
+  # Pas de marker dans le subject = pas de promesse low → rien à vérifier ici.
+  # Le tier 🟡+ sera traité via le protocole "reco écrite agent" (§20.5/20.6/20.7).
+  echo "${GREEN}✓ Pas de marker [risk:low] dans le subject — protocole reco écrite agent applicable${NC}"
   exit 0
 fi
 

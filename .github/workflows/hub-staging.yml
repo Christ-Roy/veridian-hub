@@ -220,6 +220,11 @@ jobs:
     name: Auto-promote staging → main (🟢 risk:low only)
     needs: deploy
     runs-on: ubuntu-latest
+    # Marker `[risk:low]` doit être dans le subject (1ère ligne) du commit.
+    # GitHub Actions n'a pas de fonction "split first line" sur head_commit.message,
+    # donc on utilise un step préalable côté shell. Le `if:` ci-dessous ne fait
+    # qu'un pré-filtre grossier (le marker apparaît n'importe où) ; le step
+    # `Check marker is in subject` durcit ensuite avant le merge.
     if: |
       github.event_name == 'push' &&
       github.ref == 'refs/heads/staging' &&
@@ -241,6 +246,19 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Check [risk:low] is in subject line (not just body)
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          set -euo pipefail
+          SUBJECT=$(echo "$COMMIT_MSG" | head -1)
+          if ! echo "$SUBJECT" | grep -q '\[risk:low\]'; then
+            echo "::error::Marker [risk:low] présent dans le body mais pas dans le subject — promotion bloquée. Cf. CI-ARCHITECTURE §20.4."
+            echo "Subject : $SUBJECT"
+            exit 1
+          fi
+          echo "✓ Marker [risk:low] dans le subject — auto-promote autorisée"
 
       - name: Fast-forward main to staging
         env:
@@ -292,14 +310,30 @@ jobs:
     name: Notify Robert — reco agent attendue (tier 🟡+)
     needs: deploy
     runs-on: ubuntu-latest
+    # On laisse fire AUSSI si le marker [risk:low] est dans le body seulement
+    # (faux positif corrigé par le step `check-subject` ci-dessous, qui zappe
+    # la notif si effectivement le subject porte le marker).
     if: |
       github.event_name == 'push' &&
       github.ref == 'refs/heads/staging' &&
-      !contains(github.event.head_commit.message, '[risk:low]') &&
       !contains(github.event.head_commit.message, '[skip-prod]') &&
       !contains(github.event.head_commit.message, '[wip]')
     steps:
+      - name: Skip si marker dans le subject (commit tier 🟢 BAS)
+        id: check
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          SUBJECT=$(echo "$COMMIT_MSG" | head -1)
+          if echo "$SUBJECT" | grep -q '\[risk:low\]'; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+            echo "Subject porte [risk:low] — pas de notif, auto-promote prend le relais"
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Telegram notify Robert
+        if: steps.check.outputs.skip != 'true'
         env:
           TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
