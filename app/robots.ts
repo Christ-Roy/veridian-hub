@@ -4,11 +4,13 @@ import { getURL } from '@/utils/helpers';
 /**
  * ROBOTS.TXT - Instructions pour les crawlers (Google, Bing, etc.)
  *
- * ✅ Autoriser : Pages publiques (marketing, legal, docs)
- * ❌ Bloquer : Dashboard privé, API, auth, webhooks
- *
- * Utilise getURL() pour récupérer le domaine depuis NEXT_PUBLIC_SITE_URL
+ * `force-dynamic` OBLIGATOIRE : même piège que sitemap.ts. Sans ça, le
+ * fichier est pré-généré au build avec NEXT_PUBLIC_SITE_URL absent →
+ * `Sitemap: http://localhost:3000/sitemap.xml` en prod. Cf. app/sitemap.ts
+ * pour le détail du raisonnement.
  */
+export const dynamic = 'force-dynamic';
+
 export default function robots(): MetadataRoute.Robots {
   const baseUrl = getURL();
 
