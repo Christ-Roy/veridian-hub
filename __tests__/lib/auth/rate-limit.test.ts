@@ -186,4 +186,14 @@ describe('exported limiter instances', () => {
     expect(invitationCreateLimiter.enforce('test-ip-inv').ok).toBe(false);
     invitationCreateLimiter.reset();
   });
+
+  it('exports invitationVerifyLimiter avec capacity 30/min (anti brute-force token)', async () => {
+    const { invitationVerifyLimiter } = await import('@/lib/auth/rate-limit');
+    invitationVerifyLimiter.reset();
+    for (let i = 0; i < 30; i++) {
+      expect(invitationVerifyLimiter.enforce('test-ip-verify').ok).toBe(true);
+    }
+    expect(invitationVerifyLimiter.enforce('test-ip-verify').ok).toBe(false);
+    invitationVerifyLimiter.reset();
+  });
 });

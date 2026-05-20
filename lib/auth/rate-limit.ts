@@ -174,3 +174,15 @@ export const invitationCreateLimiter = new RateLimiter({
   windowMs: 60_000,
   name: 'invitation-create',
 });
+
+// Anti brute-force token sur GET /api/invitations/[token]/verify.
+// Le token est 32 bytes = 256 bits → brute-force statistiquement impossible
+// (~10^77 espace), mais on plafonne quand même à 30/min/IP pour limiter
+// le bruit dans les logs et empêcher un attaquant de scanner massivement
+// en pariant sur d'éventuelles collisions/devine. Un user humain ne va
+// pas appeler /verify plus de quelques fois.
+export const invitationVerifyLimiter = new RateLimiter({
+  capacity: 30,
+  windowMs: 60_000,
+  name: 'invitation-verify',
+});
