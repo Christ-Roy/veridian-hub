@@ -64,11 +64,83 @@ Partiellement implémenté, suite à livrer :
   spec dans `veridian-hub/todo/2026-05-20-tenant-sync-strategy.md`
 - ⏳ **Flow invitation centralisé Hub** (au lieu de magic link cross-app
   par app) : spec dans `veridian-hub/todo/2026-05-20-hub-invitation-endpoints.md`
-- ⏳ **Stripe trial intelligent** : 1 trial par app, non re-démarrable
+- ⏳ **Stripe trial intelligent** : flow 5 mails → 2j silence → 15j visible
+  → +30j inconditionnel si CB → débit auto ou paywall. **Source de vérité** :
+  `veridian-hub/docs/PRICING-VERIDIAN.md`. Tickets actifs :
+  - `veridian-hub/todo/2026-05-21-stripe-webhook-orchestrator.md`
+  - `veridian-hub/todo/2026-05-21-trial-state-machine.md`
+  - `notifuse-veridian/todo/2026-05-21-trial-eligible-signal.md`
+  - `notifuse-veridian/todo/2026-05-21-paywall-degraded-mode-soft-deleted.md`
 - ⏳ **Compte Veridian unique** : 1 email → 1 Stripe Customer → N subscriptions
 
 Détail des problèmes architecturaux dans `veridian-infra/todo/VISION-CROSS-APP.md`
 et CONTRAT-HUB.md (source de vérité 2682L).
+
+## 💰 Pricing & trial cross-app
+
+**Source de vérité unique** : `veridian-hub/docs/PRICING-VERIDIAN.md`.
+
+Tout agent qui touche au pricing, paywall, trial, branding, custom
+domains, limites de plan, webhooks Stripe DOIT lire ce fichier avant
+d'agir. Il définit :
+
+- La **grille de prix** (Free / Pro 29€ / Business 99€ / Enterprise)
+- Le **flow trial complet** (5 mails → 2j silence → 15j visible → +30j
+  si CB → débit ou paywall)
+- Les **responsabilités cross-app** : Stripe → Hub → apps (PAS Stripe
+  → app directement)
+- Les **interdits côté code** (pas de mur béton, pas de compteur
+  visible, pas de menu grisé)
+
+**Philosophie figée par Robert 2026-05-21** : générosité maximale. Tout
+illimité partout. SEULES différenciations = durée Free 15j + white-label
+Business+. L'app ne doit JAMAIS être défigurée par des limites visibles.
+
+## 📋 Index TODO cross-app
+
+**Source de vérité unique** : `TODO.md` à la racine `veridian-platform/`.
+
+Index dynamique de **tous les tickets pending + done** de tous les repos
+(Hub, Prospection, Analytics, CMS, Notifuse, Infra). Mis à jour via :
+
+```bash
+./scripts/refresh-todo.sh
+```
+
+À lancer **au début de session** pour voir l'état cross-app du backlog,
+et **après archivage d'un ticket** (`mv X/todo/Y.md X/todo/done/`) pour
+refléter le changement dans l'index racine.
+
+### Convention `todo/` standardisée cross-repo
+
+Tous les repos suivent ce layout :
+
+```
+<repo>/todo/
+├── YYYY-MM-DD-<slug>.md     ← ticket pending (à la racine)
+├── README.md / SPRINT.md     ← notes thématiques optionnelles
+├── done/                     ← archive (tickets résolus, NE PAS SUPPRIMER)
+├── blocked/  (optionnel)     ← en attente externe
+├── apps/     (optionnel)     ← sous-tickets app-specific (cas Hub)
+└── integrations/ (opt.)      ← specs contrats cross-app
+```
+
+**Header ticket minimum** (pour que le scanner extraie correctement) :
+
+```markdown
+# Titre du ticket
+
+> **Sévérité** : 🔴 P0 / 🟡 P1 / 🟢 P2 / 🔵 P3
+> **Owner** : agent <repo>
+> **Créé** : YYYY-MM-DD
+```
+
+**Archivage d'un ticket résolu** :
+
+```bash
+mv <repo>/todo/<ticket>.md <repo>/todo/done/
+./scripts/refresh-todo.sh  # depuis racine veridian-platform/
+```
 
 ## Flow standard : un agent par app
 
