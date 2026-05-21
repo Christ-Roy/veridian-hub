@@ -14,6 +14,7 @@ import { prisma } from '@/lib/prisma';
 import { issueAndSendMfaCode } from '@/lib/mfa';
 import { authConfig } from './auth.config';
 import { createSignInCallback } from '@/lib/auth/sign-in-callback';
+import { createCreateUserEvent } from '@/lib/auth/create-user-event';
 
 const credentialsSchema = z.object({
   email: z.string().email(),
@@ -127,5 +128,13 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       }
       return session;
     },
+  },
+  events: {
+    // Patch les users fraîchement créés par le PrismaAdapter (= signup OAuth
+    // Google / Microsoft) avec un `supabaseUserId` UUID v4. Sans ça, le flow
+    // OAuth crée des users orphelins → Dashboard Layout en panne (cf.
+    // régression 2026-05-21 : tramtechservices@gmail.com + augustindemaret).
+    // Le flow Credentials génère déjà l'UUID lui-même dans signup/route.ts.
+    createUser: createCreateUserEvent({ prisma }),
   },
 });
