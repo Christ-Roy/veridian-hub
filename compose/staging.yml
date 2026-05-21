@@ -95,6 +95,19 @@ services:
       CRON_SECRET: staging-cron-secret
       VAULT_ENC_KEY: ${VAULT_ENC_KEY_STAGING:-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
       NEXT_PUBLIC_GTM_ID: ""
+
+      # ─── Admin API + Invitation HMAC (E2E only) ────────────────────────
+      # Valeurs publiques exposées uniquement sur staging (Tailscale-only,
+      # pas de surface Internet). Permettent à la suite E2E
+      # `e2e/staging-full/` d'attaquer les routes /api/admin/* et
+      # /api/invitations/create sans avoir à injecter des secrets via CI.
+      # En prod : valeurs réelles dans Dokploy ENV (cf
+      # `~/credentials/.all-creds.env`), JAMAIS hardcodées.
+      ADMIN_SECRET: ${ADMIN_SECRET_STAGING:-staging-admin-secret-not-real-e2e}
+      HUB_INVITATION_SECRET_NOTIFUSE: ${HUB_INVITATION_SECRET_NOTIFUSE_STAGING:-staging-invitation-secret-notifuse-not-real-e2e}
+      HUB_INVITATION_SECRET_PROSPECTION: ${HUB_INVITATION_SECRET_PROSPECTION_STAGING:-staging-invitation-secret-prospection-not-real-e2e}
+      HUB_INVITATION_SECRET_ANALYTICS: ${HUB_INVITATION_SECRET_ANALYTICS_STAGING:-staging-invitation-secret-analytics-not-real-e2e}
+      HUB_INVITATION_SECRET_CMS: ${HUB_INVITATION_SECRET_CMS_STAGING:-staging-invitation-secret-cms-not-real-e2e}
     labels:
       - traefik.enable=true
       - traefik.docker.network=staging-edge
