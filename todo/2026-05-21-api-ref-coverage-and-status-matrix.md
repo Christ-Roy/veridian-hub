@@ -1,11 +1,39 @@
-# Compléter `CONTRAT-HUB-API-REF.md` — couverture exhaustive + statut par endpoint
+# [HUB] Compléter `CONTRAT-HUB-API-REF.md` — couverture exhaustive + statut par endpoint
 
-**Créé** : 2026-05-21
-**Trigger** : un autre agent (probablement Hub side) a réécrit le contrat
-en v1.4 et créé `docs/CONTRAT-HUB-API-REF.md` (1277 lignes) comme compagnon
-technique. Le doc est solide sur le format mais **mélange spec future et
-réalité d'implémentation** sans le dire — un agent qui le lit littéralement
-pour implémenter va se planter sur les endpoints non livrés.
+> **Type** : Documentation API cross-app
+> **Sévérité** : 🟡 P2 — pas bloquant pour la prod, mais bloquant pour
+> l'autonomie des agents qui ouvrent une session sur Hub ou apps downstream
+> **Owner** : agent Hub
+> **Créé** : 2026-05-21
+> **Effort** : 2-4h (phasing recommandé P0→P1→P2→P3)
+
+## ⚠️ Coordination cross-tickets — à lire AVANT de commencer
+
+Ce ticket arrive en **parallèle** de plusieurs autres tickets v1.4 créés
+aujourd'hui par les agents Prospection / Notifuse. Pour éviter la
+duplication d'effort et les conflits de PR, **lire d'abord** :
+
+| Ticket | Scope | Frontière vs ce ticket |
+|---|---|---|
+| `2026-05-21-contrat-hub-v14-sync.md` (P1) | Implémentation côté Hub : secrets cross-app, accept étape 4b, webhook receivers, table TenantMember | Ce ticket-ci documente la SPEC ; le sien implémente le CODE. Les 2 routes webhook (`/api/webhooks/notifuse`, `/api/webhooks/prospection`) sont implémentées par lui — je ne les documente dans l'API-REF qu'une fois livrées. |
+| `2026-05-21-pricing-doc-maillage-claude-md.md` (P3) | Maillage `CLAUDE-ROOT.md` + `veridian-hub/CLAUDE.md` vers `PRICING-VERIDIAN.md` | Aucun chevauchement — scopes orthogonaux. |
+| `2026-05-21-stripe-webhook-orchestrator.md` (P1) | Implémentation orchestrateur Stripe webhook côté Hub | Une fois livré, ses endpoints `/api/webhooks/stripe/*` doivent être ajoutés à l'API-REF par ce ticket-ci. |
+| `2026-05-21-trial-state-machine.md` (P1) | Trial state machine business logic | Si nouveaux endpoints (`/api/trial/*`), à documenter dans l'API-REF P1 ci-dessous. |
+| `2026-05-21-align-prospection-pricing-from-prosp-session.md` (P1) | Catalogue pricing + page /pricing | Pas de nouvel endpoint cross-app probablement, mais à confirmer en lisant. |
+| `2026-05-21-test-coverage-audit-and-oauth-e2e.md` (P0 fait, P1+P2 ouverts) | E2E OAuth + audit features sous-testées | Synergie : les tests E2E end-to-end (Flow 1-7 du P2 ci-dessous) doivent s'aligner avec les scénarios de ce ticket. |
+| `2026-05-21-workspace-provisioning-at-signup.md` (P1 décision) | Auto-création workspace au signup | Le Flow 1 (Signup → premier login Notifuse) du P2 ci-dessous dépend de la décision business prise dans ce ticket. |
+
+**Règle d'or pendant le sprint** : si un autre ticket touche à un endpoint
+listé dans l'API-REF, **lui implémente, ce ticket-ci documente après livraison**.
+Pas l'inverse. Sinon on documente du vide.
+
+## Trigger
+
+Un autre agent a réécrit le contrat en v1.4 et créé `docs/CONTRAT-HUB-API-REF.md`
+(1277 lignes) comme compagnon technique. Le doc est solide sur le format
+mais **mélange spec future et réalité d'implémentation** sans le dire — un
+agent qui le lit littéralement pour implémenter va se planter sur les
+endpoints non livrés.
 
 ## Constat
 
@@ -101,7 +129,7 @@ Ajouter une nouvelle section dans l'API-REF :
 ### ADMIN-LINK-APP — POST /api/admin/tenants/link-app
 ...
 
-[etc. pour les 50 routes, classées par scope]
+[etc. pour les ~50 routes, classées par scope]
 ```
 
 Format identique à l'existant (Direction / Auth / Trigger / Idempotent on
@@ -110,10 +138,11 @@ Format identique à l'existant (Direction / Auth / Trigger / Idempotent on
 **Tri par scope** :
 - `## Endpoints Auth & Account` (login, signup, MFA, password)
 - `## Endpoints Admin API` (les 12 routes `/api/admin/*`)
-- `## Endpoints Billing & Webhooks` (Stripe + Notifuse webhooks)
+- `## Endpoints Billing & Webhooks Stripe` (⚠️ coordonné avec `stripe-webhook-orchestrator.md` — documenter UNIQUEMENT après livraison)
+- `## Endpoints Webhooks app → Hub` (⚠️ coordonné avec `contrat-hub-v14-sync.md` §3.2 — documenter UNIQUEMENT après livraison)
 - `## Endpoints Tenant lifecycle Hub-side` (start, retry, status)
 - `## Endpoints Workspace Hub-side` (members, invite)
-- `## Endpoints Invitation P1` (create, verify, accept, revoke)
+- `## Endpoints Invitation P1` (create, verify, accept, revoke — 5/9 étapes livrées, cf. `project_invitation_endpoints_progress_2026-05-21.md`)
 - `## Endpoints Cron` (cleanup-*, à documenter pour ops)
 - `## Endpoints Public` (health, config — pas de auth)
 
@@ -137,11 +166,19 @@ Endpoints touchés : SIGNUP, PROV, MAGIC.
 Tests obligatoires : flow complet en E2E sur staging.
 
 ### Flow 2 — Stripe upgrade Pro → propage quota apps
-### Flow 3 — User accepte invitation cross-app
+   ⚠️ Coordonné avec `stripe-webhook-orchestrator.md` — documenter après livraison.
+
+### Flow 3 — User accepte invitation cross-app (P1, 5/9 étapes livrées)
+   ⚠️ Coordonné avec `contrat-hub-v14-sync.md` §2.2 — flow incomplet
+   tant que étape 4b (call attach-member downstream) pas câblée.
+
 ### Flow 4 — Admin créé tenant manuellement (mode service)
 ### Flow 5 — Hub down → app continue à servir (résilience §1.4)
 ### Flow 6 — Soft-delete → restore avant 30j
 ### Flow 7 — Soft-delete → purge après 30j (RGPD)
+### Flow 8 — Signup OAuth Google/Microsoft → dashboard (régression 2026-05-21)
+   Couvre le bug `supabaseUserId NULL`. Coordonné avec
+   `test-coverage-audit-and-oauth-e2e.md` qui code les tests E2E.
 [etc.]
 ```
 
@@ -163,12 +200,17 @@ pre-push bloque.
 
 ## Pré-requis avant de commencer
 
-- **Avoir le commit v1.4 mergé sur main** (ce n'est pas fait au moment où
-  ce ticket est créé — l'agent qui a écrit le contrat doit le commit
-  d'abord, sinon je risque de réécrire sur un draft instable)
-- **Lire le ticket P1 invitation** (`project_invitation_endpoints_progress_2026-05-21.md`)
-  pour les étapes effectivement livrées vs à venir
-- **Lire la matrice §10** du contrat v1.4 pour ne pas dupliquer ou contredire
+- **Vérifier que le commit v1.4 du contrat est mergé sur main** (au moment
+  où ce ticket est créé, `docs/CONTRAT-HUB.md` est modifié et
+  `docs/CONTRAT-HUB-API-REF.md` est untracked — il faut qu'un agent les
+  commit d'abord, sinon ce ticket réécrit sur un draft instable)
+- **Lire `2026-05-21-contrat-hub-v14-sync.md`** EN PREMIER pour voir quels
+  endpoints sont en cours d'implémentation et qu'on ne doit donc PAS
+  documenter avant livraison
+- **Lire la memory `project_invitation_endpoints_progress_2026-05-21.md`**
+  pour les étapes P1 invitation effectivement livrées vs à venir
+- **Lire la matrice §10 du contrat v1.4** pour ne pas dupliquer ou contredire
+- **Coordonner avec les autres tickets du sprint** (cf. tableau en haut)
 
 ## Risques / pièges anticipés
 
