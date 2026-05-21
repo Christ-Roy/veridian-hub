@@ -50,7 +50,13 @@ etc.) jugée trop agressive.
 
 ## Grille de prix
 
-| Dimension | Free | Pro 29€ | Business 99€ | Enterprise |
+> **Mise à jour 2026-05-21 (Robert)** : grille consolidée 3 axes
+> (Notifuse / Prospection / Bundles cross-app) + valeur ajoutée
+> annuelle (support + onboarding + tutos).
+
+### Notifuse standalone
+
+| Dimension | Free | Pro 29€/mo | Business 99€/mo | Enterprise |
 |---|---|---|---|---|
 | **Durée d'usage** | **15 jours** visibles puis paywall | illimité | illimité | illimité |
 | Emails / mois | illimité (BYO) | illimité | illimité | illimité |
@@ -63,19 +69,115 @@ etc.) jugée trop agressive.
 | A/B testing | ✅ | ✅ | ✅ | ✅ |
 | **Branding "Powered by Veridian"** | ❌ optionnel | ❌ optionnel | ❌ + **white-label custom** | ❌ |
 
-**SEULES différenciations réelles** :
+**Annuel Notifuse** : -17% (Pro 290€/an = 24€/mo, Business 990€/an = 82€/mo).
 
-1. **Durée Free 15j** — révélée seulement à J+2 après le 5ème mail
-   envoyé. Avant : silence total côté UI.
+### Prospection standalone
+
+| Dimension | Freemium | Pro 29€/mo | Business 89€/mo |
+|---|---|---|---|
+| Welcome leads (one-shot à la souscription) | 100 | 2 000 | 8 000 |
+| Seats sur même workspace | illimité* | 5 | 25 |
+| Workspaces multiples | ✅ | ✅ | ✅ |
+| `search_basic` (zone + secteur) | ✅ | ✅ | ✅ |
+| `search_advanced` (INPI fraîcheur, growth, web) | ❌ | ✅ | ✅ |
+| `icp_scoring` (scoring ICP personnalisé) | ❌ | ✅ | ✅ |
+| `pipeline_advanced` (kanban, statuts custom, followups) | ❌ | ✅ | ✅ |
+| `notifuse_sequences` (enrôler dans séquence email) | ❌ | ✅ | ✅ |
+| `csv_export` | ❌ | ✅ | ✅ |
+| `api_access` (clés API publiques) | ❌ | ❌ | ✅ |
+| `verified_emails` (devinés + validés MX) | ❌ | ✅ | ✅ |
+| `growth_signals` (recrutements, événements INPI) | ❌ | ❌ | ✅ |
+
+*Freemium "seats illimités" = growth hack — chaque invité devient un freemium **séparé** côté Hub (son propre workspace freemium → multiplie l'acquisition virale). Pour partager UN MÊME workspace : Pro ou Business.
+
+**Annuel Prospection** : -17% (Pro 290€/an, Business 890€/an).
+
+#### Achat de leads à la commande (refill dégressif)
+
+Stripe Checkout one-shot par commande. Leads achetés = permanents
+dans le workspace (pas de récupération si downgrade). Cap sécurité :
+100 000 leads / commande.
+
+| Plan | 1-99 leads | 100-999 | 1k-9k | 10k-49k | 50k+ |
+|---|---|---|---|---|---|
+| Freemium | 0,50€ | 0,40€ | 0,30€ | — | — |
+| Pro | 0,30€ | 0,25€ | 0,18€ | 0,12€ | — |
+| Business | 0,20€ | 0,15€ | 0,10€ | 0,06€ | 0,04€ |
+
+Pourquoi pas Stripe Metered : leads = permanents (pas de cumul fin de
+mois). Pourquoi pas Wallet/crédits : sur-engineering tant qu'une seule
+action monétisable (commande leads). À reconsidérer v2.
+
+### Bundles cross-app Veridian
+
+| Bundle | Mensuel | Annuel (par mois) | Composition | Économie vs à la carte |
+|---|---|---|---|---|
+| **Veridian Pro** | **49€/mo** | 41€/mo (490€/an) | Notifuse Pro + Prospection Pro | -15% (58€ → 49€) |
+| **Veridian Business** | **149€/mo** | 124€/mo (1490€/an) | Notifuse Business + Prospection Business | -20% (188€ → 149€) |
+
+Bundle = 1 Stripe Subscription qui débloque les deux apps en même
+temps. Le dispatcher webhook Stripe propage `update-plan` à Notifuse
+ET Prospection sur le même event.
+
+### Plans offerts (assignés manuellement par admin Hub)
+
+| Plan | Public | Équivalent |
+|---|---|---|
+| `lifetime_site_vitrine` | Client qui a pris un site vitrine Veridian | Veridian Pro à vie |
+| `lifetime_partner` | Partenaire revendeur | Veridian Business à vie |
+| `internal` | Usage interne équipe Veridian | Enterprise illimité |
+
+**Immunes au downgrade Stripe** : aucune subscription Stripe associée,
+le dispatcher webhook ne les touche pas. Géré via
+`POST /api/admin/grant-unlimited` côté apps.
+
+### Valeur ajoutée annuel (NEW 2026-05-21)
+
+Pour TOUS les plans payants en annuel (Notifuse Pro/Business,
+Prospection Pro/Business, Bundles Veridian Pro/Business), inclus :
+
+- ✅ **Support prioritaire** : réponse < 24h ouvrées (vs best-effort
+  en mensuel)
+- ✅ **Mise en place accompagnée** : 1 session onboarding visio de
+  30-60min avec Robert pour câbler les premières automations / setup
+  data leads / domaines custom
+- ✅ **Tutos personnalisés** : accès au catalogue tutos avancés +
+  recettes prêtes à l'emploi par cas d'usage métier
+
+**Justification business** : le rabais -17% annuel doit être perçu
+comme un **upgrade de service**, pas juste une remise commerciale.
+Le coût acquisition d'un user payant > coût d'1h d'onboarding humain
+sur la durée d'1 an (Pro 290€/an = LTV minimum 290€ pour ~30min
+investis = ROI évident).
+
+**Côté code** : le flag annuel doit déclencher :
+- Création automatique d'un thread support prioritaire dans le canal
+  helpdesk (Lark/Slack/email selon stack support choisi)
+- Calendar booking link envoyé dans le mail de bienvenue (Calendly /
+  Cal.com — à choisir)
+- Tag user `veridian_annual=true` dans la DB Hub (analytics + filtre
+  support)
+
+### SEULES différenciations réelles (philosophie)
+
+1. **Durée Free Notifuse 15j** — révélée seulement à J+2 après le 5ème
+   mail envoyé. Avant : silence total côté UI.
 2. **White-label custom** — Business+ peuvent mettre **leur propre
    footer** ("Sent by ClientName") au lieu de juste retirer "Powered
    by Veridian" en Pro.
+3. **Features Prospection par plan** (cf table) — la profondeur métier
+   (INPI, ICP scoring, growth signals) reste un vrai différentiateur
+   parce que c'est une **valeur ajoutée**, pas une limitation
+   artificielle.
+4. **Welcome leads Prospection** — quantité offerte one-shot proportionnelle au
+   plan (modèle "data permanente, pas quota mensuel").
+5. **Annuel = service premium** (support + onboarding + tutos).
 
-**Note BYO sending** : Notifuse ne fournit pas de provider d'envoi.
-Les clients connectent leur propre Gmail / Outlook / SES / SMTP. C'est
-**leur provider qui limite**, pas nous. Mettre un cap email = paywall
-artificiel sur un service qu'on n'offre pas. Cf. memory
-`project_email_sending_strategy.md`.
+**Note BYO sending Notifuse** : Notifuse ne fournit pas de provider
+d'envoi. Les clients connectent leur propre Gmail / Outlook / SES /
+SMTP. C'est **leur provider qui limite**, pas nous. Mettre un cap
+email = paywall artificiel sur un service qu'on n'offre pas. Cf.
+memory `project_email_sending_strategy.md`.
 
 ---
 
@@ -351,3 +453,15 @@ arrivent automatiquement quand ils touchent au pricing :
   Remplace l'ancienne grille dimensionnelle (Free 300mails/500contacts/
   1seat, Pro 10k/5k/5, Business 50k/25k/25) par la grille "tout
   illimité, paywall = durée".
+- **v1.1 (2026-05-21 soir)** : consolidation 3 axes
+  (Notifuse standalone / Prospection standalone / Bundles Veridian
+  cross-app) + ajout valeur ajoutée annuelle (support prioritaire +
+  onboarding accompagné + tutos). Notifuse Business **99€**, bundle
+  Veridian Pro **49€** (-15%), bundle Business **149€** (-20%).
+  Prix arrêtés par Robert. Refill leads dégressif Prospection détaillé
+  (0,50€ → 0,04€/lead selon plan + volume). Plans offerts
+  (`lifetime_site_vitrine`, `lifetime_partner`, `internal`) ajoutés
+  comme exceptions managées par admin Hub.
+  Sources de référence consolidées :
+  `veridian-prospection/todo/2026-05-21-business-plan-pricing-features.md`
+  + `veridian-hub/todo/2026-05-21-align-prospection-pricing-from-prosp-session.md`.
