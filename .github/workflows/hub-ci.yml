@@ -67,6 +67,8 @@ jobs:
         run: pnpm lint
       - name: Compose sync (base + prod + staging cohérents)
         run: ./scripts/ci/check-compose-sync.sh
+      - name: ENV sync (code ↔ .env.example ↔ compose)
+        run: ./scripts/ci/check-env-sync.sh
       - name: Migration safety (DROP/RENAME/CREATE INDEX bloquants)
         run: ./scripts/ci/check-migration-safety.sh
         env:

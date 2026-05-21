@@ -71,4 +71,15 @@ else
   echo "⚠ scripts/ci/check-no-test-provider-in-prod.sh absent ou non exécutable"
 fi
 
+# ─── 6. ENV sync : code ↔ .env.example ↔ compose/*.yml ──────────────────
+# Empêche le drift entre `process.env.X` dans le code, .env.example, et
+# les variables référencées dans compose/. Sans ça, un nouveau dev
+# déploie sans une var → app crash silencieux ou mode dégradé.
+# Skip d'urgence : SKIP_ENV_SYNC=1 git push (à éviter).
+if [ -x scripts/ci/check-env-sync.sh ]; then
+  scripts/ci/check-env-sync.sh
+else
+  echo "⚠ scripts/ci/check-env-sync.sh absent ou non exécutable"
+fi
+
 exit 0
