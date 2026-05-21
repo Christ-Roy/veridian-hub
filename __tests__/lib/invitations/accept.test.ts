@@ -2,7 +2,7 @@
  * Tests du helper d'acceptation d'invitation cross-app.
  *
  * Couvre :
- *   - acceptation nominale (acceptedAt/acceptedByUserId set, downstreamCall pending)
+ *   - acceptation nominale sans attachDownstream → downstreamCall='pending'
  *   - format token invalide → invalid_token_format (sans hit DB)
  *   - token inconnu → not_found
  *   - invitation expirée → expired
@@ -10,6 +10,10 @@
  *   - email mismatch refusé par défaut → email_mismatch
  *   - email mismatch autorisé via allowEmailMismatch=true → ok + emailMismatch:true
  *   - email compare case-insensitive
+ *   - Phase 4b : attachDownstream injecté + completed → downstreamLoginUrl propagé
+ *   - Phase 4b : attachDownstream injecté + pending → downstreamCall='pending'
+ *   - Phase 4b : attachDownstream injecté + error → downstreamCall='error' + errorCode
+ *   - Phase 4b : attachDownstream throw → fallback pending (pas de crash)
  *   - buildPostAcceptRedirectUrl pour chaque app + fallback
  */
 
@@ -225,6 +229,107 @@ describe('acceptCrossAppInvitation', () => {
     const after = prisma.__data.find((r) => r.id === 'inv_accepted')!;
     expect(after.acceptedAt).toEqual(beforeAcceptedAt);
     expect(after.acceptedByUserId).toBe(beforeBy);
+  });
+
+  // ─── Phase 4b — downstream call via injection ─────────────────────────
+  it('returns completed + loginUrl when attachDownstream returns completed', async () => {
+    const result = await acceptCrossAppInvitation(prisma, {
+      token: validToken,
+      acceptingUserId: 'user_alice',
+      acceptingUserEmail: 'alice@example.com',
+      now,
+      attachDownstream: async () => ({
+        status: 'completed',
+        loginUrl: 'https://prospection.app.veridian.site/magic?t=abc',
+        alreadyMember: false,
+        httpStatus: 201,
+      }),
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.downstreamCall).toBe('completed');
+      expect(result.downstreamLoginUrl).toBe(
+        'https://prospection.app.veridian.site/magic?t=abc',
+      );
+    }
+  });
+
+  it('returns pending when attachDownstream returns pending(endpoint_not_found)', async () => {
+    const result = await acceptCrossAppInvitation(prisma, {
+      token: validToken,
+      acceptingUserId: 'user_alice',
+      acceptingUserEmail: 'alice@example.com',
+      now,
+      attachDownstream: async () => ({
+        status: 'pending',
+        reason: 'endpoint_not_found',
+        httpStatus: 404,
+      }),
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.downstreamCall).toBe('pending');
+      expect(result.downstreamLoginUrl).toBeNull();
+    }
+  });
+
+  it('returns error + downstreamErrorCode when attachDownstream returns error', async () => {
+    const result = await acceptCrossAppInvitation(prisma, {
+      token: validToken,
+      acceptingUserId: 'user_alice',
+      acceptingUserEmail: 'alice@example.com',
+      now,
+      attachDownstream: async () => ({
+        status: 'error',
+        httpStatus: 423,
+        errorCode: 'tenant_suspended',
+        reason: 'tenant suspended',
+      }),
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.downstreamCall).toBe('error');
+      expect(result.downstreamErrorCode).toBe('tenant_suspended');
+      expect(result.downstreamHttpStatus).toBe(423);
+    }
+  });
+
+  it('falls back to pending when attachDownstream throws unexpectedly', async () => {
+    const result = await acceptCrossAppInvitation(prisma, {
+      token: validToken,
+      acceptingUserId: 'user_alice',
+      acceptingUserEmail: 'alice@example.com',
+      now,
+      attachDownstream: async () => {
+        throw new Error('boom');
+      },
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.downstreamCall).toBe('pending');
+      expect(result.downstreamLoginUrl).toBeNull();
+    }
+  });
+
+  it('does NOT call attachDownstream when invitation fails (fail-fast)', async () => {
+    let attached = false;
+    const result = await acceptCrossAppInvitation(prisma, {
+      token: expiredToken,
+      acceptingUserId: 'user_bob',
+      acceptingUserEmail: 'bob@example.com',
+      now,
+      attachDownstream: async () => {
+        attached = true;
+        return {
+          status: 'completed',
+          loginUrl: null,
+          alreadyMember: false,
+          httpStatus: 200,
+        };
+      },
+    });
+    expect(result.ok).toBe(false);
+    expect(attached).toBe(false);
   });
 });
 

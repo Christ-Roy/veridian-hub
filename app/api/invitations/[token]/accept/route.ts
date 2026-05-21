@@ -4,21 +4,22 @@
  * Endpoint utilisateur (session Hub requise) appelé par la page UI
  * `/invite/[token]` quand l'invitee clique "Accepter".
  *
- * Étape 4a du ticket P1 `todo/2026-05-20-hub-invitation-endpoints.md`.
+ * Étape 4 du ticket P1 `todo/2026-05-20-hub-invitation-endpoints.md`.
  *
- * Comportement livré (4a) :
+ * Comportement :
  *   - Session Hub requise (401 sinon)
  *   - Lookup + update atomique de l'invitation (transaction Prisma)
  *   - Marque acceptedAt + acceptedByUserId
- *   - Renvoie 202 Accepted (action enregistrée côté Hub mais propagation
- *     vers l'app downstream non encore livrée)
- *   - Audit log
- *
- * Comportement NON encore livré (4b — à câbler quand les apps downstream
- * exposent un endpoint `attach-member`) :
- *   - Appel HMAC vers l'app cible pour ajouter le user au workspace
- *   - Génération du magic-link auto-login vers l'app downstream
- *   - Réponse 200 OK avec `redirect_url` finale
+ *   - **Phase 4b** : propage l'attach au workspace côté app downstream via
+ *     `attachMemberDownstream` (HMAC). Status HTTP final dépend du résultat
+ *     downstream :
+ *       - `completed` → 200 OK + `redirect_url` = loginUrl (auto-login)
+ *       - `pending`   → 202 Accepted + `redirect_url` = page d'accueil app
+ *         (UI peut afficher "attribution en cours" + bouton retry)
+ *       - `error`     → 502 Bad Gateway + `error` business code remonté
+ *         (workspace_suspended, user_role_conflict, etc.)
+ *   - Audit log écrit dans tous les cas (acceptation est ack côté Hub
+ *     quel que soit l'issue downstream — l'invitation est consommée).
  *
  * Body optionnel :
  *   { allow_email_mismatch?: boolean }
@@ -43,6 +44,7 @@ import {
   acceptCrossAppInvitation,
   buildPostAcceptRedirectUrl,
 } from '@/lib/invitations/accept';
+import { attachMemberDownstream } from '@/lib/invitations/attach-downstream';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -99,6 +101,7 @@ export async function POST(
     acceptingUserId: user.id,
     acceptingUserEmail: user.email,
     allowEmailMismatch: parsed.data?.allow_email_mismatch === true,
+    attachDownstream: attachMemberDownstream,
   });
 
   if (!result.ok) {
@@ -132,16 +135,60 @@ export async function POST(
       target_role: result.invitation.targetRole,
       email_mismatch: result.emailMismatch,
       downstream_call: result.downstreamCall,
+      downstream_http_status: result.downstreamHttpStatus ?? null,
+      downstream_error_code: result.downstreamErrorCode ?? null,
     },
   });
 
-  const redirectUrl = buildPostAcceptRedirectUrl(result.invitation.targetApp);
+  // Status HTTP final selon résultat downstream :
+  //   - completed → 200 OK + redirect_url = loginUrl downstream (auto-login)
+  //   - pending   → 202 Accepted + redirect_url = home page de l'app cible
+  //                 (l'UI affiche "attribution en cours, ouvrez l'app dans
+  //                 quelques secondes" + bouton retry).
+  //   - error     → 502 Bad Gateway + error code business (workspace
+  //                 suspended, role conflict). L'invitation reste consommée
+  //                 côté Hub (audit) mais l'UI doit prévenir l'user.
+  const fallbackRedirect = buildPostAcceptRedirectUrl(
+    result.invitation.targetApp,
+  );
 
-  // 202 Accepted : Hub a enregistré l'acceptation mais la propagation vers
-  // l'app downstream est encore "pending" (phase 4b). Le client UI peut
-  // rediriger vers `redirect_url` (page d'accueil de l'app cible) — le user
-  // verra qu'il n'est pas encore ajouté au workspace tant que phase 4b pas
-  // livrée. Statut 200 réservé pour quand le downstream call sera complet.
+  if (result.downstreamCall === 'completed') {
+    return NextResponse.json(
+      {
+        ok: true,
+        invitation_id: result.invitation.id,
+        target_app: result.invitation.targetApp,
+        target_workspace_id: result.invitation.targetWorkspaceId,
+        target_role: result.invitation.targetRole,
+        email_mismatch: result.emailMismatch,
+        downstream_call: 'completed',
+        // login_url retourné par downstream peut être null si l'app n'a pas
+        // pu en générer (ex: tenant suspended) ; on retombe sur fallback.
+        redirect_url: result.downstreamLoginUrl ?? fallbackRedirect,
+      },
+      { status: 200 },
+    );
+  }
+
+  if (result.downstreamCall === 'error') {
+    return NextResponse.json(
+      {
+        ok: false,
+        invitation_id: result.invitation.id,
+        target_app: result.invitation.targetApp,
+        target_workspace_id: result.invitation.targetWorkspaceId,
+        email_mismatch: result.emailMismatch,
+        downstream_call: 'error',
+        error: result.downstreamErrorCode ?? 'downstream_error',
+        downstream_http_status: result.downstreamHttpStatus ?? null,
+        // L'invitation est consommée côté Hub mais l'UI doit avertir.
+        redirect_url: fallbackRedirect,
+      },
+      { status: 502 },
+    );
+  }
+
+  // pending
   return NextResponse.json(
     {
       ok: true,
@@ -150,8 +197,8 @@ export async function POST(
       target_workspace_id: result.invitation.targetWorkspaceId,
       target_role: result.invitation.targetRole,
       email_mismatch: result.emailMismatch,
-      downstream_call: result.downstreamCall,
-      redirect_url: redirectUrl,
+      downstream_call: 'pending',
+      redirect_url: fallbackRedirect,
     },
     { status: 202 },
   );

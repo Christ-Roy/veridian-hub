@@ -8,10 +8,13 @@
  *   - 410 invitation expirée
  *   - 409 invitation déjà acceptée
  *   - 403 email_mismatch sans allow_email_mismatch
- *   - 202 happy path (downstream_call=pending, redirect_url, audit log)
- *   - 202 avec email_mismatch quand allow_email_mismatch=true
+ *   - 200 happy path quand downstream='completed' (Phase 4b)
+ *   - 202 quand downstream='pending' (endpoint downstream absent / 5xx)
+ *   - 502 quand downstream='error' (workspace suspended côté app)
+ *   - 200/202 avec email_mismatch quand allow_email_mismatch=true
  *   - 429 rate-limit
  *   - 400 invalid JSON
+ *   - audit log contient downstream_call + downstream_http_status
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -43,6 +46,22 @@ vi.mock('@/auth', () => ({
   auth: vi.fn(async () =>
     sessionUser ? { user: sessionUser } : null,
   ),
+}));
+
+/**
+ * Mock du module attach-downstream. Le résultat par défaut est `pending`
+ * (endpoint_not_found) — i.e. les tests existants 4a/4b "Hub a ack mais
+ * downstream n'a pas livré" gardent leurs assertions 202.
+ * Les tests de Phase 4b override `attachStub` pour simuler completed/error.
+ */
+let attachStub: any = async () => ({
+  status: 'pending',
+  reason: 'endpoint_not_found',
+  httpStatus: 404,
+});
+
+vi.mock('@/lib/invitations/attach-downstream', () => ({
+  attachMemberDownstream: vi.fn((...args: any[]) => attachStub(...args)),
 }));
 
 vi.mock('@/lib/prisma', () => {
@@ -90,6 +109,12 @@ beforeEach(async () => {
   vi.clearAllMocks();
   invitations.length = 0;
   auditLogs.length = 0;
+  // Reset attach stub à pending par défaut (=ancien comportement 4a)
+  attachStub = async () => ({
+    status: 'pending',
+    reason: 'endpoint_not_found',
+    httpStatus: 404,
+  });
   const { invitationVerifyLimiter } = await import('@/lib/auth/rate-limit');
   invitationVerifyLimiter.reset();
 
@@ -244,5 +269,64 @@ describe('POST /api/invitations/[token]/accept', () => {
     }
     const r31 = await callRoute(acceptedToken, makeReq({ ip: sharedIp }));
     expect(r31.status).toBe(429);
+  });
+
+  // ─── Phase 4b — downstream propagation ──────────────────────────────
+  it('returns 200 + downstream login_url when attach-member returns completed', async () => {
+    attachStub = async () => ({
+      status: 'completed',
+      loginUrl: 'https://prospection.app.veridian.site/magic?t=abc',
+      alreadyMember: false,
+      httpStatus: 201,
+    });
+    const res = await callRoute(validToken, makeReq());
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.downstream_call).toBe('completed');
+    expect(json.redirect_url).toBe(
+      'https://prospection.app.veridian.site/magic?t=abc',
+    );
+  });
+
+  it('returns 502 + error code when downstream returns business error', async () => {
+    attachStub = async () => ({
+      status: 'error',
+      httpStatus: 423,
+      errorCode: 'workspace_suspended',
+      reason: 'workspace suspended',
+    });
+    const res = await callRoute(validToken, makeReq());
+    expect(res.status).toBe(502);
+    const json = await res.json();
+    expect(json.downstream_call).toBe('error');
+    expect(json.error).toBe('workspace_suspended');
+    expect(json.downstream_http_status).toBe(423);
+  });
+
+  it('logs downstream_call=completed + downstream_http_status to audit', async () => {
+    attachStub = async () => ({
+      status: 'completed',
+      loginUrl: 'https://x',
+      alreadyMember: false,
+      httpStatus: 201,
+    });
+    await callRoute(validToken, makeReq());
+    expect(auditLogs).toHaveLength(1);
+    const payload = auditLogs[0].payload as any;
+    expect(payload.downstream_call).toBe('completed');
+    expect(payload.downstream_http_status).toBe(201);
+  });
+
+  it('falls back to home-page redirect when completed.loginUrl is null', async () => {
+    attachStub = async () => ({
+      status: 'completed',
+      loginUrl: null,
+      alreadyMember: false,
+      httpStatus: 200,
+    });
+    const res = await callRoute(validToken, makeReq());
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.redirect_url).toMatch(/^https:\/\/prospection\./);
   });
 });
