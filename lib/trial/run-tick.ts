@@ -507,7 +507,7 @@ async function defaultBatchResolveOwnerEmails(
   const result = new Map<string, string | null>();
   if (tenantIds.length === 0) return result;
 
-  const uniqueIds = [...new Set(tenantIds)];
+  const uniqueIds = Array.from(new Set(tenantIds));
   const uuids = uniqueIds.filter(isUuid);
   const nonUuids = uniqueIds.filter((id) => !isUuid(id));
 
@@ -532,13 +532,13 @@ async function defaultBatchResolveOwnerEmails(
   });
 
   // Batch resolve les users pour les tenants sans notifuseUserEmail direct.
-  const userUuids = [
-    ...new Set(
+  const userUuids = Array.from(
+    new Set(
       tenants
         .filter((t) => !t.notifuseUserEmail)
         .map((t) => t.userId),
     ),
-  ];
+  );
   const users = userUuids.length
     ? await prisma.user.findMany({
         where: { supabaseUserId: { in: userUuids } },
@@ -591,7 +591,7 @@ async function defaultBatchResolveHasActiveSub(
   const result = new Map<string, boolean>();
   if (tenantIds.length === 0) return result;
 
-  const uniqueIds = [...new Set(tenantIds)];
+  const uniqueIds = Array.from(new Set(tenantIds));
   const uuids = uniqueIds.filter(isUuid);
   const nonUuids = uniqueIds.filter((id) => !isUuid(id));
 
@@ -615,7 +615,7 @@ async function defaultBatchResolveHasActiveSub(
     },
   });
 
-  const userUuids = [...new Set(tenants.map((t) => t.userId))];
+  const userUuids = Array.from(new Set(tenants.map((t) => t.userId)));
   const subs = userUuids.length
     ? await prisma.subscription.findMany({
         where: {

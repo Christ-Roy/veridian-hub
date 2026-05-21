@@ -643,4 +643,84 @@ describe('runTrialTick — batch resolvers (N+1 fix)', () => {
       );
     }
   });
+
+  it('batch resolvers déduplique les tenant_id en doublon dans le WHERE IN (cas multi-app par tenant)', async () => {
+    // Cas réel : un tenant peut avoir un trial actif sur Notifuse ET sur
+    // Prospection — 2 rows tenant_trials différentes, même `tenant_id`.
+    // Le batch resolver doit dédup avant de lancer la query SQL, sinon le
+    // WHERE IN contient des doublons inutiles (perf marginale) ET ça
+    // valide que l'opérateur `new Set(...)` + `Array.from(...)` (refacto
+    // TS es5) fonctionne comme attendu.
+    const rows = [
+      { tenant_id: 'shared_tenant', app: 'notifuse', eligible_at: new Date('2026-06-13T11:00:00Z') },
+      { tenant_id: 'shared_tenant', app: 'prospection', eligible_at: new Date('2026-06-13T11:00:00Z') },
+      { tenant_id: 'other_tenant', app: 'notifuse', eligible_at: new Date('2026-06-13T11:00:00Z') },
+    ];
+    queryRawMock
+      .mockResolvedValueOnce(rows)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([]);
+
+    tenantTrialUpdateMock.mockResolvedValue({});
+    tenantFindManyMock.mockResolvedValue([
+      {
+        id: 'shared_tenant',
+        slug: null,
+        notifuseWorkspaceSlug: null,
+        userId: 'uuid-shared',
+        notifuseUserEmail: 'shared@example.com',
+      },
+      {
+        id: 'other_tenant',
+        slug: null,
+        notifuseWorkspaceSlug: null,
+        userId: 'uuid-other',
+        notifuseUserEmail: 'other@example.com',
+      },
+    ]);
+
+    const updatePlanMock = vi.fn().mockResolvedValue(undefined);
+    const sendEmailMock = vi.fn().mockResolvedValue(undefined);
+
+    const { runTrialTick } = await import('@/lib/trial/run-tick');
+    const summary = await runTrialTick({
+      notifuseClient: { updatePlan: updatePlanMock } as never,
+      sendEmail: sendEmailMock,
+      notifyTelegram: vi.fn().mockResolvedValue(true),
+      hasActiveStripeSubForTenant: vi.fn().mockResolvedValue(false),
+      now: NOW,
+    });
+
+    // 3 activations totales (1 row par couple tenant/app).
+    expect(summary.activated).toBe(3);
+    expect(summary.errors).toEqual([]);
+
+    // 1 seul tenant.findMany pour la phase activate.
+    expect(tenantFindManyMock).toHaveBeenCalledTimes(1);
+
+    // VRAIE vérif dédup : la liste passée dans le WHERE IN ne doit pas
+    // contenir 'shared_tenant' deux fois.
+    const findCall = tenantFindManyMock.mock.calls[0][0];
+    const orClauses = findCall.where.OR as Array<{
+      notifuseWorkspaceSlug?: { in: string[] };
+      slug?: { in: string[] };
+      id?: { in: string[] };
+    }>;
+    const allInValues = orClauses.flatMap((c) =>
+      [...(c.id?.in ?? []), ...(c.notifuseWorkspaceSlug?.in ?? []), ...(c.slug?.in ?? [])],
+    );
+    const sharedCount = allInValues.filter((v) => v === 'shared_tenant').length;
+    // 'shared_tenant' apparaît dans 2 branches (slug + notifuseWorkspaceSlug)
+    // mais JAMAIS 2 fois dans la même branche → dédup respecté.
+    for (const clause of orClauses) {
+      const values =
+        clause.id?.in ?? clause.notifuseWorkspaceSlug?.in ?? clause.slug?.in ?? [];
+      expect(new Set(values).size).toBe(values.length); // unique dans chaque branche
+    }
+    // Présent dans 2 branches (slug + notifuseWorkspaceSlug) car non-UUID.
+    expect(sharedCount).toBe(2);
+
+    // 3 emails envoyés (2 pour shared via les 2 apps, 1 pour other).
+    expect(sendEmailMock).toHaveBeenCalledTimes(3);
+  });
 });
