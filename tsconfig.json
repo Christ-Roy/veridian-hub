@@ -15,7 +15,9 @@
     "jsx": "preserve",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"]
+      "@/*": ["./*"],
+      "@veridian/shared": ["./shared/shared/index"],
+      "@veridian/shared/*": ["./shared/shared/*"]
     },
     "incremental": true,
     "plugins": [
@@ -24,6 +26,25 @@
       }
     ]
   },
-  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules", "_pocs", "tmp", "__tests__", "vitest.config.ts", "scripts/playwright"]
+  "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", "shared/shared/**/*.ts"],
+  "exclude": [
+    "node_modules",
+    "_pocs",
+    "tmp",
+    "__tests__",
+    "vitest.config.ts",
+    "scripts/playwright",
+    "shared/ci",
+    "shared/docs",
+    "shared/grafana",
+    "shared/infra",
+    "shared/pentest",
+    "shared/runbooks",
+    "shared/sites",
+    "shared/sprints",
+    "shared/todo",
+    "shared/shared/__tests__",
+    "shared/shared/pricing/__tests__",
+    "shared/shared/node_modules"
+  ]
 }

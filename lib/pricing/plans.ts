@@ -1,18 +1,30 @@
 // lib/pricing/plans.ts
 //
-// 🔥 SOURCE DE VÉRITÉ DU CATALOGUE PRICING VERIDIAN.
+// 🔥 ADAPTATEUR vers @veridian/shared (Git submodule veridian-infra).
 //
-// Stripe reste source de vérité pour l'ÉTAT des subscriptions (active/canceled,
-// trial_end, current_period_end). Le CATALOGUE des plans et leurs prix marketing
-// vit ici, dans le code, versionné, testé.
+// Source de vérité numérique : `shared/shared/pricing/plans.ts` (canonique
+// cross-app, aligné PRICING-VERIDIAN.md v1.1). Ce fichier RE-MAPPE vers le
+// shape historique Hub pour ne pas casser :
+//   - `app/(marketing)/pricing/page.tsx`
+//   - `components/pricing/PricingGrid.tsx`
+//   - `app/dashboard/page.tsx` (consomme APPS)
+//   - `__tests__/lib/pricing/plans.test.ts`
+//   - les helpers `lib/pricing/helpers.ts`
 //
-// Cf docs/CONTRAT-HUB.md §3 (Plans Veridian — matrice cross-app).
-//
-// 🚧 PRIX PLACEHOLDERS : les chiffres ci-dessous sont des targets à valider avec
-// Robert. Tout `price_eur: TODO_*` doit être remplacé par une vraie valeur avant
-// d'ouvrir le checkout au public. Les `stripePriceId: null` doivent être
-// remplacés par les Price IDs créés dans Stripe (via le script
-// `scripts/admin/setup-stripe-prices.ts` à venir).
+// RÉTRO-COMPAT : la clé `prospection-enterprise` (héritée pré-2026-05-21)
+// est conservée comme alias vers `prospection-business`. À retirer dans un
+// sprint suivant après audit des consommateurs LEGACY_STRIPE_PRICE_MAPPING.
+
+import {
+  PLANS as CANONICAL_PLANS,
+  type Plan as CanonicalPlan,
+  type PlanKey as CanonicalPlanKey,
+  type FeatureKey,
+} from '@veridian/shared';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Types Hub (shape historique, conservé pour rétro-compat consommateurs)
+// ─────────────────────────────────────────────────────────────────────────────
 
 export type PlanKey =
   // Plans Notifuse à la carte
@@ -22,7 +34,8 @@ export type PlanKey =
   // Plans Prospection à la carte
   | 'prospection-free'
   | 'prospection-pro'
-  | 'prospection-enterprise'
+  | 'prospection-business' // canonique v1.1
+  | 'prospection-enterprise' // alias LEGACY (= prospection-business)
   // Bundles cross-app (prix dégressif)
   | 'veridian-pro'
   | 'veridian-business'
@@ -56,63 +69,31 @@ export type VeridianApp = 'notifuse' | 'prospection' | 'analytics' | 'cms';
 
 export interface Plan {
   key: PlanKey;
-  /** Nom affiché côté UI marketing. */
   name: string;
-  /** Sous-titre court (1 phrase, FR). */
   tagline: string;
-  /** Prix mensuel EUR HT. 0 = gratuit. */
   price_eur: number;
-  /** Prix annuel EUR HT (par mois facturé annuellement). null = pas d'option annuelle. */
   price_eur_yearly_per_month: number | null;
-  /** Stripe Price ID — null = pas de checkout Stripe (plan offert ou freemium). */
   stripePriceId: {
     month: string | null;
     year: string | null;
   };
-  /** Apps débloquées par ce plan. */
   apps: ('notifuse' | 'prospection')[];
-  /**
-   * 🔥 v1.3 — Quota seats CROSS-APP. Le owner compte pour 1.
-   * Un seat = 1 user humain qui peut accéder à TOUTES les apps souscrites
-   * par ce tenant (cf §3.5 contrat). Membres invités via Hub
-   * `/api/admin/tenants/<id>/invite-member`.
-   */
   members_seats: number | 'unlimited';
-  /** Quotas par app pour ce plan (members_max ici = info app-locale, le vrai
-   *  quota cross-app est members_seats ci-dessus). */
   quotas: AppQuotas;
-  /** Features affichées sur la page pricing (FR). */
   features: PlanFeature[];
-  /** Tier de comparaison (0=free, 1=starter, 2=pro, 3=enterprise, 99=lifetime/internal). */
   rank: number;
-  /** Si true, affiché en hero / "Recommandé". */
   recommended?: boolean;
-  /** Si true, plan n'apparaît pas sur la page /pricing publique (offert/interne). */
   hidden_from_public?: boolean;
-  /** Cf §3.3 contrat — détermine l'immunité face aux downgrades Stripe. */
   plan_source: 'stripe' | 'manual' | 'lifetime_site_vitrine' | 'lifetime_partner' | 'internal';
 }
 
-/**
- * 🔥 v1.3 — Métadonnées par APP (pas par plan). Détermine l'affichage Hub
- * Dashboard (self-serve vs shadow marketing) et le routing CTA.
- */
 export interface AppMetadata {
   key: VeridianApp;
   display_name: string;
-  /** True si l'app est accessible self-serve via signup Hub + checkout Stripe. */
   self_serve: boolean;
-  /**
-   * True si l'app est réservée aux clients ayant acheté un site vitrine
-   * Veridian (lifetime_site_vitrine). Affichée grisée dans le dashboard
-   * pour les autres tenants. Cf §3.6 + §8.9 contrat.
-   */
   client_only: boolean;
-  /** Tagline courte pour la card Dashboard. */
   tagline: string;
-  /** Emoji icon. */
   icon: string;
-  /** URL marketing pour CTA shadow (si client_only). */
   marketing_url?: string;
 }
 
@@ -154,289 +135,164 @@ export const APPS: Record<VeridianApp, AppMetadata> = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CATALOGUE
+// Mapper canonical (shared) → shape Hub
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Convertit un Plan canonique (shared) vers la shape Hub historique.
+ * - features FeatureKey[] → PlanFeature[] (labels FR construits à partir d'une table)
+ * - apps_unlocked → apps (filtré aux apps self-serve notifuse/prospection)
+ * - seats → members_seats (null → 'unlimited')
+ * - stripePriceIdLive → stripePriceId
+ * - construit AppQuotas (toujours 'unlimited' depuis le pivot 2026-05-21)
+ */
+function adaptCanonicalToHub(canonical: CanonicalPlan, key: PlanKey): Plan {
+  return {
+    key,
+    name: canonical.name,
+    tagline: canonical.tagline,
+    price_eur: canonical.price_eur,
+    price_eur_yearly_per_month: canonical.price_eur_yearly_per_month,
+    stripePriceId: {
+      month: canonical.stripePriceIdLive.month,
+      year: canonical.stripePriceIdLive.year,
+    },
+    apps: canonical.apps_unlocked.filter(
+      (a): a is 'notifuse' | 'prospection' => a === 'notifuse' || a === 'prospection',
+    ),
+    members_seats: canonical.seats === null ? 'unlimited' : canonical.seats,
+    quotas: buildAppQuotas(canonical),
+    features: buildHubFeatures(canonical),
+    rank: canonical.rank,
+    recommended: canonical.recommended,
+    hidden_from_public: canonical.hidden_from_public,
+    plan_source: canonical.plan_source,
+  };
+}
+
+/**
+ * Quotas Hub historiques. Depuis le pivot 2026-05-21 (générosité maximale),
+ * tout est `unlimited`. Cette shape reste pour ne pas casser les consommateurs.
+ */
+function buildAppQuotas(plan: CanonicalPlan): AppQuotas {
+  const result: AppQuotas = {};
+  if (plan.apps_unlocked.includes('notifuse')) {
+    result.notifuse = { emails_per_month: 'unlimited', members_max: 'unlimited' };
+  }
+  if (plan.apps_unlocked.includes('prospection')) {
+    result.prospection = {
+      leads_total: plan.welcome_leads || 'unlimited',
+      members_max: plan.seats === null ? 'unlimited' : plan.seats,
+    };
+  }
+  return result;
+}
+
+/**
+ * Construit la liste de PlanFeature affichables côté UI marketing à partir
+ * des FeatureKey du canonique + de quelques labels "metadata" (volumes,
+ * seats, support) qui ne sont pas dans le shared (UI-only).
+ */
+function buildHubFeatures(plan: CanonicalPlan): PlanFeature[] {
+  const features: PlanFeature[] = [];
+
+  // Volume metadata
+  if (plan.apps_unlocked.includes('notifuse')) {
+    features.push({ label: 'Emails illimités (BYO sending)', included: true });
+  }
+  if (plan.apps_unlocked.includes('prospection') && plan.welcome_leads > 0) {
+    features.push({
+      label: `${plan.welcome_leads.toLocaleString('fr-FR')} leads offerts à la souscription`,
+      included: true,
+    });
+  } else if (plan.apps_unlocked.includes('prospection')) {
+    features.push({ label: '100 leads offerts pour tester', included: true });
+  }
+
+  // Seats
+  if (plan.seats === null) {
+    features.push({ label: 'Membres illimités', included: true });
+  } else {
+    features.push({ label: `${plan.seats} membres`, included: true });
+  }
+
+  // Features canoniques mappées en labels FR
+  const featureLabels: Partial<Record<FeatureKey, string>> = {
+    notifuse_ab_testing: 'A/B testing',
+    notifuse_white_label: 'White-label custom',
+    notifuse_priority_support: 'Support prioritaire',
+    prospection_search_advanced: 'Recherche INPI avancée',
+    prospection_icp_scoring: 'Scoring ICP personnalisé',
+    prospection_pipeline_advanced: 'Pipeline Kanban avancé',
+    prospection_notifuse_sequences: 'Séquences email Notifuse',
+    prospection_csv_export: 'Export CSV',
+    prospection_api_access: 'Accès API publique',
+    prospection_verified_emails: 'Emails vérifiés MX',
+    prospection_growth_signals: 'Signaux de croissance',
+    bundle_cross_app_seats: 'Seats partagés cross-app',
+  };
+
+  for (const [fk, label] of Object.entries(featureLabels)) {
+    if (label && plan.features.includes(fk as FeatureKey)) {
+      features.push({ label, included: true });
+    }
+  }
+
+  // Annual perks
+  if (plan.annual_perks) {
+    features.push({ label: 'Onboarding visio 60min (annuel)', included: true });
+  }
+
+  return features;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CATALOGUE — projection des plans canoniques en shape Hub
+// ─────────────────────────────────────────────────────────────────────────────
+
+const HUB_PLANS_FROM_SHARED: Record<CanonicalPlanKey, Plan> = {
+  'notifuse-free': adaptCanonicalToHub(CANONICAL_PLANS['notifuse-free'], 'notifuse-free'),
+  'notifuse-pro': adaptCanonicalToHub(CANONICAL_PLANS['notifuse-pro'], 'notifuse-pro'),
+  'notifuse-business': adaptCanonicalToHub(CANONICAL_PLANS['notifuse-business'], 'notifuse-business'),
+  'prospection-free': adaptCanonicalToHub(CANONICAL_PLANS['prospection-free'], 'prospection-free'),
+  'prospection-pro': adaptCanonicalToHub(CANONICAL_PLANS['prospection-pro'], 'prospection-pro'),
+  'prospection-business': adaptCanonicalToHub(CANONICAL_PLANS['prospection-business'], 'prospection-business'),
+  'veridian-pro': adaptCanonicalToHub(CANONICAL_PLANS['veridian-pro'], 'veridian-pro'),
+  'veridian-business': adaptCanonicalToHub(CANONICAL_PLANS['veridian-business'], 'veridian-business'),
+  'lifetime-site-vitrine': adaptCanonicalToHub(CANONICAL_PLANS['lifetime-site-vitrine'], 'lifetime-site-vitrine'),
+  'lifetime-partner': adaptCanonicalToHub(CANONICAL_PLANS['lifetime-partner'], 'lifetime-partner'),
+  'internal': adaptCanonicalToHub(CANONICAL_PLANS['internal'], 'internal'),
+};
+
+/**
+ * Alias LEGACY — `prospection-enterprise` était utilisé avant le pivot
+ * 2026-05-21 pour désigner le tier business Prospection. Conservé ici pour
+ * ne pas casser :
+ *  - `helpers.ts:getAppPlansForBundle()` (bundle veridian-business → prospection-enterprise)
+ *  - `LEGACY_STRIPE_PRICE_MAPPING` (au cas où une subscription Stripe prod référence encore ce nom)
+ *  - Composants UI hypothétiques qui hardcodent la clé
+ *
+ * À supprimer après audit complet : grep `prospection-enterprise` doit
+ * être vide hors fichiers de migration.
+ */
+const PROSPECTION_ENTERPRISE_ALIAS: Plan = {
+  ...HUB_PLANS_FROM_SHARED['prospection-business'],
+  key: 'prospection-enterprise',
+  name: 'Prospection Enterprise (alias legacy)',
+  hidden_from_public: true, // ne PAS afficher dans /pricing — le canonique business l'est déjà
+};
+
 export const PLANS: Record<PlanKey, Plan> = {
-  // ────── Notifuse ──────
-  'notifuse-free': {
-    key: 'notifuse-free',
-    name: 'Notifuse Free',
-    tagline: 'Tester les emails transactionnels Veridian',
-    price_eur: 0,
-    price_eur_yearly_per_month: null,
-    stripePriceId: { month: null, year: null },
-    apps: ['notifuse'],
-    members_seats: 1, // §3.5 : free = solo
-    quotas: {
-      notifuse: { emails_per_month: 1_000, members_max: 1 },
-    },
-    features: [
-      { label: '1 000 emails par mois', included: true },
-      { label: '1 membre', included: true },
-      { label: 'Templates MJML', included: true },
-      { label: 'Analytics avancés', included: false },
-      { label: 'Support prioritaire', included: false },
-    ],
-    rank: 0,
-    plan_source: 'stripe',
-  },
-
-  'notifuse-pro': {
-    key: 'notifuse-pro',
-    name: 'Notifuse Pro',
-    tagline: 'Pour scaler vos campagnes transactionnelles',
-    price_eur: 19, // 🚧 TODO_PRICE — valider avec Robert
-    price_eur_yearly_per_month: 16, // 🚧 TODO_PRICE — -15 % standard SaaS
-    stripePriceId: { month: null, year: null }, // 🚧 TODO_STRIPE
-    apps: ['notifuse'],
-    members_seats: 5, // §3.5 : pro = 5 seats
-    quotas: {
-      notifuse: { emails_per_month: 50_000, members_max: 5 },
-    },
-    features: [
-      { label: '50 000 emails par mois', included: true },
-      { label: '5 membres', included: true },
-      { label: 'Templates MJML', included: true },
-      { label: 'Analytics avancés', included: true },
-      { label: 'Support prioritaire', included: false },
-    ],
-    rank: 2,
-    plan_source: 'stripe',
-  },
-
-  'notifuse-business': {
-    key: 'notifuse-business',
-    name: 'Notifuse Business',
-    tagline: 'Volume illimité, support prioritaire',
-    price_eur: 49, // 🚧 TODO_PRICE
-    price_eur_yearly_per_month: 41, // 🚧 TODO_PRICE
-    stripePriceId: { month: null, year: null }, // 🚧 TODO_STRIPE
-    apps: ['notifuse'],
-    members_seats: 25, // §3.5 : business = 25 seats
-    quotas: {
-      notifuse: { emails_per_month: 500_000, members_max: 'unlimited' },
-    },
-    features: [
-      { label: '500 000 emails par mois', included: true },
-      { label: 'Membres illimités', included: true },
-      { label: 'Templates MJML', included: true },
-      { label: 'Analytics avancés', included: true },
-      { label: 'Support prioritaire', included: true },
-    ],
-    rank: 3,
-    plan_source: 'stripe',
-  },
-
-  // ────── Prospection ──────
-  'prospection-free': {
-    key: 'prospection-free',
-    name: 'Prospection Free',
-    tagline: 'Tester la qualification de leads .fr',
-    price_eur: 0,
-    price_eur_yearly_per_month: null,
-    stripePriceId: { month: null, year: null },
-    apps: ['prospection'],
-    members_seats: 1,
-    quotas: {
-      prospection: { leads_total: 300, members_max: 1 },
-    },
-    features: [
-      { label: '300 prospects visibles', included: true },
-      { label: '1 membre', included: true },
-      { label: 'Filtres de base', included: true },
-      { label: 'Export CSV', included: false },
-      { label: 'Téléphonie SIP intégrée', included: false },
-    ],
-    rank: 0,
-    plan_source: 'stripe',
-  },
-
-  'prospection-pro': {
-    key: 'prospection-pro',
-    name: 'Prospection Pro',
-    tagline: 'Pour les commerciaux indépendants',
-    price_eur: 29, // 🚧 TODO_PRICE
-    price_eur_yearly_per_month: 24, // 🚧 TODO_PRICE
-    stripePriceId: { month: null, year: null }, // 🚧 TODO_STRIPE
-    apps: ['prospection'],
-    members_seats: 5,
-    quotas: {
-      prospection: { leads_total: 100_000, members_max: 5 },
-    },
-    features: [
-      { label: '100 000 prospects', included: true },
-      { label: '5 membres', included: true },
-      { label: 'Filtres avancés + export CSV', included: true },
-      { label: 'Pipeline Kanban', included: true },
-      { label: 'Téléphonie SIP intégrée', included: false },
-    ],
-    rank: 2,
-    plan_source: 'stripe',
-  },
-
-  'prospection-enterprise': {
-    key: 'prospection-enterprise',
-    name: 'Prospection Enterprise',
-    tagline: 'Pour les équipes de vente structurées',
-    price_eur: 49, // 🚧 TODO_PRICE
-    price_eur_yearly_per_month: 41, // 🚧 TODO_PRICE
-    stripePriceId: { month: null, year: null }, // 🚧 TODO_STRIPE
-    apps: ['prospection'],
-    members_seats: 25,
-    quotas: {
-      prospection: { leads_total: 500_000, members_max: 'unlimited' },
-    },
-    features: [
-      { label: '500 000 prospects', included: true },
-      { label: 'Membres illimités', included: true },
-      { label: 'Filtres avancés + export CSV', included: true },
-      { label: 'Pipeline Kanban', included: true },
-      { label: 'Téléphonie SIP intégrée', included: true },
-    ],
-    rank: 3,
-    plan_source: 'stripe',
-  },
-
-  // ────── Bundles ──────
-  'veridian-pro': {
-    key: 'veridian-pro',
-    name: 'Veridian Pro',
-    tagline: 'Notifuse Pro + Prospection Pro avec remise',
-    // 19 + 29 = 48 → bundle 39 (-19 %)
-    price_eur: 39, // 🚧 TODO_PRICE — valider la dégression
-    price_eur_yearly_per_month: 33, // 🚧 TODO_PRICE
-    stripePriceId: { month: null, year: null }, // 🚧 TODO_STRIPE
-    apps: ['notifuse', 'prospection'],
-    members_seats: 5,
-    quotas: {
-      notifuse: { emails_per_month: 50_000, members_max: 5 },
-      prospection: { leads_total: 100_000, members_max: 5 },
-    },
-    features: [
-      { label: 'Notifuse Pro inclus (50k emails/mois)', included: true },
-      { label: 'Prospection Pro inclus (100k prospects)', included: true },
-      { label: '5 membres cross-app', included: true },
-      { label: 'Économie de 9 €/mois vs à la carte', included: true },
-      { label: 'Support prioritaire', included: false },
-    ],
-    rank: 2,
-    recommended: true,
-    plan_source: 'stripe',
-  },
-
-  'veridian-business': {
-    key: 'veridian-business',
-    name: 'Veridian Business',
-    tagline: 'Tout Veridian, volumes illimités',
-    // 49 + 49 = 98 → bundle 79 (-19 %)
-    price_eur: 79, // 🚧 TODO_PRICE
-    price_eur_yearly_per_month: 66, // 🚧 TODO_PRICE
-    stripePriceId: { month: null, year: null }, // 🚧 TODO_STRIPE
-    apps: ['notifuse', 'prospection'],
-    members_seats: 25,
-    quotas: {
-      notifuse: { emails_per_month: 500_000, members_max: 'unlimited' },
-      prospection: { leads_total: 500_000, members_max: 'unlimited' },
-    },
-    features: [
-      { label: 'Notifuse Business inclus (500k emails/mois)', included: true },
-      { label: 'Prospection Enterprise inclus (500k prospects)', included: true },
-      { label: '25 membres cross-app', included: true },
-      { label: 'Support prioritaire', included: true },
-      { label: 'SLA 99,9 % uptime', included: true },
-    ],
-    rank: 3,
-    plan_source: 'stripe',
-  },
-
-  // ────── Plans offerts (manuels, jamais sur Stripe) ──────
-  // Cf §3.3 contrat. Affichés dans l'admin, jamais sur /pricing publique.
-  'lifetime-site-vitrine': {
-    key: 'lifetime-site-vitrine',
-    name: 'Lifetime Site Vitrine',
-    tagline: "Inclus à vie avec l'achat d'un site vitrine Veridian",
-    price_eur: 0,
-    price_eur_yearly_per_month: null,
-    stripePriceId: { month: null, year: null },
-    apps: ['notifuse', 'prospection'],
-    members_seats: 5, // équivalent pro
-    quotas: {
-      notifuse: { emails_per_month: 50_000, members_max: 5 },
-      prospection: { leads_total: 100_000, members_max: 5 },
-    },
-    features: [
-      { label: 'Équivalent Veridian Pro à vie', included: true },
-      { label: 'Offert dans la vente du site vitrine', included: true },
-    ],
-    rank: 99,
-    hidden_from_public: true,
-    plan_source: 'lifetime_site_vitrine',
-  },
-
-  'lifetime-partner': {
-    key: 'lifetime-partner',
-    name: 'Lifetime Partner',
-    tagline: 'Partenaire bizdev Veridian',
-    price_eur: 0,
-    price_eur_yearly_per_month: null,
-    stripePriceId: { month: null, year: null },
-    apps: ['notifuse', 'prospection'],
-    members_seats: 25, // équivalent business
-    quotas: {
-      notifuse: { emails_per_month: 500_000, members_max: 'unlimited' },
-      prospection: { leads_total: 500_000, members_max: 'unlimited' },
-    },
-    features: [
-      { label: 'Équivalent Veridian Business', included: true },
-      { label: 'Accord partenariat', included: true },
-    ],
-    rank: 99,
-    hidden_from_public: true,
-    plan_source: 'lifetime_partner',
-  },
-
-  'internal': {
-    key: 'internal',
-    name: 'Internal',
-    tagline: 'Comptes internes Veridian (démo, E2E, support)',
-    price_eur: 0,
-    price_eur_yearly_per_month: null,
-    stripePriceId: { month: null, year: null },
-    apps: ['notifuse', 'prospection'],
-    members_seats: 'unlimited',
-    quotas: {
-      notifuse: { emails_per_month: 'unlimited', members_max: 'unlimited' },
-      prospection: { leads_total: 'unlimited', members_max: 'unlimited' },
-    },
-    features: [
-      { label: 'Quotas illimités', included: true },
-      { label: 'Réservé Veridian interne', included: true },
-    ],
-    rank: 99,
-    hidden_from_public: true,
-    plan_source: 'internal',
-  },
+  ...HUB_PLANS_FROM_SHARED,
+  'prospection-enterprise': PROSPECTION_ENTERPRISE_ALIAS,
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MAPPING LEGACY — pour ne pas casser les subscriptions Stripe actives en prod
 // ─────────────────────────────────────────────────────────────────────────────
-//
-// Les `stripe_price_id` ci-dessous sont les anciens IDs Stripe qui correspondent
-// aux subscriptions actives en prod aujourd'hui (audit du 2026-05-18 : 4
-// products dont 2 utilisés). Quand le webhook Stripe arrive avec ces IDs,
-// on les mappe vers les nouveaux `PlanKey`.
-//
-// 🚧 À remplir avec les vrais price IDs prod via :
-//   stripe prices list --limit 20 --active
-//
-// Quand ces price IDs n'existent plus côté Stripe (clients tous migrés), virer.
 
 export const LEGACY_STRIPE_PRICE_MAPPING: Record<string, PlanKey> = {
-  // 'price_1ABC123': 'prospection-pro',
-  // 'price_1DEF456': 'prospection-enterprise',
-  // À compléter à la prochaine session avec Stripe Dashboard
+  // À remplir au prochain audit Stripe prod
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

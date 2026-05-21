@@ -17,6 +17,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, '.'),
+      '@veridian/shared': path.resolve(__dirname, './shared/shared/index.ts'),
     },
   },
 });

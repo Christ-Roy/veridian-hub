@@ -14,7 +14,7 @@ import {
 } from '@/lib/pricing/plans';
 
 describe('PLANS catalogue', () => {
-  it('contient les 11 plans attendus', () => {
+  it('contient les 11 plans canoniques v1.1 + alias legacy prospection-enterprise', () => {
     const keys = Object.keys(PLANS).sort();
     expect(keys).toEqual([
       'internal',
@@ -23,12 +23,21 @@ describe('PLANS catalogue', () => {
       'notifuse-business',
       'notifuse-free',
       'notifuse-pro',
-      'prospection-enterprise',
+      'prospection-business', // canonique v1.1
+      'prospection-enterprise', // alias LEGACY (= prospection-business)
       'prospection-free',
       'prospection-pro',
       'veridian-business',
       'veridian-pro',
     ]);
+  });
+
+  it('prospection-enterprise est un alias legacy de prospection-business', () => {
+    expect(PLANS['prospection-enterprise'].price_eur).toBe(
+      PLANS['prospection-business'].price_eur,
+    );
+    expect(PLANS['prospection-enterprise'].hidden_from_public).toBe(true);
+    expect(PLANS['prospection-business'].hidden_from_public).toBe(false);
   });
 
   it('chaque plan a sa clé qui matche son key field', () => {
@@ -114,26 +123,36 @@ describe('PLANS catalogue', () => {
     }
   });
 
-  it('CONTRAT §3.5 : free plans = 1 seat solo', () => {
-    expect(PLANS['notifuse-free'].members_seats).toBe(1);
-    expect(PLANS['prospection-free'].members_seats).toBe(1);
+  // PIVOT 2026-05-21 (v1.1) : générosité maximale.
+  // Notifuse free/pro/business : seats illimités partout
+  // Prospection : free=unlimited (growth hack), pro=5, business=25
+  // Bundles : alignés Prospection (5/25)
+  // Lifetime / internal : illimité ou aligné équivalent
+
+  it('CONTRAT v1.1 §"SEULES différenciations" : Notifuse seats illimités sur tous tiers', () => {
+    expect(PLANS['notifuse-free'].members_seats).toBe('unlimited');
+    expect(PLANS['notifuse-pro'].members_seats).toBe('unlimited');
+    expect(PLANS['notifuse-business'].members_seats).toBe('unlimited');
   });
 
-  it('CONTRAT §3.5 : pro plans (incl. bundle) = 5 seats', () => {
-    expect(PLANS['notifuse-pro'].members_seats).toBe(5);
+  it('CONTRAT v1.1 §Prospection : free seats illimités (growth hack)', () => {
+    expect(PLANS['prospection-free'].members_seats).toBe('unlimited');
+  });
+
+  it('CONTRAT v1.1 §Prospection : pro = 5 seats, business/enterprise = 25 seats', () => {
     expect(PLANS['prospection-pro'].members_seats).toBe(5);
+    expect(PLANS['prospection-business'].members_seats).toBe(25);
+    expect(PLANS['prospection-enterprise'].members_seats).toBe(25); // alias legacy
+  });
+
+  it('CONTRAT v1.1 §Bundles : Veridian Pro = 5 seats, Business = 25 seats (aligné Prosp)', () => {
     expect(PLANS['veridian-pro'].members_seats).toBe(5);
-    expect(PLANS['lifetime-site-vitrine'].members_seats).toBe(5);
-  });
-
-  it('CONTRAT §3.5 : business/enterprise (incl. bundle) = 25 seats', () => {
-    expect(PLANS['notifuse-business'].members_seats).toBe(25);
-    expect(PLANS['prospection-enterprise'].members_seats).toBe(25);
     expect(PLANS['veridian-business'].members_seats).toBe(25);
-    expect(PLANS['lifetime-partner'].members_seats).toBe(25);
   });
 
-  it('CONTRAT §3.5 : internal = unlimited', () => {
+  it('CONTRAT §3.3 : lifetime / internal = équivalents ou unlimited', () => {
+    expect(PLANS['lifetime-site-vitrine'].members_seats).toBe(5);
+    expect(PLANS['lifetime-partner'].members_seats).toBe(25);
     expect(PLANS['internal'].members_seats).toBe('unlimited');
   });
 });

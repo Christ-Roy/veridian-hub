@@ -1,0 +1,5 @@
+[submodule "shared"]
+	path = shared
+	url = https://github.com/Christ-Roy/veridian-infra.git
+	branch = main
+	shallow = true
