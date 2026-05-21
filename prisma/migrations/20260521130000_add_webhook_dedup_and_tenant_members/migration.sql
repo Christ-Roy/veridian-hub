@@ -30,14 +30,14 @@ CREATE TABLE IF NOT EXISTS "hub_app"."webhook_dedup" (
     CONSTRAINT "webhook_dedup_pkey" PRIMARY KEY ("app", "idempotency_key")
 );
 
--- @safe: index partiel sur table créée dans la même migration (vide) — lock instantané
 -- Sert au cron de cleanup à scanner uniquement les rows non-processed
+-- @safe: index partiel sur table créée dans la même migration (vide) — lock instantané
 CREATE INDEX IF NOT EXISTS "webhook_dedup_unprocessed_received_at_idx"
     ON "hub_app"."webhook_dedup" ("received_at")
     WHERE "processed_at" IS NULL;
 
--- @safe: index sur table créée dans la même migration (vide) — lock instantané
 -- Pour purger les rows traités > 24h
+-- @safe: index sur table créée dans la même migration (vide) — lock instantané
 CREATE INDEX IF NOT EXISTS "webhook_dedup_received_at_idx"
     ON "hub_app"."webhook_dedup" ("received_at");
 
@@ -57,8 +57,8 @@ CREATE TABLE IF NOT EXISTS "hub_app"."tenant_members" (
 CREATE INDEX IF NOT EXISTS "tenant_members_user_id_idx"
     ON "hub_app"."tenant_members" ("user_id");
 
--- @safe: index partiel sur table créée dans la même migration (vide) — lock instantané
 -- Permet de lister rapidement les membres actifs d'un tenant
+-- @safe: index partiel sur table créée dans la même migration (vide) — lock instantané
 CREATE INDEX IF NOT EXISTS "tenant_members_active_idx"
     ON "hub_app"."tenant_members" ("tenant_id")
     WHERE "deleted_at" IS NULL;

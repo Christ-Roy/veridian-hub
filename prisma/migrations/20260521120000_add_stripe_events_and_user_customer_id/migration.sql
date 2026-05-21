@@ -35,14 +35,17 @@ CREATE TABLE IF NOT EXISTS "hub_app"."stripe_events" (
 );
 
 -- Index lookup par type (dashboard MRR, debug, retry des unprocessed)
+-- @safe: table neuve vide à la migration → lock instantané, 0 downtime
 CREATE INDEX IF NOT EXISTS "stripe_events_event_type_idx"
     ON "hub_app"."stripe_events" ("event_type");
 
 -- Index lookup par customer (dashboard MRR par user)
+-- @safe: table neuve vide à la migration → lock instantané, 0 downtime
 CREATE INDEX IF NOT EXISTS "stripe_events_customer_id_idx"
     ON "hub_app"."stripe_events" ("customer_id");
 
 -- Index lookup des unprocessed (cron retry)
+-- @safe: table neuve vide à la migration → lock instantané, 0 downtime
 CREATE INDEX IF NOT EXISTS "stripe_events_processed_at_idx"
     ON "hub_app"."stripe_events" ("processed_at")
     WHERE "processed_at" IS NULL;
