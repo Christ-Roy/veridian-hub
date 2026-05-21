@@ -1,3 +1,32 @@
+/**
+ * Webhooks Notifuse → Hub.
+ *
+ * Cette route gère DEUX formats coexistants :
+ *
+ * 1. v1.4 (contrat-hub.md §7.1, CONTRAT-HUB-API-REF.md "Webhooks app → Hub")
+ *    Auth : `Authorization: Bearer <NOTIFUSE_WEBHOOK_TOKEN>`
+ *    Body : { event, tenant_id, data, idempotency_key, emitted_at,
+ *             contract_version }
+ *    Dédup : table `hub_app.webhook_dedup` (PK app+idempotency_key, 24h)
+ *    Events : `tenant.touched`, `tenant.member_role_changed`,
+ *             `tenant.activity_threshold_reached`, `member_added`,
+ *             `member_removed`, ... (extensible)
+ *    Cas par défaut : si le handler n'existe pas encore, on persiste +
+ *    renvoie 200 (stub). C'est volontaire pour permettre à Notifuse
+ *    d'émettre dès aujourd'hui sans bloquer le côté Hub.
+ *
+ * 2. Legacy HMAC (héritage, en service en prod pour le fork Notifuse)
+ *    Auth : headers `x-veridian-timestamp` + `x-veridian-notifuse-signature`
+ *    Body : { event_id, event_type, tenant_id, data }
+ *    Dédup : metadata.notifuse_processed_events sur la row Tenant
+ *    Events : `tenant.provisioned`, `tenant.suspended`, `tenant.resumed`,
+ *             `tenant.deleted`, `email.sent`, `tenant.quota_exceeded`
+ *
+ * Routing : si le header `authorization` est présent → on dispatche v1.4.
+ * Sinon → on retombe sur le HMAC legacy. Le legacy sera retiré quand le
+ * fork Notifuse aura migré (ticket v1.5+).
+ */
+
 import { NextRequest, NextResponse } from 'next/server';
 import { createHmac, timingSafeEqual } from 'crypto';
 
@@ -11,13 +40,85 @@ import {
   VeridianEventPayload,
 } from '@/lib/notifuse/types';
 import { prisma } from '@/lib/prisma';
+import { handleWebhook, type HandlerTable } from '@/lib/webhooks/receiver';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const MAX_DRIFT_MS = 5 * 60 * 1000;
 
-function verifySignature(
+// ============================================================================
+// v1.4 handlers — table extensible (stubs initialement).
+// Persistance via WebhookDedup.payload + processedAt suffit pour audit ;
+// les effets de bord côté Hub (update tenant_members, decay leadScore, etc.)
+// seront branchés au fur et à mesure que les apps émettent réellement.
+// ============================================================================
+
+const v14Handlers: HandlerTable = {
+  'tenant.touched': async (payload) => {
+    // Stub : la row dédup garde le payload pour audit. Quand le ticket
+    // §5.18 sera implémenté côté Hub on viendra ici update
+    // tenant.lastActivityAt + reset deletedAt si soft_deleted.
+    console.info(
+      '[webhook:notifuse] tenant.touched',
+      payload.tenant_id,
+      payload.data,
+    );
+  },
+  'tenant.member_role_changed': async (payload) => {
+    // Stub : §5.18.4 + §11bis.3 — sync best-effort vers
+    // tenant_members.last_known_app_role. Implémentation détaillée dans
+    // le ticket dédié quand les apps livreront l'event réel.
+    console.info(
+      '[webhook:notifuse] tenant.member_role_changed',
+      payload.tenant_id,
+      payload.data,
+    );
+  },
+  'tenant.activity_threshold_reached': async (payload) => {
+    // Stub : event de signal pour le système anti-churn / cleanup.
+    console.info(
+      '[webhook:notifuse] tenant.activity_threshold_reached',
+      payload.tenant_id,
+      payload.data,
+    );
+  },
+};
+
+// ============================================================================
+// Dispatcher principal
+// ============================================================================
+
+export async function POST(request: NextRequest) {
+  // Routing format : Bearer présent = v1.4, sinon legacy HMAC.
+  const hasBearer = !!request.headers.get('authorization');
+
+  if (hasBearer) {
+    const token = process.env.NOTIFUSE_WEBHOOK_TOKEN;
+    if (!token) {
+      return NextResponse.json(
+        {
+          error: 'internal_error',
+          message: 'NOTIFUSE_WEBHOOK_TOKEN not configured',
+        },
+        { status: 500 },
+      );
+    }
+    return handleWebhook(request, {
+      app: 'notifuse',
+      expectedToken: token,
+      handlers: v14Handlers,
+    });
+  }
+
+  return handleLegacyNotifuseHmac(request);
+}
+
+// ============================================================================
+// Legacy HMAC handler (héritage Notifuse fork — à retirer plus tard)
+// ============================================================================
+
+function verifyLegacySignature(
   rawBody: string,
   timestamp: string | null,
   signature: string | null,
@@ -25,7 +126,8 @@ function verifySignature(
 ): boolean {
   if (!timestamp || !signature) return false;
   const ts = Number(timestamp);
-  if (!Number.isFinite(ts) || Math.abs(Date.now() - ts) > MAX_DRIFT_MS) return false;
+  if (!Number.isFinite(ts) || Math.abs(Date.now() - ts) > MAX_DRIFT_MS)
+    return false;
   const expected = createHmac('sha256', secret)
     .update(`${timestamp}.${rawBody}`)
     .digest('hex');
@@ -39,7 +141,7 @@ function verifySignature(
   }
 }
 
-export async function POST(request: NextRequest) {
+async function handleLegacyNotifuseHmac(request: NextRequest): Promise<Response> {
   const secret = process.env.NOTIFUSE_HUB_WEBHOOK_SECRET;
   if (!secret) {
     return NextResponse.json(
@@ -52,7 +154,7 @@ export async function POST(request: NextRequest) {
   const timestamp = request.headers.get('x-veridian-timestamp');
   const signature = request.headers.get('x-veridian-notifuse-signature');
 
-  if (!verifySignature(rawBody, timestamp, signature, secret)) {
+  if (!verifyLegacySignature(rawBody, timestamp, signature, secret)) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
   }
 
@@ -70,9 +172,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Idempotence : on stocke event_id dans le tenant.metadata.notifuse_processed_events
-  // (limité à 200 derniers). La table dédiée `notifuse_events_processed` n'a pas
-  // (encore) été ajoutée au schema Prisma — TODO LOT D : créer le modèle dédié.
+  // Idempotence legacy : metadata.notifuse_processed_events (200 derniers)
   const tenant = await prisma.tenant.findFirst({
     where: { notifuseWorkspaceSlug: payload.tenant_id },
     select: { id: true, metadata: true },
@@ -89,14 +189,17 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    await dispatchEvent(payload);
+    await dispatchLegacyEvent(payload);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
-    console.error('[notifuse-webhook] dispatch failed', payload.event_type, message);
+    console.error(
+      '[notifuse-webhook] dispatch failed',
+      payload.event_type,
+      message,
+    );
     return NextResponse.json({ error: message }, { status: 500 });
   }
 
-  // Marquer event_id comme traité (best-effort)
   if (tenant) {
     try {
       const meta = (tenant.metadata as Record<string, unknown> | null) ?? {};
@@ -107,7 +210,10 @@ export async function POST(request: NextRequest) {
       await prisma.tenant.update({
         where: { id: tenant.id },
         data: {
-          metadata: { ...meta, notifuse_processed_events: next } as object,
+          metadata: {
+            ...meta,
+            notifuse_processed_events: next,
+          } as object,
         },
       });
     } catch (err) {
@@ -118,11 +224,12 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
-async function dispatchEvent(payload: VeridianEventPayload): Promise<void> {
+async function dispatchLegacyEvent(
+  payload: VeridianEventPayload,
+): Promise<void> {
   const tenantSlug = payload.tenant_id;
   const eventType = payload.event_type as NotifuseEventType;
 
-  // Resolve tenant
   const tenant = await prisma.tenant.findFirst({
     where: { notifuseWorkspaceSlug: tenantSlug },
     select: { id: true, metadata: true, prospectionConfig: true },
@@ -142,7 +249,8 @@ async function dispatchEvent(payload: VeridianEventPayload): Promise<void> {
         data: {
           metadata: {
             ...meta,
-            notifuse_suspended_at: data?.suspended_at ?? new Date().toISOString(),
+            notifuse_suspended_at:
+              data?.suspended_at ?? new Date().toISOString(),
             notifuse_suspended_reason: data?.reason ?? null,
           } as object,
         },
@@ -181,7 +289,8 @@ async function dispatchEvent(payload: VeridianEventPayload): Promise<void> {
         data: {
           metadata: {
             ...meta,
-            notifuse_deleted_at: data?.deleted_at ?? new Date().toISOString(),
+            notifuse_deleted_at:
+              data?.deleted_at ?? new Date().toISOString(),
           } as object,
         },
       });
@@ -191,10 +300,12 @@ async function dispatchEvent(payload: VeridianEventPayload): Promise<void> {
     case 'email.sent': {
       const data = payload.data as EmailSentEventData | undefined;
       if (!tenant) {
-        console.warn('[notifuse-webhook] email.sent for unknown tenant', tenantSlug);
+        console.warn(
+          '[notifuse-webhook] email.sent for unknown tenant',
+          tenantSlug,
+        );
         return;
       }
-      // Counter dans metadata (Notifuse reste source de vérité — informatif).
       const meta = (tenant.metadata as Record<string, unknown> | null) ?? {};
       const current =
         typeof meta.notifuse_emails_sent_this_month === 'number'
@@ -227,12 +338,15 @@ async function dispatchEvent(payload: VeridianEventPayload): Promise<void> {
         tenantSlug,
         `${data?.emails_sent_this_month}/${data?.monthly_email_quota}`,
       );
-      // TODO: déclencher mail au tenant via Brevo (separate task)
       return;
     }
 
     default:
-      console.info('[notifuse-webhook] unhandled event_type', eventType, tenantSlug);
+      console.info(
+        '[notifuse-webhook] unhandled event_type',
+        eventType,
+        tenantSlug,
+      );
       return;
   }
 }
