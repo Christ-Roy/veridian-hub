@@ -18,6 +18,19 @@ vi.mock('@/lib/admin/require-admin', () => ({
 const userStore = new Map<string, any>();
 const tenantStore = new Map<string, any>();
 
+const tenantUpdateManyMock = vi.fn(async ({ where, data }: any) => {
+  const ids: string[] = where.id?.in ?? [];
+  let count = 0;
+  for (const id of ids) {
+    const cur = tenantStore.get(id);
+    if (cur) {
+      tenantStore.set(id, { ...cur, ...data });
+      count += 1;
+    }
+  }
+  return { count };
+});
+
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     user: {
@@ -36,12 +49,7 @@ vi.mock('@/lib/prisma', () => ({
       findMany: vi.fn(async ({ where }: any) => {
         return Array.from(tenantStore.values()).filter((t) => t.userId === where.userId);
       }),
-      update: vi.fn(async ({ where, data }: any) => {
-        const cur = tenantStore.get(where.id);
-        const merged = { ...cur, ...data };
-        tenantStore.set(where.id, merged);
-        return merged;
-      }),
+      updateMany: tenantUpdateManyMock,
     },
     subscription: {
       deleteMany: vi.fn(async () => ({ count: 0 })),
@@ -57,6 +65,7 @@ beforeEach(() => {
   userStore.clear();
   tenantStore.clear();
   requireAdminMock.mockResolvedValue(null);
+  tenantUpdateManyMock.mockClear();
 });
 
 function makeReq(body: any) {
@@ -97,5 +106,46 @@ describe('DELETE /api/admin/delete-tenant', () => {
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(JSON.stringify(body.actions).toLowerCase()).not.toContain('twenty');
+    // Garde la trace par tenant pour audit
+    expect(JSON.stringify(body.actions)).toContain('t1');
+    // Warning notifuse préservé
+    expect(JSON.stringify(body.actions)).toContain('Notifuse workspace ws');
+  });
+
+  it('N+1 regression guard: 3 tenants → 1 updateMany, not 3 updates', async () => {
+    userStore.set('multi@test', { id: 'auth-m', supabaseUserId: 'uuid-m' });
+    tenantStore.set('tm1', { id: 'tm1', userId: 'uuid-m', notifuseWorkspaceSlug: 'ws1' });
+    tenantStore.set('tm2', { id: 'tm2', userId: 'uuid-m', notifuseWorkspaceSlug: null });
+    tenantStore.set('tm3', { id: 'tm3', userId: 'uuid-m', notifuseWorkspaceSlug: 'ws3' });
+
+    const { DELETE } = await import('@/app/api/admin/delete-tenant/route');
+    const res = await DELETE(makeReq({ email: 'multi@test', confirm: true }));
+    const body = await res.json();
+
+    expect(body.ok).toBe(true);
+    // Critique: une seule query DB peu importe le nombre de tenants
+    expect(tenantUpdateManyMock).toHaveBeenCalledTimes(1);
+    expect(tenantUpdateManyMock).toHaveBeenCalledWith({
+      where: { id: { in: ['tm1', 'tm2', 'tm3'] } },
+      data: expect.objectContaining({ status: 'deleted', deletedAt: expect.any(Date) }),
+    });
+    // Tous les tenants effectivement soft-deletés
+    expect(tenantStore.get('tm1').status).toBe('deleted');
+    expect(tenantStore.get('tm2').status).toBe('deleted');
+    expect(tenantStore.get('tm3').status).toBe('deleted');
+    // Warnings notifuse pour les 2 qui ont un slug
+    const actionsStr = JSON.stringify(body.actions);
+    expect(actionsStr).toContain('Notifuse workspace ws1');
+    expect(actionsStr).toContain('Notifuse workspace ws3');
+  });
+
+  it('handles 0 tenant gracefully (no updateMany call)', async () => {
+    userStore.set('empty@test', { id: 'auth-e', supabaseUserId: 'uuid-e' });
+    const { DELETE } = await import('@/app/api/admin/delete-tenant/route');
+    const res = await DELETE(makeReq({ email: 'empty@test', confirm: true }));
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(tenantUpdateManyMock).not.toHaveBeenCalled();
+    expect(JSON.stringify(body.actions)).toContain('No tenant row found');
   });
 });

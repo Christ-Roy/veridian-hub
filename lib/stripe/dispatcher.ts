@@ -253,20 +253,15 @@ async function softDeleteTenantsForCustomer(customerId: string): Promise<void> {
     return;
   }
 
-  const tenants = await prisma.tenant.findMany({
+  // Perf: 1 query updateMany au lieu de N×update (cf. todo/2026-05-21-fix-n1-soft-delete-tenants.md).
+  // Critique sur le webhook Stripe (timeout 30s côté Stripe).
+  const result = await prisma.tenant.updateMany({
     where: { userId, deletedAt: null },
-    select: { id: true },
+    data: { deletedAt: new Date(), status: 'deleted' },
   });
 
-  for (const t of tenants) {
-    await prisma.tenant.update({
-      where: { id: t.id },
-      data: { deletedAt: new Date(), status: 'deleted' },
-    });
-  }
-
   console.log(
-    `[stripe-dispatch] customer.deleted ${customerId} → soft-deleted ${tenants.length} tenant(s)`,
+    `[stripe-dispatch] customer.deleted ${customerId} → soft-deleted ${result.count} tenant(s)`,
   );
 }
 

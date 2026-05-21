@@ -50,26 +50,34 @@ export async function DELETE(request: NextRequest) {
 
   // Soft-delete tenants (only if we have a UUID bridge)
   if (userUuid) {
+    // findMany conservé pour récupérer notifuseWorkspaceSlug et logger les warnings
+    // de cleanup manuel downstream + lister chaque tenant ID dans l'audit response.
     const tenants = await prisma.tenant.findMany({
       where: { userId: userUuid },
       select: { id: true, notifuseWorkspaceSlug: true },
     });
 
-    for (const tenant of tenants) {
-      await prisma.tenant.update({
-        where: { id: tenant.id },
-        data: { status: 'deleted', deletedAt: new Date() },
-      });
-      actions.push(`Soft-deleted tenant ${tenant.id}`);
-
-      if (tenant.notifuseWorkspaceSlug) {
-        actions.push(
-          `⚠️ Notifuse workspace ${tenant.notifuseWorkspaceSlug} still exists (manual cleanup needed)`,
-        );
-      }
-    }
     if (tenants.length === 0) {
       actions.push('No tenant row found');
+    } else {
+      // Perf: 1 query updateMany au lieu de N×update
+      // (cf. todo/2026-05-21-fix-n1-soft-delete-tenants.md).
+      // Atomicité Postgres en bonus.
+      const result = await prisma.tenant.updateMany({
+        where: { id: { in: tenants.map((t) => t.id) } },
+        data: { status: 'deleted', deletedAt: new Date() },
+      });
+      actions.push(`Soft-deleted ${result.count} tenant(s)`);
+
+      // Garde la trace par-tenant pour l'audit (IDs + warnings notifuse).
+      for (const tenant of tenants) {
+        actions.push(`  • tenant ${tenant.id}`);
+        if (tenant.notifuseWorkspaceSlug) {
+          actions.push(
+            `⚠️ Notifuse workspace ${tenant.notifuseWorkspaceSlug} still exists (manual cleanup needed)`,
+          );
+        }
+      }
     }
 
     // Delete subscriptions linked to this UUID

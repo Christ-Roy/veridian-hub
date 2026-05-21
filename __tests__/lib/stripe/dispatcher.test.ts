@@ -25,16 +25,14 @@ vi.mock('@/utils/stripe/prisma-sync', () => ({
 
 const subscriptionFindFirstMock = vi.fn();
 const userFindFirstMock = vi.fn();
-const tenantFindManyMock = vi.fn();
-const tenantUpdateMock = vi.fn();
+const tenantUpdateManyMock = vi.fn();
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     subscription: { findFirst: (...a: unknown[]) => subscriptionFindFirstMock(...a) },
     user: { findFirst: (...a: unknown[]) => userFindFirstMock(...a) },
     tenant: {
-      findMany: (...a: unknown[]) => tenantFindManyMock(...a),
-      update: (...a: unknown[]) => tenantUpdateMock(...a),
+      updateMany: (...a: unknown[]) => tenantUpdateManyMock(...a),
     },
   },
 }));
@@ -72,8 +70,7 @@ beforeEach(() => {
   manageSubscriptionMock.mockResolvedValue(emptyPropagation());
   subscriptionFindFirstMock.mockResolvedValue(null);
   userFindFirstMock.mockResolvedValue(null);
-  tenantFindManyMock.mockResolvedValue([]);
-  tenantUpdateMock.mockResolvedValue(undefined);
+  tenantUpdateManyMock.mockResolvedValue({ count: 0 });
 });
 
 // ─── Tests ────────────────────────────────────────────────────────────────
@@ -309,9 +306,9 @@ describe('dispatchStripeEvent — V1 log-only events', () => {
 });
 
 describe('dispatchStripeEvent — customer.deleted', () => {
-  it('soft-deletes tenants for the customer via subscription lookup', async () => {
+  it('soft-deletes tenants for the customer via subscription lookup (single updateMany)', async () => {
     subscriptionFindFirstMock.mockResolvedValueOnce({ userId: 'user_uuid_1' });
-    tenantFindManyMock.mockResolvedValueOnce([{ id: 'tenant_a' }, { id: 'tenant_b' }]);
+    tenantUpdateManyMock.mockResolvedValueOnce({ count: 2 });
 
     const { dispatchStripeEvent } = await import('@/lib/stripe/dispatcher');
     const event = makeEvent('customer.deleted', { id: 'cus_gone' });
@@ -323,17 +320,10 @@ describe('dispatchStripeEvent — customer.deleted', () => {
       where: { stripeCustomerId: 'cus_gone' },
       select: { userId: true },
     });
-    expect(tenantFindManyMock).toHaveBeenCalledWith({
+    // Anti-régression N+1 : 1 seul updateMany, peu importe le nombre de tenants
+    expect(tenantUpdateManyMock).toHaveBeenCalledTimes(1);
+    expect(tenantUpdateManyMock).toHaveBeenCalledWith({
       where: { userId: 'user_uuid_1', deletedAt: null },
-      select: { id: true },
-    });
-    expect(tenantUpdateMock).toHaveBeenCalledTimes(2);
-    expect(tenantUpdateMock).toHaveBeenNthCalledWith(1, {
-      where: { id: 'tenant_a' },
-      data: expect.objectContaining({ status: 'deleted', deletedAt: expect.any(Date) }),
-    });
-    expect(tenantUpdateMock).toHaveBeenNthCalledWith(2, {
-      where: { id: 'tenant_b' },
       data: expect.objectContaining({ status: 'deleted', deletedAt: expect.any(Date) }),
     });
   });
@@ -341,7 +331,7 @@ describe('dispatchStripeEvent — customer.deleted', () => {
   it('falls back to user.findFirst when no subscription found', async () => {
     subscriptionFindFirstMock.mockResolvedValueOnce(null);
     userFindFirstMock.mockResolvedValueOnce({ supabaseUserId: 'user_uuid_2' });
-    tenantFindManyMock.mockResolvedValueOnce([{ id: 'tenant_c' }]);
+    tenantUpdateManyMock.mockResolvedValueOnce({ count: 1 });
 
     const { dispatchStripeEvent } = await import('@/lib/stripe/dispatcher');
     const event = makeEvent('customer.deleted', { id: 'cus_no_sub' });
@@ -353,7 +343,11 @@ describe('dispatchStripeEvent — customer.deleted', () => {
       where: { stripeCustomerId: 'cus_no_sub' },
       select: { supabaseUserId: true },
     });
-    expect(tenantUpdateMock).toHaveBeenCalledTimes(1);
+    expect(tenantUpdateManyMock).toHaveBeenCalledTimes(1);
+    expect(tenantUpdateManyMock).toHaveBeenCalledWith({
+      where: { userId: 'user_uuid_2', deletedAt: null },
+      data: expect.objectContaining({ status: 'deleted', deletedAt: expect.any(Date) }),
+    });
   });
 
   it('processes cleanly when no user found (no tenant update)', async () => {
@@ -366,8 +360,52 @@ describe('dispatchStripeEvent — customer.deleted', () => {
     const result = await dispatchStripeEvent(event);
 
     expect(result.status).toBe('processed');
-    expect(tenantFindManyMock).not.toHaveBeenCalled();
-    expect(tenantUpdateMock).not.toHaveBeenCalled();
+    expect(tenantUpdateManyMock).not.toHaveBeenCalled();
+  });
+
+  it('handles 0 tenant (count=0) without crash', async () => {
+    subscriptionFindFirstMock.mockResolvedValueOnce({ userId: 'user_uuid_empty' });
+    tenantUpdateManyMock.mockResolvedValueOnce({ count: 0 });
+
+    const { dispatchStripeEvent } = await import('@/lib/stripe/dispatcher');
+    const event = makeEvent('customer.deleted', { id: 'cus_no_tenant' });
+
+    const result = await dispatchStripeEvent(event);
+
+    expect(result.status).toBe('processed');
+    expect(tenantUpdateManyMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('idempotence: updateMany with deletedAt:null only touches non-soft-deleted rows', async () => {
+    // Simule un 2e appel webhook : count=0 car le where {deletedAt: null}
+    // exclut les déjà-soft-deletés.
+    subscriptionFindFirstMock.mockResolvedValueOnce({ userId: 'user_uuid_replay' });
+    tenantUpdateManyMock.mockResolvedValueOnce({ count: 0 });
+
+    const { dispatchStripeEvent } = await import('@/lib/stripe/dispatcher');
+    const event = makeEvent('customer.deleted', { id: 'cus_replay' });
+
+    const result = await dispatchStripeEvent(event);
+
+    expect(result.status).toBe('processed');
+    expect(tenantUpdateManyMock).toHaveBeenCalledWith({
+      where: { userId: 'user_uuid_replay', deletedAt: null },
+      data: expect.objectContaining({ status: 'deleted' }),
+    });
+  });
+
+  it('N+1 regression guard: 5 tenants → still 1 updateMany call (not 5 updates)', async () => {
+    subscriptionFindFirstMock.mockResolvedValueOnce({ userId: 'user_uuid_5' });
+    tenantUpdateManyMock.mockResolvedValueOnce({ count: 5 });
+
+    const { dispatchStripeEvent } = await import('@/lib/stripe/dispatcher');
+    const event = makeEvent('customer.deleted', { id: 'cus_five_tenants' });
+
+    const result = await dispatchStripeEvent(event);
+
+    expect(result.status).toBe('processed');
+    // Critique: une seule query DB peu importe le nombre de tenants
+    expect(tenantUpdateManyMock).toHaveBeenCalledTimes(1);
   });
 });
 
