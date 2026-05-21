@@ -65,7 +65,7 @@ describe('POST /api/webhooks (Stripe)', () => {
     const res = await POST(makeReq('{}', 'good_sig'));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.ignored).toBe(true);
+    expect(body.outcome).toBe('ignored');
     expect(manageSubscriptionMock).not.toHaveBeenCalled();
   });
 
@@ -78,7 +78,12 @@ describe('POST /api/webhooks (Stripe)', () => {
     const { POST } = await import('@/app/api/webhooks/route');
     const res = await POST(makeReq('{}', 'good_sig'));
     expect(res.status).toBe(200);
-    expect(manageSubscriptionMock).toHaveBeenCalledWith('sub_1', 'cus_1', true);
+    expect(manageSubscriptionMock).toHaveBeenCalledWith(
+      'sub_1',
+      'cus_1',
+      true,
+      expect.any(Object),
+    );
   });
 
   it('handles checkout.session.completed (mode=subscription) → calls handler', async () => {
@@ -96,10 +101,15 @@ describe('POST /api/webhooks (Stripe)', () => {
     const { POST } = await import('@/app/api/webhooks/route');
     const res = await POST(makeReq('{}', 'good_sig'));
     expect(res.status).toBe(200);
-    expect(manageSubscriptionMock).toHaveBeenCalledWith('sub_2', 'cus_2', true);
+    expect(manageSubscriptionMock).toHaveBeenCalledWith(
+      'sub_2',
+      'cus_2',
+      true,
+      expect.any(Object),
+    );
   });
 
-  it('returns 400 if handler throws', async () => {
+  it('returns 200 (with failed outcome) if handler throws — dispatcher catches', async () => {
     constructEventMock.mockReturnValue({
       id: 'evt_4',
       type: 'customer.subscription.deleted',
@@ -108,6 +118,11 @@ describe('POST /api/webhooks (Stripe)', () => {
     manageSubscriptionMock.mockRejectedValueOnce(new Error('DB down'));
     const { POST } = await import('@/app/api/webhooks/route');
     const res = await POST(makeReq('{}', 'good_sig'));
-    expect(res.status).toBe(400);
+    // Le dispatcher catch les erreurs et marque l'event failed dans
+    // stripe_events.error — on renvoie 200 à Stripe pour éviter les retry
+    // inutiles (Telegram alert déjà déclenchée par le dispatcher).
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.outcome).toBe('failed');
   });
 });

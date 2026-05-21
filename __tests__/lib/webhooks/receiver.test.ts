@@ -81,8 +81,12 @@ beforeEach(() => {
 });
 
 function uuid(seed: string): string {
-  // UUID v4 stable mais "fake" — basé sur le seed
-  const hex = seed.padEnd(32, '0').slice(0, 32);
+  // UUID v4 stable mais "fake" — convertit le seed en hex via codes ASCII.
+  const hex = Array.from(seed)
+    .map((c) => c.charCodeAt(0).toString(16).padStart(2, '0'))
+    .join('')
+    .padEnd(32, '0')
+    .slice(0, 32);
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 

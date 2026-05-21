@@ -226,6 +226,7 @@ export async function acceptCrossAppInvitation(
       emailMismatch: txResult.emailMismatch,
       downstreamCall: 'completed',
       downstreamLoginUrl: attachResult.loginUrl,
+      downstreamHttpStatus: attachResult.httpStatus,
     };
   }
 
