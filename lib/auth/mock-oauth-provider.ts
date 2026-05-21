@@ -46,23 +46,44 @@ const MOCK_INPUT_SCHEMA = z.object({
 /**
  * Throw immédiatement si on tente d'activer le provider en prod.
  * Appelé au module load — Next.js refuse de boot si la combinaison est dangereuse.
+ *
+ * NOTE : on se base sur `DEPLOY_ENV` (variable applicative Veridian) et PAS
+ * sur `NODE_ENV`. Pourquoi : un build Next.js optimisé tourne avec
+ * `NODE_ENV=production` même en staging (c'est ce qu'on shippe via Docker).
+ * Donc la seule variable fiable pour distinguer staging vs prod est
+ * `DEPLOY_ENV=staging` (injecté dans compose/staging.yml) vs
+ * `DEPLOY_ENV=production` (injecté dans compose/prod.yml).
+ *
+ * Garde-fou bonus : si DEPLOY_ENV est absent OU vaut "production", on refuse.
+ * → impossible d'activer le mock par oubli d'override (default-safe).
  */
 export function assertSafeContext(env: NodeJS.ProcessEnv = process.env): void {
   if (env.OAUTH_TEST_PROVIDER !== 'true') return;
 
-  if (env.NODE_ENV === 'production' || env.DEPLOY_ENV === 'production') {
+  // DEPLOY_ENV=production → refus catégorique
+  if (env.DEPLOY_ENV === 'production') {
     throw new Error(
       '[mock-oauth-provider] FATAL: OAUTH_TEST_PROVIDER=true with ' +
-        `NODE_ENV=${env.NODE_ENV} / DEPLOY_ENV=${env.DEPLOY_ENV} — refusing to boot. ` +
+        `DEPLOY_ENV=production — refusing to boot. ` +
         'Mock OAuth provider must NEVER run in production.',
     );
   }
 
-  if (env.DEPLOY_ENV !== 'staging' && env.NODE_ENV !== 'test' && env.NODE_ENV !== 'development') {
+  // Combinaisons autorisées :
+  //   - DEPLOY_ENV=staging (staging dev server)
+  //   - NODE_ENV=test (tests vitest — DEPLOY_ENV souvent absent)
+  //   - NODE_ENV=development (pnpm dev local — DEPLOY_ENV souvent absent)
+  // Toute autre combinaison (ex: DEPLOY_ENV absent en NODE_ENV=production) refuse.
+  const allowed =
+    env.DEPLOY_ENV === 'staging' ||
+    env.NODE_ENV === 'test' ||
+    env.NODE_ENV === 'development';
+
+  if (!allowed) {
     throw new Error(
       '[mock-oauth-provider] FATAL: OAUTH_TEST_PROVIDER=true with ' +
         `DEPLOY_ENV=${env.DEPLOY_ENV} NODE_ENV=${env.NODE_ENV} — ` +
-        'mock provider only allowed on staging or local dev/test.',
+        'mock provider only allowed on staging (DEPLOY_ENV=staging) or local dev/test.',
     );
   }
 }
@@ -73,9 +94,13 @@ export function assertSafeContext(env: NodeJS.ProcessEnv = process.env): void {
  */
 export function isMockOauthEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   if (env.OAUTH_TEST_PROVIDER !== 'true') return false;
-  if (env.NODE_ENV === 'production' || env.DEPLOY_ENV === 'production') return false;
+  if (env.DEPLOY_ENV === 'production') return false;
   // Staging OU local dev/test
-  return env.DEPLOY_ENV === 'staging' || env.NODE_ENV === 'test' || env.NODE_ENV === 'development';
+  return (
+    env.DEPLOY_ENV === 'staging' ||
+    env.NODE_ENV === 'test' ||
+    env.NODE_ENV === 'development'
+  );
 }
 
 export type MockOauthDeps = {

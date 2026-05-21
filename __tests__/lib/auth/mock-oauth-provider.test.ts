@@ -21,16 +21,9 @@ describe('mock-oauth-provider — garde-fous sécurité', () => {
       expect(() => assertSafeContext({ DEPLOY_ENV: 'production' } as NodeJS.ProcessEnv)).not.toThrow();
     });
 
-    it('THROW si OAUTH_TEST_PROVIDER=true ET NODE_ENV=production', () => {
-      expect(() =>
-        assertSafeContext({
-          OAUTH_TEST_PROVIDER: 'true',
-          NODE_ENV: 'production',
-        } as NodeJS.ProcessEnv),
-      ).toThrow(/refusing to boot/);
-    });
-
     it('THROW si OAUTH_TEST_PROVIDER=true ET DEPLOY_ENV=production', () => {
+      // C'est LA seule variable qui distingue staging/prod côté Veridian
+      // (NODE_ENV=production tout le temps en build optimisé Next.js).
       expect(() =>
         assertSafeContext({
           OAUTH_TEST_PROVIDER: 'true',
@@ -39,12 +32,43 @@ describe('mock-oauth-provider — garde-fous sécurité', () => {
       ).toThrow(/refusing to boot/);
     });
 
-    it('THROW si OAUTH_TEST_PROVIDER=true sans DEPLOY_ENV/NODE_ENV explicite (= fallback prod implicite)', () => {
+    it('THROW si OAUTH_TEST_PROVIDER=true ET DEPLOY_ENV=production même avec NODE_ENV=test', () => {
+      expect(() =>
+        assertSafeContext({
+          OAUTH_TEST_PROVIDER: 'true',
+          DEPLOY_ENV: 'production',
+          NODE_ENV: 'test',
+        } as NodeJS.ProcessEnv),
+      ).toThrow(/refusing to boot/);
+    });
+
+    it('THROW si OAUTH_TEST_PROVIDER=true sans DEPLOY_ENV/NODE_ENV explicite (= contexte ambigu)', () => {
       expect(() =>
         assertSafeContext({
           OAUTH_TEST_PROVIDER: 'true',
         } as NodeJS.ProcessEnv),
-      ).toThrow(/only allowed on staging or local dev\/test/);
+      ).toThrow(/only allowed on staging \(DEPLOY_ENV=staging\) or local dev\/test/);
+    });
+
+    it('THROW si OAUTH_TEST_PROVIDER=true avec NODE_ENV=production seul (DEPLOY_ENV absent — ambigu)', () => {
+      expect(() =>
+        assertSafeContext({
+          OAUTH_TEST_PROVIDER: 'true',
+          NODE_ENV: 'production',
+        } as NodeJS.ProcessEnv),
+      ).toThrow(/only allowed on staging/);
+    });
+
+    it('OK si OAUTH_TEST_PROVIDER=true ET DEPLOY_ENV=staging même avec NODE_ENV=production (build Next.js)', () => {
+      // C'est précisément le cas du container staging : build prod Next.js
+      // (NODE_ENV=production) avec override DEPLOY_ENV=staging. Doit passer.
+      expect(() =>
+        assertSafeContext({
+          OAUTH_TEST_PROVIDER: 'true',
+          DEPLOY_ENV: 'staging',
+          NODE_ENV: 'production',
+        } as NodeJS.ProcessEnv),
+      ).not.toThrow();
     });
 
     it('OK si OAUTH_TEST_PROVIDER=true ET DEPLOY_ENV=staging', () => {
@@ -80,20 +104,30 @@ describe('mock-oauth-provider — garde-fous sécurité', () => {
       expect(isMockOauthEnabled({} as NodeJS.ProcessEnv)).toBe(false);
     });
 
-    it('false si NODE_ENV=production même avec flag', () => {
-      expect(
-        isMockOauthEnabled({
-          OAUTH_TEST_PROVIDER: 'true',
-          NODE_ENV: 'production',
-        } as NodeJS.ProcessEnv),
-      ).toBe(false);
-    });
-
     it('false si DEPLOY_ENV=production même avec flag', () => {
       expect(
         isMockOauthEnabled({
           OAUTH_TEST_PROVIDER: 'true',
           DEPLOY_ENV: 'production',
+        } as NodeJS.ProcessEnv),
+      ).toBe(false);
+    });
+
+    it('true si DEPLOY_ENV=staging même avec NODE_ENV=production (cas réel du container staging)', () => {
+      expect(
+        isMockOauthEnabled({
+          OAUTH_TEST_PROVIDER: 'true',
+          DEPLOY_ENV: 'staging',
+          NODE_ENV: 'production',
+        } as NodeJS.ProcessEnv),
+      ).toBe(true);
+    });
+
+    it('false si NODE_ENV=production seul (sans DEPLOY_ENV override) = contexte ambigu', () => {
+      expect(
+        isMockOauthEnabled({
+          OAUTH_TEST_PROVIDER: 'true',
+          NODE_ENV: 'production',
         } as NodeJS.ProcessEnv),
       ).toBe(false);
     });
