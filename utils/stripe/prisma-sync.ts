@@ -17,6 +17,25 @@ import { prisma } from '@/lib/prisma';
 import { stripe } from '@/utils/stripe/config';
 import { toDateTime } from '@/utils/helpers';
 import { getPlanByStripePriceId, getAppPlansForBundle } from '@/lib/pricing/helpers';
+import { NotifuseClient } from '@/lib/notifuse/client';
+import { NotifuseError, isNotifusePlan, type NotifusePlan } from '@/lib/notifuse/types';
+
+/**
+ * Résultat de propagation Stripe → apps downstream, retourné par
+ * `manageSubscriptionStatusChange`. Permet au dispatcher (lib/stripe/dispatcher.ts)
+ * de décider s'il faut alerter Telegram.
+ */
+export interface PropagationResult {
+  tenantId: string | null;
+  /** Plans cibles appliqués (DB) — sert au log + dashboard admin. */
+  applied: Array<{ app: 'notifuse' | 'prospection'; targetPlan: string; immune: boolean }>;
+  /**
+   * Apps downstream qui ont échoué après tous les retry HMAC du client. Si
+   * non-vide → alerter Robert Telegram. Vide = tout est passé (ou app n'a pas
+   * de propagation HMAC active comme Prospection au 2026-05-21).
+   */
+  failures: Array<{ app: 'notifuse' | 'prospection'; targetPlan: string; error: string }>;
+}
 
 /**
  * Résout le user UUID Hub lié à un Stripe customer ID.
@@ -74,8 +93,26 @@ export async function manageSubscriptionStatusChange(
   subscriptionId: string,
   customerId: string,
   _createAction = false,
-): Promise<void> {
+  opts: { notifuseClient?: NotifuseClient } = {},
+): Promise<PropagationResult> {
   const uuid = await resolveUserUuid(customerId);
+
+  // Best-effort : on persiste le lien customer→user sur users si pas déjà fait.
+  // Le lookup direct futur via `users.stripe_customer_id` court-circuite le
+  // resolve en cascade et accélère le webhook.
+  try {
+    await prisma.user.updateMany({
+      where: { supabaseUserId: uuid, stripeCustomerId: null },
+      data: { stripeCustomerId: customerId },
+    });
+  } catch (err) {
+    // Non-bloquant : si la colonne n'existe pas encore (migration pending),
+    // on log et on continue.
+    console.warn(
+      `[stripe-sync] backfill users.stripe_customer_id failed (non-blocking):`,
+      err instanceof Error ? err.message : err,
+    );
+  }
 
   const subscription = await stripe.subscriptions.retrieve(subscriptionId, {
     expand: ['default_payment_method'],
@@ -143,62 +180,157 @@ export async function manageSubscriptionStatusChange(
 
   // ─── Propagation aux apps downstream via mapping catalogue ───
   // Cf docs/CONTRAT-HUB.md §7.4 (chaîne Stripe → Hub → apps).
-  if (planKey) {
-    try {
-      const tenant = await prisma.tenant.findFirst({
-        where: { userId: uuid },
-        select: { id: true, notifusePlan: true, prospectionPlan: true, metadata: true },
-      });
+  const result: PropagationResult = {
+    tenantId: null,
+    applied: [],
+    failures: [],
+  };
 
-      if (tenant) {
-        // Plans actifs → applique le bundle. Inactifs → on retombe sur free.
-        const appPlans = isActive
-          ? getAppPlansForBundle(planKey as Parameters<typeof getAppPlansForBundle>[0])
-          : [];
+  if (!planKey) {
+    return result;
+  }
 
-        // Default conservateur : si subscription inactive, downgrade aux plans free.
-        // ATTENTION : ne JAMAIS toucher un tenant avec plan_source ∈ lifetime_*/internal
-        // (cf §3.3 contrat — immunité Stripe). On vérifie via metadata.
-        const meta = (tenant.metadata as Record<string, unknown> | null) ?? {};
-        const notifusePlanSource =
-          (meta.notifuse_plan_source as string | undefined) ?? 'manual';
-        const isImmuneNotifuse = ['lifetime_site_vitrine', 'lifetime_partner', 'internal'].includes(
-          notifusePlanSource,
-        );
+  let tenant: {
+    id: string;
+    notifuseWorkspaceSlug: string | null;
+    notifusePlan: string | null;
+    prospectionPlan: string | null;
+    metadata: unknown;
+  } | null = null;
 
-        const targetNotifuse = isImmuneNotifuse
-          ? tenant.notifusePlan
-          : isActive
-            ? appPlans.find((p) => p.app === 'notifuse')?.plan?.replace(/^notifuse-/, '') ?? 'free'
-            : 'free';
+  try {
+    tenant = await prisma.tenant.findFirst({
+      where: { userId: uuid },
+      select: {
+        id: true,
+        notifuseWorkspaceSlug: true,
+        notifusePlan: true,
+        prospectionPlan: true,
+        metadata: true,
+      },
+    });
+  } catch (lookupErr) {
+    console.error(
+      `[stripe-sync] tenant lookup failed for user ${uuid} (non-blocking):`,
+      lookupErr,
+    );
+    return result;
+  }
 
-        const targetProspection = isActive
-          ? appPlans.find((p) => p.app === 'prospection')?.plan?.replace(/^prospection-/, '') ?? 'freemium'
-          : 'freemium';
+  if (!tenant) {
+    return result;
+  }
 
-        await prisma.tenant.update({
-          where: { id: tenant.id },
-          data: {
-            notifusePlan: targetNotifuse,
-            prospectionPlan: targetProspection,
-          },
-        });
+  result.tenantId = tenant.id;
 
-        console.log(
-          `[stripe-sync] Tenant ${tenant.id} updated: notifuse=${targetNotifuse}, prospection=${targetProspection} ` +
-            `(planKey=${planKey}, isActive=${isActive}, immune=${isImmuneNotifuse})`,
-        );
+  // Plans actifs → applique le bundle. Inactifs → on retombe sur free.
+  const appPlans = isActive
+    ? getAppPlansForBundle(planKey as Parameters<typeof getAppPlansForBundle>[0])
+    : [];
 
-        // TODO §7.4 : propagation HMAC vers les apps downstream via
-        // `/api/tenants/update-plan`. Aujourd'hui DB-only (warning explicite
-        // côté admin endpoint). À câbler dans une session dédiée — non
-        // bloquant car les apps ont leur propre sync via lecture DB Hub.
+  // Default conservateur : si subscription inactive, downgrade aux plans free.
+  // ATTENTION : ne JAMAIS toucher un tenant avec plan_source ∈ lifetime_*/internal
+  // (cf §3.3 contrat — immunité Stripe).
+  const meta = (tenant.metadata as Record<string, unknown> | null) ?? {};
+  const notifusePlanSource =
+    (meta.notifuse_plan_source as string | undefined) ?? 'manual';
+  const isImmuneNotifuse = ['lifetime_site_vitrine', 'lifetime_partner', 'internal'].includes(
+    notifusePlanSource,
+  );
+
+  const targetNotifuse = isImmuneNotifuse
+    ? tenant.notifusePlan ?? 'free'
+    : isActive
+      ? appPlans.find((p) => p.app === 'notifuse')?.plan?.replace(/^notifuse-/, '') ?? 'free'
+      : 'free';
+
+  const targetProspection = isActive
+    ? appPlans.find((p) => p.app === 'prospection')?.plan?.replace(/^prospection-/, '') ?? 'freemium'
+    : 'freemium';
+
+  // ─── 1. Sync DB Hub (source de vérité côté Hub) ───
+  try {
+    await prisma.tenant.update({
+      where: { id: tenant.id },
+      data: {
+        notifusePlan: targetNotifuse,
+        prospectionPlan: targetProspection,
+      },
+    });
+  } catch (dbErr) {
+    console.error(
+      `[stripe-sync] tenant.update failed for ${tenant.id}:`,
+      dbErr,
+    );
+    return result;
+  }
+
+  result.applied.push({ app: 'notifuse', targetPlan: targetNotifuse, immune: isImmuneNotifuse });
+  result.applied.push({ app: 'prospection', targetPlan: targetProspection, immune: false });
+
+  console.log(
+    `[stripe-sync] Tenant ${tenant.id} updated: notifuse=${targetNotifuse}, prospection=${targetProspection} ` +
+      `(planKey=${planKey}, isActive=${isActive}, immune=${isImmuneNotifuse})`,
+  );
+
+  // ─── 2. Propagation HMAC Hub → Notifuse (§7.4) ───
+  // Si l'app a son workspace provisionné. Si immune → on skip (le tenant ne
+  // doit pas être bougé par Stripe).
+  if (!isImmuneNotifuse && tenant.notifuseWorkspaceSlug) {
+    const client = opts.notifuseClient ?? buildDefaultNotifuseClient();
+    if (client) {
+      // Cast safe — targetNotifuse vient de getAppPlansForBundle qui mappe
+      // toujours sur des plans valides Notifuse. Si jamais une nouvelle valeur
+      // apparaît côté catalogue sans être ajoutée au union NotifusePlan, on
+      // log un warning et on n'appelle pas l'app downstream.
+      if (!isNotifusePlan(targetNotifuse)) {
+        const msg = `targetNotifuse "${targetNotifuse}" non reconnu côté Notifuse, propagation HMAC skip`;
+        console.warn(`[stripe-sync] ${msg} tenant=${tenant.id}`);
+        result.failures.push({ app: 'notifuse', targetPlan: targetNotifuse, error: msg });
+        return result;
       }
-    } catch (syncErr) {
-      console.error(
-        `[stripe-sync] Failed to propagate plan to tenant for user ${uuid} (non-blocking):`,
-        syncErr,
+      const safePlan: NotifusePlan = targetNotifuse;
+      try {
+        await client.updatePlan({
+          tenantId: tenant.id,
+          plan: safePlan,
+        });
+        console.log(
+          `[stripe-sync] HMAC update-plan OK notifuse tenant=${tenant.id} plan=${targetNotifuse}`,
+        );
+      } catch (hmacErr) {
+        const message =
+          hmacErr instanceof NotifuseError
+            ? `Notifuse HTTP ${hmacErr.code}: ${hmacErr.message}`
+            : hmacErr instanceof Error
+              ? hmacErr.message
+              : String(hmacErr);
+        console.error(
+          `[stripe-sync] HMAC update-plan KO notifuse tenant=${tenant.id} plan=${targetNotifuse}: ${message}`,
+        );
+        result.failures.push({ app: 'notifuse', targetPlan: targetNotifuse, error: message });
+      }
+    } else {
+      console.warn(
+        `[stripe-sync] Notifuse client not configured (ENV manquant) — propagation HMAC skip pour ${tenant.id}`,
       );
     }
   }
+
+  // Prospection : pas encore d'endpoint update-plan câblé côté agent
+  // Prospection au 2026-05-21 (ticket dispatché). DB Hub mise à jour ci-dessus,
+  // l'app le lira via discovery quand son endpoint sera prêt.
+
+  return result;
+}
+
+/**
+ * Construit le client Notifuse depuis ENV. Renvoie null si ENV manquant
+ * (cas dev local sans Notifuse câblé). Le dispatcher gère le null en logguant.
+ */
+function buildDefaultNotifuseClient(): NotifuseClient | null {
+  const apiUrl = process.env.NOTIFUSE_API_URL;
+  const hubSecret = process.env.NOTIFUSE_HUB_API_SECRET;
+  if (!apiUrl || !hubSecret) return null;
+  return new NotifuseClient({ apiUrl, hubSecret });
 }
