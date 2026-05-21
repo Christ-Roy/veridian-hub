@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
-import { Users } from 'lucide-react';
+import { Users, Building2, Sparkles } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { InviteModal } from '@/components/workspace/InviteModal';
 import { MembersTable } from '@/components/workspace/MembersTable';
@@ -29,9 +30,55 @@ export default async function WorkspaceMembersPage() {
   });
 
   if (!dbWorkspace) {
-    // Aucun workspace : on renvoie au dashboard pour l'instant. À terme,
-    // un workspace par défaut sera provisionné lors du signup (LOT B).
-    redirect('/dashboard');
+    // Aucun workspace pour ce user. Le provisioning auto au signup n'est
+    // pas encore câblé (cf. todo/2026-05-21-workspace-provisioning-at-signup.md).
+    // En attendant, on affiche un placeholder lisible plutôt que de
+    // rediriger silencieusement vers /dashboard (mauvaise UX).
+    return (
+      <div className="flex flex-col gap-8 p-4 md:p-8 max-w-4xl mx-auto w-full">
+        <div>
+          <div className="flex items-center gap-3 mb-2">
+            <Users className="h-10 w-10 text-primary" />
+            <h1 className="text-4xl font-bold tracking-tight">Membres</h1>
+          </div>
+          <p className="text-muted-foreground">
+            Invitez et gérez les membres de votre workspace.
+          </p>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <Building2 className="h-6 w-6 text-muted-foreground" />
+              <div>
+                <CardTitle>Pas encore de workspace</CardTitle>
+                <CardDescription>
+                  Pour inviter des membres, vous devez d&apos;abord créer un workspace.
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-4">
+            <div className="flex items-start gap-2 rounded-md bg-muted/50 p-4 text-sm">
+              <Sparkles className="h-4 w-4 mt-0.5 text-primary shrink-0" />
+              <div className="space-y-1">
+                <p className="font-medium">Fonctionnalité en cours de finalisation</p>
+                <p className="text-muted-foreground">
+                  La création de workspace sera disponible très prochainement. En attendant,
+                  vous pouvez continuer à utiliser Veridian depuis votre{' '}
+                  <a href="/dashboard" className="underline underline-offset-4">tableau de bord</a>.
+                </p>
+              </div>
+            </div>
+
+            <Button disabled className="w-full sm:w-auto">
+              Créer mon workspace
+              <span className="ml-2 text-xs opacity-60">(bientôt)</span>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   // Le user lui-même est-il membre ? (on s'attend à oui d'après la query)
