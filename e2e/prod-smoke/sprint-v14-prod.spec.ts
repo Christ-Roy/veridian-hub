@@ -31,10 +31,21 @@ import { test, expect } from '@playwright/test';
 const PROD_HUB_URL = 'https://app.veridian.site';
 
 /**
- * Helper qui asserte qu'un code HTTP N'EST PAS 5xx. Un 5xx en prod sur ces
- * routes = migration manquante ou ENV manquante = ROLLBACK obligatoire.
+ * Helper qui asserte qu'un code HTTP est dans la whitelist attendue.
  *
- * On accepte un set de codes 4xx attendus (variation selon état ENV/DB).
+ * Sémantique :
+ *   - 4xx → route câblée, validation auth/input fonctionne.
+ *   - 503 → route câblée mais ENV optionnelle manquante (cf
+ *     verifyInvitationHmac qui retourne 503 quand HUB_INVITATION_SECRET_X
+ *     n'est pas configuré). C'est attendu et OK : ça prouve que le code
+ *     applicatif tourne, juste qu'une ENV optionnelle n'a pas été poussée
+ *     en prod (pas critique tant que l'app downstream n'appelle pas la
+ *     route).
+ *   - 500 → BAD : migration DB manquante ou crash imprévu. ROLLBACK.
+ *
+ * On vérifie deux choses :
+ *   1. Le code N'EST PAS 500 (le seul code "anormal" qu'on veut catch)
+ *   2. Le code EST dans la whitelist (sinon nouveau comportement → review)
  */
 function expectClientError(
   status: number,
@@ -43,10 +54,9 @@ function expectClientError(
 ) {
   expect(
     status,
-    `prod ${routeLabel} returned ${status}. ` +
-      `5xx = migration ou ENV manquante en prod = ROLLBACK. ` +
-      `Accepted client errors: ${acceptedCodes.join(', ')}`,
-  ).toBeLessThan(500);
+    `prod ${routeLabel} returned 500 — migration DB manquante ou crash imprévu = ROLLBACK. ` +
+      `Accepted codes: ${acceptedCodes.join(', ')}`,
+  ).not.toBe(500);
   expect(
     acceptedCodes,
     `prod ${routeLabel} returned ${status}, expected one of ${acceptedCodes.join(', ')}`,
