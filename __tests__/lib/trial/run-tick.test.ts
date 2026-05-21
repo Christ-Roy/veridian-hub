@@ -226,6 +226,32 @@ describe('runTrialTick — phase activate', () => {
     expect(summary.errors[0].phase).toBe('activate');
     expect(summary.errors[0].error).toMatch(/notifuse down/);
   });
+
+  it('filtre les tenants soft-deleted dans la query SQL (anti-régression E2E Cas 5)', async () => {
+    // Anti-régression bug détecté par e2e/staging-full/15-legacy-tenants-paths
+    // Cas 5 + ticket 2026-05-22-trial-tick-filtre-soft-deleted.md.
+    // Le bug : trial-tick activait/notifiait/expirait des trials sur des
+    // tenants dont t.deleted_at IS NOT NULL → mails honteux + Telegram
+    // bruyant + update-plan inutile sur workspace mort.
+    setupEmptyScans();
+    const { runTrialTick } = await import('@/lib/trial/run-tick');
+    await runTrialTick({ now: NOW });
+
+    // Les 3 phases utilisent $queryRaw. Vérifier que les 3 calls ont bien
+    // le filtre soft-deleted (EXISTS ... deleted_at IS NULL).
+    expect(queryRawMock).toHaveBeenCalledTimes(3);
+    for (const call of queryRawMock.mock.calls) {
+      // Prisma.sql wrappe le template en objet avec strings/values.
+      // On reconstruit la query exécutée pour la vérification.
+      const sqlObj = call[0] as { strings?: readonly string[]; sql?: string };
+      const sqlString = sqlObj.strings
+        ? sqlObj.strings.join('')
+        : (sqlObj.sql ?? String(sqlObj));
+      expect(sqlString).toMatch(/EXISTS/);
+      expect(sqlString).toMatch(/hub_app\.tenants/);
+      expect(sqlString).toMatch(/deleted_at IS NULL/);
+    }
+  });
 });
 
 // ============================================================================

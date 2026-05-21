@@ -136,6 +136,9 @@ async function processActivations(
     now.getTime() - TRIAL_ELIGIBLE_WAIT_HOURS * 60 * 60 * 1000,
   );
 
+  // Filtre soft-deleted obligatoire (cf ticket 2026-05-22-trial-tick-filtre-soft-deleted).
+  // tenant_id peut être un UUID Hub, un slug Notifuse ou un slug Hub
+  // (cf convention resolveOwnerEmail) — triple OR pour matcher.
   const rows = await prisma.$queryRaw<
     Array<{ tenant_id: string; app: string; eligible_at: Date }>
   >(Prisma.sql`
@@ -144,6 +147,15 @@ async function processActivations(
     WHERE state = 'eligible'
       AND eligible_at IS NOT NULL
       AND eligible_at <= ${eligibleCutoff}
+      AND EXISTS (
+        SELECT 1 FROM hub_app.tenants t
+        WHERE (
+          t.id::text = tenant_trials.tenant_id
+          OR t.notifuse_workspace_slug = tenant_trials.tenant_id
+          OR t.slug = tenant_trials.tenant_id
+        )
+        AND t.deleted_at IS NULL
+      )
     ORDER BY eligible_at ASC
     LIMIT 100
     FOR UPDATE SKIP LOCKED
@@ -205,6 +217,8 @@ async function processEndingSoon(
     now.getTime() - TRIAL_NOTIFY_ENDING_SOON_DAYS * 24 * 60 * 60 * 1000,
   );
 
+  // Filtre soft-deleted (cf phase eligible) — un tenant supprimé pendant
+  // son trial actif ne doit pas recevoir "expire dans 3j".
   const rows = await prisma.$queryRaw<
     Array<{ tenant_id: string; app: string; trial_ends_at: Date }>
   >(Prisma.sql`
@@ -214,6 +228,15 @@ async function processEndingSoon(
       AND ending_soon_notified = FALSE
       AND trial_started_at IS NOT NULL
       AND trial_started_at <= ${notifyCutoff}
+      AND EXISTS (
+        SELECT 1 FROM hub_app.tenants t
+        WHERE (
+          t.id::text = tenant_trials.tenant_id
+          OR t.notifuse_workspace_slug = tenant_trials.tenant_id
+          OR t.slug = tenant_trials.tenant_id
+        )
+        AND t.deleted_at IS NULL
+      )
     ORDER BY trial_started_at ASC
     LIMIT 100
     FOR UPDATE SKIP LOCKED
@@ -261,6 +284,8 @@ async function processFinalize(
   notifyTelegram: NonNullable<TickDeps['notifyTelegram']>,
   summary: TickSummary,
 ): Promise<void> {
+  // Filtre soft-deleted (cf phases précédentes) — pas de downgrade
+  // notifuse update-plan plan=free sur tenant déjà nettoyé.
   const rows = await prisma.$queryRaw<
     Array<{ tenant_id: string; app: string; trial_ends_at: Date }>
   >(Prisma.sql`
@@ -269,6 +294,15 @@ async function processFinalize(
     WHERE state = 'trial_active'
       AND trial_ends_at IS NOT NULL
       AND trial_ends_at <= ${now}
+      AND EXISTS (
+        SELECT 1 FROM hub_app.tenants t
+        WHERE (
+          t.id::text = tenant_trials.tenant_id
+          OR t.notifuse_workspace_slug = tenant_trials.tenant_id
+          OR t.slug = tenant_trials.tenant_id
+        )
+        AND t.deleted_at IS NULL
+      )
     ORDER BY trial_ends_at ASC
     LIMIT 100
     FOR UPDATE SKIP LOCKED
