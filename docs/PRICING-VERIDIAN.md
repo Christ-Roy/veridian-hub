@@ -337,7 +337,7 @@ le Hub n'a pas son endpoint webhook receiver.
 | Brique | Status | Ticket / référence |
 |---|---|---|
 | Stripe webhook central (single endpoint orchestrateur) | ⏳ **en cours** | `veridian-hub/todo/2026-05-21-stripe-webhook-orchestrator.md` |
-| Trial state machine (5 mails → 2j silence → 15j → +30j CB → débit/paywall) | ⏳ **en cours** | `veridian-hub/todo/2026-05-21-trial-state-machine.md` |
+| Trial state machine (5 mails → 2j silence → 15j → +30j CB → débit/paywall) | ✅ **livré** côté Hub (cron + table) — webhook Notifuse à câbler | commit 8802f58 / `veridian-hub/todo/done/2026-05-21-trial-state-machine.md` |
 | Discovery cross-app (`GET /api/users/by-email`) | ⏳ **spec posée** | `veridian-hub/todo/2026-05-20-hub-discovery-by-email-pattern.md` |
 | Webhook receivers app→Hub (signaux engagement, ex: 5e mail Notifuse) | ⏳ **en cours** | `veridian-hub/todo/2026-05-21-contrat-hub-v15-sync.md` |
 | Notifuse `POST /api/tenants/update-plan` (consommé par Hub) | ✅ **livré** côté Notifuse | cf. section précédente |
