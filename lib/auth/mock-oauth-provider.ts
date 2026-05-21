@@ -33,6 +33,7 @@
  *     tester le pont `supabaseUserId` end-to-end.
  */
 
+import { randomUUID } from 'node:crypto';
 import Credentials from 'next-auth/providers/credentials';
 import { z } from 'zod';
 import type { PrismaClient } from '@prisma/client';
@@ -106,6 +107,11 @@ export function isMockOauthEnabled(env: NodeJS.ProcessEnv = process.env): boolea
 export type MockOauthDeps = {
   prisma: Pick<PrismaClient, 'user' | 'account'>;
   logger?: { warn: (...args: unknown[]) => void; info?: (...args: unknown[]) => void };
+  /**
+   * UUID factory injectable — par défaut `randomUUID` de node:crypto.
+   * Utile pour les tests déterministes qui veulent assert un UUID précis.
+   */
+  generateUuid?: () => string;
 };
 
 /**
@@ -115,7 +121,7 @@ export type MockOauthDeps = {
  * **Ne PAS exporter directement** — passer par `buildMockOauthProvider()`
  * qui appelle `assertSafeContext()` d'abord.
  */
-function buildProvider({ prisma, logger = console }: MockOauthDeps) {
+function buildProvider({ prisma, logger = console, generateUuid = randomUUID }: MockOauthDeps) {
   return Credentials({
     id: 'mock-oauth',
     name: 'Mock OAuth (E2E only)',
@@ -137,14 +143,22 @@ function buildProvider({ prisma, logger = console }: MockOauthDeps) {
       if (!parsed.success) return null;
       const { email, mockProvider, mockEmailVerified } = parsed.data;
 
-      // Reproduit le comportement du PrismaAdapter OAuth :
+      // Reproduit le comportement du PrismaAdapter OAuth + event createUser :
       // 1. Cherche un user par email (avec allowDangerousEmailAccountLinking
       //    actif côté Google/Microsoft, le link est automatique).
-      // 2. Si absent, crée un user avec uniquement les champs que le
-      //    PrismaAdapter aurait posé. **supabaseUserId reste NULL** — c'est
-      //    exactement le bug d'hier qu'on veut tester. L'event createUser
-      //    le patche après.
+      // 2. Si absent, crée un user AVEC `supabaseUserId` UUID v4.
       // 3. Crée la row Account si elle n'existe pas (provider=<mockProvider>).
+      //
+      // ⚠️ BUG-2026-05-21 : Auth.js v5 NE déclenche PAS `events.createUser`
+      // pour les providers Credentials (uniquement OAuth via PrismaAdapter).
+      // Comme le mock est un Credentials provider, l'event câblé dans `auth.ts`
+      // ne tourne JAMAIS sur ce flow → si on ne posait pas `supabaseUserId`
+      // ici, tous les users mock auraient `supabaseUserId=NULL` et le
+      // Dashboard crasherait via `userUuid()` (cf. `lib/auth/get-user.ts:76`).
+      //
+      // Donc on reproduit ici localement ce que `createCreateUserEvent` aurait
+      // posé : `supabaseUserId = randomUUID()`. Idempotent (on ne touche pas
+      // au user existant si trouvé par findUnique).
       let user = await prisma.user.findUnique({
         where: { email },
         select: { id: true, email: true },
@@ -155,7 +169,9 @@ function buildProvider({ prisma, logger = console }: MockOauthDeps) {
           data: {
             email,
             emailVerified: mockEmailVerified === 'true' ? new Date() : null,
-            // PAS de supabaseUserId — on veut que events.createUser le pose.
+            // Pont vers tenants.user_id / subscriptions.user_id (UUID).
+            // Sans ça → Dashboard 500 sur userUuid() pour ce user.
+            supabaseUserId: generateUuid(),
           },
           select: { id: true, email: true },
         });

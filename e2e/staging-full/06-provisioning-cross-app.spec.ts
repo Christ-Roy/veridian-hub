@@ -252,28 +252,22 @@ test.describe('Journey 6 — Flow signup → /tenants/start → /tenants/status'
 // ─── Garde-fou : dashboard accessible post-signup ─────────────────────────
 
 test.describe('Journey 6 — Dashboard chargeable post-signup', () => {
-  // BUG DÉTECTÉ 2026-05-21 (par CE test E2E) :
-  // Le dashboard rend 500 pour les users OAuth fresh (mock provider) parce
-  // que `events.createUser` dans `auth.ts` n'est pas déclenché pour le
-  // PrismaAdapter quand le provider est `mock-oauth` (notre Credentials
-  // provider custom). Le user est créé via `prisma.user.create()` direct
-  // dans le provider, sans déclencher l'event Auth.js → supabaseUserId null
-  // → Dashboard crash sur userUuid().
+  // BUG-2026-05-21 résolu : Auth.js v5 NE déclenche PAS `events.createUser`
+  // pour les Credentials providers (uniquement OAuth via PrismaAdapter).
+  // Comme le mock est un Credentials provider, l'event câblé dans `auth.ts`
+  // ne tournait pas → users mock créés avec supabaseUserId NULL → Dashboard
+  // crashait sur userUuid() (lib/auth/get-user.ts:76).
   //
-  // Logs staging confirmant :
-  //   [mock-oauth-provider] mock OAuth login userId:cmpfpp3re...
-  //   Failed to fetch subscription: Error: User cmpfpp3re... has no supabaseUserId
+  // Fix : `lib/auth/mock-oauth-provider.ts` pose maintenant
+  // `supabaseUserId: randomUUID()` directement dans `prisma.user.create()`,
+  // reproduisant ce que `createCreateUserEvent` aurait posé sur un vrai
+  // signup OAuth Google/Microsoft via PrismaAdapter.
   //
-  // Ce test DOIT passer mais ne le fait pas — preuve d'un bug du flow OAuth
-  // mock. Fix proposé : faire poser `supabaseUserId: randomUUID()` direct
-  // dans `lib/auth/mock-oauth-provider.ts` au moment du `prisma.user.create`,
-  // OU patcher `auth.ts` pour déclencher l'event createUser même pour les
-  // Credentials providers qui créent un user.
-  //
-  // Fixé quand ce test sera vert sans modification. Voir le rapport agent
-  // 2026-05-21 E2E ticket pour la trace complète.
-  test.fixme(
-    'dashboard rend 200 (pas de crash userUuid) — BUG-2026-05-21 toujours actif sur mock OAuth',
+  // Non-régression colocalisée dans
+  // `__tests__/lib/auth/mock-oauth-provider.test.ts` (test
+  // "BUG-2026-05-21 : pose supabaseUserId UUID v4").
+  test(
+    'dashboard rend 200 (pas de crash userUuid) — BUG-2026-05-21 fixé',
     async ({ playwright }) => {
     // On utilise mock OAuth (pas signupCredentials) car ce dernier hit le
     // signupLimiter à 5/min/IP, déjà épuisé par les tests précédents. Le mock
