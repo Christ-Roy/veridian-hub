@@ -32,6 +32,24 @@ export default async function DashboardLayout({
 
   const userCreatedAt = dbUser?.createdAt?.toISOString() ?? new Date().toISOString();
 
+  // Récupérer le workspace courant pour l'afficher dans le sidebar.
+  // Mono-workspace au lancement (multi-workspace en P3+). Le provisioning
+  // au signup garantit qu'un workspace existe pour tout user post-2026-05-21 ;
+  // pour les legacy en attente de backfill, on tombe sur null sans crasher.
+  let currentWorkspaceName: string | null = null;
+  try {
+    const ws = await prisma.workspace.findFirst({
+      where: {
+        members: { some: { userId: user.id } },
+        deletedAt: null,
+      },
+      select: { name: true },
+    });
+    currentWorkspaceName = ws?.name ?? null;
+  } catch (err) {
+    console.error('[Dashboard Layout] Failed to fetch workspace name:', err);
+  }
+
   // Vérifier si l'utilisateur a une subscription active.
   // CONTRAT IDs : subscriptions.user_id est en UUID — on utilise userUuid().
   let hasActiveSubscription = false;
@@ -83,6 +101,7 @@ export default async function DashboardLayout({
             email: user.email || 'user@example.com',
             avatar: dbUser?.image || user.image || '/avatars/default.svg',
           }}
+          workspaceName={currentWorkspaceName}
         />
         <main className="flex-1 flex flex-col overflow-hidden w-full">
           {/* Bandeau freemium - à l'intérieur du main content */}

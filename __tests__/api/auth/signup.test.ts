@@ -1,35 +1,50 @@
 /**
  * Test smoke pour POST /api/auth/signup après bascule provisioning on-demand
- * (2026-05-18).
+ * (2026-05-18) + auto-création workspace au signup (2026-05-21).
  *
  * Vérifie que :
  *   1. Refuse JSON invalide (400).
  *   2. Refuse email/password manquants (400).
  *   3. Refuse doublon email (409).
- *   4. Crée user et NE déclenche PAS de provisioning automatique
+ *   4. Crée user et NE déclenche PAS de provisioning automatique tenants
  *      (le user choisira ses apps depuis le dashboard via /api/tenants/start).
+ *   5. Provisionne un workspace par défaut + WorkspaceMember role=OWNER
+ *      (régression 2026-05-21 : 23 users prod orphelins de workspace).
+ *   6. Échec workspace provisioning ne casse PAS le signup (best-effort).
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const userStore: Map<string, any> = new Map();
+const provisionCalls: Array<{ userId: string; email: string; name?: string | null }> = [];
+let provisionShouldThrow = false;
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     user: {
       findUnique: vi.fn(async ({ where }: any) => userStore.get(where.email) ?? null),
       create: vi.fn(async ({ data, select }: any) => {
-        const created = { id: data.id, email: data.email };
+        const created = { id: data.id, email: data.email, name: data.name ?? null };
         userStore.set(data.email, created);
-        return select ? { id: created.id, email: created.email } : created;
+        return select ? { id: created.id, email: created.email, name: created.name } : created;
       }),
     },
   },
 }));
 
+vi.mock('@/lib/workspace/provision', () => ({
+  provisionDefaultWorkspace: vi.fn(async (input: any) => {
+    provisionCalls.push({ userId: input.userId, email: input.email, name: input.name });
+    if (provisionShouldThrow) throw new Error('workspace failed');
+    return { workspaceId: `ws-${input.userId}`, created: true, workspaceName: 'test workspace' };
+  }),
+}));
+
 beforeEach(async () => {
   vi.clearAllMocks();
   userStore.clear();
+  provisionCalls.length = 0;
+  provisionShouldThrow = false;
   // Reset rate-limit entre les tests (sinon les 5+ tests successifs saturent)
   const { signupLimiter } = await import('@/lib/auth/rate-limit');
   signupLimiter.reset();
@@ -94,5 +109,28 @@ describe('POST /api/auth/signup', () => {
     const body = await res.json();
     expect(body.email).toBe('new@test.io');
     expect(body.id).toBeTruthy();
+  });
+
+  it('provisions a default workspace after user creation (2026-05-21 fix)', async () => {
+    const { POST } = await import('@/app/api/auth/signup/route');
+    const res = await POST(makeReq({ email: 'ws@test.io', password: 'longenough' }));
+    expect(res.status).toBe(201);
+
+    // Workspace provisioning a été appelé pour ce user neuf
+    expect(provisionCalls).toHaveLength(1);
+    expect(provisionCalls[0].email).toBe('ws@test.io');
+    expect(provisionCalls[0].userId).toBeTruthy();
+  });
+
+  it('workspace provisioning failure does not block signup (best-effort)', async () => {
+    provisionShouldThrow = true;
+    const { POST } = await import('@/app/api/auth/signup/route');
+    const res = await POST(makeReq({ email: 'wsfail@test.io', password: 'longenough' }));
+    // Signup réussit quand même
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body.email).toBe('wsfail@test.io');
+    // Mais l'appel provisioning a bien été tenté
+    expect(provisionCalls).toHaveLength(1);
   });
 });

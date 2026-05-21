@@ -1,6 +1,5 @@
 import { redirect } from 'next/navigation';
-import { Users, Building2, Sparkles } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Users } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { InviteModal } from '@/components/workspace/InviteModal';
 import { MembersTable } from '@/components/workspace/MembersTable';
@@ -8,6 +7,7 @@ import type { WorkspaceMember, WorkspaceRole } from '@/types/workspace';
 import { canInviteMembers } from '@/types/workspace';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
+import { provisionDefaultWorkspace } from '@/lib/workspace/provision';
 
 export default async function WorkspaceMembersPage() {
   const user = await getCurrentUser();
@@ -17,7 +17,7 @@ export default async function WorkspaceMembersPage() {
 
   // Récupérer le premier workspace dont l'utilisateur est membre.
   // Mono-workspace au lancement (multi-workspace en P3+).
-  const dbWorkspace = await prisma.workspace.findFirst({
+  let dbWorkspace = await prisma.workspace.findFirst({
     where: {
       members: { some: { userId: user.id } },
       deletedAt: null,
@@ -29,11 +29,32 @@ export default async function WorkspaceMembersPage() {
     },
   });
 
+  // Auto-self-heal : si l'user n'a aucun workspace (cas user prod legacy
+  // pas encore backfillé OU bug de provisioning passé entre les mailles),
+  // on provisionne ici à la volée. Idempotent côté provisionDefaultWorkspace.
+  // À court terme : backfill script rattrape les 23 users prod. Ce fallback
+  // reste comme filet anti-régression.
   if (!dbWorkspace) {
-    // Aucun workspace pour ce user. Le provisioning auto au signup n'est
-    // pas encore câblé (cf. todo/2026-05-21-workspace-provisioning-at-signup.md).
-    // En attendant, on affiche un placeholder lisible plutôt que de
-    // rediriger silencieusement vers /dashboard (mauvaise UX).
+    try {
+      await provisionDefaultWorkspace(
+        { userId: user.id, email: user.email ?? '', name: user.name ?? null },
+        { prisma, actor: 'system:members-page-self-heal' }
+      );
+      dbWorkspace = await prisma.workspace.findFirst({
+        where: {
+          members: { some: { userId: user.id } },
+          deletedAt: null,
+        },
+        include: { members: { orderBy: { invitedAt: 'asc' } } },
+      });
+    } catch (err) {
+      console.error('[WorkspaceMembersPage] self-heal failed:', err);
+    }
+  }
+
+  if (!dbWorkspace) {
+    // Cas extrême : self-heal a échoué (DB down ?). On rend une page sobre
+    // au lieu d'un redirect silencieux. Les logs côté serveur tracent l'erreur.
     return (
       <div className="flex flex-col gap-8 p-4 md:p-8 max-w-4xl mx-auto w-full">
         <div>
@@ -42,40 +63,17 @@ export default async function WorkspaceMembersPage() {
             <h1 className="text-4xl font-bold tracking-tight">Membres</h1>
           </div>
           <p className="text-muted-foreground">
-            Invitez et gérez les membres de votre workspace.
+            Impossible de charger votre workspace pour le moment.
           </p>
         </div>
-
         <Card>
           <CardHeader>
-            <div className="flex items-center gap-3">
-              <Building2 className="h-6 w-6 text-muted-foreground" />
-              <div>
-                <CardTitle>Pas encore de workspace</CardTitle>
-                <CardDescription>
-                  Pour inviter des membres, vous devez d&apos;abord créer un workspace.
-                </CardDescription>
-              </div>
-            </div>
+            <CardTitle>Erreur temporaire</CardTitle>
+            <CardDescription>
+              Rechargez la page dans quelques secondes. Si le problème persiste,
+              contactez le support.
+            </CardDescription>
           </CardHeader>
-          <CardContent className="flex flex-col gap-4">
-            <div className="flex items-start gap-2 rounded-md bg-muted/50 p-4 text-sm">
-              <Sparkles className="h-4 w-4 mt-0.5 text-primary shrink-0" />
-              <div className="space-y-1">
-                <p className="font-medium">Fonctionnalité en cours de finalisation</p>
-                <p className="text-muted-foreground">
-                  La création de workspace sera disponible très prochainement. En attendant,
-                  vous pouvez continuer à utiliser Veridian depuis votre{' '}
-                  <a href="/dashboard" className="underline underline-offset-4">tableau de bord</a>.
-                </p>
-              </div>
-            </div>
-
-            <Button disabled className="w-full sm:w-auto">
-              Créer mon workspace
-              <span className="ml-2 text-xs opacity-60">(bientôt)</span>
-            </Button>
-          </CardContent>
         </Card>
       </div>
     );

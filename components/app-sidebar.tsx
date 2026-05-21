@@ -65,6 +65,7 @@ const navSecondary = [
 
 export function AppSidebar({
   user,
+  workspaceName,
   ...props
 }: React.ComponentProps<typeof Sidebar> & {
   user: {
@@ -72,6 +73,12 @@ export function AppSidebar({
     email: string;
     avatar: string;
   };
+  /**
+   * Nom du workspace courant. Affiché sous le logo Veridian pour rendre
+   * l'objet visible (régression 2026-05-21 : workspaces invisibles côté UI).
+   * Optionnel pour rester rétro-compatible — si absent, on n'affiche rien.
+   */
+  workspaceName?: string | null;
 }) {
   const appName = "Veridian";
 
@@ -90,6 +97,17 @@ export function AppSidebar({
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
+          {workspaceName ? (
+            <SidebarMenuItem>
+              <div
+                className="px-2 py-1 text-xs text-muted-foreground truncate"
+                data-testid="sidebar-workspace-name"
+                title={workspaceName}
+              >
+                {workspaceName}
+              </div>
+            </SidebarMenuItem>
+          ) : null}
         </SidebarMenu>
         <div className="px-3 py-2">
           <AnimatedThemeToggler />

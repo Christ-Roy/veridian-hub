@@ -8,6 +8,10 @@
 // 3. supabaseUserId = randomUUID() pour cohérence avec les users migrés
 //    (ces ID servent de pont vers tenants.user_id et subscriptions.user_id qui
 //    sont en UUID).
+// 4. Provision workspace par défaut + WorkspaceMember role=OWNER (décision
+//    Robert 2026-05-21 option 1 : auto-création silencieuse mono-workspace
+//    pattern Linear/Notion/Slack). Best-effort : un échec ne casse pas le
+//    signup, le backfill prod rattrapera.
 //
 // Plus de provisioning automatique des tenants ici : le user atterrit sur
 // /dashboard et clique "Commencer l'essai" par app (POST /api/tenants/start).
@@ -20,6 +24,7 @@ import { z } from 'zod';
 
 import { prisma } from '@/lib/prisma';
 import { signupLimiter, extractClientIp } from '@/lib/auth/rate-limit';
+import { provisionDefaultWorkspace } from '@/lib/workspace/provision';
 
 const signupSchema = z.object({
   email: z.string().email(),
@@ -98,8 +103,19 @@ export async function POST(request: NextRequest) {
           },
         },
       },
-      select: { id: true, email: true },
+      select: { id: true, email: true, name: true },
     });
+
+    // Provision workspace par défaut (best-effort — un échec ne doit pas
+    // bloquer le signup, le backfill prod rattrapera les éventuels orphelins).
+    try {
+      await provisionDefaultWorkspace(
+        { userId: user.id, email: user.email, name: user.name },
+        { prisma, actor: 'system:credentials-signup' }
+      );
+    } catch (wsErr) {
+      console.error('[Signup] workspace provisioning failed (non-blocking):', wsErr);
+    }
 
     return NextResponse.json({ id: user.id, email: user.email }, { status: 201 });
   } catch (err: any) {
