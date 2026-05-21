@@ -79,12 +79,16 @@ services:
       NOTIFUSE_ROOT_EMAIL: ${NOTIFUSE_ROOT_EMAIL:-admin@veridian.site}
       NOTIFUSE_HUB_API_SECRET: ${NOTIFUSE_HUB_API_SECRET_STAGING:-staging-secret}
       NOTIFUSE_HUB_WEBHOOK_SECRET: ${NOTIFUSE_HUB_WEBHOOK_SECRET_STAGING:-staging-secret}
+      # Bearer token v1.4 — fallback staging-token-not-real autorise les tests
+      # locaux mais l'auth bloque tant que le secret réel n'est pas injecté.
+      NOTIFUSE_WEBHOOK_TOKEN: ${NOTIFUSE_WEBHOOK_TOKEN:-staging-token-not-real}
 
       # ─── Prospection ───────────────────────────────────────────────────
       NEXT_PUBLIC_PROSPECTION_URL: https://prospection.staging.veridian.site
       PROSPECTION_API_URL: https://prospection.staging.veridian.site
       PROSPECTION_INTERNAL_URL: https://prospection.staging.veridian.site
       PROSPECTION_TENANT_API_SECRET: ${PROSPECTION_TENANT_API_SECRET_STAGING:-staging-secret}
+      PROSPECTION_WEBHOOK_TOKEN: ${PROSPECTION_WEBHOOK_TOKEN:-staging-token-not-real}
 
       # ─── Services tiers staging ────────────────────────────────────────
       BREVO_API_KEY: ${BREVO_API_KEY_STAGING:-}

@@ -53,12 +53,18 @@ services:
       NOTIFUSE_ROOT_EMAIL: ${NOTIFUSE_ROOT_EMAIL}
       NOTIFUSE_HUB_API_SECRET: ${NOTIFUSE_HUB_API_SECRET}
       NOTIFUSE_HUB_WEBHOOK_SECRET: ${NOTIFUSE_HUB_WEBHOOK_SECRET}
+      # Bearer token v1.4 — Notifuse l'envoie en `Authorization: Bearer`
+      # quand il POST sur /api/webhooks/notifuse (events tenant.touched,
+      # tenant.activity_threshold_reached, etc.). Convention §7.1 contrat.
+      NOTIFUSE_WEBHOOK_TOKEN: ${NOTIFUSE_WEBHOOK_TOKEN}
 
       # ─── Prospection prod ──────────────────────────────────────────────
       NEXT_PUBLIC_PROSPECTION_URL: https://prospection.app.veridian.site
       PROSPECTION_API_URL: https://prospection.app.veridian.site
       PROSPECTION_INTERNAL_URL: https://prospection.app.veridian.site
       PROSPECTION_TENANT_API_SECRET: ${PROSPECTION_TENANT_API_SECRET}
+      # Bearer token v1.4 — Prospection POST /api/webhooks/prospection.
+      PROSPECTION_WEBHOOK_TOKEN: ${PROSPECTION_WEBHOOK_TOKEN}
 
       # ─── Services tiers prod ───────────────────────────────────────────
       BREVO_API_KEY: ${BREVO_API_KEY}
