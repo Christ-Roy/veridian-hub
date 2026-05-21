@@ -40,6 +40,13 @@ model User {
   // on stocke ici son auth.users.id (uuid stringifié) pour corrélation.
   supabaseUserId String? @unique @map("supabase_user_id")
 
+  // Stripe Customer ID (cus_xxx) — 1 user = 1 Stripe Customer. Permet au
+  // webhook orchestrator (app/api/webhooks/route.ts) de résoudre rapidement
+  // customer.id → user.id sans passer par le lookup en cascade
+  // (subscriptions.stripe_customer_id → metadata → email). Populé au 1er
+  // checkout via /api/billing/checkout, ou backfillé depuis Subscription.
+  stripeCustomerId String? @unique @map("stripe_customer_id")
+
   accounts Account[]
   sessions Session[]
   mfaCodes MfaCode[]
@@ -343,6 +350,35 @@ model Price {
   @@schema("hub_app")
 }
 
+// ============================================================================
+// Stripe events — audit log + idempotence webhook (ticket 2026-05-21 orchestrator)
+// ============================================================================
+//
+// Le Hub est l'orchestrateur Stripe central (cf docs/CONTRAT-HUB.md §7.4).
+// Chaque webhook reçu est persisté ici AVANT dispatch :
+//   - PK sur event_id (evt_xxx) → idempotence (Stripe retry jusqu'à 200 reçu)
+//   - processed_at NULL = en attente ou en cours
+//   - processed_at NOT NULL = dispatch OK
+//   - error NOT NULL = dispatch a échoué, attempts > 0 = retry possible
+//
+// Source de vérité audit + base du dashboard MRR cross-app.
+
+model StripeEvent {
+  eventId     String    @id @map("event_id")
+  eventType   String    @map("event_type")
+  customerId  String?   @map("customer_id")
+  payload     Json
+  receivedAt  DateTime  @default(now()) @map("received_at") @db.Timestamptz(6)
+  processedAt DateTime? @map("processed_at") @db.Timestamptz(6)
+  error       String?
+  attempts    Int       @default(0)
+
+  @@index([eventType])
+  @@index([customerId])
+  @@map("stripe_events")
+  @@schema("hub_app")
+}
+
 model Subscription {
   id                   String             @id @default(uuid()) @db.Uuid
   userId               String             @map("user_id") @db.Uuid
@@ -448,6 +484,46 @@ model UsageMetric {
 
   @@index([tenantId, metricType, timestamp(sort: Desc)])
   @@map("usage_metrics")
+  @@schema("hub_app")
+}
+
+// ============================================================================
+// Webhook dédup + memberships cross-app (v1.4 contrat — créé 2026-05-21)
+// ============================================================================
+//
+// WebhookDedup : table de déduplication des webhooks app → Hub. PK composite
+// (app, idempotency_key) — chaque app maintient son propre espace d'idempotency
+// keys. Fenêtre de dédup 24h, purge via cron (P2+). Stocke payload pour audit.
+//
+// TenantMember : memberships cross-app §11bis du contrat. Hub source de vérité.
+// `last_known_app_role` peut diverger temporairement de `role` (sync best-effort
+// via webhook `tenant.member_role_changed`).
+
+model WebhookDedup {
+  idempotencyKey String    @map("idempotency_key")
+  app            String
+  eventType      String    @map("event_type")
+  payload        Json
+  receivedAt     DateTime  @default(now()) @map("received_at")
+  processedAt    DateTime? @map("processed_at")
+
+  @@id([app, idempotencyKey])
+  @@index([receivedAt])
+  @@map("webhook_dedup")
+  @@schema("hub_app")
+}
+
+model TenantMember {
+  tenantId         String    @map("tenant_id")
+  userId           String    @map("user_id")
+  role             String    @default("member")
+  joinedAt         DateTime  @default(now()) @map("joined_at")
+  deletedAt        DateTime? @map("deleted_at")
+  lastKnownAppRole String?   @map("last_known_app_role")
+
+  @@id([tenantId, userId])
+  @@index([userId])
+  @@map("tenant_members")
   @@schema("hub_app")
 }
 
