@@ -291,8 +291,49 @@ jobs:
             echo "Subject : $SUBJECT"
           fi
 
-      - name: Fast-forward main to staging
+      # FIX 2026-05-21 — bug auto-promote chain (sprint v1.4 retour d'XP).
+      #
+      # Le ff-merge ci-dessous avance main d'UN SEUL coup jusqu'au HEAD staging,
+      # ce qui embarque TOUS les commits intermédiaires entre origin/main et
+      # ce HEAD. Si un commit intermédiaire est tier 🟡/🔴 (pas de marker
+      # [risk:low]), il passe en prod sans audit §20 alors qu'il aurait dû
+      # déclencher la notif "reco agent attendue".
+      #
+      # Cas vécu : sprint v1.4 (10+ commits dont feat/fix tier 🟡/🔴) entièrement
+      # auto-promu parce que le DERNIER commit était `[risk:low]` (env-sync).
+      #
+      # Fix : on inspecte chaque commit du range origin/main..HEAD. Si UN SEUL
+      # n'a pas `[risk:low]` dans son subject → on skip l'auto-promote (sortie
+      # propre, status notice). Le job notify-promotion-needed prendra le
+      # relais en notifiant Robert que des commits non-low attendent reco.
+      - name: Verify ALL commits in origin/main..HEAD have [risk:low]
+        id: check_range
         if: steps.check_subject.outputs.in_subject == 'true'
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin main
+          # Subjects (1ère ligne) de chaque commit du range, séparés par \n.
+          # `git log --format=%s` ne prend que le subject (pas le body), donc
+          # un marker dans le body ne piégera pas le check (volontaire).
+          # Format SHA + subject pour pouvoir lister les fautifs en log.
+          MISSING=$(git log origin/main..HEAD --format='%H %s' | \
+            awk '$0 !~ /\[risk:low\]/ { print }' || true)
+          if [ -n "$MISSING" ]; then
+            echo "all_low=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Auto-promote bloquée — commits sans [risk:low] dans origin/main..HEAD :"
+            echo "$MISSING"
+            echo "Le HEAD est [risk:low] mais des commits intermédiaires tier 🟡/🔴+ ont skip §20."
+            echo "Reco agent attendue avant promotion (cf. CI-ARCHITECTURE §20.5/20.6/20.7)."
+          else
+            echo "all_low=true" >> "$GITHUB_OUTPUT"
+            COUNT=$(git log origin/main..HEAD --oneline | wc -l)
+            echo "✓ Tous les commits du range ($COUNT) portent [risk:low] — auto-promote autorisée"
+          fi
+
+      - name: Fast-forward main to staging
+        if: |
+          steps.check_subject.outputs.in_subject == 'true' &&
+          steps.check_range.outputs.all_low == 'true'
         env:
           STAGING_SHA: ${{ github.sha }}
         run: |
@@ -307,11 +348,35 @@ jobs:
           git push origin main
           echo "✓ main avancé vers $STAGING_SHA (auto-promote)"
 
+      # Notif Telegram dédiée quand le check_range bloque (HEAD low mais
+      # commits intermédiaires non-low). Sans ça, le job sort vert
+      # silencieusement et Robert ne sait pas qu'une reco est due.
+      - name: Telegram notify (range mixed — reco attendue)
+        if: |
+          steps.check_subject.outputs.in_subject == 'true' &&
+          steps.check_range.outputs.all_low == 'false'
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then exit 0; fi
+          SHA7=$(echo "${{ github.sha }}" | cut -c1-7)
+          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -sf -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            -d chat_id=${TG_CHAT} \
+            -d parse_mode=Markdown \
+            -d "text=⛔ Hub auto-promote *bloquée* (\`${SHA7}\`) — HEAD \`[risk:low]\` mais commits intermédiaires non-low dans origin/main..HEAD.%0A%0AReco agent attendue avant promote main (CI-ARCHITECTURE §20).%0A%0ARun : ${RUN_URL}" \
+            >/dev/null || true
+
       # GitHub n'enchaîne PAS automatiquement les workflows quand le push est
       # fait par GITHUB_TOKEN (sécurité anti-loop). On déclenche hub-ci.yml
       # explicitement pour que l'étage 3 prod tourne.
+      # Gating mis à jour 2026-05-21 : ne fire QUE si check_range autorise
+      # aussi la promo (sinon ff-merge n'a pas eu lieu = rien à déclencher).
       - name: Trigger hub-ci.yml on main
-        if: steps.check_subject.outputs.in_subject == 'true'
+        if: |
+          steps.check_subject.outputs.in_subject == 'true' &&
+          steps.check_range.outputs.all_low == 'true'
         env:
           GH_TOKEN: ${{ secrets.AUTO_PROMOTE_PAT || secrets.GH_AUTOPROMOTE_PAT || secrets.GITHUB_TOKEN }}
         run: |
@@ -319,11 +384,13 @@ jobs:
           echo "✓ hub-ci.yml déclenché sur main"
 
       - name: Telegram notify
-        # Notifier seulement si on a réellement promu (marker dans subject).
-        # Si le marker n'était que dans le body, le job sort vert sans rien
-        # faire — l'autre job (notify-promotion-needed) gère la notif "reco
-        # attendue". Pas besoin de spammer "auto-promote skipped".
-        if: always() && steps.check_subject.outputs.in_subject == 'true'
+        # Notifier seulement si on a réellement promu (HEAD low ET range all low).
+        # Sur range mixed, la notif dédiée "range mixed — reco attendue"
+        # ci-dessus a déjà couvert le cas. Pas besoin de spammer "skipped".
+        if: |
+          always() &&
+          steps.check_subject.outputs.in_subject == 'true' &&
+          steps.check_range.outputs.all_low == 'true'
         env:
           TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
