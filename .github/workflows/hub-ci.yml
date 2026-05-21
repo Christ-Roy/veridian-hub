@@ -235,6 +235,7 @@ jobs:
           SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
           VPS_HOST: ${{ vars.VPS_HOST }}
           VPS_USER: ${{ vars.VPS_USER }}
+          RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
           if [ -z "$SSH_KEY" ] || [ -z "$VPS_HOST" ]; then
@@ -246,14 +247,20 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
 
+          # Workdir unique par run pour éviter les résidus root des runs
+          # précédents (les node_modules sont créés par root via docker run,
+          # ubuntu ne peut pas les rm — donc on isole par run_id).
+          REMOTE_DIR="/tmp/hub-prisma-migrate-${RUN_ID}"
+          REMOTE_TAR="/tmp/hub-prisma-migrate-${RUN_ID}.tar.gz"
+
           # 1) Bundle prisma/ + package.json + pnpm-lock + prisma.config.ts
           tar -czf /tmp/prisma-migrate.tar.gz prisma/ package.json pnpm-lock.yaml prisma.config.ts
 
-          # 2) Upload + extract sur prod-pub
+          # 2) Upload + extract sur prod-pub dans dir unique
           scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            /tmp/prisma-migrate.tar.gz "$VPS_USER@$VPS_HOST:/tmp/"
+            /tmp/prisma-migrate.tar.gz "$VPS_USER@$VPS_HOST:$REMOTE_TAR"
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "$VPS_USER@$VPS_HOST" \
-            'rm -rf /tmp/hub-prisma-migrate && mkdir -p /tmp/hub-prisma-migrate && tar -xzf /tmp/prisma-migrate.tar.gz -C /tmp/hub-prisma-migrate'
+            "mkdir -p $REMOTE_DIR && tar -xzf $REMOTE_TAR -C $REMOTE_DIR"
 
           # 3) Run prisma migrate deploy dans un container éphémère sur le
           #    réseau dokploy-network (où vit veridian-core-db). Récupère
@@ -262,7 +269,8 @@ jobs:
           #    bien dans l'ENV du container Hub injectée par Dokploy).
           #    `prisma migrate deploy` est idempotent : exit 0 si à jour,
           #    applique séquentiellement les pending migrations sinon.
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "$VPS_USER@$VPS_HOST" bash <<'REMOTE'
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            "$VPS_USER@$VPS_HOST" "REMOTE_DIR='$REMOTE_DIR' REMOTE_TAR='$REMOTE_TAR' bash -s" <<'REMOTE'
           set -euo pipefail
 
           # Récupération du DATABASE_URL depuis le container Hub prod
@@ -286,7 +294,7 @@ jobs:
           echo "Running prisma migrate deploy on veridian-core-db (hub_app schema)..."
           docker run --rm \
             --network dokploy-network \
-            -v /tmp/hub-prisma-migrate:/app \
+            -v "$REMOTE_DIR":/app \
             -w /app \
             -e DATABASE_URL="$DB_URL" \
             -e DEBUG="prisma:migrate*" \
@@ -299,13 +307,31 @@ jobs:
             '
           echo "✓ Prisma migrations applied (or already up to date)"
 
-          # Cleanup — best-effort. Les fichiers dans node_modules ont été
-          # créés par root via docker run, donc l'user ubuntu ne peut pas
-          # les supprimer. On utilise un container alpine éphémère qui a
-          # les droits root pour faire le ménage.
-          docker run --rm -v /tmp/hub-prisma-migrate:/cleanup alpine \
-            sh -c 'rm -rf /cleanup/* /cleanup/.[!.]*' 2>/dev/null || true
-          rm -rf /tmp/hub-prisma-migrate /tmp/prisma-migrate.tar.gz 2>/dev/null || true
+          # Cleanup — best-effort total. Les fichiers dans node_modules ont
+          # été créés par root via docker run, donc ubuntu ne peut pas les
+          # supprimer directement. On utilise un container alpine root pour
+          # vider le volume, puis on rm le dir vide.
+          set +e
+          docker run --rm -v "$REMOTE_DIR":/cleanup alpine \
+            sh -c 'rm -rf /cleanup/* /cleanup/.[!.]* 2>/dev/null' >/dev/null 2>&1
+          rmdir "$REMOTE_DIR" 2>/dev/null
+          rm -f "$REMOTE_TAR" 2>/dev/null
+          # Best-effort cleanup des anciens runs (si des résidus traînent
+          # depuis avant ce fix). N'affecte jamais le résultat du step.
+          for old in $(ls -d /tmp/hub-prisma-migrate-* 2>/dev/null | grep -v "$REMOTE_DIR" || true); do
+            docker run --rm -v "$old":/cleanup alpine \
+              sh -c 'rm -rf /cleanup/* /cleanup/.[!.]* 2>/dev/null' >/dev/null 2>&1 || true
+            rmdir "$old" 2>/dev/null || true
+          done
+          # Compatibilité ascendante : supprimer l'ancien dossier non-versionné
+          # s'il existe (résidu des runs avant ce fix).
+          if [ -d /tmp/hub-prisma-migrate ]; then
+            docker run --rm -v /tmp/hub-prisma-migrate:/cleanup alpine \
+              sh -c 'rm -rf /cleanup/* /cleanup/.[!.]* 2>/dev/null' >/dev/null 2>&1
+            rmdir /tmp/hub-prisma-migrate 2>/dev/null || true
+          fi
+          rm -f /tmp/prisma-migrate.tar.gz 2>/dev/null || true
+          exit 0
           REMOTE
 
       - name: Cleanup runner secrets
