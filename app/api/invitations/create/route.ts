@@ -38,6 +38,8 @@ import {
   InvitationCreateError,
 } from '@/lib/invitations/create';
 import { verifyInvitationHmac } from '@/lib/invitations/hmac';
+import { sendMail } from '@/lib/email/send';
+import { buildCrossAppInvitationEmail } from '@/lib/email/templates/cross-app-invitation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -141,6 +143,46 @@ export async function POST(request: NextRequest) {
         reused: result.reused,
       },
     });
+
+    // Envoi email d'invitation cross-app (livrable 4 sprint v1.4).
+    // Best-effort : si l'envoi échoue, on garde l'invitation en DB —
+    // l'app caller peut renvoyer manuellement via le magic_link_url
+    // retourné dans la réponse. On loggue l'échec pour observabilité.
+    // Sur idempotence (reused=true) on RE-envoie l'email : l'app
+    // downstream re-poke "Inviter" = l'inviteur veut un nouveau rappel.
+    try {
+      const inviterDisplayName =
+        parsed.data.inviter_email.split('@')[0] || parsed.data.inviter_email;
+      const email = buildCrossAppInvitationEmail({
+        inviterName: inviterDisplayName,
+        inviterEmail: parsed.data.inviter_email,
+        inviteeEmail: parsed.data.invitee_email,
+        targetApp: parsed.data.target_app,
+        targetRole: result.invitation.targetRole,
+        inviteUrl: magicLinkUrl,
+        expiresAt: result.invitation.expiresAt,
+        message: parsed.data.message,
+      });
+      await sendMail({
+        to: parsed.data.invitee_email,
+        subject: email.subject,
+        html: email.html,
+        text: email.text,
+      });
+    } catch (mailErr) {
+      console.error(
+        JSON.stringify({
+          tag: '[invitations][create][email][error]',
+          level: 'warn',
+          invitation_id: result.invitation.id,
+          target_app: parsed.data.target_app,
+          error: mailErr instanceof Error ? mailErr.message : String(mailErr),
+          ts: new Date().toISOString(),
+        }),
+      );
+      // On ne fail PAS la requête : l'invitation est créée, le magic_link
+      // est retourné, l'app caller peut afficher / renvoyer manuellement.
+    }
 
     return NextResponse.json(
       {

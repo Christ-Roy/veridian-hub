@@ -71,6 +71,12 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 
+// Mock email envoi pour ne pas hit Brevo/SMTP en test.
+const sendMailMock = vi.fn(async () => undefined);
+vi.mock('@/lib/email/send', () => ({
+  sendMail: (...args: unknown[]) => sendMailMock(...(args as [unknown])),
+}));
+
 let ipCounter = 0;
 
 function buildReq(opts: {
@@ -119,6 +125,8 @@ async function callRoute(req: any) {
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  sendMailMock.mockReset();
+  sendMailMock.mockResolvedValue(undefined);
   users.length = 0;
   invitations.length = 0;
   auditLogs.length = 0;
@@ -307,6 +315,47 @@ describe('POST /api/invitations/create', () => {
     });
     const res = await callRoute(req);
     expect(res.status).toBe(400);
+  });
+
+  it('sendMail invoqué après création nominale (livrable 4)', async () => {
+    const req = buildReq({ body: validBody });
+    const res = await callRoute(req);
+    expect(res.status).toBe(201);
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+    const arg = sendMailMock.mock.calls[0][0] as any;
+    expect(arg.to).toBe('alice@example.com');
+    expect(arg.subject).toContain('Prospection');
+    expect(arg.html).toContain('https://app.veridian.site/invite/');
+    expect(arg.html).toContain("Accepter l'invitation");
+    expect(arg.text).toContain('https://app.veridian.site/invite/');
+  });
+
+  it('sendMail invoqué aussi sur reused=true (rappel d\'invitation)', async () => {
+    await callRoute(buildReq({ body: validBody }));
+    sendMailMock.mockClear();
+    const res2 = await callRoute(buildReq({ body: validBody }));
+    expect(res2.status).toBe(200);
+    expect(sendMailMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("échec d'envoi email ne fait pas échouer l'invitation (best-effort)", async () => {
+    sendMailMock.mockRejectedValueOnce(new Error('Brevo down'));
+    const req = buildReq({ body: validBody });
+    const res = await callRoute(req);
+    // L'invitation est créée malgré l'échec mail — caller peut renvoyer.
+    expect(res.status).toBe(201);
+    const json = await res.json();
+    expect(json.magic_link_url).toBeTruthy();
+  });
+
+  it('email contient le message libre si fourni', async () => {
+    const req = buildReq({
+      body: { ...validBody, message: 'Bienvenue dans la team' },
+    });
+    const res = await callRoute(req);
+    expect(res.status).toBe(201);
+    const arg = sendMailMock.mock.calls[0][0] as any;
+    expect(arg.html).toContain('Bienvenue dans la team');
   });
 
   it('returns 429 after rate-limit exhausted (60/min/IP)', async () => {
