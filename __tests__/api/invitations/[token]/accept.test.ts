@@ -78,6 +78,15 @@ vi.mock('@/lib/prisma', () => {
         return row;
       }),
     },
+    user: {
+      // Route accept lookup le supabaseUserId du user loggué (UUID v4 bridge
+      // cross-app). Par défaut on retourne un UUID valide pour ne pas
+      // bloquer les tests qui ne testent pas ce path. Un test dédié override
+      // ce mock pour valider le cas 409 user_not_provisioned.
+      findUnique: vi.fn(async () => ({
+        supabaseUserId: '11111111-1111-4111-8111-111111111111',
+      })),
+    },
     auditLog: {
       create: vi.fn(async ({ data }: any) => {
         auditLogs.push(data);
@@ -328,5 +337,40 @@ describe('POST /api/invitations/[token]/accept', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.redirect_url).toMatch(/^https:\/\/prospection\./);
+  });
+
+  it('returns 409 user_not_provisioned if user has no supabaseUserId (UUID bridge missing)', async () => {
+    // Anti-régression bug E2E 2026-05-21 : si un user Hub n'a pas de
+    // supabaseUserId (UUID v4 bridge cross-app), on ne PEUT PAS appeler
+    // attach-member côté Notifuse/Prospection — ils crashent sur "invalid
+    // input syntax for type uuid". Mieux vaut refuser 409 que tenter et
+    // bloquer en pending éternel.
+    const { prisma } = await import('@/lib/prisma');
+    (prisma.user.findUnique as any).mockResolvedValueOnce({
+      supabaseUserId: null,
+    });
+    const res = await callRoute(validToken, makeReq());
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.error).toBe('user_not_provisioned');
+  });
+
+  it('passes supabaseUserId (UUID v4) as hubUserId to attach-downstream, not session user.id (cuid)', async () => {
+    // Anti-régression : la route doit utiliser supabaseUserId (UUID v4) pour
+    // le payload downstream, PAS user.id (cuid). Notifuse et Prospection
+    // utilisent ce champ comme PK Postgres et exigent un UUID v4 valide.
+    const { prisma } = await import('@/lib/prisma');
+    const realUuid = '22222222-2222-4222-8222-222222222222';
+    (prisma.user.findUnique as any).mockResolvedValueOnce({
+      supabaseUserId: realUuid,
+    });
+    let capturedHubUserId: string | undefined;
+    attachStub = async (input: any) => {
+      capturedHubUserId = input.hubUserId;
+      return { status: 'pending', reason: 'endpoint_not_found', httpStatus: 404 };
+    };
+    await callRoute(validToken, makeReq());
+    expect(capturedHubUserId).toBe(realUuid);
+    expect(capturedHubUserId).not.toBe(sessionUser?.id);
   });
 });

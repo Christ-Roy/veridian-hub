@@ -39,7 +39,16 @@ export type AttachDownstreamFn = (
 
 export type AcceptInvitationInput = {
   token: string;
+  /** PK Hub côté hub_app.users (cuid). Utilisé pour l'audit côté Hub
+   *  (CrossAppInvitation.acceptedByUserId). Reste un cuid local Hub. */
   acceptingUserId: string;
+  /** UUID v4 cross-app (User.supabaseUserId). C'est CE champ qui est
+   *  envoyé en `hub_user_id` à l'app downstream — les apps (Notifuse Go,
+   *  Prospection) l'utilisent comme PK Postgres et exigent un vrai UUID v4.
+   *  Si absent, on retombe sur acceptingUserId (rétrocompat tests unitaires
+   *  qui ne distinguent pas les 2). Mais en prod ce champ DOIT être fourni
+   *  par la route — sinon Notifuse crash sur "invalid input syntax for type uuid". */
+  acceptingUserHubId?: string;
   acceptingUserEmail: string;
   /** Si true, accepte même si l'email du user loggué ne matche pas
    *  `invitee_email` (cas warning UI : l'user décide de continuer avec
@@ -191,7 +200,10 @@ export async function acceptCrossAppInvitation(
     attachResult = await input.attachDownstream({
       targetApp,
       targetWorkspaceId: inv.targetWorkspaceId,
-      hubUserId: input.acceptingUserId,
+      // Si acceptingUserHubId fourni → UUID v4 cross-app (cas prod, exigé
+      // par Notifuse/Prospection comme PK UUID). Sinon fallback sur
+      // acceptingUserId pour la rétrocompat tests unitaires.
+      hubUserId: input.acceptingUserHubId ?? input.acceptingUserId,
       hubUserEmail: input.acceptingUserEmail,
       role: inv.targetRole,
       invitationId: inv.id,

@@ -96,9 +96,39 @@ export async function POST(
     );
   }
 
+  // BUG FIX 2026-05-21 (E2E staging) : Notifuse et Prospection exigent un
+  // UUID v4 dans le payload `hub_user_id` car ils l'utilisent comme PK
+  // Postgres. La session Auth.js v5 retourne `user.id` = cuid texte côté
+  // Hub. On résout ici `supabaseUserId` (UUID v4 bridge cross-app, posé
+  // au signup via auth.ts event createUser) pour le payload downstream.
+  // Sans ça, l'attach-member côté apps crash en
+  // "invalid input syntax for type uuid" → 500 → downstream_call=pending.
+  const userRow = await prisma.user.findUnique({
+    where: { id: user.id },
+    select: { supabaseUserId: true },
+  });
+  if (!userRow?.supabaseUserId) {
+    // Cas pathologique : un user Hub sans supabaseUserId backfill (devrait
+    // être impossible post-2026-05-21 grâce à events.createUser). On refuse
+    // l'acceptation cross-app plutôt que de tenter un attach qui va crash.
+    console.error(
+      JSON.stringify({
+        level: 'error',
+        msg: 'accept_invitation: user missing supabaseUserId, cannot attach downstream',
+        userId: user.id,
+        userEmail: user.email,
+      }),
+    );
+    return NextResponse.json(
+      { error: 'user_not_provisioned', message: 'User missing cross-app UUID bridge — contact support' },
+      { status: 409 },
+    );
+  }
+
   const result = await acceptCrossAppInvitation(prisma, {
     token,
     acceptingUserId: user.id,
+    acceptingUserHubId: userRow.supabaseUserId,
     acceptingUserEmail: user.email,
     allowEmailMismatch: parsed.data?.allow_email_mismatch === true,
     attachDownstream: attachMemberDownstream,

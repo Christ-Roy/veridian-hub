@@ -232,6 +232,46 @@ describe('acceptCrossAppInvitation', () => {
   });
 
   // ─── Phase 4b — downstream call via injection ─────────────────────────
+  it('passes acceptingUserHubId (UUID v4) as hubUserId to downstream, NOT acceptingUserId (cuid)', async () => {
+    // Anti-régression bug E2E 2026-05-21 : Notifuse/Prospection exigent
+    // un UUID v4 dans hub_user_id (PK Postgres). La route accept résout
+    // supabaseUserId via prisma.user.findUnique avant l'appel — ce champ
+    // doit être priorisé sur acceptingUserId (cuid texte Hub).
+    let capturedHubUserId: string | undefined;
+    const realUuid = '33333333-3333-4333-8333-333333333333';
+    await acceptCrossAppInvitation(prisma, {
+      token: validToken,
+      acceptingUserId: 'user_alice', // cuid Hub
+      acceptingUserHubId: realUuid, // UUID v4 cross-app
+      acceptingUserEmail: 'alice@example.com',
+      now,
+      attachDownstream: async (input) => {
+        capturedHubUserId = input.hubUserId;
+        return { status: 'pending', reason: 'endpoint_not_found', httpStatus: 404 };
+      },
+    });
+    expect(capturedHubUserId).toBe(realUuid);
+    expect(capturedHubUserId).not.toBe('user_alice');
+  });
+
+  it('falls back to acceptingUserId when acceptingUserHubId is absent (rétrocompat)', async () => {
+    // Garde la rétrocompat pour les callers internes qui n'ont pas de bridge
+    // UUID séparé (tests unitaires, scripts admin éventuels).
+    let capturedHubUserId: string | undefined;
+    await acceptCrossAppInvitation(prisma, {
+      token: validToken,
+      acceptingUserId: 'user_alice',
+      // acceptingUserHubId omis volontairement
+      acceptingUserEmail: 'alice@example.com',
+      now,
+      attachDownstream: async (input) => {
+        capturedHubUserId = input.hubUserId;
+        return { status: 'pending', reason: 'endpoint_not_found', httpStatus: 404 };
+      },
+    });
+    expect(capturedHubUserId).toBe('user_alice');
+  });
+
   it('returns completed + loginUrl when attachDownstream returns completed', async () => {
     const result = await acceptCrossAppInvitation(prisma, {
       token: validToken,
