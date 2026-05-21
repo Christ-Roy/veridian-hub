@@ -173,6 +173,12 @@ function cleanupLegacyEmails(emails: string[]): void {
     .join(',');
   // Cascade : on doit cleaner cross_app_invitations + workspace_members +
   // tenants + subscriptions + tenant_trials avant users (FK).
+  //
+  // ⚠️ Le tenant_trials.tenant_id peut être soit un UUID Hub, soit un slug
+  // Notifuse (cf. helper `resolveOwnerEmail` dans run-tick.ts). On nettoie
+  // les 2 paths : (a) via JOIN sur tenants ; (b) via prefix legacy-* pour
+  // les orphans (cas où le tenant a déjà été DELETE mais la trial row
+  // a survécu — ce qui s'est produit dans la 1ère itération de cette suite).
   const sql = `
     WITH ids AS (
       SELECT id, supabase_user_id FROM hub_app.users WHERE email IN (${inList})
@@ -192,7 +198,15 @@ function cleanupLegacyEmails(emails: string[]): void {
             SELECT supabase_user_id::uuid FROM hub_app.users
               WHERE email IN (${inList}) AND supabase_user_id IS NOT NULL
           )
-      );
+      )
+      OR tenant_id IN (
+        SELECT notifuse_workspace_slug FROM hub_app.tenants
+          WHERE user_id IN (
+            SELECT supabase_user_id::uuid FROM hub_app.users
+              WHERE email IN (${inList}) AND supabase_user_id IS NOT NULL
+          )
+      )
+      OR tenant_id LIKE 'legacy-%-${RUN_STAMP}';
     DELETE FROM hub_app.tenants
       WHERE user_id IN (
         SELECT supabase_user_id::uuid FROM hub_app.users
@@ -939,10 +953,22 @@ test.describe('Cas 5 — Invitation expirée + tenant soft-deleted (cleanup path
     }
     expect(['eligible', 'trial_active']).toContain(stateAfter);
 
-    // Cleanup spécifique
-    runSqlOnStaging(`
-      DELETE FROM hub_app.tenant_trials WHERE tenant_id = '${trialTenantSlug}';
-      DELETE FROM hub_app.tenants WHERE id = '${trialTenantId}';
-    `);
+    // Cleanup spécifique — IMPORTANT : DELETE trials AVANT tenants (FK)
+    // et on fait CHAQUE statement séparé pour éviter les agrégations stdout
+    // qui ont déjà pété la suite la 1ère fois.
+    try {
+      runSqlOnStaging(
+        `DELETE FROM hub_app.tenant_trials WHERE tenant_id = '${trialTenantSlug}'`,
+      );
+    } catch {
+      /* ignore */
+    }
+    try {
+      runSqlOnStaging(
+        `DELETE FROM hub_app.tenants WHERE id = '${trialTenantId}'`,
+      );
+    } catch {
+      /* ignore */
+    }
   });
 });
