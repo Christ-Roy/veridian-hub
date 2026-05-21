@@ -35,9 +35,14 @@
  *     `pending` automatique car endpoint absent → 404).
  *
  * **Auth** : signature HMAC sha256 sur `${timestamp}.${rawBody}` avec
- * le secret `HUB_INVITATION_SECRET_<APP>`. Mêmes secrets que la création
- * (`x-veridian-invitation-signature`), car c'est le même canal logique
- * "Hub ↔ app sur le scope invitations" — révocation isolée par app.
+ * le secret EXISTANT par app (`<APP>_HUB_API_SECRET`, le même que pour
+ * `/api/tenants/provision`, `/api/tenants/attach-owner`, etc.). Convention
+ * gravée dans les 2 tickets attach-member (notifuse + prospection) :
+ * "réutiliser le middleware HMAC existant, pas de nouveau secret dédié".
+ *
+ * Headers envoyés (convention unanime côté apps) :
+ *   - `X-Veridian-Timestamp` (ms epoch)
+ *   - `X-Veridian-Hub-Signature` (hex sha256(timestamp + '.' + rawBody))
  *
  * Pattern adapté de `lib/notifuse/client.ts` (signRequest + executeWithRetry),
  * sans la couche d'abstraction objet — un seul call point.
@@ -45,7 +50,27 @@
 
 import { createHmac } from 'node:crypto';
 
-import { type SupportedApp, resolveInvitationSecret } from './hmac';
+import { type SupportedApp } from './hmac';
+
+/**
+ * Résout le secret HMAC pour signer un appel Hub → app downstream.
+ * Convention apps : `<APP>_HUB_API_SECRET` (cohérent avec
+ * `lib/notifuse/admin-helpers.ts` et `lib/prospection/client.ts`).
+ */
+function resolveDownstreamSecret(
+  app: SupportedApp,
+  envOverride?: NodeJS.ProcessEnv,
+): string | null {
+  const env = envOverride ?? process.env;
+  // Fallback chain : <APP>_HUB_API_SECRET (convention apps) puis
+  // HUB_INVITATION_SECRET_<APP> (legacy, au cas où une migration aurait
+  // déjà provisionné ce nom dans un compose — on accepte les 2).
+  const primary = env[`${app.toUpperCase()}_HUB_API_SECRET`];
+  if (primary && primary.trim().length > 0) return primary;
+  const fallback = env[`HUB_INVITATION_SECRET_${app.toUpperCase()}`];
+  if (fallback && fallback.trim().length > 0) return fallback;
+  return null;
+}
 
 const DEFAULT_TIMEOUT_MS = 8_000;
 const DEFAULT_MAX_RETRIES = 1;
@@ -167,7 +192,7 @@ export async function attachMemberDownstream(
 ): Promise<AttachDownstreamResult> {
   const secret =
     input.secretOverride ??
-    resolveInvitationSecret(input.targetApp, input.env) ??
+    resolveDownstreamSecret(input.targetApp, input.env) ??
     null;
   if (!secret) {
     return {
@@ -200,8 +225,10 @@ export async function attachMemberDownstream(
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     'x-veridian-app': 'hub',
-    'x-veridian-timestamp': timestamp,
-    'x-veridian-invitation-signature': signature,
+    // Convention unanime apps (Notifuse Go middleware veridian_hmac.go,
+    // Prospection src/lib/hub/hmac.ts) : X-Veridian-Timestamp + X-Veridian-Hub-Signature.
+    'X-Veridian-Timestamp': timestamp,
+    'X-Veridian-Hub-Signature': signature,
   };
 
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;

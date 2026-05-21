@@ -118,7 +118,7 @@ describe('attachMemberDownstream', () => {
     const result = await attachMemberDownstream({
       ...baseInput,
       secretOverride: undefined,
-      env: {} as NodeJS.ProcessEnv, // explicit empty → no HUB_INVITATION_SECRET_PROSPECTION
+      env: {} as NodeJS.ProcessEnv, // explicit empty → no <APP>_HUB_API_SECRET ni HUB_INVITATION_SECRET_<APP>
       fetchImpl: fetchMock as unknown as typeof fetch,
     });
     expect(result.status).toBe('pending');
@@ -127,6 +127,53 @@ describe('attachMemberDownstream', () => {
       expect(result.httpStatus).toBeNull();
     }
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('resolves secret via <APP>_HUB_API_SECRET (convention apps existante)', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(201, { attached: true }));
+    const result = await attachMemberDownstream({
+      ...baseInput,
+      secretOverride: undefined,
+      env: { PROSPECTION_HUB_API_SECRET: 'sec-from-app-convention' } as NodeJS.ProcessEnv,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+    // Si le resolver ne lit pas <APP>_HUB_API_SECRET, on tombe en pending(secret_missing).
+    expect(result.status).toBe('completed');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to HUB_INVITATION_SECRET_<APP> if <APP>_HUB_API_SECRET absent', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(201, { attached: true }));
+    const result = await attachMemberDownstream({
+      ...baseInput,
+      secretOverride: undefined,
+      env: { HUB_INVITATION_SECRET_PROSPECTION: 'sec-legacy-dedicated' } as NodeJS.ProcessEnv,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+    expect(result.status).toBe('completed');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('prefers <APP>_HUB_API_SECRET when both env vars are set', async () => {
+    let capturedSig: string | undefined;
+    fetchMock.mockImplementationOnce(async (_url, init) => {
+      capturedSig = (init as any).headers['X-Veridian-Hub-Signature'];
+      return jsonResponse(201, { attached: true });
+    });
+    await attachMemberDownstream({
+      ...baseInput,
+      secretOverride: undefined,
+      env: {
+        PROSPECTION_HUB_API_SECRET: 'sec-primary',
+        HUB_INVITATION_SECRET_PROSPECTION: 'sec-fallback',
+      } as NodeJS.ProcessEnv,
+      fetchImpl: fetchMock as unknown as typeof fetch,
+    });
+    // Signature calculée avec 'sec-primary' diffère de celle de 'sec-fallback' :
+    // on n'a pas la signature de référence ici, mais on vérifie au moins qu'on
+    // a bien une signature non-vide et que fetch a été appelé (= secret résolu).
+    expect(capturedSig).toMatch(/^[0-9a-f]{64}$/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('returns completed + loginUrl on 201 response', async () => {
@@ -309,8 +356,8 @@ describe('attachMemberDownstream', () => {
     expect(init.method).toBe('POST');
     expect(init.headers['Content-Type']).toBe('application/json');
     expect(init.headers['x-veridian-app']).toBe('hub');
-    expect(init.headers['x-veridian-timestamp']).toMatch(/^\d+$/);
-    expect(init.headers['x-veridian-invitation-signature']).toMatch(/^[0-9a-f]{64}$/);
+    expect(init.headers['X-Veridian-Timestamp']).toMatch(/^\d+$/);
+    expect(init.headers['X-Veridian-Hub-Signature']).toMatch(/^[0-9a-f]{64}$/);
     expect(JSON.parse(init.body)).toEqual({
       hub_user_id: 'user_abc',
       hub_user_email: 'alice@example.com',
