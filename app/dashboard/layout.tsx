@@ -22,58 +22,55 @@ export default async function DashboardLayout({
     redirect('/login');
   }
 
-  // Récupérer la date de création + nom (Prisma) — `getCurrentUser` ne sélectionne
-  // que id/email/name/image/supabaseUserId, donc on refait un find pour
-  // createdAt qui sert à la bannière freemium.
-  const dbUser = await prisma.user.findUnique({
-    where: { id: user.id },
-    select: { createdAt: true, name: true, image: true },
-  });
+  // PERF (fix N+1 du 2026-05-21) : 4 queries séquentielles → 3 queries parallèles
+  // via Promise.all. Le getCurrentUser ne renvoie pas createdAt mais le findUnique
+  // est nécessaire ailleurs ; on parallélise les 3 reads indépendants pour diviser
+  // par ~3 la latence serveur dashboard. CONTRAT IDs : subscriptions.user_id est
+  // en UUID → userUuid(user). Pour les legacy sans workspace, on tombe sur null
+  // sans crasher (cf provisioning au signup post-2026-05-21).
+  const [dbUser, workspace, subscription] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: user.id },
+      select: { createdAt: true, name: true, image: true },
+    }),
+    prisma.workspace
+      .findFirst({
+        where: {
+          members: { some: { userId: user.id } },
+          deletedAt: null,
+        },
+        select: { name: true },
+      })
+      .catch((err) => {
+        console.error('[Dashboard Layout] Failed to fetch workspace name:', err);
+        return null;
+      }),
+    prisma.subscription
+      .findFirst({
+        where: {
+          userId: userUuid(user),
+          status: { in: ['trialing', 'active'] },
+        },
+        select: { id: true, status: true },
+      })
+      .catch((err) => {
+        console.error('[Dashboard Layout] Failed to fetch subscription:', err);
+        return null;
+      }),
+  ]);
 
   const userCreatedAt = dbUser?.createdAt?.toISOString() ?? new Date().toISOString();
+  const currentWorkspaceName = workspace?.name ?? null;
+  const hasActiveSubscription = !!subscription;
 
-  // Récupérer le workspace courant pour l'afficher dans le sidebar.
-  // Mono-workspace au lancement (multi-workspace en P3+). Le provisioning
-  // au signup garantit qu'un workspace existe pour tout user post-2026-05-21 ;
-  // pour les legacy en attente de backfill, on tombe sur null sans crasher.
-  let currentWorkspaceName: string | null = null;
-  try {
-    const ws = await prisma.workspace.findFirst({
-      where: {
-        members: { some: { userId: user.id } },
-        deletedAt: null,
-      },
-      select: { name: true },
+  if (process.env.NODE_ENV === 'development') {
+    console.log('[Dashboard Layout] User info:', {
+      userId: user.id,
+      email: user.email,
+      createdAt: userCreatedAt,
+      hasActiveSubscription,
+      subscription: subscription ? { id: subscription.id, status: subscription.status } : null,
     });
-    currentWorkspaceName = ws?.name ?? null;
-  } catch (err) {
-    console.error('[Dashboard Layout] Failed to fetch workspace name:', err);
-  }
-
-  // Vérifier si l'utilisateur a une subscription active.
-  // CONTRAT IDs : subscriptions.user_id est en UUID — on utilise userUuid().
-  let hasActiveSubscription = false;
-  try {
-    const sub = await prisma.subscription.findFirst({
-      where: {
-        userId: userUuid(user),
-        status: { in: ['trialing', 'active'] },
-      },
-      select: { id: true, status: true },
-    });
-    hasActiveSubscription = !!sub;
-
-    if (process.env.NODE_ENV === 'development') {
-      console.log('[Dashboard Layout] User info:', {
-        userId: user.id,
-        email: user.email,
-        createdAt: userCreatedAt,
-        hasActiveSubscription,
-        subscription: sub ? { id: sub.id, status: sub.status } : null,
-      });
-    }
-  } catch (err) {
-    console.error('[Dashboard Layout] Failed to fetch subscription:', err);
   }
 
   // initialIsAdmin sera passé en prop dès que AppSidebar/NavUser l'acceptent

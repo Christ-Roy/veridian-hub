@@ -40,7 +40,9 @@ describe('Dashboard layout — workspaceName prop sur AppSidebar', () => {
   });
 
   it('résout le workspace courant via workspace.findFirst', () => {
-    expect(src).toMatch(/prisma\.workspace\.findFirst/);
+    // Regex tolère le wrapping multi-ligne introduit par le fix N+1
+    // dashboard 2026-05-21 (Promise.all + chainage .findFirst({...}).catch).
+    expect(src).toMatch(/prisma\.workspace\s*\.?\s*\n?\s*\.?findFirst/);
   });
 
   it('filtre les workspaces dont le user est membre', () => {
