@@ -13,9 +13,37 @@
 | `notifuse-veridian` | Emails transactionnels (fork Notifuse) |
 | `veridian-infra` | Compose Docker, runbooks, CI partagée, docs |
 
-## Règle d'or : zéro code partagé
+## Règle d'or : zéro code partagé (avec UNE exception)
 
-Chaque app a son **propre auth, sa propre DB, son propre billing, son propre deploy**. Pas de package commun, pas de workspace monorepo. Les apps se parlent uniquement via **API HTTP**.
+Chaque app a son **propre auth, sa propre DB, son propre billing, son propre deploy**. Pas de package npm commun, pas de workspace monorepo pnpm. Les apps se parlent uniquement via **API HTTP**.
+
+### Exception : `veridian-infra/shared/` via Git submodule (ADR 2026-05-21)
+
+**Une seule exception** : les **constantes business cross-app** qui DOIVENT rester strictement synchronisées entre apps (pricing, types de contrat Hub, refill leads dégressif). Hébergées dans `veridian-infra/shared/` et consommées via **Git submodule** par les apps TS (Hub + Prospection). Notifuse Go ne consomme pas le submodule — il appelle l'endpoint Hub `GET /api/pricing/plans` qui sert le shared en JSON.
+
+**Pourquoi submodule ≠ monorepo** :
+- Chaque app reste un **repo Git séparé** (deploy indépendant, CI séparée, history séparée — tout ce qu'on voulait du polyrepo reste vrai)
+- Le submodule pointe sur un **SHA précis** de `veridian-infra` — l'app pin la version qu'elle consomme (pas de "dernier main" mouvant)
+- Updater le shared = bump du SHA submodule dans l'app + commit (action explicite + audit Git)
+- Aucun workspace partagé, aucun `node_modules` mutualisé, aucun build commun
+- Si demain on supprime `veridian-infra/shared/`, chaque app garde sa copie figée au SHA pinné — pas de break
+
+**Pourquoi PAS npm package** : 1 fichier qui change 2 fois par an ne mérite pas un cycle build/publish/lockfile dans 3 apps.
+
+**Pourquoi PAS workspace pnpm** : ça casserait l'isolation polyrepo (un seul `pnpm install` à la racine, partage `node_modules`, build couplé).
+
+**Périmètre du shared** (limité par design) :
+- ✅ Constantes business cross-app (pricing plans, refill, annual perks)
+- ✅ Types de contrats inter-app (HMAC headers, webhook payloads v1.4)
+- ❌ Logique applicative (chaque app garde la sienne)
+- ❌ UI / composants React (chaque app a sa stack)
+- ❌ Utils génériques (pas de tentation de "DRY" cross-repo)
+
+**Process update** :
+1. Modifier `veridian-infra/shared/`, commit + push sur `main`
+2. Dans chaque app : `git submodule update --remote shared` → bump le SHA pinné
+3. Tester localement, commit le nouveau pointer dans l'app, push
+4. Notifuse : pas besoin d'action submodule (consomme via API Hub avec cache 1h TTL)
 
 ## Interactions actuelles
 
