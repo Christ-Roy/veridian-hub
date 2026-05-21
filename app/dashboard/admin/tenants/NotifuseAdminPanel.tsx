@@ -199,31 +199,31 @@ export function NotifuseAdminPanel({ tenantId, email, initial, onChanged }: Prop
           if (!open) refreshStatus();
           setOpen(!open);
         }}
-        className="text-xs px-2 py-1 rounded bg-blue-100 hover:bg-blue-200 text-blue-800"
+        className="text-xs px-2 py-1 rounded bg-muted hover:bg-accent text-foreground"
         disabled={busy !== null}
       >
         📧 Notifuse
       </button>
 
       {open && (
-        <div className="absolute right-4 mt-2 z-20 w-96 bg-white border border-gray-200 rounded-lg shadow-xl p-4 text-left">
+        <div className="absolute right-4 mt-2 z-20 w-96 bg-card border border-border rounded-lg shadow-xl p-4 text-left">
           <div className="flex items-center justify-between mb-3">
             <div>
               <div className="font-semibold text-sm">Notifuse — {email}</div>
               <div className="text-xs text-muted-foreground">
-                workspace: <code className="bg-gray-100 px-1 rounded">{initial.workspace_id}</code>
+                workspace: <code className="bg-muted px-1 rounded">{initial.workspace_id}</code>
               </div>
             </div>
             <button
               onClick={() => setOpen(false)}
-              className="text-gray-400 hover:text-gray-600 text-lg leading-none"
+              className="text-muted-foreground hover:text-foreground text-lg leading-none"
               aria-label="Close"
             >
               ×
             </button>
           </div>
 
-          <div className="bg-gray-50 rounded p-2 mb-3 text-xs space-y-1">
+          <div className="bg-muted rounded p-2 mb-3 text-xs space-y-1">
             <div>
               <span className="text-muted-foreground">Status: </span>
               <span
@@ -240,7 +240,7 @@ export function NotifuseAdminPanel({ tenantId, email, initial, onChanged }: Prop
             </div>
             <div>
               <span className="text-muted-foreground">Plan actuel: </span>
-              <code className="bg-white px-1 rounded">{currentPlan}</code>
+              <code className="bg-card px-1 rounded">{currentPlan}</code>
               {initial.plan_source && (
                 <span className="text-muted-foreground ml-2">
                   (source: {initial.plan_source})
@@ -272,7 +272,7 @@ export function NotifuseAdminPanel({ tenantId, email, initial, onChanged }: Prop
               type="button"
               onClick={refreshStatus}
               disabled={busy !== null}
-              className="text-xs text-blue-600 hover:underline mt-1"
+              className="text-xs text-primary hover:underline mt-1"
             >
               {busy === "status" ? "Refresh..." : "↻ Refresh status"}
             </button>
@@ -284,7 +284,7 @@ export function NotifuseAdminPanel({ tenantId, email, initial, onChanged }: Prop
               <select
                 value={planDraft}
                 onChange={(e) => setPlanDraft(e.target.value as NotifusePlan)}
-                className="text-xs px-2 py-1 border rounded flex-1"
+                className="text-xs px-2 py-1 border border-border bg-background text-foreground rounded flex-1"
               >
                 {NOTIFUSE_PLANS.map((p) => (
                   <option key={p} value={p}>
@@ -295,7 +295,7 @@ export function NotifuseAdminPanel({ tenantId, email, initial, onChanged }: Prop
               <select
                 value={planSourceDraft}
                 onChange={(e) => setPlanSourceDraft(e.target.value as PlanSource)}
-                className="text-xs px-2 py-1 border rounded"
+                className="text-xs px-2 py-1 border border-border bg-background text-foreground rounded"
               >
                 {PLAN_SOURCES.map((s) => (
                   <option key={s} value={s}>
@@ -309,19 +309,19 @@ export function NotifuseAdminPanel({ tenantId, email, initial, onChanged }: Prop
               value={reasonDraft}
               onChange={(e) => setReasonDraft(e.target.value)}
               placeholder="Raison (optionnel, audit log)"
-              className="text-xs px-2 py-1 border rounded w-full"
+              className="text-xs px-2 py-1 border border-border bg-background text-foreground rounded w-full"
             />
             <button
               type="button"
               onClick={applyPlan}
               disabled={busy !== null}
-              className="text-xs px-3 py-1 rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50 w-full"
+              className="text-xs px-3 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 w-full"
             >
               {busy === "plan" ? "Application..." : `Appliquer plan ${planDraft}`}
             </button>
           </div>
 
-          <div className="flex gap-2 pt-3 border-t">
+          <div className="flex gap-2 pt-3 border-t border-border">
             {currentStatus === "suspended" ? (
               <button
                 type="button"

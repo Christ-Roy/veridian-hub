@@ -46,7 +46,7 @@ export default async function AdminOverviewPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
         {cards.map((c) => (
-          <div key={c.label} className="bg-white border rounded-lg p-6">
+          <div key={c.label} className="bg-card border border-border rounded-lg p-6">
             <div className="text-xs uppercase text-muted-foreground tracking-wide">
               {c.label}
             </div>
@@ -55,7 +55,7 @@ export default async function AdminOverviewPage() {
         ))}
       </div>
 
-      <div className="bg-white border rounded-lg p-6">
+      <div className="bg-card border border-border rounded-lg p-6">
         <h2 className="text-sm font-semibold text-muted-foreground uppercase mb-4">
           Répartition par plan
         </h2>

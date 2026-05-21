@@ -156,13 +156,13 @@ export default function AdminTenantsPage() {
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           placeholder="Filtrer par email..."
-          className="px-3 py-2 border rounded-lg text-sm w-64 focus:ring-2 focus:ring-indigo-500 outline-none"
+          className="px-3 py-2 border border-border bg-background text-foreground rounded-lg text-sm w-64 focus-visible:ring-2 focus-visible:ring-ring outline-none"
         />
       </div>
 
-      <div className="bg-white rounded-lg border overflow-hidden">
+      <div className="bg-card rounded-lg border border-border overflow-hidden">
         <table className="w-full text-sm">
-          <thead className="bg-gray-50 border-b">
+          <thead className="bg-muted border-b border-border">
             <tr>
               <th className="text-left px-4 py-2 font-medium">Email</th>
               <th className="text-left px-4 py-2 font-medium">Plan Prospection</th>
@@ -196,7 +196,7 @@ export default function AdminTenantsPage() {
                   ? t.trial_ends_at.slice(0, 10)
                   : '';
                 return (
-                  <tr key={t.tenant_id ?? t.email} className="border-b hover:bg-gray-50">
+                  <tr key={t.tenant_id ?? t.email} className="border-b border-border hover:bg-muted/50">
                     <td className="px-4 py-2 font-medium">{t.email}</td>
 
                     <td className="px-4 py-2">
@@ -205,7 +205,7 @@ export default function AdminTenantsPage() {
                         onChange={(e) => {
                           if (t.tenant_id) setPlan(t.tenant_id, 'prospection', e.target.value);
                         }}
-                        className="text-xs px-2 py-1 rounded border bg-white"
+                        className="text-xs px-2 py-1 rounded border border-border bg-background text-foreground"
                       >
                         {PROSPECTION_PLAN_OPTIONS.map((p) => (
                           <option key={p} value={p}>{p}</option>
@@ -220,7 +220,7 @@ export default function AdminTenantsPage() {
                           if (t.tenant_id) setPlan(t.tenant_id, 'notifuse', e.target.value);
                         }}
                         disabled={!t.services?.notifuse?.provisioned}
-                        className="text-xs px-2 py-1 rounded border bg-white disabled:opacity-50"
+                        className="text-xs px-2 py-1 rounded border border-border bg-background text-foreground disabled:opacity-50"
                         title={
                           t.services?.notifuse?.provisioned
                             ? ''
@@ -252,7 +252,7 @@ export default function AdminTenantsPage() {
                             setTrial(t.tenant_id, new Date(next).toISOString());
                           }
                         }}
-                        className="text-xs px-2 py-1 rounded border w-36"
+                        className="text-xs px-2 py-1 rounded border border-border bg-background text-foreground w-36"
                       />
                     </td>
 
@@ -278,7 +278,7 @@ export default function AdminTenantsPage() {
                     <td className="px-4 py-2 text-right">
                       <button
                         onClick={() => impersonate(t.email ?? "")}
-                        className="text-xs px-2 py-1 rounded bg-gray-100 hover:bg-gray-200"
+                        className="text-xs px-2 py-1 rounded bg-muted text-foreground hover:bg-accent"
                       >
                         Impersonate
                       </button>

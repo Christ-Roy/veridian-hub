@@ -22,23 +22,23 @@ export default async function AdminHubLayout({ children }: { children: React.Rea
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <header className="bg-white border-b sticky top-0 z-10">
+    <div className="min-h-screen bg-background">
+      <header className="bg-card border-b border-border sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-6 py-3 flex items-center gap-6">
-          <Link href="/dashboard" className="text-sm font-semibold text-indigo-600">
+          <Link href="/dashboard" className="text-sm font-semibold text-primary">
             ← Dashboard
           </Link>
-          <span className="text-xs uppercase tracking-wide text-red-600 font-bold">
+          <span className="text-xs uppercase tracking-wide text-destructive font-bold">
             PLATFORM ADMIN
           </span>
-          <nav className="flex items-center gap-4 text-sm">
-            <Link href="/dashboard/admin" className="hover:text-indigo-600">
+          <nav className="flex items-center gap-4 text-sm text-foreground">
+            <Link href="/dashboard/admin" className="hover:text-primary">
               Overview
             </Link>
-            <Link href="/dashboard/admin/tenants" className="hover:text-indigo-600">
+            <Link href="/dashboard/admin/tenants" className="hover:text-primary">
               Tenants
             </Link>
-            <Link href="/dashboard/admin/analytics" className="hover:text-indigo-600">
+            <Link href="/dashboard/admin/analytics" className="hover:text-primary">
               Analytics
             </Link>
           </nav>

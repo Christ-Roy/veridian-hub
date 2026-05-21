@@ -106,17 +106,17 @@ export default async function AdminAnalyticsPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-semibold text-gray-900">
+        <h1 className="text-2xl font-semibold text-foreground">
           Analytics — Provisioning
         </h1>
-        <p className="text-sm text-gray-600 mt-1">
+        <p className="text-sm text-muted-foreground mt-1">
           Gestion programmatique des tenants Veridian Analytics. Tout passe
           par une API server-to-server (<code>ANALYTICS_API_URL</code>).
         </p>
       </div>
 
       {fetchError && (
-        <div className="bg-red-50 border border-red-200 text-red-800 rounded-lg p-4 text-sm">
+        <div className="bg-destructive/10 border border-destructive/30 text-destructive rounded-lg p-4 text-sm">
           <strong>Erreur de connexion Analytics :</strong> {fetchError}
           <p className="mt-2 text-xs">
             Vérifie <code>ANALYTICS_API_URL</code> et{' '}
@@ -125,7 +125,7 @@ export default async function AdminAnalyticsPage() {
         </div>
       )}
 
-      <section className="bg-white border rounded-lg p-6 space-y-4">
+      <section className="bg-card border border-border rounded-lg p-6 space-y-4">
         <h2 className="text-lg font-semibold">Créer un tenant</h2>
         <form action={createTenantAction} className="grid gap-3 md:grid-cols-4">
           <input
@@ -133,23 +133,23 @@ export default async function AdminAnalyticsPage() {
             placeholder="slug (ex: tramtech)"
             required
             pattern="[a-z0-9][a-z0-9-]*[a-z0-9]"
-            className="border rounded px-3 py-2 text-sm"
+            className="border border-border bg-background text-foreground rounded px-3 py-2 text-sm"
           />
           <input
             name="name"
             placeholder="Nom affiche"
             required
-            className="border rounded px-3 py-2 text-sm"
+            className="border border-border bg-background text-foreground rounded px-3 py-2 text-sm"
           />
           <input
             name="ownerEmail"
             type="email"
             placeholder="email owner (optionnel)"
-            className="border rounded px-3 py-2 text-sm"
+            className="border border-border bg-background text-foreground rounded px-3 py-2 text-sm"
           />
           <button
             type="submit"
-            className="bg-indigo-600 text-white rounded px-4 py-2 text-sm font-medium hover:bg-indigo-700"
+            className="bg-primary text-primary-foreground rounded px-4 py-2 text-sm font-medium hover:bg-primary/90"
           >
             Créer
           </button>
@@ -161,7 +161,7 @@ export default async function AdminAnalyticsPage() {
           Tenants ({tenants.length})
         </h2>
         {tenants.length === 0 && !fetchError && (
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-muted-foreground">
             Aucun tenant pour le moment. Crée-en un ci-dessus.
           </p>
         )}
@@ -169,19 +169,19 @@ export default async function AdminAnalyticsPage() {
           {tenants.map((t) => (
             <div
               key={t.id}
-              className="bg-white border rounded-lg p-4 space-y-3"
+              className="bg-card border border-border rounded-lg p-4 space-y-3"
             >
               <div className="flex items-center gap-3">
-                <div className="font-semibold text-gray-900">{t.name}</div>
-                <code className="text-xs text-gray-500">{t.slug}</code>
-                <span className="text-xs text-gray-400 font-mono">
+                <div className="font-semibold text-foreground">{t.name}</div>
+                <code className="text-xs text-muted-foreground">{t.slug}</code>
+                <span className="text-xs text-muted-foreground font-mono">
                   {t.id}
                 </span>
               </div>
 
               {t.sites && t.sites.length > 0 && (
                 <div className="space-y-1">
-                  <div className="text-xs uppercase tracking-wide text-gray-500">
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground">
                     Sites
                   </div>
                   {t.sites.map((s) => (
@@ -189,8 +189,8 @@ export default async function AdminAnalyticsPage() {
                       key={s.id}
                       className="flex items-center gap-3 text-sm py-1"
                     >
-                      <code className="text-blue-600">{s.domain}</code>
-                      <span className="text-gray-400 font-mono text-xs">
+                      <code className="text-primary">{s.domain}</code>
+                      <span className="text-muted-foreground font-mono text-xs">
                         {s.siteKey}
                       </span>
                       {s.gscProperty && (
@@ -204,7 +204,7 @@ export default async function AdminAnalyticsPage() {
               )}
 
               <details className="text-xs">
-                <summary className="cursor-pointer text-indigo-600 hover:underline">
+                <summary className="cursor-pointer text-primary hover:underline">
                   Ajouter un site
                 </summary>
                 <form
@@ -220,18 +220,18 @@ export default async function AdminAnalyticsPage() {
                     name="domain"
                     placeholder="tramtech.fr"
                     required
-                    className="border rounded px-2 py-1"
+                    className="border border-border bg-background text-foreground rounded px-2 py-1"
                   />
                   <input
                     name="name"
                     placeholder="Site vitrine"
                     required
-                    className="border rounded px-2 py-1"
+                    className="border border-border bg-background text-foreground rounded px-2 py-1"
                   />
                   <div></div>
                   <button
                     type="submit"
-                    className="bg-gray-900 text-white rounded px-3 py-1"
+                    className="bg-primary text-primary-foreground rounded px-3 py-1 hover:bg-primary/90"
                   >
                     Créer le site
                   </button>
@@ -240,7 +240,7 @@ export default async function AdminAnalyticsPage() {
 
               {t.sites && t.sites.length > 0 && (
                 <details className="text-xs">
-                  <summary className="cursor-pointer text-indigo-600 hover:underline">
+                  <summary className="cursor-pointer text-primary hover:underline">
                     Attacher GSC à un site
                   </summary>
                   <form
@@ -250,7 +250,7 @@ export default async function AdminAnalyticsPage() {
                     <select
                       name="siteId"
                       required
-                      className="border rounded px-2 py-1"
+                      className="border border-border bg-background text-foreground rounded px-2 py-1"
                     >
                       {t.sites.map((s) => (
                         <option key={s.id} value={s.id}>
@@ -262,11 +262,11 @@ export default async function AdminAnalyticsPage() {
                       name="propertyUrl"
                       placeholder="sc-domain:tramtech.fr"
                       required
-                      className="border rounded px-2 py-1 md:col-span-2"
+                      className="border border-border bg-background text-foreground rounded px-2 py-1 md:col-span-2"
                     />
                     <button
                       type="submit"
-                      className="bg-gray-900 text-white rounded px-3 py-1"
+                      className="bg-primary text-primary-foreground rounded px-3 py-1 hover:bg-primary/90"
                     >
                       Attacher
                     </button>
@@ -278,21 +278,21 @@ export default async function AdminAnalyticsPage() {
         </div>
       </section>
 
-      <section className="bg-gray-50 border rounded-lg p-4 text-xs text-gray-600">
-        <p className="font-semibold text-gray-900 mb-1">
+      <section className="bg-muted border border-border rounded-lg p-4 text-xs text-muted-foreground">
+        <p className="font-semibold text-foreground mb-1">
           Comment utiliser le snippet tracker ?
         </p>
         <p>
           Une fois un site créé, récupère son <code>siteKey</code>, va dans{' '}
           <a
             href="https://analytics.app.veridian.site/dashboard"
-            className="text-indigo-600 hover:underline"
+            className="text-primary hover:underline"
           >
             Analytics → Dashboard
           </a>{' '}
           pour voir les data, et colle ce snippet sur le site client :
         </p>
-        <pre className="bg-white border rounded p-2 mt-2 text-[11px] overflow-x-auto">
+        <pre className="bg-card border border-border rounded p-2 mt-2 text-[11px] overflow-x-auto">
           {`<script async src="ANALYTICS_URL/tracker.js"
   data-site-key="SITE_KEY"
   data-veridian-track="auto"></script>`}
