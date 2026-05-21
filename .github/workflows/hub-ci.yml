@@ -205,8 +205,94 @@ jobs:
       severity: 'CRITICAL,HIGH'
       ignore-unfixed: true
 
-  deploy-prod:
+  # ─── Prisma migrate deploy AVANT deploy-prod ───
+  # Le Dockerfile runner (standalone Next.js) n'embarque ni `pnpm` ni le
+  # CLI Prisma, donc on ne peut pas lancer `prisma migrate deploy` au boot
+  # du container Hub sans alourdir l'image + risquer un fail boot (DB lag).
+  # À la place : container éphémère `node:22-alpine` sur le network
+  # `dokploy-network` qui résout `veridian-core-db:5432` et applique les
+  # migrations idempotentes (exit 0 si DB déjà à jour).
+  #
+  # Doit tourner AVANT deploy-prod : ainsi quand le nouveau code prod
+  # démarre, sa DB matche déjà son schema.prisma. Si la migration fail
+  # (constraint conflict, etc.) → deploy-prod ne tourne pas (dependency)
+  # → la prod actuelle reste en place → pas de breaking change.
+  #
+  # Pattern documenté dans memory `reference_hub_prod_no_auto_migrate.md`
+  # (section "Comment migrer manuellement Hub staging").
+  migrate-prod:
     needs: [docker, trivy]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    environment:
+      name: production
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - name: Apply Prisma migrations on prod DB
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          VPS_HOST: ${{ vars.VPS_HOST }}
+          VPS_USER: ${{ vars.VPS_USER }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SSH_KEY" ] || [ -z "$VPS_HOST" ]; then
+            echo "::warning::Prod migrate skipped (no SSH credentials configured)"
+            exit 0
+          fi
+          mkdir -p ~/.ssh
+          echo "$SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+          # 1) Bundle prisma/ + package.json + pnpm-lock + prisma.config.ts
+          tar -czf /tmp/prisma-migrate.tar.gz prisma/ package.json pnpm-lock.yaml prisma.config.ts
+
+          # 2) Upload + extract sur prod-pub
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
+            /tmp/prisma-migrate.tar.gz "$VPS_USER@$VPS_HOST:/tmp/"
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "$VPS_USER@$VPS_HOST" \
+            'rm -rf /tmp/hub-prisma-migrate && mkdir -p /tmp/hub-prisma-migrate && tar -xzf /tmp/prisma-migrate.tar.gz -C /tmp/hub-prisma-migrate'
+
+          # 3) Run prisma migrate deploy dans un container éphémère sur le
+          #    réseau dokploy-network (où vit veridian-core-db). Récupère
+          #    le password depuis ~/credentials/.all-creds.env côté prod.
+          #    `prisma migrate deploy` est idempotent : exit 0 si à jour,
+          #    applique séquentiellement les pending migrations sinon.
+          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "$VPS_USER@$VPS_HOST" bash <<'REMOTE'
+          set -euo pipefail
+          DB_PWD=$(grep '^VERIDIAN_CORE_DB_PASSWORD=' ~/credentials/.all-creds.env | head -1 | cut -d= -f2-)
+          if [ -z "$DB_PWD" ]; then
+            echo "ERROR: VERIDIAN_CORE_DB_PASSWORD not found in ~/credentials/.all-creds.env"
+            exit 1
+          fi
+          echo "Running prisma migrate deploy on veridian-core-db (hub_app schema)..."
+          docker run --rm \
+            --network dokploy-network \
+            -v /tmp/hub-prisma-migrate:/app \
+            -w /app \
+            -e DATABASE_URL="postgresql://veridian:${DB_PWD}@veridian-core-db:5432/veridian?schema=hub_app" \
+            -e DEBUG="prisma:migrate*" \
+            node:22-alpine \
+            sh -c '
+              corepack enable >/dev/null 2>&1 && \
+              corepack prepare pnpm@10.33.0 --activate >/dev/null 2>&1 && \
+              pnpm install --frozen-lockfile --ignore-scripts >/dev/null 2>&1 && \
+              pnpm exec prisma migrate deploy
+            '
+          echo "✓ Prisma migrations applied (or already up to date)"
+          # Cleanup
+          rm -rf /tmp/hub-prisma-migrate /tmp/prisma-migrate.tar.gz
+          REMOTE
+
+      - name: Cleanup runner secrets
+        if: always()
+        run: |
+          rm -f ~/.ssh/deploy_key ~/.ssh/known_hosts /tmp/prisma-migrate.tar.gz
+
+  deploy-prod:
+    needs: [docker, trivy, migrate-prod]
     runs-on: ubuntu-latest
     # GitHub Environment `production` — permet :
     # - Tracking centralisé des deploys (Settings → Environments → production)
