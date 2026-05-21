@@ -1,61 +1,35 @@
 /**
- * Tests POST /api/cron/trial-tick + runTrialTick orchestrateur.
+ * Tests du route handler POST /api/cron/trial-tick.
  *
- * Couvre :
- *  - Auth : CRON_SECRET absent → 500, mauvais secret → 401
- *  - Phase activate : eligible <48h no-op, =48h activate + update-plan + email + telegram
- *  - Phase notify : 12j → email envoyé + ending_soon_notified=true
- *  - Phase finalize : trial_active expiré + Stripe sub active → converted (pas de update-plan)
- *  - Phase finalize : trial_active expiré sans sub → expired + update-plan plan=free
- *  - Race condition : SELECT FOR UPDATE SKIP LOCKED → si la même row arrive 2 fois,
- *    une seule activation
+ * Ce fichier ne teste QUE le thin wrapper (auth Bearer + dispatch vers
+ * `runTrialTick`). La logique de la state machine elle-même est testée
+ * dans `__tests__/lib/trial/run-tick.test.ts`.
  *
- * On mocke `prisma.$queryRaw` + `prisma.tenantTrial.update` + email + telegram
- * + notifuseClient + hasActiveStripeSubForTenant pour piloter la state machine
- * sans toucher au monde.
+ * On mock `runTrialTick` pour vérifier que la route :
+ *   - rejette si CRON_SECRET absent (500) ou mauvais (401)
+ *   - appelle `runTrialTick` une fois sur succès auth
+ *   - relaie le summary dans le JSON de réponse
+ *   - retourne 500 + alerte Telegram si runTrialTick throw
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// ============================================================================
-// Mocks Prisma — déclarés AVANT l'import de la route
-// ============================================================================
+const runTrialTickMock = vi.fn();
+const sendTelegramAlertMock = vi.fn();
 
-const queryRawMock = vi.fn();
-const tenantTrialUpdateMock = vi.fn();
-const tenantFindFirstMock = vi.fn();
-const subscriptionFindFirstMock = vi.fn();
-const userFindFirstMock = vi.fn();
-
-vi.mock('@/lib/prisma', () => ({
-  prisma: {
-    $queryRaw: (...args: unknown[]) => queryRawMock(...args),
-    tenantTrial: { update: (...args: unknown[]) => tenantTrialUpdateMock(...args) },
-    tenant: { findFirst: (...args: unknown[]) => tenantFindFirstMock(...args) },
-    subscription: { findFirst: (...args: unknown[]) => subscriptionFindFirstMock(...args) },
-    user: { findFirst: (...args: unknown[]) => userFindFirstMock(...args) },
-  },
+vi.mock('@/lib/trial/run-tick', () => ({
+  runTrialTick: (...args: unknown[]) => runTrialTickMock(...args),
 }));
 
-vi.mock('@/lib/notifuse/admin-helpers', () => ({
-  buildNotifuseClient: () => ({
-    updatePlan: vi.fn(),
-  }),
+vi.mock('@/lib/notifications/telegram', () => ({
+  sendTelegramAlert: (...args: unknown[]) => sendTelegramAlertMock(...args),
 }));
-
-// ============================================================================
-// Helpers
-// ============================================================================
 
 const ORIGINAL_SECRET = process.env.CRON_SECRET;
-const NOW = new Date('2026-06-15T12:00:00.000Z');
 
 beforeEach(() => {
-  queryRawMock.mockReset();
-  tenantTrialUpdateMock.mockReset();
-  tenantFindFirstMock.mockReset();
-  subscriptionFindFirstMock.mockReset();
-  userFindFirstMock.mockReset();
+  runTrialTickMock.mockReset();
+  sendTelegramAlertMock.mockReset();
   process.env.CRON_SECRET = 'test-cron-secret-xyz';
   vi.resetModules();
 });
@@ -69,23 +43,7 @@ function makeRequest(auth: string | null) {
   });
 }
 
-// Par défaut, queryRaw renvoie un tableau vide (rien à faire). Les tests
-// override avec mockResolvedValueOnce dans l'ordre :
-//   1. phase activate (eligible scan)
-//   2. phase notify (ending soon scan)
-//   3. phase finalize (expired scan)
-function setupEmptyScans() {
-  queryRawMock
-    .mockResolvedValueOnce([]) // activate
-    .mockResolvedValueOnce([]) // notify
-    .mockResolvedValueOnce([]); // finalize
-}
-
-// ============================================================================
-// POST handler auth tests
-// ============================================================================
-
-describe('POST /api/cron/trial-tick — auth', () => {
+describe('POST /api/cron/trial-tick — route wrapper', () => {
   it('returns 500 if CRON_SECRET env missing', async () => {
     delete process.env.CRON_SECRET;
     const { POST } = await import('@/app/api/cron/trial-tick/route');
@@ -93,6 +51,7 @@ describe('POST /api/cron/trial-tick — auth', () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.error).toBe('cron_not_configured');
+    expect(runTrialTickMock).not.toHaveBeenCalled();
     process.env.CRON_SECRET = ORIGINAL_SECRET;
   });
 
@@ -100,7 +59,7 @@ describe('POST /api/cron/trial-tick — auth', () => {
     const { POST } = await import('@/app/api/cron/trial-tick/route');
     const res = await POST(makeRequest('Bearer wrong') as never);
     expect(res.status).toBe(401);
-    expect(queryRawMock).not.toHaveBeenCalled();
+    expect(runTrialTickMock).not.toHaveBeenCalled();
   });
 
   it('returns 401 if no Authorization header', async () => {
@@ -109,321 +68,53 @@ describe('POST /api/cron/trial-tick — auth', () => {
     expect(res.status).toBe(401);
   });
 
-  it('returns 200 with summary when secret OK and nothing to do', async () => {
-    setupEmptyScans();
+  it('calls runTrialTick and returns its summary in 200 response when secret OK', async () => {
+    runTrialTickMock.mockResolvedValueOnce({
+      activated: 2,
+      notified: 1,
+      expired: 0,
+      converted: 1,
+      errors: [],
+    });
+
     const { POST } = await import('@/app/api/cron/trial-tick/route');
     const res = await POST(makeRequest('Bearer test-cron-secret-xyz') as never);
     expect(res.status).toBe(200);
+    expect(runTrialTickMock).toHaveBeenCalledTimes(1);
     const body = await res.json();
-    expect(body.ok).toBe(true);
-    expect(body.activated).toBe(0);
-    expect(body.notified).toBe(0);
-    expect(body.expired).toBe(0);
-    expect(body.converted).toBe(0);
+    expect(body).toEqual(
+      expect.objectContaining({
+        ok: true,
+        activated: 2,
+        notified: 1,
+        converted: 1,
+      }),
+    );
+    expect(body.durationMs).toBeGreaterThanOrEqual(0);
+  });
+
+  it('returns 500 + Telegram alert when runTrialTick throws', async () => {
+    runTrialTickMock.mockRejectedValueOnce(new Error('boom downstream'));
+    sendTelegramAlertMock.mockResolvedValueOnce(true);
+
+    const { POST } = await import('@/app/api/cron/trial-tick/route');
+    const res = await POST(makeRequest('Bearer test-cron-secret-xyz') as never);
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.ok).toBe(false);
+    expect(body.error).toMatch(/boom downstream/);
+    expect(sendTelegramAlertMock).toHaveBeenCalled();
+    expect(sendTelegramAlertMock.mock.calls[0][0]).toMatch(/Cron trial-tick KO/);
   });
 });
 
-// ============================================================================
-// runTrialTick — phase activate (eligible → trial_active)
-// ============================================================================
-
-describe('runTrialTick — phase activate', () => {
-  it('no-op when eligible row but cutoff query returns empty (= <48h)', async () => {
-    // queryRaw avec eligible_at cutoff doit renvoyer [] si la row est trop
-    // récente. C'est PostgreSQL qui filtre, donc côté test on simule juste []
-    setupEmptyScans();
-    const { runTrialTick } = await import('@/app/api/cron/trial-tick/route');
-    const summary = await runTrialTick({ now: NOW });
-    expect(summary.activated).toBe(0);
-    expect(tenantTrialUpdateMock).not.toHaveBeenCalled();
-  });
-
-  it('activates trial when row ≥48h eligible : update state + update-plan pro + email + telegram', async () => {
-    queryRawMock
-      .mockResolvedValueOnce([
-        { tenant_id: 't_42', app: 'notifuse', eligible_at: new Date('2026-06-13T11:00:00Z') },
-      ]) // activate
-      .mockResolvedValueOnce([]) // notify
-      .mockResolvedValueOnce([]); // finalize
-
-    tenantTrialUpdateMock.mockResolvedValue({});
-    tenantFindFirstMock.mockResolvedValue({
-      userId: 'uuid-1',
-      notifuseUserEmail: 'owner@example.com',
-    });
-
-    const updatePlanMock = vi.fn().mockResolvedValue(undefined);
-    const sendEmailMock = vi.fn().mockResolvedValue(undefined);
-    const notifyTelegramMock = vi.fn().mockResolvedValue(true);
-    const hasActiveStripeSubMock = vi.fn().mockResolvedValue(false);
-
-    const { runTrialTick } = await import('@/app/api/cron/trial-tick/route');
-    const summary = await runTrialTick({
-      notifuseClient: { updatePlan: updatePlanMock } as never,
-      sendEmail: sendEmailMock,
-      notifyTelegram: notifyTelegramMock,
-      hasActiveStripeSubForTenant: hasActiveStripeSubMock,
-      now: NOW,
-    });
-
-    expect(summary.activated).toBe(1);
-    expect(summary.errors).toEqual([]);
-
-    // DB updated to trial_active with proper dates
-    expect(tenantTrialUpdateMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { tenantId_app: { tenantId: 't_42', app: 'notifuse' } },
-        data: expect.objectContaining({
-          state: 'trial_active',
-          trialStartedAt: NOW,
-        }),
-      }),
-    );
-    const updateCall = tenantTrialUpdateMock.mock.calls[0][0];
-    // trial_ends_at = NOW + 15j
-    expect((updateCall.data.trialEndsAt as Date).toISOString()).toBe(
-      '2026-06-30T12:00:00.000Z',
-    );
-
-    // Notifuse update-plan called with plan=pro
-    expect(updatePlanMock).toHaveBeenCalledWith({ tenantId: 't_42', plan: 'pro' });
-
-    // Email envoyé à l'owner
-    expect(sendEmailMock).toHaveBeenCalledWith(
-      expect.objectContaining({ to: 'owner@example.com' }),
-    );
-    expect(sendEmailMock.mock.calls[0][0].subject).toMatch(/essai Pro/i);
-
-    // Telegram notification fired
-    expect(notifyTelegramMock).toHaveBeenCalled();
-    expect(notifyTelegramMock.mock.calls[0][0]).toMatch(/Trial Pro activé/);
-  });
-
-  it('records error in summary if update-plan throws but does not crash the tick', async () => {
-    queryRawMock
-      .mockResolvedValueOnce([
-        { tenant_id: 't_fail', app: 'notifuse', eligible_at: new Date('2026-06-13T11:00:00Z') },
-      ])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([]);
-
-    tenantTrialUpdateMock.mockResolvedValue({});
-    tenantFindFirstMock.mockResolvedValue(null);
-
-    const updatePlanMock = vi.fn().mockRejectedValue(new Error('notifuse down'));
-    const { runTrialTick } = await import('@/app/api/cron/trial-tick/route');
-
-    const summary = await runTrialTick({
-      notifuseClient: { updatePlan: updatePlanMock } as never,
-      sendEmail: vi.fn(),
-      notifyTelegram: vi.fn().mockResolvedValue(true),
-      hasActiveStripeSubForTenant: vi.fn().mockResolvedValue(false),
-      now: NOW,
-    });
-
-    expect(summary.activated).toBe(0);
-    expect(summary.errors).toHaveLength(1);
-    expect(summary.errors[0].phase).toBe('activate');
-    expect(summary.errors[0].error).toMatch(/notifuse down/);
-  });
-});
-
-// ============================================================================
-// runTrialTick — phase notify (J+12)
-// ============================================================================
-
-describe('runTrialTick — phase notify ending soon', () => {
-  it('sends email + sets ending_soon_notified=true on trial_active rows from scan', async () => {
-    queryRawMock
-      .mockResolvedValueOnce([]) // activate
-      .mockResolvedValueOnce([
-        {
-          tenant_id: 't_12d',
-          app: 'notifuse',
-          trial_ends_at: new Date('2026-06-18T12:00:00Z'),
-        },
-      ]) // notify
-      .mockResolvedValueOnce([]); // finalize
-
-    tenantTrialUpdateMock.mockResolvedValue({});
-    tenantFindFirstMock.mockResolvedValue({
-      userId: 'uuid-x',
-      notifuseUserEmail: 'soon@example.com',
-    });
-
-    const sendEmailMock = vi.fn().mockResolvedValue(undefined);
-
-    const { runTrialTick } = await import('@/app/api/cron/trial-tick/route');
-    const summary = await runTrialTick({
-      notifuseClient: { updatePlan: vi.fn() } as never,
-      sendEmail: sendEmailMock,
-      notifyTelegram: vi.fn().mockResolvedValue(true),
-      hasActiveStripeSubForTenant: vi.fn().mockResolvedValue(false),
-      now: NOW,
-    });
-
-    expect(summary.notified).toBe(1);
-    expect(tenantTrialUpdateMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { tenantId_app: { tenantId: 't_12d', app: 'notifuse' } },
-        data: expect.objectContaining({ endingSoonNotified: true }),
-      }),
-    );
-    expect(sendEmailMock).toHaveBeenCalledWith(
-      expect.objectContaining({ to: 'soon@example.com' }),
-    );
-    expect(sendEmailMock.mock.calls[0][0].subject).toMatch(/3 jours/i);
-  });
-
-  it('does not notify if scan returns empty (= already notified or <12d, PG filters)', async () => {
-    setupEmptyScans();
-    const { runTrialTick } = await import('@/app/api/cron/trial-tick/route');
-    const summary = await runTrialTick({
-      sendEmail: vi.fn(),
-      notifyTelegram: vi.fn().mockResolvedValue(true),
-      hasActiveStripeSubForTenant: vi.fn().mockResolvedValue(false),
-      notifuseClient: { updatePlan: vi.fn() } as never,
-      now: NOW,
-    });
-    expect(summary.notified).toBe(0);
-  });
-});
-
-// ============================================================================
-// runTrialTick — phase finalize (J+15)
-// ============================================================================
-
-describe('runTrialTick — phase finalize', () => {
-  it('marks converted (no downgrade) when Stripe sub is active', async () => {
-    queryRawMock
-      .mockResolvedValueOnce([]) // activate
-      .mockResolvedValueOnce([]) // notify
-      .mockResolvedValueOnce([
-        {
-          tenant_id: 't_paid',
-          app: 'notifuse',
-          trial_ends_at: new Date('2026-06-15T11:00:00Z'),
-        },
-      ]); // finalize
-
-    tenantTrialUpdateMock.mockResolvedValue({});
-    const updatePlanMock = vi.fn();
-
-    const { runTrialTick } = await import('@/app/api/cron/trial-tick/route');
-    const summary = await runTrialTick({
-      notifuseClient: { updatePlan: updatePlanMock } as never,
-      sendEmail: vi.fn(),
-      notifyTelegram: vi.fn().mockResolvedValue(true),
-      hasActiveStripeSubForTenant: vi.fn().mockResolvedValue(true),
-      now: NOW,
-    });
-
-    expect(summary.converted).toBe(1);
-    expect(summary.expired).toBe(0);
-    expect(tenantTrialUpdateMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ state: 'converted' }),
-      }),
-    );
-    // PAS d'update-plan ni d'email expired → Stripe sub gère
-    expect(updatePlanMock).not.toHaveBeenCalled();
-  });
-
-  it('downgrades to free + email expired when no Stripe sub', async () => {
-    queryRawMock
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        {
-          tenant_id: 't_expired',
-          app: 'notifuse',
-          trial_ends_at: new Date('2026-06-15T11:00:00Z'),
-        },
-      ]);
-
-    tenantTrialUpdateMock.mockResolvedValue({});
-    tenantFindFirstMock.mockResolvedValue({
-      userId: 'uuid-z',
-      notifuseUserEmail: 'expired@example.com',
-    });
-
-    const updatePlanMock = vi.fn().mockResolvedValue(undefined);
-    const sendEmailMock = vi.fn().mockResolvedValue(undefined);
-    const notifyTelegramMock = vi.fn().mockResolvedValue(true);
-
-    const { runTrialTick } = await import('@/app/api/cron/trial-tick/route');
-    const summary = await runTrialTick({
-      notifuseClient: { updatePlan: updatePlanMock } as never,
-      sendEmail: sendEmailMock,
-      notifyTelegram: notifyTelegramMock,
-      hasActiveStripeSubForTenant: vi.fn().mockResolvedValue(false),
-      now: NOW,
-    });
-
-    expect(summary.expired).toBe(1);
-    expect(summary.converted).toBe(0);
-    expect(tenantTrialUpdateMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ state: 'expired', expiredAt: NOW }),
-      }),
-    );
-    expect(updatePlanMock).toHaveBeenCalledWith({
-      tenantId: 't_expired',
-      plan: 'free',
-    });
-    expect(sendEmailMock).toHaveBeenCalledWith(
-      expect.objectContaining({ to: 'expired@example.com' }),
-    );
-    expect(notifyTelegramMock).toHaveBeenCalled();
-    expect(notifyTelegramMock.mock.calls[0][0]).toMatch(/Trial expiré/);
-  });
-});
-
-// ============================================================================
-// Race condition : SELECT FOR UPDATE SKIP LOCKED
-// ============================================================================
-
-describe('runTrialTick — race condition simulation', () => {
-  it('two parallel ticks on the same row : only the one that locks first activates', async () => {
-    // On simule le comportement PG : la 2e instance qui scan voit la row déjà
-    // verrouillée (SKIP LOCKED → row absente du résultat).
-    // Tick 1 scan → renvoie la row
-    queryRawMock
-      .mockResolvedValueOnce([
-        { tenant_id: 't_race', app: 'notifuse', eligible_at: new Date('2026-06-13T11:00:00Z') },
-      ])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([]);
-
-    tenantTrialUpdateMock.mockResolvedValue({});
-    tenantFindFirstMock.mockResolvedValue(null);
-    const updatePlanMock = vi.fn().mockResolvedValue(undefined);
-
-    const { runTrialTick } = await import('@/app/api/cron/trial-tick/route');
-    const summary1 = await runTrialTick({
-      notifuseClient: { updatePlan: updatePlanMock } as never,
-      sendEmail: vi.fn(),
-      notifyTelegram: vi.fn().mockResolvedValue(true),
-      hasActiveStripeSubForTenant: vi.fn().mockResolvedValue(false),
-      now: NOW,
-    });
-    expect(summary1.activated).toBe(1);
-
-    // Tick 2 (instance parallèle) : scan retourne [] car PG SKIP LOCKED
-    vi.resetModules();
-    queryRawMock.mockReset();
-    setupEmptyScans();
-    const { runTrialTick: runAgain } = await import('@/app/api/cron/trial-tick/route');
-    const summary2 = await runAgain({
-      notifuseClient: { updatePlan: updatePlanMock } as never,
-      sendEmail: vi.fn(),
-      notifyTelegram: vi.fn().mockResolvedValue(true),
-      hasActiveStripeSubForTenant: vi.fn().mockResolvedValue(false),
-      now: NOW,
-    });
-
-    expect(summary2.activated).toBe(0);
-    // Total : 1 seule activation, 1 seul appel update-plan
-    expect(updatePlanMock).toHaveBeenCalledTimes(1);
+describe('GET /api/cron/trial-tick — observabilité', () => {
+  it('returns 200 with endpoint description (no auth required)', async () => {
+    const { GET } = await import('@/app/api/cron/trial-tick/route');
+    const res = await GET();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.endpoint).toBe('/api/cron/trial-tick');
+    expect(body.method).toBe('POST');
   });
 });
