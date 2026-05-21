@@ -83,6 +83,7 @@
    - 8.7 [Config lifecycle ENV Hub](#87-config-lifecycle-env-hub)
    - 8.8 [Migration tenants existants vers v1.x (v1.2)](#88-migration-des-tenants-existants-vers-v1x)
    - 8.9 [Shadow marketing apps (v1.3)](#89-affichage-shadow-marketing-pour-les-apps-client_only)
+8bis. [Trial state machine cross-app (v1.5)](#8bis-trial-state-machine-cross-app-gravé-2026-05-21)
 9. [Inventaire features payantes par app](#9-inventaire-features-payantes-par-app)
 10. [Matrice de conformité](#10-matrice-de-conformité)
 11bis. [Permissions et droits utilisateur cross-app (v1.5)](#11bis-permissions-et-droits-utilisateur-cross-app-gravé-v15)
@@ -2627,6 +2628,155 @@ acheté un site) :
 
 ---
 
+## 8bis. Trial state machine cross-app (gravé 2026-05-21)
+
+> Source de vérité business : `docs/PRICING-VERIDIAN.md` §"Flow trial complet".
+> Implémentation Hub : `lib/trial/`, `app/api/cron/trial-tick/`,
+> `app/api/webhooks/notifuse/` (handler `tenant.activity_threshold_reached`).
+> Migration : `prisma/migrations/20260521150000_add_tenant_trials/`.
+
+Le trial Pro 15j ne démarre PAS au signup (= attire les spammeurs et les
+curieux). Il démarre quand le user a prouvé son engagement métier — pour
+Notifuse = 5 emails envoyés lifetime. Le Hub orchestre la machine d'états
+qui transforme ce signal en facturation potentielle, via un cron tick.
+
+### 8bis.1 Schéma de la table `hub_app.tenant_trials`
+
+```sql
+CREATE TYPE hub_app."TrialState" AS ENUM (
+  'eligible',           -- signal d'engagement reçu, en attente du cooldown 48h
+  'trial_active',       -- trial Pro 15j en cours
+  'trial_ending_soon',  -- (réservé, non utilisé : J+12 notif → on flag dans le
+                        --  même état trial_active via ending_soon_notified)
+  'expired',            -- trial terminé sans CB → downgrade plan=free effectué
+  'converted'           -- trial terminé avec sub Stripe active → no-op (sub
+                        --  Stripe a pris le relais)
+);
+
+CREATE TABLE hub_app.tenant_trials (
+  tenant_id            TEXT      NOT NULL,    -- id Hub (UUID) ou slug app
+  app                  TEXT      NOT NULL,    -- 'notifuse' | 'prospection' | 'analytics'
+  state                hub_app."TrialState" NOT NULL,
+  eligible_at          TIMESTAMPTZ,           -- timestamp réception webhook
+  trial_started_at     TIMESTAMPTZ,           -- timestamp activation par le cron
+  trial_ends_at        TIMESTAMPTZ,           -- = trial_started_at + 15 jours
+  ending_soon_notified BOOLEAN   NOT NULL DEFAULT FALSE,
+  expired_at           TIMESTAMPTZ,
+  created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (tenant_id, app)
+);
+```
+
+**PK composite (tenant_id, app)** : 1 trial par couple lifetime — pas de
+re-trial même après expiration. Un user qui re-déclenche le seuil "5 mails"
+sur Notifuse après un trial expiré reste en `expired`, l'UPSERT met juste à
+jour `updated_at`.
+
+**Index partiel** sur `trial_ends_at WHERE state = 'trial_active'` — le
+cron tick scan ne paye que le coût des rows actives, pas l'historique
+accumulé.
+
+### 8bis.2 Machine d'états
+
+```
+   ┌─────────────────────────────────────────────────────────────┐
+   │  free, no_trial (état implicite — aucune row tenant_trials) │
+   └─────────────────────────────────────────────────────────────┘
+                              │
+        webhook tenant.activity_threshold_reached
+        (5 mails Notifuse envoyés lifetime)
+                              │
+                              ▼
+   ┌─────────────────────────────────────────────────────────────┐
+   │  eligible (eligible_at = NOW)                               │
+   └─────────────────────────────────────────────────────────────┘
+                              │
+        cron tick T+48h → activate
+        (UPDATE tenant_trials + update-plan plan=pro
+         + email "trial started" + Telegram Robert)
+                              │
+                              ▼
+   ┌─────────────────────────────────────────────────────────────┐
+   │  trial_active (trial_started_at, trial_ends_at = +15d)      │
+   └─────────────────────────────────────────────────────────────┘
+                              │
+        cron tick T+12d → notify ending soon
+        (UPDATE ending_soon_notified = TRUE
+         + email "expire dans 3j")
+                              │
+                              ▼
+   ┌─────────────────────────────────────────────────────────────┐
+   │  trial_active (ending_soon_notified = TRUE)                 │
+   └─────────────────────────────────────────────────────────────┘
+                              │
+        cron tick T+15d → finalize
+                              │
+                ┌─────────────┴────────────┐
+   Stripe sub active        Pas de Stripe sub
+        │                          │
+        ▼                          ▼
+   ┌──────────┐              ┌──────────┐
+   │converted │              │ expired  │
+   │ (no-op)  │              │+ plan=free│
+   └──────────┘              └──────────┘
+```
+
+### 8bis.3 Endpoints
+
+| Endpoint | Méthode | Auth | Rôle |
+|---|---|---|---|
+| `/api/webhooks/notifuse` (event `tenant.activity_threshold_reached`) | POST | Bearer `NOTIFUSE_WEBHOOK_TOKEN` | UPSERT row state=eligible |
+| `/api/cron/trial-tick` | POST | Bearer `CRON_SECRET` | Avance les 3 phases (activate / notify / finalize) |
+
+Le cron tick est invoqué par `.github/workflows/hub-trial-tick-cron.yml`
+toutes les 30 minutes. Chaque phase scan max 100 rows par tick avec
+`SELECT ... FOR UPDATE SKIP LOCKED` — pas de double activation si 2
+instances tournent en parallèle.
+
+### 8bis.4 Convention `plan_source` côté apps
+
+Quand le Hub appelle `POST /api/tenants/update-plan` côté Notifuse au
+moment de l'activation trial, le `plan_source` n'est pas dans le payload
+v1 actuel (cf §5.2). Convention :
+
+- Activation trial : `update-plan plan=pro` → côté Notifuse, la sémantique
+  est "Pro avec deadline trial" — l'app a accès au `trial_ends_at` via le
+  champ `trial` exposé sur `/api/limits` (cf §5.17). C'est le **Hub** qui
+  garde l'état trial, l'app sait juste "ce tenant est en pro avec un trial".
+- Expiration trial sans CB : `update-plan plan=free` → l'app passe en mode
+  lecture seule (cf §5.9 paywall obfusqué).
+- Conversion (sub Stripe active à J+15) : **pas** d'appel update-plan
+  supplémentaire — le dispatcher Stripe a déjà posé plan=pro via la sub.
+
+### 8bis.5 Décisions figées (Robert 2026-05-21)
+
+| Paramètre | Valeur figée | Constante code |
+|---|---|---|
+| Délai entre signal et activation | 48h | `TRIAL_ELIGIBLE_WAIT_HOURS` |
+| Durée du trial | 15 jours | `TRIAL_DURATION_DAYS` |
+| Délai notif "expire bientôt" | J+12 (3j avant fin) | `TRIAL_NOTIFY_ENDING_SOON_DAYS` |
+| Seuil Notifuse | 5 mails lifetime | constante côté Notifuse |
+| Re-trial possible ? | Non, 1 trial par tenant lifetime | PK (tenant_id, app) |
+| Sender email trial | Hub → Brevo (cohérent avec autres mails Hub) | `lib/email/send.ts` |
+
+Si Robert change l'un de ces paramètres, modif des constantes dans
+`lib/trial/constants.ts` + mention dans le CHANGELOG du contrat.
+
+### 8bis.6 Apps non-Notifuse
+
+Prospection et Analytics n'émettent pas encore de webhook
+`tenant.activity_threshold_reached`. Leur seuil d'engagement métier reste
+à définir (Prospection : 5 leads scrapés ? Analytics : 100 events trackés ?).
+Tant qu'aucun webhook n'arrive pour ces apps, la state machine reste
+inactive pour leurs tenants (= comportement par défaut "free silencieux").
+
+Le cron tick `callUpdatePlan` ne fait rien si `app !== 'notifuse'` (log
+seulement). Quand un agent câble une autre app, étendre le switch dans
+`app/api/cron/trial-tick/route.ts` avec le client correspondant.
+
+---
+
 ## 9. Inventaire features payantes par app
 
 > 🚧 Section à remplir par chaque agent d'app. Le template ci-dessous est figé,
@@ -3495,6 +3645,17 @@ chaque app retry indéfiniment avec backoff plafond 1h.
 ---
 
 ## 16. Changements
+
+### v1.5+ — 2026-05-21 (trial state machine)
+
+**Nouveau** :
+
+- **§8bis Trial state machine cross-app** : gravé. Table
+  `hub_app.tenant_trials` + cron `/api/cron/trial-tick` (toutes les 30 min)
+  + handler webhook `tenant.activity_threshold_reached` qui crée le state
+  `eligible`. Machine d'états eligible (48h) → trial_active (15j) →
+  expired / converted. 1 trial par couple (tenant_id, app) lifetime, pas
+  de re-trial. Constantes business figées dans `lib/trial/constants.ts`.
 
 ### v1.5 — 2026-05-21 (soir)
 

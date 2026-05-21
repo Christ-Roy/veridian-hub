@@ -40,50 +40,13 @@ import {
   VeridianEventPayload,
 } from '@/lib/notifuse/types';
 import { prisma } from '@/lib/prisma';
-import { handleWebhook, type HandlerTable } from '@/lib/webhooks/receiver';
+import { handleWebhook } from '@/lib/webhooks/receiver';
+import { v14Handlers } from '@/lib/webhooks/notifuse-handlers';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const MAX_DRIFT_MS = 5 * 60 * 1000;
-
-// ============================================================================
-// v1.4 handlers — table extensible (stubs initialement).
-// Persistance via WebhookDedup.payload + processedAt suffit pour audit ;
-// les effets de bord côté Hub (update tenant_members, decay leadScore, etc.)
-// seront branchés au fur et à mesure que les apps émettent réellement.
-// ============================================================================
-
-const v14Handlers: HandlerTable = {
-  'tenant.touched': async (payload) => {
-    // Stub : la row dédup garde le payload pour audit. Quand le ticket
-    // §5.18 sera implémenté côté Hub on viendra ici update
-    // tenant.lastActivityAt + reset deletedAt si soft_deleted.
-    console.info(
-      '[webhook:notifuse] tenant.touched',
-      payload.tenant_id,
-      payload.data,
-    );
-  },
-  'tenant.member_role_changed': async (payload) => {
-    // Stub : §5.18.4 + §11bis.3 — sync best-effort vers
-    // tenant_members.last_known_app_role. Implémentation détaillée dans
-    // le ticket dédié quand les apps livreront l'event réel.
-    console.info(
-      '[webhook:notifuse] tenant.member_role_changed',
-      payload.tenant_id,
-      payload.data,
-    );
-  },
-  'tenant.activity_threshold_reached': async (payload) => {
-    // Stub : event de signal pour le système anti-churn / cleanup.
-    console.info(
-      '[webhook:notifuse] tenant.activity_threshold_reached',
-      payload.tenant_id,
-      payload.data,
-    );
-  },
-};
 
 // ============================================================================
 // Dispatcher principal

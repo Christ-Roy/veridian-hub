@@ -30,6 +30,10 @@ vi.mock('@/lib/webhooks/receiver', () => ({
   handleWebhook: (...args: unknown[]) => handleWebhookMock(...args),
 }));
 
+// Mock prisma.tenantTrial pour la suite "handler activity_threshold_reached"
+// — on l'utilise dans la suite dédiée plus bas avec le VRAI receiver.
+const tenantTrialUpsertMock = vi.fn();
+
 // Mock prisma pour la branche legacy. Le store est rechargé entre les tests.
 interface FakeTenant {
   id: string;
@@ -57,6 +61,9 @@ vi.mock('@/lib/prisma', () => ({
     tenant: {
       findFirst: (...args: any[]) => findFirstMock(...args),
       update: (...args: any[]) => updateMock(...args),
+    },
+    tenantTrial: {
+      upsert: (...args: any[]) => tenantTrialUpsertMock(...args),
     },
   },
 }));
@@ -94,6 +101,7 @@ beforeEach(() => {
   handleWebhookMock.mockReset();
   findFirstMock.mockClear();
   updateMock.mockClear();
+  tenantTrialUpsertMock.mockReset();
 });
 
 afterEach(() => {

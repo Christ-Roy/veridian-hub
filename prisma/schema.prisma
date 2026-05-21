@@ -528,6 +528,61 @@ model TenantMember {
 }
 
 // ============================================================================
+// Trial state machine cross-app (créé 2026-05-21)
+// ============================================================================
+//
+// Source de vérité de l'état "trial" pour chaque (tenant, app). La state
+// machine est pilotée :
+//   - en entrée par les webhooks `tenant.activity_threshold_reached` que les
+//     apps émettent quand un seuil d'engagement métier est atteint
+//     (Notifuse = 5 emails envoyés lifetime), qui crée une row state=eligible
+//   - en avancée par le cron `/api/cron/trial-tick` (toutes les 30 min) qui :
+//       * eligible → trial_active après 48h (appel update-plan plan=pro)
+//       * trial_active → notif "expire dans 3j" à J+12
+//       * trial_active → expired à J+15 sans Stripe sub active
+//         (appel update-plan plan=free)
+//       * trial_active → converted à J+15 si Stripe sub active prend le relais
+//
+// Voir `docs/PRICING-VERIDIAN.md` §"Flow trial complet" pour la vision
+// business et `docs/CONTRAT-HUB.md` §"Trial state machine" pour le contrat
+// technique.
+//
+// Convention :
+//   - PK composite (tenant_id, app) — 1 trial par (tenant, app) lifetime.
+//     Un user peut avoir 1 trial Notifuse + 1 trial Prospection en même
+//     temps. Pas de re-trial (décision figée 2026-05-21).
+//   - Index partiel sur trial_ends_at WHERE state='trial_active' — le cron
+//     ne scanne que les rows actives, pas toute la table.
+
+enum TrialState {
+  eligible
+  trial_active
+  trial_ending_soon
+  expired
+  converted
+
+  @@schema("hub_app")
+}
+
+model TenantTrial {
+  tenantId             String     @map("tenant_id")
+  app                  String
+  state                TrialState
+  eligibleAt           DateTime?  @map("eligible_at") @db.Timestamptz(6)
+  trialStartedAt       DateTime?  @map("trial_started_at") @db.Timestamptz(6)
+  trialEndsAt          DateTime?  @map("trial_ends_at") @db.Timestamptz(6)
+  endingSoonNotified   Boolean    @default(false) @map("ending_soon_notified")
+  expiredAt            DateTime?  @map("expired_at") @db.Timestamptz(6)
+  createdAt            DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@id([tenantId, app])
+  @@index([state])
+  @@map("tenant_trials")
+  @@schema("hub_app")
+}
+
+// ============================================================================
 // AUDIT LOG — traces des actions admin (API admin, scripts, agents IA)
 // ============================================================================
 // Append-only. Aucune route ne fait UPDATE ni DELETE sur cette table.
