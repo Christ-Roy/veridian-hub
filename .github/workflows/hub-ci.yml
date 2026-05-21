@@ -257,22 +257,38 @@ jobs:
 
           # 3) Run prisma migrate deploy dans un container éphémère sur le
           #    réseau dokploy-network (où vit veridian-core-db). Récupère
-          #    le password depuis ~/credentials/.all-creds.env côté prod.
+          #    DATABASE_URL depuis le container Hub prod en cours (le
+          #    password n'est PAS dans ~/credentials/.all-creds.env mais
+          #    bien dans l'ENV du container Hub injectée par Dokploy).
           #    `prisma migrate deploy` est idempotent : exit 0 si à jour,
           #    applique séquentiellement les pending migrations sinon.
           ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "$VPS_USER@$VPS_HOST" bash <<'REMOTE'
           set -euo pipefail
-          DB_PWD=$(grep '^VERIDIAN_CORE_DB_PASSWORD=' ~/credentials/.all-creds.env | head -1 | cut -d= -f2-)
-          if [ -z "$DB_PWD" ]; then
-            echo "ERROR: VERIDIAN_CORE_DB_PASSWORD not found in ~/credentials/.all-creds.env"
+
+          # Récupération du DATABASE_URL depuis le container Hub prod
+          # (Dokploy injecte l'ENV à partir de la config compose). Pattern
+          # robuste : aucun couplage avec ~/credentials/.all-creds.env.
+          HUB_CONTAINER=$(docker ps --filter 'name=hub' --filter 'status=running' --format '{{.Names}}' | grep -E 'compose-back-up-online-pixel.*-hub-' | head -1)
+          if [ -z "$HUB_CONTAINER" ]; then
+            echo "ERROR: container Hub prod introuvable (filter compose-back-up-online-pixel.*-hub-)"
+            docker ps --format '{{.Names}}' | head -20
             exit 1
           fi
+          echo "Hub container: $HUB_CONTAINER"
+
+          DB_URL=$(docker exec "$HUB_CONTAINER" env | grep '^DATABASE_URL=' | head -1 | cut -d= -f2-)
+          if [ -z "$DB_URL" ]; then
+            echo "ERROR: DATABASE_URL not found in $HUB_CONTAINER env"
+            exit 1
+          fi
+          echo "DATABASE_URL resolved (length=${#DB_URL})"
+
           echo "Running prisma migrate deploy on veridian-core-db (hub_app schema)..."
           docker run --rm \
             --network dokploy-network \
             -v /tmp/hub-prisma-migrate:/app \
             -w /app \
-            -e DATABASE_URL="postgresql://veridian:${DB_PWD}@veridian-core-db:5432/veridian?schema=hub_app" \
+            -e DATABASE_URL="$DB_URL" \
             -e DEBUG="prisma:migrate*" \
             node:22-alpine \
             sh -c '
