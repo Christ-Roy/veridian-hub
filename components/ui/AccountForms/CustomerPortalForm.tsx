@@ -28,9 +28,9 @@ export default function CustomerPortalForm({ subscription }: Props) {
 
   const subscriptionPrice =
     subscription &&
-    new Intl.NumberFormat('en-US', {
+    new Intl.NumberFormat('fr-FR', {
       style: 'currency',
-      currency: subscription?.prices?.currency!,
+      currency: (subscription?.prices?.currency || 'EUR').toUpperCase(),
       minimumFractionDigits: 0
     }).format((subscription?.prices?.unit_amount || 0) / 100);
 

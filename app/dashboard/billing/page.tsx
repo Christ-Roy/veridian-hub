@@ -94,9 +94,9 @@ export default async function BillingPage() {
                 {/* Prix et période */}
                 <div className="flex items-baseline gap-2">
                   <span className="text-3xl font-bold">
-                    {new Intl.NumberFormat('en-US', {
+                    {new Intl.NumberFormat('fr-FR', {
                       style: 'currency',
-                      currency: subscription.price?.currency || 'USD',
+                      currency: (subscription.price?.currency || 'EUR').toUpperCase(),
                       minimumFractionDigits: 0,
                     }).format(unitAmount / 100)}
                   </span>
