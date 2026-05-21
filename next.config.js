@@ -1,3 +1,5 @@
+const path = require('path');
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Enable standalone output for Docker
@@ -45,6 +47,14 @@ const nextConfig = {
 
   // Webpack config
   webpack: (config, { dev, isServer }) => {
+    // Alias @veridian/shared → ./shared/shared/index.ts (Git submodule veridian-infra).
+    // Le tsconfig paths ne suffit pas car le bundling Next se fait via webpack
+    // qui doit savoir résoudre l'alias en runtime (pas juste typecheck).
+    config.resolve.alias = {
+      ...(config.resolve.alias || {}),
+      '@veridian/shared': path.resolve(__dirname, 'shared/shared/index.ts'),
+    };
+
     // Remove console.* calls in production
     if (!dev && !isServer) {
       config.optimization = {

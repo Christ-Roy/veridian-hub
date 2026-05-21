@@ -49,6 +49,8 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: recursive
 
       - name: Compute image tag
         id: tag
@@ -259,6 +261,8 @@ jobs:
       actions: write
     steps:
       - uses: actions/checkout@v6
+        with:
+          submodules: recursive
         with:
           fetch-depth: 0
           # PAT prioritaire pour bypass branch protection ;
