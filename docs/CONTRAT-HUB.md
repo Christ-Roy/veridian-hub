@@ -12,8 +12,15 @@
 >   audit log, soft delete). Ce contrat-ci **n'y duplique rien**, il pointe.
 > - `CI-ARCHITECTURE.md` — pipeline CI/CD cross-app. Idem, pas de duplication.
 >
-> **Versionnage** : `v1.3` (2026-05-19). Toute évolution majeure → bump version + section
+> **Versionnage** : `v1.5` (2026-05-21). Toute évolution majeure → bump version + section
 > "Changements" en bas.
+>
+> **Compagnon technique** : `CONTRAT-HUB-API-REF.md` (même dossier, symlinké
+> depuis la racine `veridian-platform/`). Référence exhaustive endpoint par
+> endpoint : routes HTTP, schemas request/response, codes d'erreur, exemples
+> curl reproductibles, tests obligatoires. **Lire en parallèle de ce contrat**
+> pour toute implémentation. Le contrat ici grave les **invariants** et la
+> **vision** ; l'API-REF grave la **technique**.
 >
 > 🔥 **Règle absolue (gravée en v1.1)** : tout ce qui est décrit dans ce contrat
 > fait l'objet d'un **contrôle accru en CI ET d'un smoke manuel via navigateur
@@ -32,11 +39,15 @@
 ## Table des matières
 
 1. [Pourquoi ce contrat](#1-pourquoi-ce-contrat)
+   - 1.4 [Hub source de vérité + résilience apps (v1.4)](#14-hub-source-de-vérité--résilience-apps-gravé-v14)
 2. [Le modèle en 1 schéma](#2-le-modèle-en-1-schéma)
 3. [Plans Veridian — matrice cross-app](#3-plans-veridian--matrice-cross-app)
    - 3.5 [Multi-membre = feature payante (v1.3)](#35-multi-membre--feature-payante-gravé-v13)
    - 3.6 [Apps self-serve vs client_only (v1.3)](#36-apps-self-serve-vs-apps-shadow-marketing-gravé-v13)
+   - 3.7 [Modèle d'identité utilisateur cross-app (v1.4)](#37-modèle-didentité-utilisateur-cross-app-gravé-v14)
 4. [Flow signup utilisateur](#4-flow-signup-utilisateur)
+   - 4.4 [Cycle de vie d'un membre (v1.4)](#44-cycle-de-vie-dun-membre-gravé-v14)
+   - 4.5 [Freemium personnel ↔ membre chez autrui (v1.4)](#45-articulation-freemium-personnel--membre-chez-autrui-gravé-v14)
 5. [Endpoints obligatoires côté apps downstream](#5-endpoints-obligatoires-côté-apps-downstream)
    - 5.1–5.6 Endpoints standards
    - 5.7 [Cycle de vie tenant](#57-cycle-de-vie-tenant-machine-à-états)
@@ -54,6 +65,7 @@
    - 5.19 [Retrait d'un membre (v1.3)](#519-retrait-dun-membre)
    - 5.20 [Restauration d'un membre (v1.3)](#520-restauration-dun-membre)
    - 5.21 [Seat overage — soft warning 7j (v1.3)](#521-seat-overage--soft-warning-7-jours)
+   - 5.22 [Invitation cross-app workspace-level — P1 (v1.4)](#522-invitation-cross-app-workspace-level-gravé-v14)
 6. [Authentification — 3 patterns](#6-authentification--3-patterns)
    - 6.5 [Convention env vars staging / prod](#65-convention-env-vars-stagingprod)
    - 6.6 [Mode dev local (SKIP_HMAC)](#66-mode-dev-local-skip_hmac)
@@ -61,7 +73,8 @@
    - 6bis.1 [Vue d'ensemble — 3 couches dégradées](#6bis1-vue-densemble--3-couches-dégradées)
    - 6bis.2 [Couche 2 — détails techniques](#6bis2-couche-2--détails-techniques)
    - 6bis.3 [Couche 3 — détails techniques](#6bis3-couche-3--détails-techniques)
-   - 6bis.6 [État au 2026-05-20](#6bis6-état-au-2026-05-20)
+   - 6bis.6 [État au 2026-05-21 (audit cross-app)](#6bis6-état-au-2026-05-21-audit-cross-app)
+   - 6bis.7 [Logout cross-app + scope cookie staging/prod (v1.5)](#6bis7-logout-cross-app--scope-cookie-par-environnement-gravé-v15)
 7. [Webhooks app → Hub](#7-webhooks-app--hub)
    - 7.4 [Stripe → Hub → apps chaîne billing (v1.2)](#74-stripe--hub--apps-chaîne-billing-complète)
 8. [Pilotage des plans + lifecycle depuis le Hub](#8-pilotage-des-plans-depuis-le-hub)
@@ -72,6 +85,7 @@
    - 8.9 [Shadow marketing apps (v1.3)](#89-affichage-shadow-marketing-pour-les-apps-client_only)
 9. [Inventaire features payantes par app](#9-inventaire-features-payantes-par-app)
 10. [Matrice de conformité](#10-matrice-de-conformité)
+11bis. [Permissions et droits utilisateur cross-app (v1.5)](#11bis-permissions-et-droits-utilisateur-cross-app-gravé-v15)
 11. [Onboarding d'une nouvelle app](#11-onboarding-dune-nouvelle-app)
     - 11.5 [Contrôle qualité obligatoire (CI + smoke manuel navigateur)](#115-contrôle-qualité-obligatoire-règle-absolue)
 12. [Tests d'intégration exigés](#12-tests-dintégration-exigés)
@@ -104,6 +118,71 @@ users via **magic link uniquement** (pattern Notion / Vercel / Slack). Cf §6.
 Si un agent ouvre une nouvelle session sur une app Veridian et trouve une page
 `/signup` publique ou un champ password user dans la DB, c'est une faute
 professionnelle à corriger immédiatement.
+
+### 1.4 Hub source de vérité + résilience apps (gravé v1.4)
+
+> 🔥 Règle fondamentale gravée en v1.4 (2026-05-21) suite au brainstorm
+> Robert : le Hub est central **mais ne doit jamais être un single point
+> of failure** pour les apps en lecture.
+
+**Principe** :
+
+- Le Hub est **source de vérité par défaut** pour :
+  - L'identité utilisateur (`hub_app.users.id`)
+  - Le lien `user ↔ tenant` (`hub_app.tenant_members`)
+  - Le plan billing (souscrit via Stripe sur le Hub)
+  - Les invitations cross-app (`hub_app.cross_app_invitations`)
+  - Les `tenant.status` / `tenant.deletedAt` côté Hub
+
+- Chaque app downstream **doit pouvoir continuer de fonctionner** si le
+  Hub est down, en mode dégradé "best effort" :
+  - **Lookup plan** : colonne locale `tenants.plan` + cache TTL 5 min (§5.14).
+    Si Hub down : l'app continue avec sa valeur en cache, log warning.
+  - **Lookup membre** : 100 % local (`workspace_members`, `user_workspaces`).
+    Hub propage en push (sync-member / attach-member), jamais consulté en lecture.
+  - **Magic link déjà émis** : reste valide même si Hub down (token signé,
+    pas de vérification serveur Hub au consume).
+  - **Login user** : magic link consume = session JWT locale, pas de call
+    Hub au moment du login.
+  - **API key tenant** : 100 % locale (hash dans `workspaces.api_key_hash`).
+
+- **Pas de retry infini bloquant côté app** :
+  - Si une app doit appeler le Hub (webhook outbound, lookup user-by-email)
+    et le Hub est down : retry 3× backoff exponentiel max, puis log + skip.
+    Reconciliation via cron Hub niveau 3 (§5.18 vision long terme).
+
+- **Webhooks app → Hub** : émis en best-effort.
+  - Si Hub renvoie 5xx ou timeout : retry 3× backoff, puis stocke en outbox
+    locale (`hub_webhook_outbox` table optionnelle) pour rejouer au boot.
+  - Le Hub absorbe la duplication via `idempotency_key` (§5.11).
+
+- **Webhooks Hub → app** : Hub idem.
+  - Retry 3× backoff, puis log warning. Tenant reste autoritaire côté Hub.
+  - Reconciliation via cron Hub niveau 3.
+
+**Conséquences directes pour les implémentations** :
+
+1. **JAMAIS** d'appel Hub synchrone dans un hot path utilisateur (login, page
+   protégée). Cache obligatoire (§5.14, §5.12.3).
+2. **Pas de cascade Hub-down → app-down**. Les SLA sont indépendants.
+3. **Source de vérité partagée mais idempotence stricte** : si Hub et app
+   se contredisent ponctuellement, l'app trust sa valeur locale + reconciliation
+   tardive. Robert préfère "Notifuse continue de fonctionner avec un membre
+   ancien" plutôt que "Notifuse refuse toute écriture parce que Hub down".
+
+**Anti-pattern interdit** :
+
+```typescript
+// ❌ INTERDIT — bloque l'user si Hub down
+const plan = await fetch(`${HUB_API_URL}/api/users/${userId}/plan`);
+if (!plan.ok) throw new Error("Hub unavailable");
+```
+
+```typescript
+// ✅ AUTORISÉ — lecture locale, Hub propage en push
+const plan = await db.tenants.findUnique({ where: { id: tenantId } }).plan;
+// Le plan est tenu à jour par les webhooks Hub → app (POST /api/tenants/update-plan)
+```
 
 ---
 
@@ -255,6 +334,67 @@ Cf §5.18 pour l'endpoint `invite-member` Hub qui applique le quota.
 
 Cf §8.9 pour l'implémentation côté Hub Dashboard.
 
+### 3.7 Modèle d'identité utilisateur cross-app (gravé v1.4)
+
+> 🔥 Décision archi gravée 2026-05-21. Aligne le contrat avec l'existant
+> Prospection/Notifuse et le P1 invitation Hub livré.
+
+**Identifiants** :
+
+- **`hub_app.users.id`** : UUID v4 généré par le Hub. Source de vérité unique
+  pour identifier un humain dans l'écosystème Veridian.
+- **`<app>.users.id`** : UUID v4 local à chaque app. Reste la clé primaire
+  des tables internes (FK `workspace_members.user_id`, etc.). **Pas de
+  migration destructive.**
+- **`<app>.users.hub_user_id`** : colonne **nullable** ajoutée côté chaque app.
+  Stocke le `hub_app.users.id` correspondant. Index unique. Backfillé au
+  premier contact (provision, attach-member, sync-member, magic link consume).
+- **Email** : clé de jointure de secours. Source de vérité canonique
+  cross-app pour le **lookup** (jamais pour la PK).
+
+**Règles de jointure** :
+
+1. **Hub appelle une app** : utilise `email` ET `hub_user_id` dans le body
+   (les 2 toujours présents). L'app résout :
+   - `hub_user_id` matche un row local → use it.
+   - Sinon `email` matche → backfill `hub_user_id` + use it.
+   - Sinon → crée user local (`hub_user_id` filled, password = NULL, email_verified = NULL).
+
+2. **App appelle Hub** : utilise `email` ou `hub_user_id` selon disponibilité.
+   Si l'app n'a pas encore le `hub_user_id` (legacy user), email suffit
+   (le Hub résout côté lui).
+
+3. **App appelle app** : interdit. Tout cross-app passe par le Hub.
+
+**Migration legacy** :
+
+- Les users Prospection / Notifuse créés AVANT 2026-05-21 ont `hub_user_id = NULL`.
+- Au premier passage du Hub (provision tenant ou attach-member), backfill atomique :
+  ```sql
+  UPDATE users SET hub_user_id = $1
+  WHERE id = (SELECT id FROM users WHERE email = $2 LIMIT 1)
+    AND hub_user_id IS NULL;
+  ```
+- Si plusieurs users locaux ont le même email (cas pathologique pré-RGPD) :
+  log warning, prend le plus récent, ouvre ticket dette.
+
+**Garde-fous** :
+
+- **JAMAIS** réutiliser un `hub_user_id` pour deux users locaux différents (unique).
+- **JAMAIS** changer le `hub_user_id` d'un user existant sans audit + migration explicite.
+- **JAMAIS** dépendre de `<app>.users.id == hub_app.users.id`. Les UUIDs
+  sont distincts par construction.
+
+**Conséquences sur les endpoints contractuels** :
+
+- Tous les endpoints `/api/tenants/*` et `/api/veridian/*` qui prennent un
+  user en paramètre **doivent** accepter (et stocker) `hub_user_id`.
+- Response inclut `app_user_id` (id local app) pour traçabilité côté Hub.
+- Webhooks app → Hub incluent `hub_user_id` quand connu, `email` sinon.
+
+**Fallback Hub-down** : les apps continuent de fonctionner avec leurs `users.id`
+locaux. La colonne `hub_user_id` est utile pour Hub seulement.
+
 ---
 
 ## 4. Flow signup utilisateur
@@ -296,6 +436,111 @@ Cf §8.9 pour l'implémentation côté Hub Dashboard.
 - **Le Hub ne stocke jamais le password d'un user en dehors de `hub_app.User.account.access_token` (hash bcrypt).** Aucune app downstream ne reçoit le password.
 - **Le `tenant_id` est généré par le Hub** (UUID v4) et est la clé de jointure cross-app. Les apps utilisent ce `tenant_id` comme stable lookup pour leurs propres `workspace_id` internes.
 - **Le user ne peut PAS provisionner pour quelqu'un d'autre.** `requireUser()` côté Hub garantit que `tenant_id` est lié au `userId` de la session.
+
+### 4.4 Cycle de vie d'un membre (gravé v1.4)
+
+> 🔥 Clarifie quand un user humain devient "membre" d'une app downstream.
+> Tranche les ambigüités v1.3 qui mélangeaient tenant-level et workspace-level.
+
+Un humain peut être lié à un tenant downstream de **2 manières exclusives** :
+
+1. **Owner** : il a cliqué "Commencer l'essai" depuis son Hub Dashboard
+   → Hub crée son tenant via `POST /api/tenants/provision` (§5.1)
+   → L'app crée user + workspace + role=owner.
+   → **C'est SON tenant.** Il peut inviter d'autres dessus (s'il a le plan
+     qui le permet, cf §3.5).
+
+2. **Membre invité** : un autre humain (l'inviter) l'a invité depuis SON
+   tenant via le flow P1 invitation (§5.18). Au click sur le magic link :
+   → Hub `POST /api/invitations/[token]/accept` crée le lien Hub.
+   → Hub appelle `POST /api/veridian/workspaces/[id]/attach-member` côté app
+     (§5.22 nouveau).
+   → L'app crée user local si absent, ajoute au workspace_members avec
+     le role demandé par l'invitation.
+
+**Règles d'invariance** :
+
+- Un user humain peut être **owner de plusieurs tenants** (1 par app self_serve
+  qu'il a souscrite), ET **membre de N tenants tiers** simultanément. La
+  table `hub_app.users` ne porte qu'**une** identité humaine; les rôles
+  vivent dans `hub_app.tenant_members` côté Hub et `<app>.workspace_members`
+  côté app.
+
+- **Le signup Hub ne crée AUCUN tenant** ni AUCUN membership (cf §2 invariant
+  provision on-demand depuis 2026-05-18). L'user atterrit sur `/dashboard`
+  sans rien provisionné. C'est le premier click "Commencer" qui déclenche
+  le `provision`.
+
+- **Accepter une invitation NE crée PAS de tenant solo** pour l'invité.
+  Il devient juste membre du tenant de l'inviter. Il n'aura son propre
+  tenant que s'il clique lui-même "Commencer l'essai gratuit" sur la carte
+  app depuis SON Hub Dashboard.
+
+- **Un membre invité n'a pas de "trial" personnel sur ce tenant** : il
+  hérite du plan du tenant (cf §3.5 — multi-membre = payant, donc le
+  tenant qui invite est obligatoirement sur un plan payant). Son éventuel
+  `trial_eligible` personnel (pour ouvrir son propre tenant solo) reste
+  intact côté Hub.
+
+### 4.5 Articulation freemium personnel ↔ membre chez autrui (gravé v1.4)
+
+> 🔥 Tranche le cas "alice freemium chez elle, mais membre Pro chez Bob".
+
+**Décision** : un user humain peut combiner sans conflit :
+- 0 ou 1 tenant **owner** par app (`tenant.user_id = self`)
+- 0 à N memberships **invité** dans des tenants tiers (`tenant_members.user_id = self`,
+  `tenant.user_id != self`)
+
+**Flow exemple** :
+
+```
+Alice signe sur Hub. Aucun tenant. Aucune app.
+  → hub_app.users { id: U_alice, email: alice@x }
+  → hub_app.tenants : 0
+  → hub_app.tenant_members : 0
+
+Bob invite Alice sur SON tenant Prospection (Bob est Pro).
+  → hub_app.cross_app_invitations { invitee: alice@x, target_workspace: W_bob_prospection }
+  → Alice click magic link, accepte.
+  → hub_app.tenant_members { user_id: U_alice, tenant_id: T_bob_prospection, role: member }
+  → Prospection.workspace_members { user_id: alice_local_id, workspace_id: W_bob_prospection, role: member, hub_user_id: U_alice }
+  → Alice n'a TOUJOURS PAS son propre tenant Prospection.
+
+Alice clique "Commencer l'essai gratuit" sur la carte Notifuse depuis SON dashboard.
+  → POST /api/tenants/start { app: "notifuse" }
+  → Hub provisionne tenant freemium Notifuse pour alice.
+  → hub_app.tenants { id: T_alice_notifuse, user_id: U_alice, plan: free }
+  → Notifuse.workspaces + Notifuse.users + Notifuse.user_workspaces (role=owner)
+  → Alice a maintenant : 1 tenant owner Notifuse free + 1 membership Prospection chez Bob.
+
+Alice clique aussi "Commencer l'essai gratuit" sur Prospection.
+  → Hub provisionne tenant freemium Prospection pour alice.
+  → C'est un AUTRE tenant que celui de Bob (distinct ids).
+  → Alice a maintenant : 1 tenant owner Notifuse + 1 tenant owner Prospection (freemium)
+                       + 1 membership Prospection chez Bob.
+  → Côté Prospection.users : un seul row pour alice (hub_user_id matche),
+    mais alice apparaît dans 2 workspaces différents.
+```
+
+**Conséquences** :
+
+- Le quota seats du plan (cf §3.5) du tenant **payeur** compte uniquement
+  les `tenant_members` de CE tenant. Le fait qu'alice ait son propre tenant
+  freemium ailleurs n'utilise PAS de seat chez Bob.
+
+- Si alice est freezed par soft warning (§5.21) sur le tenant de Bob, son
+  tenant solo Notifuse reste 100 % actif. Les 2 sont indépendants.
+
+- Si alice quitte le tenant de Bob (remove-member), son tenant solo
+  Notifuse reste intact. Aucune cascade.
+
+- **Identifiant utilisé pour le SSO** : peu importe le tenant cible, Alice
+  utilise toujours sa même session Hub (`U_alice`). Le magic link Hub →
+  app passe le `hub_user_id` + le `workspace_id` cible.
+
+**Fallback Hub-down** : alice peut toujours se logger à Notifuse (magic
+link déjà émis) et à Prospection (idem). Chaque app résout son user
+local par `users.hub_user_id` ou email.
 
 ---
 
@@ -1219,71 +1464,25 @@ via HMAC; chaque app applique localement.
 **Le Hub ne gère PAS les permissions fines.** Il sait juste "ce humain peut
 entrer dans ce tenant via SSO". L'app décide ce qu'il peut faire dedans.
 
-#### 5.18.2 Endpoint Hub `POST /api/admin/tenants/<id>/invite-member`
+#### 5.18.2 [DÉPRÉCIÉ v1.5] Endpoint Hub `POST /api/admin/tenants/<id>/invite-member`
 
-**Auth** : admin Hub (`requireAdmin` + Tailscale §8.6) OU le user owner du
-tenant (pour self-service depuis `/dashboard/team`).
+> 🔥 Déprécié en v1.5 (2026-05-21). Remplacé par le flow P1 §5.22.
+>
+> **Raison** : §5.18.2 et §5.22 décrivaient le même flow self-service
+> (UI Hub `/dashboard/team` → email magic link → accept → push membre app).
+> Le P1 §5.22 est livré côté Hub (commits `857bdb3`, `186b59a`, `e8adb50`,
+> `dce6f78`), plus complet (verify, revoke, audit), mieux structuré.
+>
+> **Migration** : tout flow qui voulait appeler §5.18.2 utilise désormais
+> `POST /api/invitations/create` (§5.22.6 et `CONTRAT-HUB-API-REF.md` §INV-CREATE).
+>
+> **Gestion du quota seats** : déplacée à §5.21 (source de vérité unique pour
+> la politique soft warning 7j). Le P1 §5.22 consume `/api/invitations/create`
+> qui vérifie le quota et retourne 402 si dépassé selon §5.21.
 
-**Request** :
-```json
-{
-  "email": "string (member to invite)",
-  "role": "member|admin (default: member, applied as default in each app)"
-}
-```
-
-**Comportement Hub** :
-1. Vérifie le quota `members_seats` du plan actuel (cf §3.5).
-   - Si dépassement → applique la politique soft warning 7j (cf §5.21).
-2. Crée ou réutilise un user Hub pour cet email.
-3. Crée invitation Hub (`hub_app.invitations` réutilisée) avec token magique.
-4. Envoie email d'invitation au nouvel email (via Notifuse Hub).
-5. À l'acceptation par l'invité (click magic link) :
-   - Ajoute ligne `hub_app.tenant_members` avec `joined_at`
-   - Propage **en synchrone** à chaque app downstream avec un `POST
-     /api/tenants/<id>/sync-member` HMAC (cf §5.18.3).
-   - Si une app retourne 5xx : retry 3× backoff, puis log warning. Hub
-     reste autoritatif.
-
-**Response 200** (invitation créée) :
-```json
-{
-  "tenant_id": "string",
-  "invited_email": "string",
-  "invitation_id": "string",
-  "magic_link": "string (URL acceptation, TTL 7 jours)",
-  "seats_used": 3,
-  "seats_total": 5,
-  "seats_warning": false
-}
-```
-
-**Response 402** (quota dépassé, soft warning actif) :
-```json
-{
-  "error": "seat_quota_exceeded_soft_warning",
-  "details": {
-    "seats_used": 6,
-    "seats_total": 5,
-    "warning_started_at": "ISO8601",
-    "warning_expires_at": "ISO8601 (now + 7j)",
-    "upgrade_url": "https://app.veridian.site/pricing?plan=veridian-business"
-  }
-}
-```
-
-**Response 402** (quota dépassé, soft warning expiré) :
-```json
-{
-  "error": "seat_quota_exceeded_hard",
-  "details": {
-    "seats_used": 6,
-    "seats_total": 5,
-    "frozen_members": ["x@y.com"],
-    "upgrade_url": "https://app.veridian.site/pricing?plan=veridian-business"
-  }
-}
-```
+L'endpoint `/api/admin/tenants/<id>/invite-member` ne sera **pas** implémenté.
+Toute UI "inviter un membre" (admin Hub support ou user owner via dashboard
+team) passe par le flow P1 §5.22.
 
 #### 5.18.3 Endpoint app `POST /api/tenants/<id>/sync-member`
 
@@ -1424,6 +1623,184 @@ Si `seats_used > seats_total` (plan dépassé) :
 Si l'app n'a pas câblé le freeze de membres : log warning Hub, mais le
 flag soft warning Hub reste actif. Le quota côté Hub bloque les nouvelles
 invitations, c'est suffisant comme protection minimale.
+
+### 5.22 Invitation cross-app workspace-level (gravé v1.4)
+
+> 🔥 Gravé en v1.4 (2026-05-21) suite au livrable Hub P1 invitation
+> 5/9 étapes (commits `d2d5b01`, `857bdb3`, `186b59a`, `e8adb50`, `dce6f78`).
+> Modèle "self-service invitation" qui **complète** §5.18 (admin push) sans
+> le remplacer. Détail technique : `CONTRAT-HUB-API-REF.md` §INV.
+
+#### 5.22.1 Pourquoi un endpoint workspace-level dédié
+
+`POST /api/tenants/<id>/sync-member` (§5.18.3) est **tenant-level** et
+suffit pour Notifuse (1 tenant = 1 workspace). Mais **Prospection a N
+workspaces par tenant** : l'invitation doit cibler UN workspace précis,
+pas n'importe lequel.
+
+Donc v1.4 grave un **second endpoint downstream** : `POST
+/api/veridian/workspaces/<workspaceId>/attach-member`, qui ajoute un
+membre à un workspace **précis** d'un tenant. Sémantique différente
+de §5.18.3 :
+- `sync-member` : tenant-level, ajoute au workspace **par défaut** du tenant.
+- `attach-member` : workspace-level, ajoute au workspace **spécifié**.
+
+Pour les apps mono-workspace (Notifuse), `attach-member` peut résoudre
+en interne "il n'y a qu'un workspace par tenant, je l'utilise" — mais
+**doit** être implémenté pour cohérence cross-app.
+
+#### 5.22.2 Endpoint app `POST /api/veridian/workspaces/<workspaceId>/attach-member`
+
+**Auth** : HMAC Hub (§6.1). Secret partagé `HUB_API_SECRET`.
+
+**Préfixe `/api/veridian/`** : isolation des routes machine-to-machine
+HMAC. Évite la confusion avec les routes user-session `/api/workspaces/`
+de l'app. Pattern existant pour `/api/veridian/auto-login`, `/api/veridian/admin/*`.
+
+**Body** :
+```json
+{
+  "hub_user_id": "string (hub_app.users.id)",
+  "hub_user_email": "string (canonical email)",
+  "role": "owner|admin|member|viewer",
+  "invitation_id": "string (hub_app.cross_app_invitations.id, audit)"
+}
+```
+
+**Response 201 (création)** :
+```json
+{
+  "attached": true,
+  "already_member": false,
+  "member_id": "string (id local app)",
+  "workspace_id": "string (echo)",
+  "role": "string (echo)",
+  "login_url": "string (auto-login one-shot, TTL 60s)"
+}
+```
+
+**Response 200 (idempotent)** :
+```json
+{
+  "attached": true,
+  "already_member": true,
+  "member_id": "string (id local existant)",
+  "workspace_id": "string (echo)",
+  "role": "string (rôle EXISTANT local, JAMAIS écrasé — voir §5.22.4)",
+  "login_url": "string"
+}
+```
+
+**Comportement obligatoire côté app** :
+
+1. Résolution user (cf §3.7) :
+   - Match local par `hub_user_id` → use.
+   - Sinon match par `email` → backfill `hub_user_id` + use.
+   - Sinon crée user local (password=NULL, email_verified=false, hub_user_id filled).
+
+2. Lookup `<app>.workspaces.id = workspaceId` :
+   - Pas trouvé → 404 `workspace_not_found`.
+   - Workspace soft_deleted → 410 `workspace_gone`.
+   - Workspace de tenant suspendu (paywall §5.21) → 423 `workspace_suspended`.
+
+3. Lookup `<app>.workspace_members(workspace_id, user_id)` :
+   - Trouvé avec role identique → 200 `already_member=true`.
+   - Trouvé avec role différent → **JAMAIS** écraser (§5.22.4).
+     Retourne 200 `already_member=true` avec le `role` LOCAL (pas celui demandé).
+     Log info "role conflict ignored: local=X requested=Y".
+   - Pas trouvé → INSERT row + 201.
+
+4. Audit obligatoire :
+   ```sql
+   INSERT INTO audit_log (
+     tenant_id, actor_type, action, target_type, target_id, metadata
+   ) VALUES (
+     $tenant_id, 'hub', 'workspace.member.attached_via_hub',
+     'user', $user_id,
+     '{"hub_user_id":"...","invitation_id":"...","role":"...","already_member":...}'
+   );
+   ```
+
+5. Génération du `login_url` :
+   - Magic link locale (TTL 60s) ou auto_login_url (TTL 60s).
+   - Réutilise le mécanisme existant des `auto-login` Hub→app.
+   - Si pas implémentable rapidement : retourne `null` + Hub fallback sur
+     redirect bas-niveau vers `<app>.app.veridian.site` + flow login normal.
+
+**Codes erreur** :
+
+| Code | Status | Sens |
+|---|---|---|
+| `unauthorized` | 401 | HMAC invalide ou drift > 5min |
+| `invalid_body` | 400 | Zod fail (champ manquant, role invalide) |
+| `workspace_not_found` | 404 | workspaceId inconnu (renvoyé après HMAC OK) |
+| `workspace_gone` | 410 | workspace soft_deleted |
+| `workspace_suspended` | 423 | Tenant suspendu pour billing |
+| `internal_error` | 500 | Erreur DB |
+
+#### 5.22.3 Idempotence & sécurité
+
+- **Idempotent** : 2 appels identiques → même résultat. Pas d'`Idempotency-Key`
+  obligatoire ici (la pair `(workspace_id, hub_user_id)` est la clé idempotente naturelle).
+- **Rate limit recommandé** : 60/min/IP côté app (défense en profondeur après HMAC).
+- **Pas de log du body** en clair (peut contenir email).
+- **Pas de leak** : `workspace_not_found` ne doit être renvoyé qu'après HMAC OK.
+
+#### 5.22.4 Pourquoi on n'écrase JAMAIS un rôle existant
+
+Si alice est déjà `admin` du workspace W1 (élevée localement par l'owner
+Prospection via UI), et que Bob l'invite à nouveau via Hub avec `role=member` :
+- v1.3 disait "UPDATE" (downgrade) → **dangereux**, casse la décision admin local.
+- **v1.4 grave** : on garde le rôle local, on retourne `already_member=true`,
+  on log info. Hub a la vue Hub-level via webhook §5.18.4 mais ne pilote pas.
+
+L'admin Prospection garde le contrôle souverain sur ses rôles internes
+(viewer, visibility_scope, etc.). Cf §5.18.4 : Hub non-autoritatif.
+
+#### 5.22.5 Articulation avec §5.18 (clarifié v1.5)
+
+> Cf §5.18.2 [DÉPRÉCIÉ] : le flow admin invite-member est **fusionné** avec
+> §5.22 P1 invitation. Plus de doublon.
+
+**Endpoints membre actifs cross-app au 2026-05-21 (v1.5)** :
+
+| Niveau | Endpoint | Direction | Auth | Cas d'usage |
+|---|---|---|---|---|
+| **Workspace** | `POST /api/veridian/workspaces/<id>/attach-member` (§5.22.2) | Hub → app | HMAC | **Voie normale** : appelé par Hub depuis `accept` invitation P1. Cible un workspace précis. |
+| **Tenant** | `POST /api/tenants/<id>/sync-member` (§5.18.3) | Hub → app | HMAC | **Voie admin/migration** : appelé par script admin Hub (provisioning batch, backfill migration douce). Ajoute au workspace par défaut. |
+| **Webhook** | `tenant.member_role_changed` (§5.18.4) | app → Hub | Bearer webhook token | App notifie Hub d'un changement de rôle local (audit only, Hub non-autoritatif). |
+
+**Règles de choix** :
+
+- Invitation user-side (UI `/dashboard/team`) → P1 §5.22 → `attach-member` workspace-level.
+- Admin Hub support (rare, pour réparer un cas pathologique) → script qui
+  insère directement dans `cross_app_invitations` + envoie magic link, OU
+  appel direct `sync-member` HMAC vers l'app si on veut bypasser l'email.
+- Migration douce v1.x (backfill rétroactif) → script qui boucle sur les
+  users existants et appelle `sync-member` (cf §8.8).
+
+**Mono-workspace vs multi-workspace** :
+
+- Notifuse (1 workspace = 1 tenant) : `attach-member` et `sync-member`
+  résolvent vers le même row `user_workspaces`. Idempotents l'un par
+  rapport à l'autre.
+- Prospection (N workspaces par tenant) : `attach-member` ajoute au workspace
+  cible précis. `sync-member` ajoute au workspace par défaut (premier
+  créé `ORDER BY created_at ASC LIMIT 1`).
+
+#### 5.22.6 Endpoints Hub-side (livré 2026-05-21, ref technique en API-REF §INV)
+
+| Endpoint Hub | Auth | État | Rôle |
+|---|---|---|---|
+| `POST /api/invitations/create` | HMAC m2m (apps) ou session user | ✅ livré 2026-05-21 (`857bdb3`) | App ou user crée invitation. Body : `invitee_email, target_app, target_workspace_id, target_role, message`. |
+| `GET /api/invitations/[token]/verify` | public | ✅ livré (`186b59a`) | UI `/invite/[token]` interroge avant accept. État valid/expired/already_accepted/not_found. Pas de leak invitee_email. |
+| `POST /api/invitations/[token]/accept` | session Hub user | ✅ étape 4a (`e8adb50`) — phase 4b en attente apps | Accept par user loggué Hub. Transaction atomique. Aujourd'hui : 202 + `downstream_call: "pending"`. Une fois §5.22.2 livré côté apps : appelle `attach-member`, bascule en 200 + `downstream_call: "completed"`. |
+| `POST /api/invitations/revoke/[id]` | session Hub inviter | ✅ livré (`dce6f78`) | Inviter révoque invitation pending. Soft expire pour audit. |
+
+**État cross-app au 2026-05-21** :
+- Hub : 5/9 étapes livrées. UI `/invite/[token]` partielle. Email MJML TODO.
+- Notifuse : §5.22.2 `attach-member` ❌ — ticket `2026-05-21-hub-attach-member-endpoint.md`.
+- Prospection : §5.22.2 `attach-member` ❌ — ticket `2026-05-21-hub-attach-member-endpoint.md`.
 
 ---
 
@@ -1729,29 +2106,112 @@ User browser              prospection.app.v.site       app.veridian.site
        │◄─────────────────────────┤                            │
 ```
 
-### 6bis.6 État au 2026-05-20
+### 6bis.6 État au 2026-05-21 (audit cross-app)
 
 | Couche | État Hub | État Prospection | État Notifuse | État Analytics | État CMS |
 |---|---|---|---|---|---|
-| 1 broker HMAC | ✅ | 🟠 cassé (valide contre Supabase au lieu de HMAC, ticket P1 ouvert) | ✅ | n/a | n/a |
+| 1 broker HMAC | ✅ | ✅ (Supabase nettoyé 2026-05-19, HMAC standard livré) | ✅ | n/a | n/a |
 | 2 cookie cross-sub | ❌ pas câblé | ❌ | ❌ | ❌ | ❌ |
-| 3 magic-link app | n/a | ⚠️ partiel | ✅ | n/a | n/a |
+| 3 magic-link app | n/a | ✅ (Auth.js v5 magic + verify token, post-cleanup Supabase) | ✅ | n/a | n/a |
 
-**Couche 1** : à fixer côté Prospection (ticket déposé), puis
-opérationnelle. Notifuse déjà OK.
+**Couche 1** : opérationnelle cross-app. HMAC `{ts}.{rawBody}` standard
+gravé en §6.1. Compat legacy `email:ts` toujours acceptée côté Prospection
+via flag `ACCEPT_LEGACY_HMAC` jusqu'à coupure 30j post-migration.
 
-**Couche 2** : pas encore livrée nulle part. Roadmap :
+**Couche 2** : pas câblée. Roadmap reste pertinente — non bloquante pour
+le P1 invitation (qui utilise `login_url` magic link explicite). À livrer
+en sprint dédié quand le P1 est consolidé.
+
+Roadmap :
 1. Hub pose le cookie cross-subdomain `.veridian.site` (1 commit
-   `auth.ts`).
+   `auth.ts` + tests).
 2. Hub expose `GET /api/sso/whoami` (~30 lignes + tests).
-3. Chaque app cable son middleware `/login` (~30 lignes par app +
-   tests).
+3. Chaque app cable son middleware `/login` (~30 lignes par app + tests).
 4. Coordination cross-agent via tickets `todo/`.
 
-**Couche 3** : à généraliser. Notifuse OK natif. Prospection a la dette
-de retirer Supabase (cf cleanup global). Autres apps : pas applicable
-tant que pas d'app self-serve self-login (Analytics et CMS sont
-client_only via shadow cards aujourd'hui).
+**Couche 3** : opérationnelle Prospection + Notifuse. Pas applicable
+Analytics/CMS (client_only via shadow cards, pas de self-login direct).
+
+### 6bis.7 Logout cross-app + scope cookie par environnement (gravé v1.5)
+
+> 🔥 Gravé en v1.5 (2026-05-21). Comble 2 angles morts identifiés.
+
+#### 6bis.7.1 Logout cross-app — modèle "logout local"
+
+Quand un user clique "Se déconnecter" dans une app downstream :
+
+- **Comportement obligatoire** : l'app supprime UNIQUEMENT sa **session locale**
+  (cookie `app.veridian.site` scoped sub-domain exact). Le cookie Hub
+  cross-subdomain `.veridian.site` reste intact.
+- **Conséquence** : si l'user retourne sur l'app, la couche 2 SSO (quand
+  livrée) le re-loggera automatiquement via le cookie Hub. Pour un full
+  logout, l'user doit aller sur `app.veridian.site` et cliquer logout.
+
+**Pourquoi ce choix** :
+- Standard SaaS B2B (Google Workspace, Slack, GitHub) : logout d'un produit
+  ne déconnecte pas tout l'écosystème.
+- Évite la confusion utilisateur : Bob fermerait Prospection sans réaliser
+  qu'il se déconnecte aussi de Notifuse en cours d'usage.
+- L'user gardant le cookie Hub peut toujours rentrer à nouveau via un click
+  "Open <App>" depuis Hub Dashboard.
+
+**Endpoint app obligatoire** :
+```
+POST /api/auth/logout
+→ Clear le cookie session local
+→ Redirect 302 vers /login (ou homepage si configuré)
+→ NE TOUCHE PAS au cookie .veridian.site
+```
+
+**Endpoint Hub obligatoire** :
+```
+POST app.veridian.site/api/auth/signout
+→ Clear le cookie .veridian.site (full logout)
+→ Optionnel : émet un webhook tenant.session_revoked vers les apps pour
+  invalider les sessions actives (P3, non bloquant)
+```
+
+**Comportement front-end app** :
+- Bouton "Se déconnecter" en haut à droite (cosmétique standard).
+- Optionnel : sous-menu "Se déconnecter de tout Veridian" qui redirige vers
+  `https://app.veridian.site/auth/signout?return_to=<this_app>`. P2.
+
+#### 6bis.7.2 Scope cookie staging vs prod
+
+> ⚠️ Risque sécurité critique : si on pose le cookie `.veridian.site` en
+> staging, il vise AUSSI la prod (`prospection.app.veridian.site` lit le
+> cookie posé par `hub.staging.veridian.site`). Fuite de session.
+
+**Règle gravée** :
+
+| Environnement | Hub URL | Cookie scope |
+|---|---|---|
+| Prod | `app.veridian.site` | `domain: '.veridian.site'` |
+| Staging | `hub.staging.veridian.site` | `domain: '.staging.veridian.site'` |
+| Dev local | `localhost:3000` | `domain: undefined` (sub-domain exact) |
+
+**Vérification automatique au boot** :
+
+```typescript
+// auth.ts Hub
+const cookieDomain = process.env.DEPLOY_ENV === 'production'
+  ? '.veridian.site'
+  : process.env.DEPLOY_ENV === 'staging'
+  ? '.staging.veridian.site'
+  : undefined;
+
+if (cookieDomain && !cookieDomain.startsWith('.')) {
+  throw new Error('Cookie domain MUST start with "." for cross-subdomain SSO');
+}
+```
+
+**Conséquence** : les apps downstream ont aussi un scope différent par env :
+- Prosp prod cookie session : `prospection.app.veridian.site` (sub exact)
+- Prosp staging cookie session : `prospection.staging.veridian.site` (sub exact)
+
+Les cookies app **ne sont JAMAIS cross-subdomain** — seul le cookie Hub
+l'est. Les apps fonctionnent en cookies isolés et utilisent le cookie Hub
+en lecture seule via couche 2.
 
 ---
 
@@ -1761,7 +2221,7 @@ Endpoint Hub : `POST https://app.veridian.site/api/webhooks/<app_name>`
 
 `<app_name>` ∈ `notifuse`, `prospection`, `analytics`, `cms`, ...
 
-### 7.1 Événements obligatoires
+### 7.1 Événements obligatoires (à jour v1.5)
 
 | Event | Quand | Payload `data` |
 |---|---|---|
@@ -1772,6 +2232,9 @@ Endpoint Hub : `POST https://app.veridian.site/api/webhooks/<app_name>`
 | `tenant.purged` | App a purgé sa data localement après ordre Hub | `{purged_at, rows_deleted}` |
 | `tenant.owner_changed` | App change l'owner (admin action) | `{old_owner_email, new_owner_email}` |
 | `tenant.quota_exceeded` | Soft alert (pas blocking) | `{quota_type, current, limit}` |
+| `tenant.member_role_changed` (§5.18.4) | Admin app change le rôle interne d'un membre | `{user_email, old_role, new_role, changed_by}` |
+| `tenant.member_added` | Membre ajouté localement (cas pathologique : admin app a forcé via UI hors flow Hub) | `{user_email, role}` |
+| `tenant.member_removed` | Membre retiré localement (idem) | `{user_email, reason}` |
 
 ### 7.2 Format payload standard
 
@@ -2092,41 +2555,27 @@ Côté Hub `.env` :
 
 ### 8.8 Migration des tenants existants vers v1.x
 
-> 🔥 Gravé en v1.2. Quand une app passe d'un état pré-contrat à v1.2, qu'est-ce
-> qu'elle fait des tenants déjà en DB ?
+> 🔥 Pattern général de migration douce lors d'un bump de version contrat
+> qui ajoute des colonnes ou états. Toujours **additif et idempotent**.
 
-#### 8.8.1 Au déploiement v1.x d'une app downstream
+**Règle générale** :
 
-L'app DOIT exécuter un script de migration **idempotent** qui :
+1. **Script idempotent** côté app à exécuter au déploiement v1.x — backfill
+   les nouvelles colonnes avec valeurs conservatrices (NULL ou default).
+2. **Webhook `tenant.migrated_to_v1x`** émis pour chaque tenant backfilled
+   avec le diff. Hub stocke dans `hub_app.tenant_migration_log` pour audit.
+3. **`health` endpoint** remonte `contract_version: "1.x"`. Hub compare et
+   appelle `update-plan` si désync détectée.
+4. **Default rattrapage** : si l'app skip la migration, Hub normalise
+   automatiquement au prochain appel `update-plan`. Dette tracée explicite.
 
-1. Backfill `plan_source = 'manual'` pour tous les tenants existants sans
-   `plan_source` (default conservateur — pas Stripe car on ne sait pas).
-2. Backfill `quotas` depuis le plan local hardcodé (cf §5.17.2).
-3. Backfill `deleted_at = NULL`, `purge_eligible_at = NULL` (pas de tenant
-   en soft-delete à l'origine).
-4. Émet un webhook `tenant.migrated_to_v1` vers Hub pour chaque tenant
-   backfilled, avec le diff.
+**Bumps en cours** :
 
-Le Hub stocke ces diffs dans `hub_app.tenant_migration_log` pour audit.
-
-#### 8.8.2 Du côté Hub
-
-Quand une app downstream remonte sa version contrat dans son endpoint `health`
-(ajout obligatoire : `contract_version: "1.2"`), Hub vérifie les tenants
-qu'il connaît pour cette app et :
-- Compare son état Hub (`tenants.<app>Plan`) avec ce que l'app rapporte.
-- Si désync : appelle `update-plan` sur l'app pour réaligner.
-- Log le résultat dans `hub_app.tenant_migration_log`.
-
-#### 8.8.3 Default si l'app skip la migration
-
-Si une app déploie v1.2 sans script de migration : tous ses tenants existants
-auront `plan_source = NULL` côté DB locale. Hub détecte ça via le diff
-`tenants.plan_source` reçu en webhook → Hub appelle `update-plan` avec
-`plan_source = 'manual'` pour normaliser.
-
-**Conclusion** : la migration manquante est rattrapée automatiquement, mais
-c'est de la dette explicite à corriger sous 1 semaine après déploiement.
+- v1.2 → v1.3 : backfill `plan_source`, quotas (livré 2026-05-18).
+- v1.3 → v1.4 : backfill `hub_user_id` (§3.7) au premier contact HMAC. Pas
+  de script batch — backfill progressif via les endpoints existants.
+- v1.4 → v1.5 : pas de migration de données (changements doc/permissions
+  uniquement).
 
 ### 8.9 Affichage shadow marketing pour les apps client_only
 
@@ -2236,20 +2685,38 @@ Chaque app doit déclarer dans `<app>/docs/features-by-plan.md` :
 
 ### 10.1 Endpoints downstream
 
+> Mise à jour 2026-05-21 (v1.4) suite à l'audit cross-app exhaustif.
+
 | Endpoint | Notifuse | Prospection | Analytics | CMS |
 |---|---|---|---|---|
-| 1. `POST provision` | ✅ | ⚠️ HMAC custom à migrer | ❌ | ❌ |
-| 2. `POST update-plan` | ✅ | ❌ | ❌ | ❌ |
-| 3. `POST attach-owner` | ✅ | ❌ | ❌ | ❌ |
-| 4. `POST suspend` | ⚠️ Partiel | ❌ | ❌ | ❌ |
-| 5. `POST resume` | ⚠️ Partiel | ❌ | ❌ | ❌ |
-| 6. `GET health` | ✅ | ❌ | ❌ | ❌ |
-| 7. `POST generateMagicLink` | ✅ | ⚠️ Custom (`regenerate-login`) | ❌ | ❌ |
-| 8. `POST soft-delete` (v1.1) | ❌ | ❌ | ❌ | ❌ |
-| 9. `POST restore` (v1.1) | ❌ | ❌ | ❌ | ❌ |
-| 10. `POST purge` (v1.1) | ❌ | ❌ | ❌ | ❌ |
-| 11. `GET usage-summary` (v1.1) | ❌ | ❌ | ❌ | ❌ |
-| 12. `tenant.touched` webhook (v1.1) | ❌ | ❌ | ❌ | ❌ |
+| 1. `POST provision` (§5.1) | ✅ | ✅ | ❌ | ❌ |
+| 2. `POST update-plan` (§5.2) | ✅ | ✅ | ❌ | ❌ |
+| 3. `POST attach-owner` (§5.3) | ✅ | ✅ | ❌ | ❌ |
+| 4. `POST suspend` (§5.4) | ✅ | ✅ | ❌ | ❌ |
+| 5. `POST resume` (§5.4) | ✅ | ✅ | ❌ | ❌ |
+| 6. `GET health` (§5.5) | ✅ | ✅ | ❌ | ❌ |
+| 7. `POST generateMagicLink` (§5.6) | ✅ | ✅ | ❌ | ❌ |
+| 8. `POST soft-delete` (§5.8.1) | ✅ | ✅ | ❌ | ❌ |
+| 9. `POST restore` (§5.8.2) | ✅ | ✅ | ❌ | ❌ |
+| 10. `POST purge` (§5.8.3) | ✅ | ✅ | ❌ | ❌ |
+| 11. `GET usage-summary` (§5.8.5) | ✅ | ✅ | ❌ | ❌ |
+| 12. `POST touch` (§5.8.4 endpoint) | ✅ | 🟡 helper non câblé | ❌ | ❌ |
+| 13. `GET /limits` (v1.2+) | ✅ | 🟡 partiel | ❌ | ❌ |
+| 14. `POST rotate-api-key` (§5.15) | ❌ | ❌ | ❌ | ❌ |
+| 15. `POST transfer-owner` (§5.16) | ❌ | 🟡 stub | ❌ | ❌ |
+| 16. `POST sync-member` (§5.18.3) | ❌ | ❌ | ❌ | ❌ |
+| 17. `POST remove-member` (§5.19.2) | ❌ | ❌ | ❌ | ❌ |
+| 18. `POST restore-member` (§5.20) | ❌ | ❌ | ❌ | ❌ |
+| 19. `POST freeze-members` (§5.21) | ❌ | ❌ | ❌ | ❌ |
+| 20. `POST unfreeze-members` (§5.21) | ❌ | ❌ | ❌ | ❌ |
+| 21. `POST attach-member` workspace (§5.22.2 NEW) | ❌ ticket | ❌ ticket | ❌ | ❌ |
+| 22. `GET /api/users/by-email` (§5.12, discovery) | ❌ | ❌ | ❌ | ❌ |
+
+**Score conformité (livré + partiel) au 2026-05-21** :
+- Notifuse : **13/22 = 59 %** (socle + lifecycle solides, multi-membre + discovery TODO)
+- Prospection : **13/22 = 59 %** (idem socle, multi-membre + discovery TODO)
+- Analytics : **0/22** (pas branchée)
+- CMS : **0/22** (pas branchée)
 
 ### 10.2 Plans supportés
 
@@ -2276,13 +2743,17 @@ Chaque app doit déclarer dans `<app>/docs/features-by-plan.md` :
 
 ### 10.4 Auth & sécurité
 
+> Mise à jour 2026-05-21 (v1.4).
+
 | Item | Notifuse | Prospection | Analytics | CMS |
 |---|---|---|---|---|
-| HMAC standard `{ts}.{body}` | ✅ | ⚠️ Custom `email:ts` | — | — |
-| Anti-replay timestamp 5min | ✅ | ⚠️ À vérifier | — | — |
-| Comparaison temps constant | ✅ | ⚠️ À vérifier | — | — |
+| HMAC standard `{ts}.{body}` | ✅ | ✅ (`hmac.ts` + 19 tests) | — | — |
+| Anti-replay timestamp 5min | ✅ | ✅ | — | — |
+| Comparaison temps constant | ✅ | ✅ (`crypto.timingSafeEqual`) | — | — |
 | Pas de password user en DB | ✅ | ✅ | — | — |
 | Magic link only auth | ✅ | ✅ | — | — |
+| Legacy HMAC accepté (transition) | — | ✅ flags `ACCEPT_LEGACY_HMAC` / `ACCEPT_LEGACY_BEARER` | — | — |
+| SKIP_HMAC bloqué en prod/staging | ✅ | ✅ | — | — |
 
 ### 10.5 Tests d'intégration
 
@@ -2348,6 +2819,238 @@ Chaque app doit déclarer dans `<app>/docs/features-by-plan.md` :
 | Card grisée + badge si client_only et pas lifetime | ❌ TODO | — | — | — | — |
 | Modal CTA "Voir les sites Veridian" | ❌ TODO | — | — | — | — |
 | Activation auto si tenant=lifetime_site_vitrine | ❌ TODO | — | — | — | — |
+
+### 10.11 P1 Invitation cross-app (v1.4 — §5.22)
+
+> Audit 2026-05-21. Status par composant.
+
+**Hub-side** :
+
+| Composant | État | Commit |
+|---|---|---|
+| Migration Prisma `cross_app_invitations` | ✅ | `d2d5b01` |
+| `POST /api/invitations/create` (HMAC m2m) | ✅ | `857bdb3` |
+| `GET /api/invitations/[token]/verify` (public) | ✅ | `186b59a` |
+| `POST /api/invitations/[token]/accept` étape 4a (session Hub) | ✅ | `e8adb50` |
+| Étape 4b : call HMAC `attach-member` vers apps | 🟡 bloqué apps | `lib/invitations/accept.ts:112` TODO |
+| `POST /api/invitations/revoke/[id]` | ✅ | `dce6f78` |
+| UI `/invite/[token]/page.tsx` (accueil + état token) | 🟡 partiel | — |
+| Boutons OAuth si non loggué + redirect post-accept | ❌ TODO | — |
+| Email MJML "Invitation" via Notifuse | ❌ TODO | étape 7 |
+| E2E Playwright invite→email→click→accept→redirect | ❌ TODO | étape 8 |
+| Secrets ENV `HUB_INVITATION_SECRET_{NOTIFUSE,PROSPECTION,ANALYTICS,CMS}` | 🟡 à provisionner Dokploy | — |
+
+**Apps downstream** :
+
+| Item | Notifuse | Prospection | Analytics | CMS |
+|---|---|---|---|---|
+| `POST /api/veridian/workspaces/[id]/attach-member` (§5.22.2) | ❌ ticket `2026-05-21-hub-attach-member-endpoint.md` | ❌ ticket idem | — | — |
+| Colonne `users.hub_user_id` (UNIQUE NULL) | ❌ | ❌ | — | — |
+| Backfill `hub_user_id` au premier contact Hub | ❌ | ❌ | — | — |
+| Audit log `workspace.member.attached_via_hub` | ❌ | ❌ | — | — |
+
+---
+
+## 11bis. Permissions et droits utilisateur cross-app (gravé v1.5)
+
+> 🔥 Nouvelle section v1.5. Centralise QUI peut faire QUOI dans
+> l'écosystème Veridian. Auparavant éparpillé (§5.18, §5.19, §5.16, etc.).
+
+### 11bis.1 Rôles canoniques
+
+L'écosystème Veridian distingue **3 niveaux** de rôles :
+
+#### 11bis.1.1 Niveau plateforme (Hub-level)
+
+| Rôle | Stocké | Donné par |
+|---|---|---|
+| `platform_admin` | `hub_app.users.role = 'admin'` | Manuel (Robert) |
+| `platform_user` | `hub_app.users.role = 'user'` (default) | Signup |
+
+`platform_admin` = Robert + futurs employés support Veridian. Accès au
+`/dashboard/admin/*` derrière Tailscale (§8.6) + `requireAdmin()` côté code.
+
+#### 11bis.1.2 Niveau tenant (Hub-level)
+
+| Rôle | Stocké | Donné par |
+|---|---|---|
+| `tenant_owner` | `hub_app.tenants.user_id == user.id` | Provisioning (§5.1) ou transfer-owner (§5.16) |
+| `tenant_admin` | `hub_app.tenant_members.role = 'admin'` | invite-member avec role=admin OU élévation par owner |
+| `tenant_member` | `hub_app.tenant_members.role = 'member'` (default) | invite-member |
+
+**1 tenant a exactement 1 `tenant_owner`** (le user qui a provisionné, ou
+celui qui a reçu le transfert). Plusieurs `tenant_admin` possibles.
+`tenant_member` = par défaut, base de la matrice §3.5 seats.
+
+#### 11bis.1.3 Niveau workspace (app-level, peut différer entre apps)
+
+Chaque app downstream définit ses propres rôles internes. Le Hub n'est
+PAS autoritatif là-dessus (§5.18.4 webhook informationnel).
+
+| App | Rôles app | Précisions |
+|---|---|---|
+| **Prospection** | `owner | admin | member | viewer` + `visibility_scope: all/own` | `viewer` = lecture seule, `own` = ne voit que ses propres prospects |
+| **Notifuse** | `owner | admin | member` | Modèle simple, 1 workspace = 1 tenant |
+| **Analytics** | `owner | admin | member` | Default conservateur |
+| **CMS** | `owner | admin | editor | viewer` | Payload roles natifs |
+
+**Mapping Hub → app par défaut** (au moment de l'attach-member §5.22.2) :
+
+| `tenant_members.role` Hub | Prospection | Notifuse | Analytics | CMS |
+|---|---|---|---|---|
+| `owner` | `owner` | `owner` | `owner` | `owner` |
+| `admin` | `admin` | `admin` | `admin` | `admin` |
+| `member` | `member` (scope=`all`) | `member` | `member` | `editor` |
+
+**App peut élever** (jamais downgrade auto) — cf §5.22.4.
+
+### 11bis.2 Matrice des droits
+
+> 🔥 Source de vérité unique. Toute UI ou route qui implémente une action
+> doit vérifier cette matrice.
+
+#### 11bis.2.1 Actions sur le tenant lui-même
+
+| Action | platform_admin | tenant_owner | tenant_admin | tenant_member |
+|---|---|---|---|---|
+| Voir le tenant dans Hub Dashboard | ✅ | ✅ | ✅ | ✅ |
+| Inviter un membre (§5.22) | ✅ | ✅ | ✅ | ❌ |
+| Révoquer une invitation en attente | ✅ | ✅ | ✅ (la sienne) | ❌ |
+| Retirer un membre (§5.19) | ✅ | ✅ | ✅ (sauf owner) | ❌ |
+| Promouvoir membre → admin | ✅ | ✅ | ❌ | ❌ |
+| Rétrograder admin → member | ✅ | ✅ | ❌ | ❌ |
+| Transférer ownership (§5.16) | ✅ | ✅ (sortant) | ❌ | ❌ |
+| Changer le plan / billing | ✅ | ✅ | ❌ | ❌ |
+| Soft-delete le tenant (§5.8.1) | ✅ | ✅ | ❌ | ❌ |
+| Restore tenant soft-deleted (§5.8.2) | ✅ | ✅ | ❌ | ❌ |
+| Purger le tenant (§5.8.3) | ✅ (avec confirm slug) | ❌ | ❌ | ❌ |
+| Rotate api_key (§5.15) | ✅ | ✅ | ❌ | ❌ |
+
+**Notes** :
+
+- `tenant_owner` peut tout faire sur son propre tenant, sauf purger
+  (garde-fou Robert-only avec confirm slug).
+- `tenant_admin` peut gérer les membres mais pas les changer eux-mêmes
+  (un admin ne peut pas se promouvoir owner).
+- Le retrait du `tenant_owner` est interdit (`cannot_remove_owner`).
+  Pour récupérer un tenant orphelin → `transfer-owner` puis `remove-member`.
+
+#### 11bis.2.2 Actions internes à une app
+
+> Hub non-autoritatif. C'est l'app qui décide localement.
+
+Convention recommandée par défaut (chaque app peut diverger si justifié) :
+
+| Action interne app | App owner | App admin | App member | App viewer |
+|---|---|---|---|---|
+| Voir le workspace | ✅ | ✅ | ✅ | ✅ |
+| Créer / éditer une ressource | ✅ | ✅ | ✅ | ❌ |
+| Inviter un membre (relais P1) | ✅ | ✅ | ❌ | ❌ |
+| Changer rôle d'un autre membre | ✅ | ✅ (sauf owner) | ❌ | ❌ |
+| Quitter le workspace (self) | ✅ (= transfer puis quit) | ✅ | ✅ | ✅ |
+| Supprimer le workspace | ✅ | ❌ | ❌ | ❌ |
+
+**Spécificités app-level (à graver dans `<app>/docs/permissions.md`)** :
+
+- **Prospection** : `visibility_scope = 'own'` restreint les prospects
+  visibles au `member`. Croisement avec `viewer` (lecture seule).
+- **Notifuse** : `admin` peut envoyer un broadcast email, `member` ne peut
+  qu'envoyer transactionnel.
+- **CMS** : `editor` ≠ `member`. Editor peut publier les pages. Member non.
+
+### 11bis.3 Endpoints et vérifications d'auth
+
+Pour chaque endpoint contractuel, la **vérification de droit** se fait
+à 3 endroits dans l'ordre :
+
+1. **Auth HTTP** (HMAC / Bearer / session) — §6
+2. **Auth tenant scope** (le user a-t-il le droit sur CE tenant) — §11bis.2.1
+3. **Auth app scope** (l'app a-t-elle le droit interne sur CE workspace) — §11bis.2.2
+
+**Pattern de référence côté Hub** (Next.js Auth.js v5) :
+
+```typescript
+import { requireUser, requireTenantRole, requireAdmin } from '@/lib/auth';
+
+export async function POST(req: Request, { params }: { params: { id: string } }) {
+  // 1. Auth HTTP
+  const user = await requireUser();  // 401 si pas de session
+
+  // 2. Auth tenant scope (selon §11bis.2.1)
+  const member = await requireTenantRole(user.id, params.id, ['owner', 'admin']);
+  // 403 si pas owner ni admin du tenant
+
+  // 3. Logique métier
+  // ...
+}
+```
+
+**Pattern de référence côté app downstream** (HMAC + auth interne) :
+
+```typescript
+import { verifyHubHmac, requireWorkspaceRole } from '@/lib/auth';
+
+// HMAC endpoints (Hub → app) : pas de vérification de droit user — c'est
+// Hub qui a déjà vérifié côté lui via §11bis.2.1.
+export async function POST(req: Request) {
+  await verifyHubHmac(req);  // 401 si HMAC fail
+  // Confiance Hub : on suppose que Hub a déjà vérifié le droit user.
+}
+
+// User session endpoints (app self-service) : vérifie role local
+export async function POST(req: Request, { params }) {
+  const session = await requireSession();
+  await requireWorkspaceRole(session.user.id, params.workspaceId, ['owner', 'admin']);
+  // ...
+}
+```
+
+### 11bis.4 Cas particuliers à graver
+
+#### 11bis.4.1 Email mismatch dans accept invitation
+
+Quand alice accepte une invitation envoyée à alice@x.com mais elle est
+loggée Hub avec alice@perso.fr (cas OAuth Google sur compte différent
+ou changement d'email) :
+
+- Hub `/api/invitations/[token]/accept` retourne **409 `email_mismatch`** par défaut.
+- L'UI peut proposer un override "Continuer avec ce compte" qui repost
+  l'accept avec `?force_link=true`. Hub accepte mais log audit
+  `invitation.email_overridden`.
+- L'invité est alors lié au `hub_user_id` correspondant à sa session
+  (pas à l'email d'origine). L'email d'invitation devient un alias visible
+  pour l'inviteur, rien de plus.
+
+#### 11bis.4.2 Quitter son propre tenant (self-remove)
+
+Un `tenant_member` ou `tenant_admin` peut se retirer lui-même via UI
+`/dashboard/team`. Hub call `POST /api/admin/tenants/<id>/remove-member`
+avec `email = self.email`. Pas de garde-fou (sauf le `tenant_owner` qui
+doit transférer avant — sinon 409).
+
+#### 11bis.4.3 Reprise d'un tenant abandonné (owner inactif)
+
+Pas de récupération automatique. Si le `tenant_owner` est inactif > 90j :
+- Cron Hub log warning
+- `platform_admin` (Robert) peut transférer manuellement via
+  `/api/admin/tenants/<id>/transfer-owner` après vérification business.
+- Pas de "self-promotion" possible côté membres restants.
+
+#### 11bis.4.4 Plusieurs admins, qui pilote ?
+
+Pas de hiérarchie entre admins. Tous les `tenant_admin` ont les mêmes
+droits. Conflits résolus par "last write wins" sur les actions tenant.
+Pour les rôles internes app, c'est `<app>` qui décide (§11bis.2.2).
+
+### 11bis.5 Roadmap permissions futures (P2+)
+
+| Item | Priorité | Trigger |
+|---|---|---|
+| Custom roles par tenant (Enterprise) | P3 | 1er prospect enterprise demande |
+| Permissions granulaires par ressource (RBAC fine) | P4 | Besoin réel cross-app |
+| Audit log permissions cross-app centralisé Hub | P2 | À implémenter avec webhooks app→Hub §5.18.4 |
+| Délégation temporaire (impersonate via session) | P3 | Demande support Robert |
+| Groupes (collections d'users) | P4 | SSO enterprise OIDC `groups` claim |
 
 ---
 
@@ -2792,6 +3495,124 @@ chaque app retry indéfiniment avec backoff plafond 1h.
 ---
 
 ## 16. Changements
+
+### v1.5 — 2026-05-21 (soir)
+
+Suite à l'audit cohérence et au feedback Robert "couvre les angles morts +
+ajoute la gestion des droits, simplifie où c'est redondant".
+
+**Refactor cohérence** :
+
+- **§5.18.2 [DÉPRÉCIÉ]** : l'endpoint admin Hub `/api/admin/tenants/<id>/invite-member`
+  est officiellement déprécié. Doublon historique avec §5.22 (P1 invitation
+  livré côté Hub). Toute invitation passe désormais par `/api/invitations/create`
+  (§5.22.6 + API-REF §INV-CREATE). Le quota seats reste géré dans §5.21 (source
+  unique).
+- **§5.22.5 réécrit** : tableau clair des 3 endpoints membre actifs cross-app
+  (`attach-member` workspace-level, `sync-member` tenant-level admin/migration,
+  webhook `member_role_changed`). Règles de choix gravées. Plus de
+  confusion "qui appelle quoi quand".
+
+**Angles morts comblés** :
+
+- **§6bis.6 État SSO mis à jour** : Prospection couche 1 passe à ✅ (Supabase
+  nettoyé 2026-05-19, HMAC standard livré). Couche 3 magic-link app ✅
+  également côté Prospection post-cleanup.
+- **§6bis.7 nouveau : Logout cross-app + scope cookie staging/prod**.
+  Grave le modèle "logout local" (standard SaaS B2B). Cookie scope
+  obligatoire `.staging.veridian.site` en staging pour éviter la fuite
+  de session vers la prod.
+- **§7.1 webhooks app→Hub** : ajoute `tenant.member_role_changed`,
+  `tenant.member_added`, `tenant.member_removed` (cohérence avec
+  §5.18.4 et §5.21).
+
+**Nouveautés**:
+
+- **§11bis nouveau : Permissions et droits utilisateur cross-app**. Source
+  de vérité unique. Grave 3 niveaux (plateforme / tenant / workspace),
+  matrice des droits par action (qui peut inviter, qui peut promouvoir,
+  qui peut transférer ownership, etc.), pattern de vérification d'auth
+  côté Hub et côté app, cas particuliers (email mismatch, self-remove,
+  tenant abandonné, plusieurs admins), roadmap P2+ (custom roles enterprise,
+  RBAC fine, audit log centralisé, délégation impersonate, groupes).
+
+**Simplification** :
+
+- **§8.8 allégé** : pattern général de migration douce gravé en
+  ~10 lignes au lieu de 35. Bumps en cours listés (1.2→1.3, 1.3→1.4,
+  1.4→1.5 sans data migration).
+
+**Décision SSO entreprise** :
+
+- Pas pour maintenant. Le ticket P5 `2026-05-20-sso-entreprise-on-demand.md`
+  reste dormant. Trigger : prospect entreprise concret en cycle de vente.
+  La couche 2 SSO Veridian maison (§6bis.2) reste pertinente et sera
+  livrée en sprint dédié (non bloquant pour le P1 invitation actuel).
+
+**Inchangé depuis v1.4** : §1.1-§1.4, §2, §3.1-§3.7, §4.1-§4.5, §5.1-§5.17
+inclus, §5.18.1, §5.18.3, §5.18.4, §5.19-§5.22 inclus, §6, §6bis.1-§6bis.5,
+§7.2-§7.4, §8.1-§8.7, §8.9, §9, §10 (matrice mise à jour en v1.4), §11
+inchangé, §12-§15. Structure générale préservée.
+
+### v1.4 — 2026-05-21
+
+Suite brainstorm Robert sur sync workspace cross-app et conformité réelle
+(audit exhaustif des 3 repos Hub + Notifuse + Prospection).
+
+**Vision définitive gravée** :
+
+- **§1.4 Hub source de vérité + résilience apps** : règle fondamentale. Hub
+  central mais **jamais SPOF en lecture**. Chaque app downstream doit pouvoir
+  continuer si Hub down (cache plan 5min, lookup membres 100% local, magic
+  link déjà émis reste valide, login local). Anti-pattern interdit : call
+  Hub synchrone dans hot path user.
+
+- **§3.7 Modèle d'identité user cross-app** : email = clé canonique de
+  jointure ; `hub_user_id` = colonne **nullable** ajoutée côté chaque app
+  (jamais PK). Backfill au premier contact. Pas de migration destructive.
+  Source de vérité unique pour identifier un humain = `hub_app.users.id`,
+  mais chaque app garde son `users.id` local.
+
+- **§4.4 Cycle de vie d'un membre** : 2 manières exclusives de devenir
+  membre d'une app — owner (click "Commencer" depuis SON dashboard) OU
+  invité (P1 invitation accepté). Signup Hub ne crée AUCUN tenant ni
+  membership (cohérent avec §2 provision on-demand). Accepter une
+  invitation NE crée PAS de tenant solo pour l'invité.
+
+- **§4.5 Articulation freemium personnel ↔ membre chez autrui** : un user
+  humain peut combiner 0..1 tenant owner par app + 0..N memberships
+  invité dans des tenants tiers. Flow exemple Alice/Bob détaillé. Quota
+  seats compte uniquement les members du tenant payeur.
+
+- **§5.22 Invitation cross-app workspace-level** : grave le P1 invitation
+  Hub livré 2026-05-21 (5/9 étapes). Nouvel endpoint app `POST
+  /api/veridian/workspaces/<id>/attach-member` (workspace-level, distinct
+  du `sync-member` tenant-level §5.18.3). Détaille comportement obligatoire :
+  résolution user, lookup workspace, idempotence stricte sans écrasement
+  de rôle local, audit log, génération `login_url`. §5.22.4 grave la règle
+  "JAMAIS écraser un rôle local existant" — admin app garde le contrôle
+  souverain. §5.22.5 articule §5.18 (admin push) et §5.22 (self-service
+  user-side) — les 2 coexistent.
+
+**Mises à jour matrice de conformité (§10)** :
+
+- §10.1 Endpoints downstream : passe de 12 à 22 lignes (ajoute touch, limits,
+  sync-member, remove/restore-member, freeze/unfreeze-members, attach-member,
+  users/by-email). Scores réels après audit : Notifuse 59 %, Prospection 59 %.
+  Beaucoup de ⚠️ partiel v1.3 sont en réalité ✅ (audit cross-app exhaustif).
+- §10.4 Auth & sécurité : Prospection passe à ✅ sur HMAC standard (livré 2026-05-19).
+- §10.11 nouvelle : audit P1 invitation Hub par composant.
+
+**Compagnon technique nouveau** :
+
+- `CONTRAT-HUB-API-REF.md` (racine polyrepo + miroir `veridian-hub/docs/`) :
+  référence exhaustive endpoint par endpoint avec schemas request/response,
+  codes d'erreur, exemples curl, tests obligatoires. Le contrat ici garde
+  vision + invariants ; l'API-REF garde la technique pure.
+
+**Inchangé depuis v1.3** : §1.1-§1.3, §2, §3.1-§3.6, §4.1-§4.3, §5.1-§5.21
+inclus, §6, §6bis, §7, §8, §9, §11-§15. La structure générale du contrat
+est préservée.
 
 ### v1.3 — 2026-05-19
 
