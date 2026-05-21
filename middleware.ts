@@ -16,11 +16,17 @@ export const config = {
   matcher: [
     /*
      * Match all request paths except:
+     * - api/pricing/plans (PUBLIC, force-static + Cache-Control public — doit
+     *   être cachable edge CDN. Auth.js middleware injecte des Set-Cookie
+     *   CSRF qui invalident le cache edge (RFC 7234 §3). Cet endpoint est
+     *   consommé en HTTP par Notifuse Go au boot, donc bénéficie 10× de la
+     *   cache edge. Cf. todo/2026-05-21-fix-cache-cookies-pricing-plans.md.
+     *   Sûr car la route n'a aucune logique auth (catalogue public statique).
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - images - .svg, .png, .jpg, .jpeg, .gif, .webp
      */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!api/pricing/plans|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };

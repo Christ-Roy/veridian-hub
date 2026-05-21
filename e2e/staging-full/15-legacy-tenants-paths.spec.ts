@@ -891,16 +891,17 @@ test.describe('Cas 5 — Invitation expirée + tenant soft-deleted (cleanup path
     ).toBe(deletedAt);
   });
 
-  test('Trial state machine ignore les tenants soft-deleted (cron tick safe)', async ({
+  test('Trial state machine ignore les tenants soft-deleted — phase activate', async ({
     request,
   }) => {
     // Setup : créer un tenant soft-deleted + une row tenant_trials state=eligible
-    // datant de > 48h. Le cron tick DOIT activer le trial OU l'ignorer.
+    // datant de > 48h. Le cron tick NE DOIT PAS activer le trial.
     //
-    // FINDING ATTENDU : le code actuel (lib/trial/run-tick.ts) NE filtre PAS
-    // sur tenant.deleted_at IS NULL dans ses 3 phases (SELECT FROM tenant_trials
-    // joint pas tenants). Donc il va activer un trial sur un tenant mort.
-    // Ce test vise à révéler ce bug → fixme + ticket dans todo/.
+    // INVARIANT (fix commit 2a1a12e) : lib/trial/run-tick.ts filtre les 3
+    // phases via EXISTS (SELECT 1 FROM hub_app.tenants t WHERE
+    // (t.id::text=tenant_id OR t.notifuse_workspace_slug=tenant_id OR
+    // t.slug=tenant_id) AND t.deleted_at IS NULL). Donc un trial sur tenant
+    // soft-deleted DOIT rester state=eligible (pas trial_active).
 
     const ownerEmail = legacyEmail('trial-soft');
     seedEmails.push(ownerEmail);
@@ -913,8 +914,8 @@ test.describe('Cas 5 — Invitation expirée + tenant soft-deleted (cleanup path
       RETURNING id
     `);
 
-    // INSERT tenant_trials eligible depuis 49h (>48h cutoff = doit s'activer
-    // au prochain tick si pas filtré).
+    // INSERT tenant_trials eligible depuis 49h (>48h cutoff = devrait s'activer
+    // SAUF si le filtre soft-delete fait son job).
     runSqlOnStaging(`
       INSERT INTO hub_app.tenant_trials (tenant_id, app, state, eligible_at, created_at, updated_at)
       VALUES ('${trialTenantSlug}', 'notifuse', 'eligible', NOW() - INTERVAL '49 hours', NOW() - INTERVAL '49 hours', NOW() - INTERVAL '49 hours')
@@ -939,23 +940,189 @@ test.describe('Cas 5 — Invitation expirée + tenant soft-deleted (cleanup path
       `SELECT state FROM hub_app.tenant_trials WHERE tenant_id = '${trialTenantSlug}' AND app = 'notifuse'`,
     );
 
-    // FINDING ATTENDU : state=trial_active (bug = cron a activé un trial
-    // sur tenant soft-deleted). L'invariant SOUHAITÉ serait state=eligible
-    // (cron ignore). On marque fixme + ticket pour signaler le bug.
-    //
-    // NB : on accepte les 2 issues pour ne pas bloquer la suite — c'est un
-    // test diagnostic, pas un gate.
-    if (stateAfter === 'trial_active') {
-      // eslint-disable-next-line no-console
-      console.warn(
-        '[Cas 5 BUG SUSPECTÉ] trial activé sur tenant soft-deleted — cf. todo/2026-05-22-trial-tick-filtre-soft-deleted.md',
-      );
-    }
-    expect(['eligible', 'trial_active']).toContain(stateAfter);
+    // Assertion STRICTE post-fix : le trial NE DOIT PAS s'activer sur tenant
+    // soft-deleted. Si on observe `trial_active` → le fix code n'a pas marché
+    // en runtime, escalader immédiatement.
+    expect(
+      stateAfter,
+      'fix commit 2a1a12e : le cron NE DOIT PAS activer un trial sur tenant soft-deleted',
+    ).toBe('eligible');
+
+    // trial_started_at / trial_ends_at doivent rester NULL.
+    const startedAt = runSqlSelectFirst(
+      `SELECT trial_started_at FROM hub_app.tenant_trials WHERE tenant_id = '${trialTenantSlug}' AND app = 'notifuse'`,
+    );
+    expect(
+      startedAt,
+      'trial_started_at doit rester NULL (cron ignore)',
+    ).toBe('');
 
     // Cleanup spécifique — IMPORTANT : DELETE trials AVANT tenants (FK)
     // et on fait CHAQUE statement séparé pour éviter les agrégations stdout
     // qui ont déjà pété la suite la 1ère fois.
+    try {
+      runSqlOnStaging(
+        `DELETE FROM hub_app.tenant_trials WHERE tenant_id = '${trialTenantSlug}'`,
+      );
+    } catch {
+      /* ignore */
+    }
+    try {
+      runSqlOnStaging(
+        `DELETE FROM hub_app.tenants WHERE id = '${trialTenantId}'`,
+      );
+    } catch {
+      /* ignore */
+    }
+  });
+
+  test('Trial state machine ignore les tenants soft-deleted — phase notify-ending-soon', async ({
+    request,
+  }) => {
+    // Setup : tenant ACTIF avec un trial déjà actif depuis 13j (donc dans la
+    // fenêtre J+12 du notify), puis on soft-delete le tenant. Le cron tick
+    // NE DOIT PAS notifier (ne doit pas flag ending_soon_notified=true).
+    //
+    // INVARIANT (fix commit 2a1a12e) : processEndingSoon a le même EXISTS
+    // sur tenants.deleted_at IS NULL.
+
+    const ownerEmail = legacyEmail('trial-soft-notify');
+    seedEmails.push(ownerEmail);
+    const u = await adminCreateUser(request, ownerEmail, 'Trial Soft Notify Owner');
+
+    const trialTenantSlug = `legacy-trial-soft-notify-${RUN_STAMP}`;
+
+    // Crée le tenant ACTIF d'abord (deleted_at NULL pour passer le 1er filtre
+    // si on voulait tester l'activate, mais ici on bypass activate en injectant
+    // state=trial_active direct). Puis on soft-delete pour simuler "trial en
+    // cours, owner soft-delete son tenant".
+    const trialTenantId = runSqlSelectFirst(`
+      INSERT INTO hub_app.tenants (id, user_id, name, slug, status, notifuse_workspace_slug, deleted_at, created_at, updated_at)
+      VALUES (gen_random_uuid(), '${u.supabase_user_id}', 'Trial Soft Notify Tenant', '${trialTenantSlug}-int', 'active', '${trialTenantSlug}', NOW() - INTERVAL '6 hours', NOW() - INTERVAL '13 days', NOW())
+      RETURNING id
+    `);
+
+    // INSERT trial actif depuis 13j (> seuil J+12 du notify, < J+15 du finalize),
+    // ending_soon_notified=FALSE → devrait être notifié SI le filtre soft-delete
+    // ne fait pas son job.
+    runSqlOnStaging(`
+      INSERT INTO hub_app.tenant_trials (tenant_id, app, state, eligible_at, trial_started_at, trial_ends_at, ending_soon_notified, created_at, updated_at)
+      VALUES ('${trialTenantSlug}', 'notifuse', 'trial_active', NOW() - INTERVAL '15 days', NOW() - INTERVAL '13 days', NOW() + INTERVAL '2 days', FALSE, NOW() - INTERVAL '15 days', NOW())
+    `);
+
+    const cronSecret = process.env.CRON_SECRET || 'staging-cron-secret';
+    const tickRes = await withRateLimitRetry(() =>
+      request.post(`${STAGING_URL}/api/cron/trial-tick`, {
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${cronSecret}`,
+        },
+        data: {},
+        failOnStatusCode: false,
+      }),
+    );
+    expect(tickRes.status()).toBe(200);
+
+    // ending_soon_notified DOIT rester FALSE — le tenant est soft-deleted,
+    // le cron doit le skip.
+    const notified = runSqlSelectFirst(
+      `SELECT ending_soon_notified FROM hub_app.tenant_trials WHERE tenant_id = '${trialTenantSlug}' AND app = 'notifuse'`,
+    );
+    expect(
+      notified,
+      'fix commit 2a1a12e : pas de mail ending-soon sur tenant soft-deleted (psql -tA renvoie t/f)',
+    ).toBe('f');
+
+    // L'état du trial doit aussi rester trial_active (pas converti, pas expiré,
+    // pas re-activé).
+    const stateAfter = runSqlSelectFirst(
+      `SELECT state FROM hub_app.tenant_trials WHERE tenant_id = '${trialTenantSlug}' AND app = 'notifuse'`,
+    );
+    expect(stateAfter).toBe('trial_active');
+
+    // Cleanup
+    try {
+      runSqlOnStaging(
+        `DELETE FROM hub_app.tenant_trials WHERE tenant_id = '${trialTenantSlug}'`,
+      );
+    } catch {
+      /* ignore */
+    }
+    try {
+      runSqlOnStaging(
+        `DELETE FROM hub_app.tenants WHERE id = '${trialTenantId}'`,
+      );
+    } catch {
+      /* ignore */
+    }
+  });
+
+  test('Trial state machine ignore les tenants soft-deleted — phase finalize (pas de downgrade update-plan)', async ({
+    request,
+  }) => {
+    // Setup : trial actif dont trial_ends_at est passé (J+15 atteint), puis
+    // soft-delete le tenant. Le cron tick NE DOIT PAS :
+    //   - passer le state à 'expired' ou 'converted'
+    //   - appeler notifuseClient.updatePlan(plan='free') (downgrade silencieux
+    //     sur tenant déjà nettoyé = bruit côté Notifuse + 404 silencieux)
+    //
+    // INVARIANT (fix commit 2a1a12e) : processFinalize a le même EXISTS
+    // sur tenants.deleted_at IS NULL.
+
+    const ownerEmail = legacyEmail('trial-soft-finalize');
+    seedEmails.push(ownerEmail);
+    const u = await adminCreateUser(request, ownerEmail, 'Trial Soft Finalize Owner');
+
+    const trialTenantSlug = `legacy-trial-soft-finalize-${RUN_STAMP}`;
+
+    // Tenant soft-deleted (le owner a supprimé son workspace pendant le trial).
+    const trialTenantId = runSqlSelectFirst(`
+      INSERT INTO hub_app.tenants (id, user_id, name, slug, status, notifuse_workspace_slug, deleted_at, created_at, updated_at)
+      VALUES (gen_random_uuid(), '${u.supabase_user_id}', 'Trial Soft Finalize Tenant', '${trialTenantSlug}-int', 'active', '${trialTenantSlug}', NOW() - INTERVAL '2 hours', NOW() - INTERVAL '16 days', NOW())
+      RETURNING id
+    `);
+
+    // INSERT trial actif depuis 16j avec trial_ends_at -1d (cible de la
+    // phase finalize). ending_soon_notified=TRUE pour ne pas leak via la
+    // phase notify (qu'on a déjà testée juste avant).
+    runSqlOnStaging(`
+      INSERT INTO hub_app.tenant_trials (tenant_id, app, state, eligible_at, trial_started_at, trial_ends_at, ending_soon_notified, created_at, updated_at)
+      VALUES ('${trialTenantSlug}', 'notifuse', 'trial_active', NOW() - INTERVAL '18 days', NOW() - INTERVAL '16 days', NOW() - INTERVAL '1 day', TRUE, NOW() - INTERVAL '18 days', NOW())
+    `);
+
+    const cronSecret = process.env.CRON_SECRET || 'staging-cron-secret';
+    const tickRes = await withRateLimitRetry(() =>
+      request.post(`${STAGING_URL}/api/cron/trial-tick`, {
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${cronSecret}`,
+        },
+        data: {},
+        failOnStatusCode: false,
+      }),
+    );
+    expect(tickRes.status()).toBe(200);
+
+    // Le state DOIT rester trial_active : le cron a skip le tenant soft-deleted.
+    // (Pas converti, pas expiré, pas downgradé via update-plan.)
+    const stateAfter = runSqlSelectFirst(
+      `SELECT state FROM hub_app.tenant_trials WHERE tenant_id = '${trialTenantSlug}' AND app = 'notifuse'`,
+    );
+    expect(
+      stateAfter,
+      'fix commit 2a1a12e : finalize doit ignorer un tenant soft-deleted (pas downgrade update-plan)',
+    ).toBe('trial_active');
+
+    // expired_at doit rester NULL.
+    const expiredAt = runSqlSelectFirst(
+      `SELECT expired_at FROM hub_app.tenant_trials WHERE tenant_id = '${trialTenantSlug}' AND app = 'notifuse'`,
+    );
+    expect(
+      expiredAt,
+      'expired_at doit rester NULL (pas de finalize sur tenant mort)',
+    ).toBe('');
+
+    // Cleanup
     try {
       runSqlOnStaging(
         `DELETE FROM hub_app.tenant_trials WHERE tenant_id = '${trialTenantSlug}'`,

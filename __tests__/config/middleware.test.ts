@@ -47,6 +47,22 @@ describe('middleware.ts — matcher exclusions', () => {
     expect(source).toMatch(/svg\|png\|jpg\|jpeg\|gif\|webp/);
   });
 
+  it('exclut api/pricing/plans (route publique cachable edge — sinon Set-Cookie Auth.js casse le cache CDN)', () => {
+    // Critique perf : sans cette exclusion, le middleware Auth.js injecte
+    // __Host-authjs.csrf-token + __Secure-authjs.callback-url, ce qui
+    // invalide le cache edge (RFC 7234 §3). Notifuse Go consomme cet
+    // endpoint au boot — sans cache edge, ~200ms par hit au lieu de ~20ms.
+    // Cf. todo/2026-05-21-fix-cache-cookies-pricing-plans.md.
+    expect(source).toMatch(/api\/pricing\/plans/);
+  });
+
+  it('le matcher applique l\'exclusion en negative lookahead (pas en pattern séparé)', () => {
+    // L'exclusion doit être DANS le `(?!...)` du matcher unique, pas dans
+    // un pattern parallèle (sinon le matcher est toujours évalué sur la
+    // route).
+    expect(source).toMatch(/\(\?!.*api\/pricing\/plans/);
+  });
+
   it('utilise auth.config (PAS auth.ts) — edge-safe sans Prisma', () => {
     // Si quelqu'un importe @/auth dans middleware.ts, le middleware crashe
     // au démarrage (Prisma n'est pas edge-compatible). Ce test verrouille
