@@ -8,36 +8,114 @@ import { WORKSPACE_ROLE_LABELS } from '@/types/workspace';
 import type { WorkspaceRole } from '@/types/workspace';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
+import { getAuthTypes } from '@/utils/auth-helpers/settings';
+import { AcceptInviteButton } from './AcceptInviteButton';
+import { AcceptCrossAppInviteButton } from './AcceptCrossAppInviteButton';
+import { InviteSignInOptions } from './InviteSignInOptions';
 
 type TokenStatus = 'valid' | 'expired' | 'consumed' | 'not_found';
+type InvitationKind = 'workspace' | 'cross_app';
 
-interface TokenInfo {
+interface BaseTokenInfo {
   status: TokenStatus;
+  kind?: InvitationKind;
   email?: string;
+}
+
+interface WorkspaceTokenInfo extends BaseTokenInfo {
+  kind: 'workspace';
   role?: WorkspaceRole;
   workspaceName?: string;
   invitationId?: string;
   workspaceId?: string;
 }
 
+interface CrossAppTokenInfo extends BaseTokenInfo {
+  kind: 'cross_app';
+  targetApp?: 'notifuse' | 'prospection' | 'analytics' | 'cms';
+  targetWorkspaceId?: string;
+  targetRole?: string;
+  inviterName?: string | null;
+  inviterEmail?: string;
+  message?: string | null;
+  invitationId?: string;
+}
+
+type TokenInfo = WorkspaceTokenInfo | CrossAppTokenInfo | { status: Exclude<TokenStatus, 'valid'> };
+
+// Le token cross-app est généré côté Hub en 32 bytes hex (64 chars).
+// Les invitations workspace internes utilisent le même format (randomBytes(32)),
+// donc on essaie les 2 modèles sans pouvoir distinguer par le shape seul.
+const TOKEN_FORMAT = /^[0-9a-f]{64}$/;
+
+const APP_LABEL: Record<'notifuse' | 'prospection' | 'analytics' | 'cms', string> = {
+  notifuse: 'Notifuse',
+  prospection: 'Prospection',
+  analytics: 'Analytics',
+  cms: 'CMS',
+};
+
 async function validateToken(token: string): Promise<TokenInfo> {
-  const invitation = await prisma.invitation.findUnique({
+  if (!TOKEN_FORMAT.test(token)) {
+    return { status: 'not_found' };
+  }
+
+  // Cross-app invitations prennent la priorité car c'est le flow nouveau
+  // et le plus visible (Notifuse / Prospection). En cas de collision improbable
+  // de token, on retombe sur la workspace invite si la cross_app est absente.
+  const crossApp = await prisma.crossAppInvitation.findUnique({
+    where: { token },
+    include: {
+      inviter: { select: { id: true, name: true, email: true } },
+    },
+  });
+
+  if (crossApp) {
+    if (crossApp.acceptedAt) return { status: 'consumed' };
+    if (crossApp.expiresAt < new Date()) return { status: 'expired' };
+    return {
+      status: 'valid',
+      kind: 'cross_app',
+      email: crossApp.inviteeEmail,
+      targetApp: crossApp.targetApp as 'notifuse' | 'prospection' | 'analytics' | 'cms',
+      targetWorkspaceId: crossApp.targetWorkspaceId,
+      targetRole: crossApp.targetRole,
+      inviterName: crossApp.inviter.name,
+      inviterEmail: crossApp.inviter.email,
+      message: crossApp.message,
+      invitationId: crossApp.id,
+    };
+  }
+
+  const workspace = await prisma.invitation.findUnique({
     where: { token },
     include: { workspace: { select: { name: true, id: true } } },
   });
 
-  if (!invitation) return { status: 'not_found' };
-  if (invitation.acceptedAt) return { status: 'consumed' };
-  if (invitation.expiresAt < new Date()) return { status: 'expired' };
+  if (!workspace) return { status: 'not_found' };
+  if (workspace.acceptedAt) return { status: 'consumed' };
+  if (workspace.expiresAt < new Date()) return { status: 'expired' };
 
   return {
     status: 'valid',
-    email: invitation.email,
-    role: invitation.role as WorkspaceRole,
-    workspaceName: invitation.workspace.name,
-    invitationId: invitation.id,
-    workspaceId: invitation.workspace.id,
+    kind: 'workspace',
+    email: workspace.email,
+    role: workspace.role as WorkspaceRole,
+    workspaceName: workspace.workspace.name,
+    invitationId: workspace.id,
+    workspaceId: workspace.workspace.id,
   };
+}
+
+function LogoHeader() {
+  return (
+    <div className="flex justify-center mb-8">
+      <Link href="/" className="flex items-center gap-2">
+        <Logo className="h-7 w-7" />
+        <span className="font-semibold text-lg">Veridian</span>
+      </Link>
+    </div>
+  );
 }
 
 interface Props {
@@ -51,18 +129,14 @@ export default async function InvitePage({ params, searchParams }: Props) {
   const tokenInfo = await validateToken(token);
 
   const user = await getCurrentUser();
+  const { allowOauth } = getAuthTypes();
 
   // Token invalide ou expiré
   if (tokenInfo.status !== 'valid') {
     return (
       <div className="min-h-screen flex items-center justify-center p-6 bg-background">
         <div className="w-full max-w-sm">
-          <div className="flex justify-center mb-8">
-            <Link href="/" className="flex items-center gap-2">
-              <Logo className="h-7 w-7" />
-              <span className="font-semibold text-lg">Veridian</span>
-            </Link>
-          </div>
+          <LogoHeader />
           <Card>
             <CardHeader className="text-center">
               {tokenInfo.status === 'expired' ? (
@@ -99,23 +173,58 @@ export default async function InvitePage({ params, searchParams }: Props) {
     );
   }
 
-  // Token valide mais utilisateur non connecté — rediriger vers login avec retour
+  // Token valide mais utilisateur non connecté — afficher options de connexion
+  // (OAuth + email/password + signup) inline. Mémorise le token comme returnTo
+  // pour que l'user retombe sur cette page après auth.
   if (!user) {
-    const loginUrl = `/login?redirect=${encodeURIComponent(`/invite/${token}`)}`;
-    redirect(loginUrl);
+    const returnTo = `/invite/${token}`;
+    const subjectLabel =
+      tokenInfo.kind === 'cross_app'
+        ? APP_LABEL[tokenInfo.targetApp!]
+        : tokenInfo.workspaceName ?? 'votre workspace';
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6 bg-background">
+        <div className="w-full max-w-sm">
+          <LogoHeader />
+          <Card>
+            <CardHeader className="text-center">
+              <LogIn className="h-12 w-12 mx-auto text-primary mb-2" />
+              <CardTitle>Connectez-vous pour accepter</CardTitle>
+              <CardDescription>
+                Vous avez été invité{' '}
+                {tokenInfo.kind === 'cross_app' ? 'sur' : 'à rejoindre'}{' '}
+                <strong>{subjectLabel}</strong>
+                {tokenInfo.email ? (
+                  <>
+                    {' '}— invité&middot;e en tant que{' '}
+                    <strong>{tokenInfo.email}</strong>
+                  </>
+                ) : null}
+                .
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <InviteSignInOptions
+                token={token}
+                returnTo={returnTo}
+                inviteeEmail={tokenInfo.email}
+                allowOauth={allowOauth}
+              />
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+    );
   }
 
   // Token valide + utilisateur connecté — vérifier que l'email correspond
+  // (workspace : strict ; cross_app : warning et continue possible — l'API
+  //  accepte le mismatch si on lui passe allow_email_mismatch=true).
   if (tokenInfo.email && user.email !== tokenInfo.email) {
     return (
       <div className="min-h-screen flex items-center justify-center p-6 bg-background">
         <div className="w-full max-w-sm">
-          <div className="flex justify-center mb-8">
-            <Link href="/" className="flex items-center gap-2">
-              <Logo className="h-7 w-7" />
-              <span className="font-semibold text-lg">Veridian</span>
-            </Link>
-          </div>
+          <LogoHeader />
           <Card>
             <CardHeader className="text-center">
               <XCircle className="h-12 w-12 mx-auto text-destructive mb-2" />
@@ -137,17 +246,12 @@ export default async function InvitePage({ params, searchParams }: Props) {
     );
   }
 
-  // Acceptation en cours (POST-redirect)
-  if (_searchParams.accepted === '1') {
+  // Acceptation workspace en cours (POST-redirect, ancien flow Invitation)
+  if (_searchParams.accepted === '1' && tokenInfo.kind === 'workspace') {
     return (
       <div className="min-h-screen flex items-center justify-center p-6 bg-background">
         <div className="w-full max-w-sm">
-          <div className="flex justify-center mb-8">
-            <Link href="/" className="flex items-center gap-2">
-              <Logo className="h-7 w-7" />
-              <span className="font-semibold text-lg">Veridian</span>
-            </Link>
-          </div>
+          <LogoHeader />
           <Card>
             <CardHeader className="text-center">
               <CheckCircle className="h-12 w-12 mx-auto text-green-500 mb-2" />
@@ -168,16 +272,53 @@ export default async function InvitePage({ params, searchParams }: Props) {
     );
   }
 
-  // Afficher la page de confirmation d'acceptation
+  // Cross-app invite : page de confirmation avec gestion 3 cas downstream.
+  if (tokenInfo.kind === 'cross_app') {
+    const appLabel = APP_LABEL[tokenInfo.targetApp!];
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6 bg-background">
+        <div className="w-full max-w-md">
+          <LogoHeader />
+          <Card>
+            <CardHeader className="text-center">
+              <LogIn className="h-12 w-12 mx-auto text-primary mb-2" />
+              <CardTitle>Rejoindre {appLabel}</CardTitle>
+              <CardDescription>
+                <strong>{tokenInfo.inviterName ?? tokenInfo.inviterEmail}</strong>{' '}
+                vous invite à rejoindre <strong>{appLabel}</strong> en tant que{' '}
+                <strong>{tokenInfo.targetRole}</strong>.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {tokenInfo.message ? (
+                <blockquote className="border-l-2 border-muted pl-3 text-sm text-muted-foreground italic mb-4">
+                  «&nbsp;{tokenInfo.message}&nbsp;»
+                </blockquote>
+              ) : null}
+              <p className="text-sm text-muted-foreground text-center">
+                Connecté en tant que <strong>{user.email}</strong>
+              </p>
+            </CardContent>
+            <CardFooter className="flex flex-col gap-2">
+              <AcceptCrossAppInviteButton
+                token={token}
+                appLabel={appLabel}
+              />
+              <Button asChild variant="ghost" size="sm">
+                <Link href="/dashboard">Refuser</Link>
+              </Button>
+            </CardFooter>
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  // Workspace invite (flow existant — inchangé)
   return (
     <div className="min-h-screen flex items-center justify-center p-6 bg-background">
       <div className="w-full max-w-sm">
-        <div className="flex justify-center mb-8">
-          <Link href="/" className="flex items-center gap-2">
-            <Logo className="h-7 w-7" />
-            <span className="font-semibold text-lg">Veridian</span>
-          </Link>
-        </div>
+        <LogoHeader />
         <Card>
           <CardHeader className="text-center">
             <LogIn className="h-12 w-12 mx-auto text-primary mb-2" />
@@ -194,7 +335,7 @@ export default async function InvitePage({ params, searchParams }: Props) {
             </p>
           </CardContent>
           <CardFooter className="flex flex-col gap-2">
-            <AcceptButton
+            <AcceptInviteButton
               token={token}
               invitationId={tokenInfo.invitationId!}
               workspaceId={tokenInfo.workspaceId!}
@@ -211,5 +352,5 @@ export default async function InvitePage({ params, searchParams }: Props) {
   );
 }
 
-// Composant client pour l'action d'acceptation
-import { AcceptInviteButton as AcceptButton } from './AcceptInviteButton';
+// Avoid Next 15 "unused redirect" warning if we ever short-circuit; keep import.
+void redirect;
