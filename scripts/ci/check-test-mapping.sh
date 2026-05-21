@@ -82,6 +82,11 @@ is_nuclear_scope() {
     hooks/*.ts|hooks/*.tsx) return 0 ;;
     lib/types/*|lib/**/types.ts) return 1 ;;       # PAS Nuclear (types only)
     lib/*.ts|lib/**/*.ts) return 0 ;;
+    # Fichiers racine critiques — ajoutés 2026-05-21 suite incident OAuth
+    # supabaseUserId NULL (cf. todo/2026-05-21-test-coverage-audit-and-oauth-e2e.md).
+    # Ces fichiers étaient hors scope Nuclear → modifs OAuth phase 1 passées
+    # sans bloc test → bug shippé en prod.
+    auth.ts|auth.config.ts|middleware.ts) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -144,6 +149,10 @@ expected_test_for() {
       rel="${rel%.ts}"
       echo "__tests__/lib/${rel}.test.ts"
       ;;
+    # Fichiers racine critiques — tests structurels dans __tests__/config/
+    auth.ts)         echo "__tests__/config/auth.test.ts" ;;
+    auth.config.ts)  echo "__tests__/config/auth-config.test.ts" ;;
+    middleware.ts)   echo "__tests__/config/middleware.test.ts" ;;
     *)
       return 1
       ;;

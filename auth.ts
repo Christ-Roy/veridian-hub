@@ -15,11 +15,17 @@ import { issueAndSendMfaCode } from '@/lib/mfa';
 import { authConfig } from './auth.config';
 import { createSignInCallback } from '@/lib/auth/sign-in-callback';
 import { createCreateUserEvent } from '@/lib/auth/create-user-event';
+import { buildMockOauthProvider } from '@/lib/auth/mock-oauth-provider';
 
 const credentialsSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
 });
+
+// Mock OAuth provider — fabriqué hors du tableau pour pouvoir filtrer null
+// proprement (Auth.js v5 typage Provider n'accepte pas null inline). Renvoie
+// null en prod, un provider Credentials en staging/test/dev avec le flag.
+const mockOauthProvider = buildMockOauthProvider({ prisma });
 
 export const { auth, handlers, signIn, signOut } = NextAuth({
   ...authConfig,
@@ -60,6 +66,11 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
   },
   providers: [
     ...authConfig.providers,
+    // Mock OAuth provider — actif uniquement quand OAUTH_TEST_PROVIDER=true
+    // ET (DEPLOY_ENV=staging OU NODE_ENV=test/development). En prod, le
+    // provider est `null` et exclu du tableau par le `.filter()` ci-dessous.
+    // Cf. lib/auth/mock-oauth-provider.ts pour les 3 garde-fous.
+    ...(mockOauthProvider ? [mockOauthProvider] : []),
     Credentials({
       name: 'Email',
       credentials: {

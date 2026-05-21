@@ -36,6 +36,15 @@ services:
     environment:
       DEPLOY_ENV: staging
 
+      # ─── Mock OAuth provider (E2E only) ───────────────────────────────
+      # Active le mock provider Auth.js v5 sur staging uniquement. Le code
+      # `lib/auth/mock-oauth-provider.ts` refuse de booter en prod (triple
+      # garde-fou). Le CI `scripts/ci/check-no-test-provider-in-prod.sh`
+      # bloque l'apparition de cette variable dans compose/prod.yml.
+      # Filet de sécurité supplémentaire : l'invariant CI grep aussi
+      # compose/base.yml. Ne JAMAIS déplacer ce flag dans base.yml.
+      OAUTH_TEST_PROVIDER: "true"
+
       # ─── Auth.js staging ───────────────────────────────────────────────
       AUTH_SECRET: ${HUB_AUTH_SECRET:-staging-not-secret-replace-me}
       AUTH_URL: https://hub.staging.veridian.site

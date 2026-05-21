@@ -61,4 +61,14 @@ else
   echo "⚠ scripts/ci/check-risk-marker.sh absent ou non exécutable"
 fi
 
+# ─── 5. OAUTH_TEST_PROVIDER absent de prod/base ─────────────────────────
+# Filet anti-auth-bypass : le mock OAuth provider (lib/auth/mock-oauth-provider.ts)
+# active un bypass Google/Microsoft en staging. S'il fuit en prod ou base,
+# c'est une auth bypass critique (commande extérieure → session admin).
+if [ -x scripts/ci/check-no-test-provider-in-prod.sh ]; then
+  scripts/ci/check-no-test-provider-in-prod.sh
+else
+  echo "⚠ scripts/ci/check-no-test-provider-in-prod.sh absent ou non exécutable"
+fi
+
 exit 0
