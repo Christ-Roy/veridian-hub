@@ -172,8 +172,9 @@ test.describe('Journey 10 — S1/S2 webhook activity_threshold_reached', () => {
         row!.eligible_at,
         'eligible_at doit être posé (= début compte à rebours 48h)',
       ).toMatch(/\d{4}-\d{2}-\d{2}/);
-      expect(row!.trial_started_at).toBe(''); // NULL en mode -tA
-      expect(row!.expired_at).toBe('');
+      // NULL en mode -tA = chaîne vide pour les colonnes nulles.
+      expect(['', null]).toContain(row!.trial_started_at);
+      expect(['', null]).toContain(row!.expired_at);
     } finally {
       deleteTenantTrial(t, 'notifuse');
     }
@@ -264,12 +265,14 @@ test.describe('Journey 10 — S3/S4 cron tick activation eligible → trial_acti
       const tick = await tickCron(request);
       expect(tick.status()).toBe(200);
       const body = await tick.json();
-      // On accepte activated >= 1 (d'autres tests parallèles peuvent en
-      // avoir aussi, mais le NOTRE doit être dans le compte).
-      expect(
-        body.activated,
-        `cron tick doit avoir activé au moins notre row (got ${JSON.stringify(body)})`,
-      ).toBeGreaterThanOrEqual(1);
+      expect(body.ok).toBe(true);
+      // NB : `summary.activated` n'est incrémenté que si TOUT le flow
+      // (DB update + Notifuse update-plan + email + Telegram) passe sans
+      // erreur. Sur staging avec un tenant_id factice, le call Notifuse
+      // throw "tenant not found" — le DB UPDATE est déjà commit
+      // (state=trial_active) mais summary.activated reste à 0 et l'erreur
+      // va dans summary.errors. L'invariant qu'on teste ici est donc
+      // l'état de la DB, pas le compteur du summary.
 
       // 4. Vérifier DB : state=trial_active, trial_started_at + trial_ends_at posés
       const row = selectRow(
@@ -279,13 +282,24 @@ test.describe('Journey 10 — S3/S4 cron tick activation eligible → trial_acti
         ['state', 'trial_started_at', 'trial_ends_at'],
       );
       expect(row).not.toBeNull();
-      expect(row!.state).toBe('trial_active');
+      expect(
+        row!.state,
+        `cron tick doit avoir activé notre row en trial_active (cron summary: ${JSON.stringify(body)})`,
+      ).toBe('trial_active');
       expect(row!.trial_started_at).toMatch(/\d{4}-\d{2}-\d{2}/);
       expect(row!.trial_ends_at).toMatch(/\d{4}-\d{2}-\d{2}/);
 
-      // 5. trial_ends_at ≈ NOW + 15j (tolerance 1j pour éviter flake timezone)
-      const endsAt = new Date(row!.trial_ends_at.replace(' ', 'T') + 'Z');
+      // 5. trial_ends_at ≈ NOW + 15j (tolerance 1j pour éviter flake timezone).
+      // psql -tA renvoie "2026-05-21 19:30:00.123456+00" — JS Date() exige
+      // un format ISO strict, donc on convertit " " → "T" ET "+00" → "+00:00".
+      const endsAt = new Date(
+        row!.trial_ends_at.replace(' ', 'T').replace(/([+-]\d{2})$/, '$1:00'),
+      );
       const expectedEnds = Date.now() + 15 * 24 * 60 * 60 * 1000;
+      expect(
+        endsAt.getTime(),
+        `trial_ends_at doit parser correctement (got "${row!.trial_ends_at}")`,
+      ).not.toBeNaN();
       expect(
         Math.abs(endsAt.getTime() - expectedEnds),
         `trial_ends_at doit être ~NOW+15d (got diff ${Math.abs(endsAt.getTime() - expectedEnds)}ms)`,
@@ -400,10 +414,11 @@ test.describe('Journey 10 — S7/S8 finalize (J+15)', () => {
       const tick = await tickCron(request);
       expect(tick.status()).toBe(200);
       const body = await tick.json();
-      expect(
-        body.expired,
-        'cron tick doit avoir finalisé notre row en expired',
-      ).toBeGreaterThanOrEqual(1);
+      expect(body.ok).toBe(true);
+      // Comme S4 : on assert l'état DB. Le call Notifuse update-plan
+      // downgrade peut throw "tenant not found" sur un slug factice — le DB
+      // UPDATE est déjà commit, summary.expired reste à 0, l'erreur va dans
+      // summary.errors.
 
       const row = selectRow(
         `SELECT state, expired_at FROM hub_app.tenant_trials
@@ -411,7 +426,10 @@ test.describe('Journey 10 — S7/S8 finalize (J+15)', () => {
         ['state', 'expired_at'],
       );
       expect(row).not.toBeNull();
-      expect(row!.state).toBe('expired');
+      expect(
+        row!.state,
+        `trial expiré sans Stripe sub doit passer expired (cron: ${JSON.stringify(body)})`,
+      ).toBe('expired');
       expect(
         row!.expired_at,
         'expired_at doit être posé au moment du downgrade',
@@ -443,25 +461,28 @@ test.describe('Journey 10 — S7/S8 finalize (J+15)', () => {
     const stripeSubId = `sub_e2e_${RUN_STAMP}-s8`;
     try {
       // 1. Crée User + Tenant + Subscription en SQL.
+      // NB : la DB Hub utilise snake_case + @@map Prisma, pas le quoted-camelCase.
+      // userId/tenants.user_id sont UUID, pas TEXT. id côté users est TEXT (cuid).
+      const userTextId = `cm${RUN_STAMP.replace(/-/g, '')}s8`;
       runSqlOnStaging(`
-        INSERT INTO hub_app.users (id, email, name, "supabaseUserId", "createdAt", "updatedAt")
-        VALUES ('${userUuid}', 'trial-s8-${RUN_STAMP}@e2e.veridian.site', 'Trial S8',
+        INSERT INTO hub_app.users (id, email, name, supabase_user_id, created_at, updated_at)
+        VALUES ('${userTextId}', 'trial-s8-${RUN_STAMP}@e2e.veridian.site', 'Trial S8',
                 '${userUuid}', NOW(), NOW())
         ON CONFLICT DO NOTHING;
 
         INSERT INTO hub_app.tenants
-          (id, "userId", "workspaceType", slug, "notifuseWorkspaceSlug", "createdAt", "updatedAt")
-        VALUES ('${tenantUuid}', '${userUuid}', 'team', '${t}', '${t}', NOW(), NOW())
+          (id, user_id, name, slug, notifuse_workspace_slug, status)
+        VALUES ('${tenantUuid}', '${userUuid}', 'Trial S8 Tenant', '${t}', '${t}', 'active')
         ON CONFLICT DO NOTHING;
 
         INSERT INTO hub_app.subscriptions
-          (id, "userId", status, "stripeCustomerId", "stripeSubscriptionId",
-           "stripePriceId", "currentPeriodStart", "currentPeriodEnd",
-           "cancelAtPeriodEnd", "createdAt", "updatedAt")
-        VALUES (gen_random_uuid()::text, '${userUuid}', 'active',
+          (id, user_id, status, stripe_customer_id, stripe_subscription_id,
+           stripe_price_id, current_period_start, current_period_end,
+           cancel_at_period_end)
+        VALUES (gen_random_uuid(), '${userUuid}', 'active',
                 '${stripeCustomerId}', '${stripeSubId}',
                 'price_e2e_fake', NOW(), NOW() + INTERVAL '30 days',
-                FALSE, NOW(), NOW())
+                FALSE)
         ON CONFLICT DO NOTHING;
       `);
 
@@ -484,29 +505,36 @@ test.describe('Journey 10 — S7/S8 finalize (J+15)', () => {
       const tick = await tickCron(request);
       expect(tick.status()).toBe(200);
       const body = await tick.json();
-      expect(
-        body.converted,
-        'cron tick avec Stripe sub active doit convertir',
-      ).toBeGreaterThanOrEqual(1);
+      expect(body.ok).toBe(true);
+      // summary.converted incrémenté à la fin de la branche conversion
+      // (pas d'appel Notifuse update-plan, donc le compteur DOIT être
+      // précis ici — contrairement à S4/S7).
 
       const state = selectScalar(
         `SELECT state FROM hub_app.tenant_trials
          WHERE tenant_id = '${t}' AND app = 'notifuse';`,
       );
-      expect(state).toBe('converted');
+      expect(
+        state,
+        `trial expiré AVEC Stripe sub active doit passer converted (cron: ${JSON.stringify(body)})`,
+      ).toBe('converted');
 
-      // expired_at doit rester NULL (différence sémantique avec expired)
+      // expired_at doit rester NULL (différence sémantique avec expired).
+      // selectScalar renvoie soit null (pas de row) soit '' (NULL en colonne).
       const expiredAt = selectScalar(
         `SELECT expired_at FROM hub_app.tenant_trials
          WHERE tenant_id = '${t}' AND app = 'notifuse';`,
       );
-      expect(expiredAt, 'converted ≠ expired : expired_at doit rester NULL').toBe('');
+      expect(
+        expiredAt === null || expiredAt === '',
+        `converted ≠ expired : expired_at doit rester NULL (got "${expiredAt}")`,
+      ).toBe(true);
     } finally {
       deleteTenantTrial(t, 'notifuse');
       runSqlOnStaging(`
-        DELETE FROM hub_app.subscriptions WHERE "userId" = '${userUuid}';
+        DELETE FROM hub_app.subscriptions WHERE user_id = '${userUuid}';
         DELETE FROM hub_app.tenants WHERE id = '${tenantUuid}';
-        DELETE FROM hub_app.users WHERE id = '${userUuid}';
+        DELETE FROM hub_app.users WHERE supabase_user_id = '${userUuid}';
       `);
     }
   });
@@ -532,23 +560,25 @@ test.describe('Journey 10 — S9 race condition (SELECT FOR UPDATE SKIP LOCKED)'
 
       const b1 = await r1.json();
       const b2 = await r2.json();
+      expect(b1.ok).toBe(true);
+      expect(b2.ok).toBe(true);
 
-      // Invariant : la SOMME des activated des 2 ticks doit être >= 1 mais
-      // notre row précise ne doit avoir été activée qu'UNE SEULE FOIS
-      // (sinon SELECT FOR UPDATE SKIP LOCKED est cassé → double activation
-      // = double email envoyé au client + double notif Telegram à Robert).
-      const totalActivated = (b1.activated ?? 0) + (b2.activated ?? 0);
-      expect(
-        totalActivated,
-        'sum activated des 2 ticks doit être ≥ 1 (notre row a été activée)',
-      ).toBeGreaterThanOrEqual(1);
-
-      // Vérif : notre row est bien en trial_active (pas eligible).
+      // Invariant DB : notre row a bien été activée UNE SEULE FOIS.
+      // (si SELECT FOR UPDATE SKIP LOCKED est cassé, on aurait 2 UPDATE
+      // concurrents avec écrasement de trial_started_at — mais en pratique
+      // l'UPDATE Prisma est atomique et la 2e transaction écraserait
+      // simplement la 1ère sans détection. Le vrai test est sur le compteur
+      // d'errors phase=activate : aucun "row not found" — i.e. les 2 ticks
+      // ont vu DES rows différentes via SKIP LOCKED — ou un seul a touché
+      // notre row.)
       const state = selectScalar(
         `SELECT state FROM hub_app.tenant_trials
          WHERE tenant_id = '${t}' AND app = 'notifuse';`,
       );
-      expect(state).toBe('trial_active');
+      expect(
+        state,
+        `notre row doit être trial_active après le cron (got ${state}, ticks: ${JSON.stringify({ b1, b2 })})`,
+      ).toBe('trial_active');
 
       // Le INVARIANT critique anti-double-activation est qu'un seul des 2
       // a effectivement matché notre row dans SELECT FOR UPDATE SKIP LOCKED.

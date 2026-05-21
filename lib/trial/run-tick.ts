@@ -37,7 +37,18 @@
  * downstream (update-plan) idempotents côté Notifuse, plusieurs appels
  * successifs sont safe.
  *
+ * Perf — batch resolvers (fix N+1, 2026-05-21) :
+ *   Avant la boucle de chaque phase, on batch-resolve une fois :
+ *     - les owner emails via 2 queries (tenant + user) au lieu de N×2
+ *     - les Stripe subs actives via 2 queries au lieu de N×2 (phase 3)
+ *   Lookup en mémoire dans la boucle. Pour un batch de 100 rows :
+ *     - Phase 1 : 200 queries → 2
+ *     - Phase 2 : 200 queries → 2
+ *     - Phase 3 : 400 queries → 4
+ *   Total : ~800 → ~8 queries.
+ *
  * Référence : `todo/2026-05-21-trial-state-machine.md`,
+ *             `todo/2026-05-21-fix-n1-trial-tick.md`,
  *             `docs/PRICING-VERIDIAN.md` §"Flow trial complet",
  *             `docs/CONTRAT-HUB.md` §"Trial state machine".
  */
@@ -72,12 +83,27 @@ export interface TickSummary {
 /**
  * Options injectables pour les tests (mocks). En prod, undefined → fabrique
  * les vrais clients depuis ENV.
+ *
+ * Note compat : `hasActiveStripeSubForTenant` (signature single) reste
+ * supportée pour les tests existants. En interne, on l'enveloppe dans un
+ * appel séquentiel sur les tenants du batch — pas de perte de fonctionnalité,
+ * juste pas de gain perf si tu choisis cette voie. La voie perf est
+ * `hasActiveStripeSubBatch` (un appel pour tout le batch).
  */
 export interface TickDeps {
   notifuseClient?: NotifuseClient;
   sendEmail?: (params: { to: string; subject: string; html: string }) => Promise<void>;
   notifyTelegram?: (message: string) => Promise<boolean>;
+  /** @deprecated Garder pour back-compat tests. Préférer `hasActiveStripeSubBatch`. */
   hasActiveStripeSubForTenant?: (tenantId: string, app: string) => Promise<boolean>;
+  /** Batch resolver : 1 appel pour tout le batch finalize. */
+  hasActiveStripeSubBatch?: (
+    tenantIds: string[],
+  ) => Promise<Map<string, boolean>>;
+  /** Batch resolver : 1 appel pour tout le batch d'une phase. */
+  resolveOwnerEmailBatch?: (
+    tenantIds: string[],
+  ) => Promise<Map<string, string | null>>;
   now?: Date;
 }
 
@@ -95,8 +121,33 @@ export async function runTrialTick(deps: TickDeps = {}): Promise<TickSummary> {
         html: params.html,
       }));
   const notifyTelegram = deps.notifyTelegram ?? sendTelegramAlert;
-  const hasActiveStripeSubForTenant =
-    deps.hasActiveStripeSubForTenant ?? defaultHasActiveStripeSub;
+
+  // Batch resolvers — par défaut tapent la DB en 2 queries chacun. Les tests
+  // peuvent surcharger via deps pour piloter en mémoire.
+  const resolveOwnerEmailBatch =
+    deps.resolveOwnerEmailBatch ?? defaultBatchResolveOwnerEmails;
+
+  // Pour hasActiveStripeSubBatch on a une couche de compat : si seulement
+  // `hasActiveStripeSubForTenant` est fourni (legacy tests), on wrap.
+  const hasActiveStripeSubBatch: (
+    tenantIds: string[],
+  ) => Promise<Map<string, boolean>> = deps.hasActiveStripeSubBatch
+    ? deps.hasActiveStripeSubBatch
+    : deps.hasActiveStripeSubForTenant
+      ? async (tenantIds: string[]) => {
+          // Compat tests legacy : appel single par tenant (perf dégradée
+          // assumée — seuls les tests prennent ce chemin).
+          const single = deps.hasActiveStripeSubForTenant!;
+          const result = new Map<string, boolean>();
+          for (const id of tenantIds) {
+            // L'app n'est plus connue à ce niveau ; on passe '' qui était
+            // ignoré dans defaultHasActiveStripeSub de toute façon.
+            result.set(id, await single(id, ''));
+          }
+          return result;
+        }
+      : defaultBatchResolveHasActiveSub;
+
   const now = deps.now ?? new Date();
 
   const summary: TickSummary = {
@@ -107,14 +158,22 @@ export async function runTrialTick(deps: TickDeps = {}): Promise<TickSummary> {
     errors: [],
   };
 
-  await processActivations(now, notifuseClient, sendEmail, notifyTelegram, summary);
-  await processEndingSoon(now, sendEmail, summary);
+  await processActivations(
+    now,
+    notifuseClient,
+    sendEmail,
+    notifyTelegram,
+    resolveOwnerEmailBatch,
+    summary,
+  );
+  await processEndingSoon(now, sendEmail, resolveOwnerEmailBatch, summary);
   await processFinalize(
     now,
     notifuseClient,
-    hasActiveStripeSubForTenant,
+    hasActiveStripeSubBatch,
     sendEmail,
     notifyTelegram,
+    resolveOwnerEmailBatch,
     summary,
   );
 
@@ -130,6 +189,9 @@ async function processActivations(
   notifuseClient: NotifuseClient,
   sendEmail: NonNullable<TickDeps['sendEmail']>,
   notifyTelegram: NonNullable<TickDeps['notifyTelegram']>,
+  resolveOwnerEmailBatch: (
+    tenantIds: string[],
+  ) => Promise<Map<string, string | null>>,
   summary: TickSummary,
 ): Promise<void> {
   const eligibleCutoff = new Date(
@@ -161,6 +223,12 @@ async function processActivations(
     FOR UPDATE SKIP LOCKED
   `);
 
+  if (rows.length === 0) return;
+
+  // Batch resolve owner emails (1 fois pour tout le batch).
+  const tenantIds = rows.map((r) => r.tenant_id);
+  const emailMap = await resolveOwnerEmailBatch(tenantIds);
+
   for (const row of rows) {
     try {
       const trialEndsAt = computeTrialEndsAt(now);
@@ -179,7 +247,7 @@ async function processActivations(
 
       await callUpdatePlan(notifuseClient, row.app, row.tenant_id, 'pro');
 
-      const ownerEmail = await resolveOwnerEmail(row.tenant_id);
+      const ownerEmail = emailMap.get(row.tenant_id) ?? null;
       if (ownerEmail) {
         const tpl = buildTrialStartedEmail({
           app: row.app,
@@ -211,6 +279,9 @@ async function processActivations(
 async function processEndingSoon(
   now: Date,
   sendEmail: NonNullable<TickDeps['sendEmail']>,
+  resolveOwnerEmailBatch: (
+    tenantIds: string[],
+  ) => Promise<Map<string, string | null>>,
   summary: TickSummary,
 ): Promise<void> {
   const notifyCutoff = new Date(
@@ -242,6 +313,11 @@ async function processEndingSoon(
     FOR UPDATE SKIP LOCKED
   `);
 
+  if (rows.length === 0) return;
+
+  const tenantIds = rows.map((r) => r.tenant_id);
+  const emailMap = await resolveOwnerEmailBatch(tenantIds);
+
   for (const row of rows) {
     try {
       await prisma.tenantTrial.update({
@@ -251,7 +327,7 @@ async function processEndingSoon(
         data: { endingSoonNotified: true, updatedAt: now },
       });
 
-      const ownerEmail = await resolveOwnerEmail(row.tenant_id);
+      const ownerEmail = emailMap.get(row.tenant_id) ?? null;
       if (ownerEmail) {
         const tpl = buildTrialEndingSoonEmail({
           app: row.app,
@@ -279,9 +355,14 @@ async function processEndingSoon(
 async function processFinalize(
   now: Date,
   notifuseClient: NotifuseClient,
-  hasActiveStripeSub: (tenantId: string, app: string) => Promise<boolean>,
+  hasActiveStripeSubBatch: (
+    tenantIds: string[],
+  ) => Promise<Map<string, boolean>>,
   sendEmail: NonNullable<TickDeps['sendEmail']>,
   notifyTelegram: NonNullable<TickDeps['notifyTelegram']>,
+  resolveOwnerEmailBatch: (
+    tenantIds: string[],
+  ) => Promise<Map<string, string | null>>,
   summary: TickSummary,
 ): Promise<void> {
   // Filtre soft-deleted (cf phases précédentes) — pas de downgrade
@@ -308,9 +389,18 @@ async function processFinalize(
     FOR UPDATE SKIP LOCKED
   `);
 
+  if (rows.length === 0) return;
+
+  // Batch resolve : 1 appel pour les emails, 1 appel pour les subs Stripe.
+  const tenantIds = rows.map((r) => r.tenant_id);
+  const [emailMap, subMap] = await Promise.all([
+    resolveOwnerEmailBatch(tenantIds),
+    hasActiveStripeSubBatch(tenantIds),
+  ]);
+
   for (const row of rows) {
     try {
-      const hasSub = await hasActiveStripeSub(row.tenant_id, row.app);
+      const hasSub = subMap.get(row.tenant_id) ?? false;
 
       if (hasSub) {
         await prisma.tenantTrial.update({
@@ -335,7 +425,7 @@ async function processFinalize(
 
       await callUpdatePlan(notifuseClient, row.app, row.tenant_id, 'free');
 
-      const ownerEmail = await resolveOwnerEmail(row.tenant_id);
+      const ownerEmail = emailMap.get(row.tenant_id) ?? null;
       if (ownerEmail) {
         const tpl = buildTrialExpiredEmail({
           app: row.app,
@@ -396,79 +486,159 @@ async function callUpdatePlan(
   );
 }
 
-/**
- * Résout l'email de l'owner du tenant Hub pour envoyer les mails trial.
- * Si le tenant n'a pas d'owner identifiable, on retourne null (le tick
- * continue, on loggue juste qu'on n'a pas pu envoyer).
- */
-async function resolveOwnerEmail(tenantId: string): Promise<string | null> {
-  const tenant = await prisma.tenant.findFirst({
-    where: {
-      OR: [
-        { id: isUuid(tenantId) ? tenantId : undefined },
-        { notifuseWorkspaceSlug: tenantId },
-        { slug: tenantId },
-      ].filter((c): c is { id: string } | { notifuseWorkspaceSlug: string } | { slug: string } =>
-        Object.values(c).some((v) => v !== undefined),
-      ),
-    },
-    select: { userId: true, notifuseUserEmail: true },
-  });
-  if (!tenant) return null;
-
-  if (tenant.notifuseUserEmail) return tenant.notifuseUserEmail;
-
-  const user = await prisma.user.findFirst({
-    where: { supabaseUserId: tenant.userId },
-    select: { email: true },
-  });
-  return user?.email ?? null;
-}
-
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 }
 
 /**
- * Détermine si un tenant a une Stripe Subscription active au moment du
- * finalize. On regarde côté Hub Prisma : la table `subscriptions` est
- * synchronisée par le dispatcher Stripe à chaque webhook.
+ * Batch resolve des owner emails pour une liste d'identifiants `tenant_id`
+ * (cf convention : peut être un UUID Hub, un slug Notifuse, ou un slug Hub).
  *
- * Une sub est considérée "active" si elle est dans un état où Stripe
- * facture / attend de facturer : `active`, `trialing` (Stripe-natif),
- * ou `past_due` (le user a une CB enregistrée, le débit a juste foiré
- * temporairement — on ne downgrade pas).
+ * Effectue exactement 2 queries DB :
+ *   1. `prisma.tenant.findMany` avec WHERE IN sur les 3 colonnes possibles
+ *   2. `prisma.user.findMany` pour les tenants sans `notifuseUserEmail`
  *
- * NB : on ne fait PAS d'appel à l'API Stripe ici. Si la table locale
- * désync (rare, on a stripe_events qui rejoue), le pire scénario est de
- * downgrader un user qui a en fait une sub active — il sera réactivé
- * par le prochain webhook subscription.updated. Robert préfère ça à un
- * cron qui dépend de l'API Stripe pour tourner.
+ * Retourne une Map qui mappe chaque identifiant fourni → email (ou null si
+ * pas trouvé). Lookup O(1) dans la boucle d'appel.
  */
-async function defaultHasActiveStripeSub(
-  tenantId: string,
-  _app: string,
-): Promise<boolean> {
-  const tenant = await prisma.tenant.findFirst({
-    where: {
-      OR: [
-        { id: isUuid(tenantId) ? tenantId : undefined },
-        { notifuseWorkspaceSlug: tenantId },
-        { slug: tenantId },
-      ].filter((c): c is { id: string } | { notifuseWorkspaceSlug: string } | { slug: string } =>
-        Object.values(c).some((v) => v !== undefined),
-      ),
-    },
-    select: { userId: true },
-  });
-  if (!tenant) return false;
+async function defaultBatchResolveOwnerEmails(
+  tenantIds: string[],
+): Promise<Map<string, string | null>> {
+  const result = new Map<string, string | null>();
+  if (tenantIds.length === 0) return result;
 
-  const activeSub = await prisma.subscription.findFirst({
-    where: {
-      userId: tenant.userId,
-      status: { in: ['active', 'trialing', 'past_due'] },
+  const uniqueIds = [...new Set(tenantIds)];
+  const uuids = uniqueIds.filter(isUuid);
+  const nonUuids = uniqueIds.filter((id) => !isUuid(id));
+
+  // Une seule query qui couvre les 3 colonnes possibles via OR + IN.
+  // Si une liste est vide on omet sa branche pour ne pas générer un OR vide.
+  const orClauses: Prisma.TenantWhereInput[] = [];
+  if (uuids.length) orClauses.push({ id: { in: uuids } });
+  if (nonUuids.length) orClauses.push({ notifuseWorkspaceSlug: { in: nonUuids } });
+  if (nonUuids.length) orClauses.push({ slug: { in: nonUuids } });
+
+  if (orClauses.length === 0) return result;
+
+  const tenants = await prisma.tenant.findMany({
+    where: { OR: orClauses },
+    select: {
+      id: true,
+      slug: true,
+      notifuseWorkspaceSlug: true,
+      userId: true,
+      notifuseUserEmail: true,
     },
-    select: { id: true },
   });
-  return !!activeSub;
+
+  // Batch resolve les users pour les tenants sans notifuseUserEmail direct.
+  const userUuids = [
+    ...new Set(
+      tenants
+        .filter((t) => !t.notifuseUserEmail)
+        .map((t) => t.userId),
+    ),
+  ];
+  const users = userUuids.length
+    ? await prisma.user.findMany({
+        where: { supabaseUserId: { in: userUuids } },
+        select: { supabaseUserId: true, email: true },
+      })
+    : [];
+  const emailByUserUuid = new Map(
+    users
+      .filter((u): u is { supabaseUserId: string; email: string } => !!u.supabaseUserId)
+      .map((u) => [u.supabaseUserId, u.email]),
+  );
+
+  // Construit la map : chaque tenant peut être lookupé par id, slug ou
+  // notifuseWorkspaceSlug — on remplit les 3 entrées pour qu'un lookup
+  // par l'un quelconque fonctionne.
+  for (const t of tenants) {
+    const email = t.notifuseUserEmail ?? emailByUserUuid.get(t.userId) ?? null;
+    result.set(t.id, email);
+    if (t.slug) result.set(t.slug, email);
+    if (t.notifuseWorkspaceSlug) result.set(t.notifuseWorkspaceSlug, email);
+  }
+
+  // Pour les IDs demandés mais non trouvés, on met null explicite
+  // (consommateur peut différencier "pas demandé" vs "demandé, pas trouvé").
+  for (const id of uniqueIds) {
+    if (!result.has(id)) result.set(id, null);
+  }
+
+  return result;
+}
+
+/**
+ * Batch resolve "a une Stripe Subscription active" pour une liste de
+ * tenant ids. Effectue exactement 2 queries DB :
+ *   1. `prisma.tenant.findMany` pour mapper tenant_id → userId
+ *   2. `prisma.subscription.findMany` pour récupérer les subs actives
+ *
+ * Logique active sub : status ∈ {'active', 'trialing', 'past_due'}.
+ * Cf doc inline dans le helper single legacy ci-dessous.
+ *
+ * Si la table locale `subscriptions` désync (rare, on a stripe_events
+ * qui rejoue), le pire scénario est de downgrader un user qui a en fait
+ * une sub active — il sera réactivé par le prochain webhook
+ * subscription.updated. Robert préfère ça à un cron qui dépend de
+ * l'API Stripe pour tourner.
+ */
+async function defaultBatchResolveHasActiveSub(
+  tenantIds: string[],
+): Promise<Map<string, boolean>> {
+  const result = new Map<string, boolean>();
+  if (tenantIds.length === 0) return result;
+
+  const uniqueIds = [...new Set(tenantIds)];
+  const uuids = uniqueIds.filter(isUuid);
+  const nonUuids = uniqueIds.filter((id) => !isUuid(id));
+
+  const orClauses: Prisma.TenantWhereInput[] = [];
+  if (uuids.length) orClauses.push({ id: { in: uuids } });
+  if (nonUuids.length) orClauses.push({ notifuseWorkspaceSlug: { in: nonUuids } });
+  if (nonUuids.length) orClauses.push({ slug: { in: nonUuids } });
+
+  if (orClauses.length === 0) {
+    for (const id of uniqueIds) result.set(id, false);
+    return result;
+  }
+
+  const tenants = await prisma.tenant.findMany({
+    where: { OR: orClauses },
+    select: {
+      id: true,
+      slug: true,
+      notifuseWorkspaceSlug: true,
+      userId: true,
+    },
+  });
+
+  const userUuids = [...new Set(tenants.map((t) => t.userId))];
+  const subs = userUuids.length
+    ? await prisma.subscription.findMany({
+        where: {
+          userId: { in: userUuids },
+          status: { in: ['active', 'trialing', 'past_due'] },
+        },
+        select: { userId: true },
+      })
+    : [];
+  const activeUserUuids = new Set(subs.map((s) => s.userId));
+
+  for (const t of tenants) {
+    const hasSub = activeUserUuids.has(t.userId);
+    result.set(t.id, hasSub);
+    if (t.slug) result.set(t.slug, hasSub);
+    if (t.notifuseWorkspaceSlug) result.set(t.notifuseWorkspaceSlug, hasSub);
+  }
+
+  // Pour les IDs demandés mais non trouvés (tenant supprimé entre le scan
+  // et le batch resolve), on met false explicite.
+  for (const id of uniqueIds) {
+    if (!result.has(id)) result.set(id, false);
+  }
+
+  return result;
 }

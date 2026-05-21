@@ -24,16 +24,28 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const queryRawMock = vi.fn();
 const tenantTrialUpdateMock = vi.fn();
 const tenantFindFirstMock = vi.fn();
+const tenantFindManyMock = vi.fn();
 const subscriptionFindFirstMock = vi.fn();
+const subscriptionFindManyMock = vi.fn();
 const userFindFirstMock = vi.fn();
+const userFindManyMock = vi.fn();
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     $queryRaw: (...args: unknown[]) => queryRawMock(...args),
     tenantTrial: { update: (...args: unknown[]) => tenantTrialUpdateMock(...args) },
-    tenant: { findFirst: (...args: unknown[]) => tenantFindFirstMock(...args) },
-    subscription: { findFirst: (...args: unknown[]) => subscriptionFindFirstMock(...args) },
-    user: { findFirst: (...args: unknown[]) => userFindFirstMock(...args) },
+    tenant: {
+      findFirst: (...args: unknown[]) => tenantFindFirstMock(...args),
+      findMany: (...args: unknown[]) => tenantFindManyMock(...args),
+    },
+    subscription: {
+      findFirst: (...args: unknown[]) => subscriptionFindFirstMock(...args),
+      findMany: (...args: unknown[]) => subscriptionFindManyMock(...args),
+    },
+    user: {
+      findFirst: (...args: unknown[]) => userFindFirstMock(...args),
+      findMany: (...args: unknown[]) => userFindManyMock(...args),
+    },
   },
 }));
 
@@ -54,8 +66,17 @@ beforeEach(() => {
   queryRawMock.mockReset();
   tenantTrialUpdateMock.mockReset();
   tenantFindFirstMock.mockReset();
+  tenantFindManyMock.mockReset();
   subscriptionFindFirstMock.mockReset();
+  subscriptionFindManyMock.mockReset();
   userFindFirstMock.mockReset();
+  userFindManyMock.mockReset();
+  // Par défaut, batch resolvers renvoient des listes vides (tenant inconnu).
+  // Les tests qui ont besoin d'un email/sub spécifique override avec
+  // mockResolvedValue/mockResolvedValueOnce.
+  tenantFindManyMock.mockResolvedValue([]);
+  userFindManyMock.mockResolvedValue([]);
+  subscriptionFindManyMock.mockResolvedValue([]);
   process.env.CRON_SECRET = 'test-cron-secret-xyz';
   vi.resetModules();
 });
@@ -147,10 +168,17 @@ describe('runTrialTick — phase activate', () => {
       .mockResolvedValueOnce([]); // finalize
 
     tenantTrialUpdateMock.mockResolvedValue({});
-    tenantFindFirstMock.mockResolvedValue({
-      userId: 'uuid-1',
-      notifuseUserEmail: 'owner@example.com',
-    });
+    // Batch resolver tape `tenant.findMany` (puis `user.findMany` si pas
+    // de notifuseUserEmail). Ici le tenant a un notifuseUserEmail direct.
+    tenantFindManyMock.mockResolvedValue([
+      {
+        id: 't_42',
+        slug: null,
+        notifuseWorkspaceSlug: null,
+        userId: 'uuid-1',
+        notifuseUserEmail: 'owner@example.com',
+      },
+    ]);
 
     const updatePlanMock = vi.fn().mockResolvedValue(undefined);
     const sendEmailMock = vi.fn().mockResolvedValue(undefined);
@@ -272,10 +300,15 @@ describe('runTrialTick — phase notify ending soon', () => {
       .mockResolvedValueOnce([]); // finalize
 
     tenantTrialUpdateMock.mockResolvedValue({});
-    tenantFindFirstMock.mockResolvedValue({
-      userId: 'uuid-x',
-      notifuseUserEmail: 'soon@example.com',
-    });
+    tenantFindManyMock.mockResolvedValue([
+      {
+        id: 't_12d',
+        slug: null,
+        notifuseWorkspaceSlug: null,
+        userId: 'uuid-x',
+        notifuseUserEmail: 'soon@example.com',
+      },
+    ]);
 
     const sendEmailMock = vi.fn().mockResolvedValue(undefined);
 
@@ -368,10 +401,15 @@ describe('runTrialTick — phase finalize', () => {
       ]);
 
     tenantTrialUpdateMock.mockResolvedValue({});
-    tenantFindFirstMock.mockResolvedValue({
-      userId: 'uuid-z',
-      notifuseUserEmail: 'expired@example.com',
-    });
+    tenantFindManyMock.mockResolvedValue([
+      {
+        id: 't_expired',
+        slug: null,
+        notifuseWorkspaceSlug: null,
+        userId: 'uuid-z',
+        notifuseUserEmail: 'expired@example.com',
+      },
+    ]);
 
     const updatePlanMock = vi.fn().mockResolvedValue(undefined);
     const sendEmailMock = vi.fn().mockResolvedValue(undefined);
@@ -451,5 +489,158 @@ describe('runTrialTick — race condition simulation', () => {
     expect(summary2.activated).toBe(0);
     // Total : 1 seule activation, 1 seul appel update-plan
     expect(updatePlanMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ============================================================================
+// Batch resolvers (fix N+1) — vérifier que les helpers tapent la DB en
+// 2 queries (au lieu de N×2) pour un batch de plusieurs rows.
+//
+// Cf ticket todo/2026-05-21-fix-n1-trial-tick.md.
+// ============================================================================
+
+describe('runTrialTick — batch resolvers (N+1 fix)', () => {
+  it('phase activate : 50 rows → 1 seul tenant.findMany + 1 seul user.findMany (au lieu de 50×2)', async () => {
+    // Construit 50 rows eligible synthétiques.
+    const rows = Array.from({ length: 50 }, (_, i) => ({
+      tenant_id: `t_${i}`,
+      app: 'notifuse',
+      eligible_at: new Date('2026-06-13T11:00:00Z'),
+    }));
+    queryRawMock
+      .mockResolvedValueOnce(rows) // activate
+      .mockResolvedValueOnce([]) // notify
+      .mockResolvedValueOnce([]); // finalize
+
+    tenantTrialUpdateMock.mockResolvedValue({});
+
+    // Le batch resolver tape `tenant.findMany` une fois pour les 50 IDs.
+    // Sur ces 50 tenants, certains ont notifuseUserEmail direct (pas de
+    // user.findMany), d'autres non (déclenchent user.findMany).
+    const tenantRows = rows.map((r, i) => ({
+      id: r.tenant_id,
+      slug: null,
+      notifuseWorkspaceSlug: null,
+      userId: `uuid-${i}`,
+      // 25 ont email direct, 25 doivent passer par user.findMany
+      notifuseUserEmail: i % 2 === 0 ? `direct${i}@example.com` : null,
+    }));
+    tenantFindManyMock.mockResolvedValueOnce(tenantRows);
+    userFindManyMock.mockResolvedValueOnce(
+      tenantRows
+        .filter((t) => !t.notifuseUserEmail)
+        .map((t) => ({ supabaseUserId: t.userId, email: `user${t.userId}@example.com` })),
+    );
+
+    const updatePlanMock = vi.fn().mockResolvedValue(undefined);
+    const sendEmailMock = vi.fn().mockResolvedValue(undefined);
+
+    const { runTrialTick } = await import('@/lib/trial/run-tick');
+    const summary = await runTrialTick({
+      notifuseClient: { updatePlan: updatePlanMock } as never,
+      sendEmail: sendEmailMock,
+      notifyTelegram: vi.fn().mockResolvedValue(true),
+      hasActiveStripeSubForTenant: vi.fn().mockResolvedValue(false),
+      now: NOW,
+    });
+
+    expect(summary.activated).toBe(50);
+    expect(summary.errors).toEqual([]);
+
+    // GAIN PERF — c'est le point central du fix :
+    //   - 1 seul tenant.findMany (au lieu de 50 tenant.findFirst)
+    //   - 1 seul user.findMany (au lieu de 25 user.findFirst)
+    //   - 0 tenant.findFirst (le helper legacy n'est plus appelé)
+    expect(tenantFindManyMock).toHaveBeenCalledTimes(1);
+    expect(userFindManyMock).toHaveBeenCalledTimes(1);
+    expect(tenantFindFirstMock).not.toHaveBeenCalled();
+    expect(userFindFirstMock).not.toHaveBeenCalled();
+
+    // L'appel tenant.findMany contient bien tous les 50 IDs en une seule
+    // requête (WHERE IN).
+    const tenantFindCall = tenantFindManyMock.mock.calls[0][0];
+    expect(tenantFindCall.where.OR).toBeDefined();
+    // Tous les 50 sont du format non-UUID → vont dans la branche slug/notifuse.
+    const allIds = rows.map((r) => r.tenant_id);
+    const orClause = tenantFindCall.where.OR as Array<{
+      notifuseWorkspaceSlug?: { in: string[] };
+      slug?: { in: string[] };
+    }>;
+    const inLists = orClause.flatMap((c) =>
+      c.notifuseWorkspaceSlug?.in ?? c.slug?.in ?? [],
+    );
+    for (const id of allIds) {
+      expect(inLists).toContain(id);
+    }
+
+    // Vérif sémantique : tous les emails sont bien arrivés (24 directs + 25
+    // via user — total = 50 sendEmail calls).
+    expect(sendEmailMock).toHaveBeenCalledTimes(50);
+  });
+
+  it('phase finalize : batch de 30 rows → 1 tenant.findMany + 1 subscription.findMany pour la résolution Stripe', async () => {
+    const rows = Array.from({ length: 30 }, (_, i) => ({
+      tenant_id: `t_fin_${i}`,
+      app: 'notifuse',
+      trial_ends_at: new Date('2026-06-15T11:00:00Z'),
+    }));
+    queryRawMock
+      .mockResolvedValueOnce([]) // activate
+      .mockResolvedValueOnce([]) // notify
+      .mockResolvedValueOnce(rows); // finalize
+
+    tenantTrialUpdateMock.mockResolvedValue({});
+
+    // Le batch resolver email + le batch resolver Stripe sub partagent
+    // PAS leur query tenant.findMany (chacun fait la sienne) — 2 calls
+    // attendus sur tenant.findMany sur la phase finalize.
+    const tenantRows = rows.map((r, i) => ({
+      id: r.tenant_id,
+      slug: null,
+      notifuseWorkspaceSlug: null,
+      userId: `uuid-fin-${i}`,
+      notifuseUserEmail: `fin${i}@example.com`,
+    }));
+    // 1er appel : depuis defaultBatchResolveOwnerEmails
+    // 2e appel : depuis defaultBatchResolveHasActiveSub
+    tenantFindManyMock.mockResolvedValue(tenantRows);
+
+    // 10 des 30 tenants ont une Stripe sub active (→ converted),
+    // 20 n'en ont pas (→ expired + downgrade).
+    const activeUserIds = tenantRows.slice(0, 10).map((t) => t.userId);
+    subscriptionFindManyMock.mockResolvedValueOnce(
+      activeUserIds.map((uid) => ({ userId: uid })),
+    );
+
+    const updatePlanMock = vi.fn().mockResolvedValue(undefined);
+
+    const { runTrialTick } = await import('@/lib/trial/run-tick');
+    const summary = await runTrialTick({
+      notifuseClient: { updatePlan: updatePlanMock } as never,
+      sendEmail: vi.fn().mockResolvedValue(undefined),
+      notifyTelegram: vi.fn().mockResolvedValue(true),
+      // PAS de hasActiveStripeSubForTenant → on prend la voie batch DB.
+      now: NOW,
+    });
+
+    expect(summary.converted).toBe(10);
+    expect(summary.expired).toBe(20);
+    expect(summary.errors).toEqual([]);
+
+    // GAIN PERF : 2 tenant.findMany (1 pour emails, 1 pour subs) au lieu
+    // de 30 × 2 = 60 tenant.findFirst.
+    expect(tenantFindManyMock).toHaveBeenCalledTimes(2);
+    // 1 seul subscription.findMany au lieu de 30 subscription.findFirst.
+    expect(subscriptionFindManyMock).toHaveBeenCalledTimes(1);
+    expect(subscriptionFindFirstMock).not.toHaveBeenCalled();
+    expect(tenantFindFirstMock).not.toHaveBeenCalled();
+
+    // Seuls les 20 expired déclenchent update-plan plan=free.
+    expect(updatePlanMock).toHaveBeenCalledTimes(20);
+    for (const call of updatePlanMock.mock.calls) {
+      expect(call[0]).toEqual(
+        expect.objectContaining({ plan: 'free' }),
+      );
+    }
   });
 });
