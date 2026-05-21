@@ -9,13 +9,13 @@
 
 ## ⚠️ Coordination cross-tickets — à lire AVANT de commencer
 
-Ce ticket arrive en **parallèle** de plusieurs autres tickets v1.4 créés
+Ce ticket arrive en **parallèle** de plusieurs autres tickets v1.5 créés
 aujourd'hui par les agents Prospection / Notifuse. Pour éviter la
 duplication d'effort et les conflits de PR, **lire d'abord** :
 
 | Ticket | Scope | Frontière vs ce ticket |
 |---|---|---|
-| `2026-05-21-contrat-hub-v14-sync.md` (P1) | Implémentation côté Hub : secrets cross-app, accept étape 4b, webhook receivers, table TenantMember | Ce ticket-ci documente la SPEC ; le sien implémente le CODE. Les 2 routes webhook (`/api/webhooks/notifuse`, `/api/webhooks/prospection`) sont implémentées par lui — je ne les documente dans l'API-REF qu'une fois livrées. |
+| `2026-05-21-contrat-hub-v15-sync.md` (P1) | Implémentation côté Hub : secrets cross-app, accept étape 4b, webhook receivers, table TenantMember | Ce ticket-ci documente la SPEC ; le sien implémente le CODE. Les 2 routes webhook (`/api/webhooks/notifuse`, `/api/webhooks/prospection`) sont implémentées par lui — je ne les documente dans l'API-REF qu'une fois livrées. |
 | `2026-05-21-pricing-doc-maillage-claude-md.md` (P3) | Maillage `CLAUDE-ROOT.md` + `veridian-hub/CLAUDE.md` vers `PRICING-VERIDIAN.md` | Aucun chevauchement — scopes orthogonaux. |
 | `2026-05-21-stripe-webhook-orchestrator.md` (P1) | Implémentation orchestrateur Stripe webhook côté Hub | Une fois livré, ses endpoints `/api/webhooks/stripe/*` doivent être ajoutés à l'API-REF par ce ticket-ci. |
 | `2026-05-21-trial-state-machine.md` (P1) | Trial state machine business logic | Si nouveaux endpoints (`/api/trial/*`), à documenter dans l'API-REF P1 ci-dessous. |
@@ -139,7 +139,7 @@ Format identique à l'existant (Direction / Auth / Trigger / Idempotent on
 - `## Endpoints Auth & Account` (login, signup, MFA, password)
 - `## Endpoints Admin API` (les 12 routes `/api/admin/*`)
 - `## Endpoints Billing & Webhooks Stripe` (⚠️ coordonné avec `stripe-webhook-orchestrator.md` — documenter UNIQUEMENT après livraison)
-- `## Endpoints Webhooks app → Hub` (⚠️ coordonné avec `contrat-hub-v14-sync.md` §3.2 — documenter UNIQUEMENT après livraison)
+- `## Endpoints Webhooks app → Hub` (⚠️ coordonné avec `contrat-hub-v15-sync.md` §3.2 — documenter UNIQUEMENT après livraison)
 - `## Endpoints Tenant lifecycle Hub-side` (start, retry, status)
 - `## Endpoints Workspace Hub-side` (members, invite)
 - `## Endpoints Invitation P1` (create, verify, accept, revoke — 5/9 étapes livrées, cf. `project_invitation_endpoints_progress_2026-05-21.md`)
@@ -169,7 +169,7 @@ Tests obligatoires : flow complet en E2E sur staging.
    ⚠️ Coordonné avec `stripe-webhook-orchestrator.md` — documenter après livraison.
 
 ### Flow 3 — User accepte invitation cross-app (P1, 5/9 étapes livrées)
-   ⚠️ Coordonné avec `contrat-hub-v14-sync.md` §2.2 — flow incomplet
+   ⚠️ Coordonné avec `contrat-hub-v15-sync.md` §2.2 — flow incomplet
    tant que étape 4b (call attach-member downstream) pas câblée.
 
 ### Flow 4 — Admin créé tenant manuellement (mode service)
@@ -204,7 +204,7 @@ pre-push bloque.
   où ce ticket est créé, `docs/CONTRAT-HUB.md` est modifié et
   `docs/CONTRAT-HUB-API-REF.md` est untracked — il faut qu'un agent les
   commit d'abord, sinon ce ticket réécrit sur un draft instable)
-- **Lire `2026-05-21-contrat-hub-v14-sync.md`** EN PREMIER pour voir quels
+- **Lire `2026-05-21-contrat-hub-v15-sync.md`** EN PREMIER pour voir quels
   endpoints sont en cours d'implémentation et qu'on ne doit donc PAS
   documenter avant livraison
 - **Lire la memory `project_invitation_endpoints_progress_2026-05-21.md`**

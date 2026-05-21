@@ -97,6 +97,43 @@ appel Supabase.
   `https://<app>.app.veridian.site` (cf `07-inter-app-communication.md`).
 - Healthcheck `/api/health` doit rester disponible (gate Docker + smoke CI/CD).
 
+## 💰 Pricing & trial
+
+**Source de vérité unique** : `docs/PRICING-VERIDIAN.md` (figé par
+Robert 2026-05-21, voir aussi le `CLAUDE.md` racine `../CLAUDE.md`
+§"Pricing & trial cross-app").
+
+Tout agent qui touche au pricing, paywall, trial, billing Stripe,
+branding, custom domains, limites de plan, webhooks downstream
+**DOIT lire ce fichier avant d'agir**. Il définit :
+
+- La **grille de prix** (Free / Pro 29€ / Business 99€ / Enterprise)
+- Le **flow trial complet** (5 mails → 2j silence → 15j visible →
+  +30j inconditionnel si CB → débit auto ou paywall lecture seule)
+- Les **responsabilités cross-app** : Stripe → Hub → apps (PAS
+  Stripe → app directement)
+- Les **interdits côté code** (pas de mur béton, pas de compteur
+  visible, pas de menu grisé)
+
+**Philosophie figée** : générosité maximale. Tout illimité partout.
+SEULES différenciations = durée Free 15j + white-label Business+.
+L'app ne doit JAMAIS être défigurée par des limites visibles.
+
+### Tickets pricing/trial actifs côté Hub
+
+- `todo/2026-05-21-stripe-webhook-orchestrator.md` — endpoint webhook
+  Stripe central, dispatche `update-plan` vers apps downstream
+- `todo/2026-05-21-trial-state-machine.md` — orchestration trial
+  cross-app (timer 5 mails → 2j → 15j → +30j si CB → débit/paywall)
+- `todo/2026-05-21-contrat-hub-v15-sync.md` — webhook receivers
+  app→Hub (signaux engagement, ex: 5e mail Notifuse)
+- `todo/2026-05-20-hub-discovery-by-email-pattern.md` — discovery
+  cross-app `GET /api/users/by-email`
+
+L'état d'avancement à date est tracé dans
+`docs/PRICING-VERIDIAN.md` §"Implémentations actuelles — Hub". À mettre
+à jour quand un de ces tickets est livré.
+
 ## CI/CD
 
 - `.github/workflows/hub-ci.yml` : test → audit (npm) → docker → **trivy** → deploy-staging → deploy-prod → e2e-prod-smoke → rollback-prod (si fail)

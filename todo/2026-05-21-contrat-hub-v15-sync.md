@@ -1,32 +1,50 @@
-# [HUB] Sync v1.4 contrat — alignement docs + actions Hub
+# [HUB] Sync v1.5 contrat — alignement docs + actions Hub
 
 > **Type** : Mise à jour contractuelle + alignement Hub
-> **Sévérité** : 🟡 P2 (doc) + 🔴 P1 sur quelques actions Hub (cf §3 du ticket)
+> **Sévérité** : 🟡 P2 (doc) + 🔴 P1 sur quelques actions Hub (cf §2)
 > **Owner** : agent Hub
 > **Créé** : 2026-05-21 par l'agent Prospection (suite brainstorm Robert)
-> **Réfère** : `docs/CONTRAT-HUB.md` v1.4 + `docs/CONTRAT-HUB-API-REF.md` v1.0
+> **Réfère** : `docs/CONTRAT-HUB.md` v1.5 + `docs/CONTRAT-HUB-API-REF.md` v1.1
 
 ## Contexte
 
 Suite au brainstorm Robert 2026-05-21 sur la sync workspace cross-app
 ("comment ça marche pour les freemium, les invités, les users qui existent
-déjà avant Hub"), bump du contrat de v1.3 → v1.4 avec :
+déjà avant Hub"), bump du contrat v1.3 → v1.4 → v1.5 :
+
+**v1.4 (matin)** :
 
 - **§1.4 Hub source de vérité + résilience apps** : règle fondamentale.
-  Apps doivent survivre Hub-down. Anti-pattern interdit : call Hub
-  synchrone dans hot path user.
+  Apps doivent survivre Hub-down. Anti-pattern : call Hub synchrone hot path.
 - **§3.7 Modèle d'identité user cross-app** : email canonique + colonne
   nullable `hub_user_id` côté apps. Pas de migration destructive.
-- **§4.4 Cycle de vie d'un membre** : 2 manières exclusives (owner OU
-  invité), signup Hub ne crée AUCUN tenant ni membership.
-- **§4.5 Articulation freemium personnel ↔ membre chez autrui** : un user
-  peut combiner 0..1 tenant owner + 0..N memberships invité.
-- **§5.22 Invitation cross-app workspace-level (P1)** : grave l'endpoint
-  `attach-member` workspace-level que les apps doivent exposer. Articule
-  avec §5.18 sync-member tenant-level (les 2 coexistent).
-- Nouveau doc compagnon **CONTRAT-HUB-API-REF.md** : référence technique
-  exhaustive endpoint par endpoint avec schemas, codes erreur, curl,
-  tests.
+- **§4.4 Cycle de vie d'un membre** : owner OU invité, exclusif.
+  Signup Hub ne crée AUCUN tenant ni membership.
+- **§4.5 Articulation freemium personnel ↔ membre chez autrui** :
+  combinaison 0..1 owner + 0..N memberships invité.
+- **§5.22 Invitation cross-app workspace-level (P1)** : endpoint
+  `attach-member` workspace-level + articulation avec §5.18.
+- Nouveau doc compagnon **CONTRAT-HUB-API-REF.md**.
+
+**v1.5 (soir)** :
+
+- **§5.18.2 [DÉPRÉCIÉ]** : doublon admin invite-member supprimé. Tout
+  passe par P1 §5.22. Quota seats centralisé §5.21.
+- **§5.22.5 réécrit** : tableau 3 endpoints membre actifs cross-app +
+  règles de choix nettes (attach-member vs sync-member vs webhook).
+- **§6bis.6** : Prospection couche 1 et 3 passent à ✅ (Supabase nettoyé).
+- **§6bis.7 nouveau** : logout cross-app (modèle "logout local") + scope
+  cookie obligatoire `.staging.veridian.site` en staging (anti-fuite session).
+- **§7.1 webhooks** : ajoute `tenant.member_role_changed`, `member_added`,
+  `member_removed`.
+- **§11bis nouveau (le gros morceau)** : Permissions et droits utilisateur
+  cross-app. Source unique : 3 niveaux de rôles, matrice des droits par
+  action, mapping Hub → app rôles, pattern de vérification d'auth, cas
+  particuliers (email mismatch, self-remove, tenant abandonné owner inactif).
+- **§8.8 allégé** : pattern général migration douce.
+- API-REF v1.1 : section **PERMS** avec helpers `requireUser`, `requireAdmin`,
+  `requireTenantRole`, `requireWorkspaceRole` + matrice endpoint → droit
+  + code TypeScript de référence.
 
 ## 1. État Hub au 2026-05-21 (audit agent Prospection)
 

@@ -228,6 +228,31 @@ Phase 7 — Subscription Pro normale
 implémentation** côté agent Hub. Notifuse n'a rien à faire tant que
 le Hub n'a pas son endpoint webhook receiver.
 
+### Implémentations actuelles — Hub (2026-05-21)
+
+État du chantier côté `veridian-hub` à date :
+
+| Brique | Status | Ticket / référence |
+|---|---|---|
+| Stripe webhook central (single endpoint orchestrateur) | ⏳ **en cours** | `veridian-hub/todo/2026-05-21-stripe-webhook-orchestrator.md` |
+| Trial state machine (5 mails → 2j silence → 15j → +30j CB → débit/paywall) | ⏳ **en cours** | `veridian-hub/todo/2026-05-21-trial-state-machine.md` |
+| Discovery cross-app (`GET /api/users/by-email`) | ⏳ **spec posée** | `veridian-hub/todo/2026-05-20-hub-discovery-by-email-pattern.md` |
+| Webhook receivers app→Hub (signaux engagement, ex: 5e mail Notifuse) | ⏳ **en cours** | `veridian-hub/todo/2026-05-21-contrat-hub-v15-sync.md` |
+| Notifuse `POST /api/tenants/update-plan` (consommé par Hub) | ✅ **livré** côté Notifuse | cf. section précédente |
+| Stripe SDK + sync Prisma de base | ✅ **existant** | `veridian-hub/lib/stripe/`, `veridian-hub/utils/stripe/prisma-sync.ts` |
+
+**Frontière nette à l'instant T** : le Hub a déjà la plomberie Stripe
+classique (Product, Price, Subscription synchronisés en Prisma), mais
+**la state machine trial décrite plus haut n'est pas encore câblée**.
+Tant que les 4 tickets ci-dessus ne sont pas livrés, aucune app
+downstream ne reçoit de signal trial → tous les tenants restent en
+Free silencieux (cohérent avec la philosophie "générosité maximale",
+juste pas encore monétisé).
+
+**Quand un agent Hub démarre un de ces tickets** : mettre à jour cette
+matrice (status ⏳ → ✅) et lier la PR / commit SHA dans la colonne
+référence. C'est le tableau de bord cross-app du chantier.
+
 ### Autres apps — à propager
 
 - **Prospection** : la même grille s'applique. Pivot pricing à
@@ -308,12 +333,12 @@ Ces interdits s'appliquent à **toutes les apps** :
 Les `CLAUDE.md` doivent référencer ce doc pour que les agents y
 arrivent automatiquement quand ils touchent au pricing :
 
-- ✅ `veridian-platform/CLAUDE.md` (racine) → ajouter section
-  "Pricing & trial" pointant ici
+- ✅ `veridian-platform/CLAUDE.md` (racine) → section
+  "💰 Pricing & trial cross-app" en place (2026-05-21)
 - ✅ `notifuse-veridian/CLAUDE.md` → section "Vision pricing" déjà
   écrite (2026-05-21), à enrichir d'un pointeur vers ce doc
-- ⏳ `veridian-hub/CLAUDE.md` → ajouter pointeur vers ce doc dans la
-  section pricing/trial (quand l'agent Hub commence l'implémentation)
+- ✅ `veridian-hub/CLAUDE.md` → section "💰 Pricing & trial" en place
+  (2026-05-21) pointant vers ce doc + tickets actifs Hub
 - ⏳ `veridian-prospection/CLAUDE.md` → idem quand la commercialisation
   Prospection démarre
 - ⏳ `veridian-analytics/CLAUDE.md` → idem
