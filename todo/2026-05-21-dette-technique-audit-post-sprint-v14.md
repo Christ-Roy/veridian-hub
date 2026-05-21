@@ -1,0 +1,179 @@
+# [HUB] Audit dette technique post-sprint v1.4
+
+> **Type** : Audit + cleanup dette tech
+> **Sévérité** : 🟢 P2 (qualité long terme, pas bloquant)
+> **Owner** : agent Hub
+> **Créé** : 2026-05-21 (post-clôture sprint v1.4)
+> **Refs** : memory `project_sprint_v14_complete_2026-05-21`
+
+## Contexte
+
+Sprint v1.4 livré + bugs critiques fixés. Avant d'attaquer le ticket #3 trial state machine ou un nouveau sprint, faire le ménage sur les traînées identifiées pendant cette session + audit large du codebase Hub.
+
+Pas urgent (prod healthy), mais à clore avant que ça se sédimente.
+
+---
+
+## 1. Legacy Supabase à retirer définitivement (P2)
+
+Hub a migré Auth.js v5 le 2026-05-08, et la session 2026-05-13 a retiré les ENV Supabase du compose. **Mais le code applicatif référence encore Supabase à 10+ endroits** :
+
+```
+app/dashboard/layout.tsx
+app/api/auth/signup/route.ts
+app/api/admin/users/create/route.ts
+app/api/admin/users/[email]/route.ts
+app/api/admin/tenants/unlink-app/route.ts
+app/api/admin/tenants/link-app/route.ts
+app/api/admin/notifuse/magic-link/route.ts
+app/api/admin/delete-tenant/route.ts
+app/api/admin/list-tenants/route.ts
+lib/auth/get-user.ts
+app/(auth)/auth/verify/page.tsx  # page legacy de vérification email Supabase OTP
+```
+
+**À faire** :
+- Identifier les references **vraiment legacy** (vivant code mort) vs celles qui touchent `supabaseUserId` (qui reste actif comme **UUID v4 bridge cross-app** — ne pas confondre avec Supabase Auth).
+- `app/(auth)/auth/verify/page.tsx` : page legacy OTP Supabase — vérifier qu'elle est inutilisée (routes Auth.js v5 gèrent maintenant la vérif via /api/auth/verify-request) puis retirer.
+- `app/api/auth/[...nextauth]/route.ts:4` : commentaire dit "coexiste avec les routes Supabase Auth legacy qui vivent ailleurs" — auditer ce qui reste à retirer.
+- `.env.example` : supprimer `NEXT_PUBLIC_SUPABASE_URL` et `SUPABASE_SERVICE_ROLE_KEY` si jamais lues par le code (l'agent check-env-sync les a déjà flag).
+
+**Garde-fous** :
+- Ne JAMAIS renommer `User.supabaseUserId` (c'est l'UUID bridge cross-app, ACTIF, post-2026-05-21).
+- Les routes Auth.js v5 doivent rester intactes.
+- Faire le retrait **par PR petites** plutôt qu'un gros nettoyage — moins de risque de régression auth.
+
+---
+
+## 2. Pricing — TODO_PRICE / TODO_STRIPE dans `lib/pricing/plans.ts` (P1)
+
+Le fichier `lib/pricing/plans.ts` a **18 occurrences `🚧 TODO_PRICE`** et `🚧 TODO_STRIPE`. Les prix sont des placeholders + les `stripePriceId` sont `null`. Tant que ces TODO sont là :
+
+- Le code de billing ne peut pas créer de session checkout Stripe pour ces plans (priceId null).
+- Le pivot pricing 2026-05-21 figé par Robert (cf `docs/PRICING-VERIDIAN.md`) ne peut pas être appliqué sans synchronisation Stripe Dashboard ↔ `plans.ts`.
+
+**À faire** :
+- Valider les prix avec Robert (cf source de vérité `docs/PRICING-VERIDIAN.md`).
+- Créer les Products + Prices Stripe correspondants (dashboard ou via Stripe CLI).
+- Remplir `stripePriceId` dans `plans.ts`.
+- Tests d'intégration : checkout E2E sur chaque plan en mode test (Stripe test cards).
+
+**Lien** : ticket `2026-05-21-trial-state-machine.md` (le trial consomme ces prices via webhook orchestrator central). Pas bloquant pour démarrer trial-state-machine, mais bloquant pour LE PREMIER vrai upgrade payant.
+
+---
+
+## 3. TODO impersonate route (P3)
+
+`app/api/admin/impersonate/route.ts` a 3 `TODO LOT D` :
+- `:38` — endpoint dédié `/api/auth/impersonate-set` à créer
+- `:104` — URL helper à créer
+- `:119` — `/api/auth/impersonate-callback` qui set le cookie de session
+
+État actuel : la route admin peut générer un token impersonate mais le user-side n'a pas le callback pour le consommer → impersonate cassé end-to-end. Pas urgent (juste l'admin, pas user-facing), mais à boucler.
+
+---
+
+## 4. tests-pending.txt — 58 entrées (P2)
+
+58 fichiers source applicatifs ont une dette de test dans `tests-pending.txt`. Le mode Nuclear actif (configuré 2026-05-17) refuse d'agrandir cette liste, mais ne force pas à la diminuer.
+
+**À faire** : sprint dédié de **rattrapage tests** sur les 58 entrées. Prioriser :
+- Routes API (~25 entrées)
+- Composants critiques (~15 entrées dashboard/billing/admin)
+- Le reste = utilitaires (~18)
+
+Estimation : 1-2j de boulot agent QA dédié si on attaque tout. Sinon, attaquer par paquets de 10 sur des sessions normales.
+
+---
+
+## 5. Dépendances outdated (P2)
+
+`pnpm outdated` révèle :
+- `@stripe/stripe-js` 2.4.0 → 9.6.0 — **bond majeur**. Risque de breaking changes côté checkout/elements. Audit avant upgrade.
+- `@playwright/test` 1.59.1 → 1.60.0 — patch safe
+- `pg` 8.20.0 → 8.21.0 — patch safe
+- `vitest` 4.1.5 → 4.1.7 — patch safe
+- `@types/bcryptjs` deprecated — passer à `@types/bcrypt` ou retirer si `bcryptjs` n'est plus utilisé (Auth.js v5 utilise sa propre lib hash)
+- `@types/node` 20.19 → 25.9 — Node 25 LTS sortie. Notre image Docker est `node:20-alpine`. Pas upgrader avant que Dockerfile passe en node:22 ou 24.
+
+Sprint dette tech mineur pour les patches safe + audit Stripe SDK majeur.
+
+---
+
+## 6. Coexistence routes webhook notifuse v1.4 + legacy HMAC (P3)
+
+`app/api/webhooks/notifuse/route.ts` route DEUX formats :
+- v1.4 (Bearer) — nouveau
+- Legacy HMAC (header `x-veridian-notifuse-signature`) — pour le fork Notifuse en prod qui n'a pas encore migré
+
+État actuel : intermédiaire propre (commentaires bien documentés, routing clair). **Mais** :
+- Le code legacy `handleLegacyNotifuseHmac` (lignes ~120-220) ajoute ~100 lignes de complexité.
+- L'idempotence legacy stocke les 200 derniers `event_id` dans `tenant.metadata.notifuse_processed_events` — pollution metadata, scaling pas terrible.
+- Si Notifuse migre tout en v1.4 (plus de pattern legacy émis), on peut purement supprimer la branche legacy.
+
+**À faire** :
+1. Confirmer avec l'agent Notifuse quand toute leur émission passe en v1.4 (events `tenant.suspended`, `email.sent`, `tenant.quota_exceeded` en particulier).
+2. Quand confirmé : supprimer `handleLegacyNotifuseHmac` + cleanup metadata `notifuse_processed_events`.
+3. Migration data : `UPDATE hub_app.tenants SET metadata = metadata - 'notifuse_processed_events'`.
+
+---
+
+## 7. Composes Dokploy — vider les composeFile inline (P2)
+
+Cf memory `reference_dokploy_faux_gitops`. Hub prod composeId `_kxAHDCv1LhvsdwNRX3Vk` a un `composeFile` inline historique (4097c) qui est **ignoré au runtime** (Dokploy lit le compose Git du repo). Mais c'est de la pollution UI confuse.
+
+**À faire** :
+- Backup composeFile inline (déjà fait : `~/backups/dokploy/hub-prod-20260521-171028.json`)
+- `compose.update body={composeFile: ""}` pour vider
+- Vérifier que le redeploy continue de fonctionner avec uniquement le compose Git
+- Faire idem sur les 4 autres composeIds (Notifuse, CMS, Analytics, Prospection, Supabase legacy) — probable même pattern faux GitOps.
+
+---
+
+## 8. _signin-legacy mentions (P3)
+
+`app/robots.ts:36` : `/_signin-legacy/` dans le robots.txt. Probablement un path qui n'existe plus depuis Auth.js v5. À retirer si confirmé inutile.
+
+---
+
+## 9. Données seed staging à nettoyer (P3)
+
+Sessions E2E successives ont laissé en hub-staging-db :
+- 12+ users `user-e2e-*` et `e2e-*@veridian.site`
+- Workspaces orphelins + memberships + accounts OAuth
+- Cross-app invitations Hub
+
+Script SQL prêt : `/tmp/cleanup-seed-staging.sql` (54 lignes, transactionnel). À jouer après confirmation que ces users ne sont pas nécessaires pour les futurs E2E.
+
+---
+
+## 10. Backfill workspaces : exécuter le script TS au lieu du SQL inline (P3)
+
+L'agent DBA prod a fait le backfill 23 users via SQL direct (CTE en transaction) car pas de tunnel SSH vers la DB. Le script `scripts/admin/backfill-workspaces.ts` est livré mais **jamais exécuté tel quel**.
+
+À faire : tester le script TS sur staging (workspaces vides après cleanup #9) pour confirmer DoD du ticket `2026-05-21-workspace-provisioning-at-signup.md`. Si OK, archiver le ticket dans done/.
+
+---
+
+## 11. Comments obsolètes / commentaires "legacy bridge" (P3)
+
+`app/api/account/profile/route.ts:11` et `app/dashboard/workspace/members/page.tsx:32` mentionnent "user prod legacy en attente de backfill". Maintenant que le backfill est fait, ces commentaires sont obsolètes. Cleanup pendant qu'on touche.
+
+---
+
+## Plan d'attaque suggéré
+
+1. **Quick wins** (1-2h) : #8 + #11 + #9 (cleanup seed) — pas de risque, hygiène.
+2. **P1** (3-4h) : #2 pricing TODO_STRIPE — bloquant pour les premiers upgrades payants
+3. **P2 long terme** : #1 cleanup Supabase legacy par PR petites (~5h cumulées), #4 rattrapage tests-pending (1-2j), #5 deps patches safe, #7 cleanup Dokploy inline
+4. **À coordonner cross-app** : #6 retirer legacy HMAC notifuse (dépend de l'agent Notifuse)
+
+## DoD
+
+- [ ] 0 référence `supabase` dans le code applicatif (sauf `supabaseUserId` bridge volontaire)
+- [ ] 0 `🚧 TODO_*` dans `lib/pricing/plans.ts` (prices remplis + stripePriceId set)
+- [ ] tests-pending.txt < 30 entrées
+- [ ] Dépendances safe patchées (pg, postcss, vitest, playwright, tsx)
+- [ ] Audit majeur Stripe SDK fait + plan upgrade documenté
+- [ ] Composes Dokploy : composeFile inline vidé pour les 5 stacks
+- [ ] Données seed staging nettoyées
