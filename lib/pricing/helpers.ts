@@ -4,6 +4,8 @@
 // /pricing, checkout, webhook Stripe) passe par ces helpers — jamais
 // d'import direct du Record `PLANS` pour les lookups.
 
+import { isProduction } from '@/utils/env';
+
 import { PLANS, LEGACY_STRIPE_PRICE_MAPPING, type PlanKey, type Plan, type Interval } from './plans';
 
 /**
@@ -37,11 +39,15 @@ export function tryGetPlanByKey(key: string): Plan | null {
  * — typiquement log un warning et garder le plan actuel du tenant).
  */
 export function getPlanByStripePriceId(stripePriceId: string): Plan | null {
-  // 1. Catalogue canonique
+  // 1. Catalogue canonique — on cherche dans les Price IDs Live ET Test :
+  //    le webhook peut tourner en prod (Price ID Live) ou en staging
+  //    (Price ID Test), le resolver doit couvrir les deux.
   for (const plan of Object.values(PLANS)) {
     if (
       plan.stripePriceId.month === stripePriceId ||
-      plan.stripePriceId.year === stripePriceId
+      plan.stripePriceId.year === stripePriceId ||
+      plan.stripePriceIdTest.month === stripePriceId ||
+      plan.stripePriceIdTest.year === stripePriceId
     ) {
       return plan;
     }
@@ -72,17 +78,28 @@ export function comparePlanRank(from: PlanKey, to: PlanKey): 'upgrade' | 'downgr
  *  - la clé n'existe pas
  *  - le plan n'a pas de Stripe Price ID configuré (placeholder ou plan offert)
  *
+ * 🔑 Résolution Live vs Test : en production le checkout utilise une clé
+ * Stripe LIVE (cf utils/env.ts:getStripeKey) — il DOIT donc utiliser un
+ * Price ID LIVE. Hors prod (staging, local), clé TEST → Price ID TEST.
+ * Un Price ID Live avec une clé Test (ou l'inverse) = erreur Stripe
+ * "No such price". On aligne le Price ID sur le même environnement que
+ * la clé. Cette fonction est appelée server-side (route /api/billing/
+ * checkout, runtime nodejs) où `isProduction()` lit un DOMAIN fiable.
+ *
  * Cette erreur est visible côté admin Hub car le bouton "Choisir Pro" du UI
  * appelle cette fonction au moment du clic.
  */
 export function getStripePriceIdForCheckout(key: PlanKey, interval: Interval): string {
   const plan = getPlanByKey(key);
-  const priceId = plan.stripePriceId[interval];
+  const useLive = isProduction();
+  const priceId = useLive
+    ? plan.stripePriceId[interval]
+    : plan.stripePriceIdTest[interval];
   if (!priceId) {
+    const envLabel = useLive ? 'Live' : 'Test';
     throw new Error(
-      `[pricing] Plan "${key}" has no Stripe Price ID for interval "${interval}". ` +
-        `Run scripts/admin/setup-stripe-prices.ts to provision them, ` +
-        `then fill stripePriceId in lib/pricing/plans.ts.`,
+      `[pricing] Plan "${key}" has no Stripe Price ID ${envLabel} for interval "${interval}". ` +
+        `Run scripts/admin/setup-stripe-prices.ts --mode=${useLive ? 'live' : 'test'} to provision them.`,
     );
   }
   return priceId;
