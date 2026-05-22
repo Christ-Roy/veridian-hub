@@ -65,6 +65,24 @@ describe('getPlanByStripePriceId', () => {
       }
     }
   });
+
+  it('résout aussi les Price IDs TEST (webhook staging)', () => {
+    // Le webhook Stripe peut tourner en staging avec un Price ID TEST —
+    // le resolver doit couvrir les deux jeux, pas seulement Live.
+    for (const plan of Object.values(PLANS)) {
+      for (const interval of ['month', 'year'] as const) {
+        const testId = plan.stripePriceIdTest[interval];
+        if (!testId) continue;
+        const resolved = getPlanByStripePriceId(testId);
+        expect(resolved).not.toBeNull();
+        const resolvedTestIds = [
+          resolved!.stripePriceIdTest.month,
+          resolved!.stripePriceIdTest.year,
+        ];
+        expect(resolvedTestIds).toContain(testId);
+      }
+    }
+  });
 });
 
 describe('comparePlanRank', () => {
@@ -97,14 +115,18 @@ describe('getStripePriceIdForCheckout', () => {
     );
   });
 
-  it('retourne l_ID si le plan payant a un Price ID configuré', () => {
-    const proId = PLANS['notifuse-pro'].stripePriceId.month;
-    if (proId) {
-      // Catalogue provisionné → le helper retourne l'ID tel quel.
-      expect(getStripePriceIdForCheckout('notifuse-pro', 'month')).toBe(proId);
+  it('hors prod : résout vers le Price ID TEST du plan payant', () => {
+    // En environnement de test vitest, isProduction()=false (pas de DOMAIN
+    // app.veridian.site) → le helper doit retourner le stripePriceIdTest.
+    const testId = PLANS['notifuse-pro'].stripePriceIdTest.month;
+    if (testId) {
+      // Catalogue provisionné en TEST → le helper retourne l'ID Test.
+      expect(getStripePriceIdForCheckout('notifuse-pro', 'month')).toBe(testId);
     } else {
-      // Catalogue pas encore provisionné → throw attendu.
-      expect(() => getStripePriceIdForCheckout('notifuse-pro', 'month')).toThrow();
+      // Pas encore provisionné en TEST → throw attendu.
+      expect(() => getStripePriceIdForCheckout('notifuse-pro', 'month')).toThrow(
+        /Price ID Test/,
+      );
     }
   });
 });

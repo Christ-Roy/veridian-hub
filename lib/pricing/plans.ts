@@ -73,7 +73,19 @@ export interface Plan {
   tagline: string;
   price_eur: number;
   price_eur_yearly_per_month: number | null;
+  /**
+   * Stripe Price IDs LIVE (compte de production). Conservé sous le nom
+   * `stripePriceId` pour rétro-compat des consommateurs historiques.
+   * ⚠️ Pour le checkout, NE PAS lire ce champ directement — passer par
+   * `getStripePriceIdForCheckout()` qui résout Live vs Test selon
+   * l'environnement.
+   */
   stripePriceId: {
+    month: string | null;
+    year: string | null;
+  };
+  /** Stripe Price IDs TEST (compte de test/preprod) — utilisés hors prod. */
+  stripePriceIdTest: {
     month: string | null;
     year: string | null;
   };
@@ -143,7 +155,7 @@ export const APPS: Record<VeridianApp, AppMetadata> = {
  * - features FeatureKey[] → PlanFeature[] (labels FR construits à partir d'une table)
  * - apps_unlocked → apps (filtré aux apps self-serve notifuse/prospection)
  * - seats → members_seats (null → 'unlimited')
- * - stripePriceIdLive → stripePriceId
+ * - stripePriceIdLive → stripePriceId, stripePriceIdTest → stripePriceIdTest
  * - construit AppQuotas (toujours 'unlimited' depuis le pivot 2026-05-21)
  */
 function adaptCanonicalToHub(canonical: CanonicalPlan, key: PlanKey): Plan {
@@ -156,6 +168,10 @@ function adaptCanonicalToHub(canonical: CanonicalPlan, key: PlanKey): Plan {
     stripePriceId: {
       month: canonical.stripePriceIdLive.month,
       year: canonical.stripePriceIdLive.year,
+    },
+    stripePriceIdTest: {
+      month: canonical.stripePriceIdTest.month,
+      year: canonical.stripePriceIdTest.year,
     },
     apps: canonical.apps_unlocked.filter(
       (a): a is 'notifuse' | 'prospection' => a === 'notifuse' || a === 'prospection',
