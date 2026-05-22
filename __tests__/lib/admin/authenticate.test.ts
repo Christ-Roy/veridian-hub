@@ -140,3 +140,47 @@ describe('authenticateAdmin', () => {
     if (!res.ok) expect(res.response.status).toBe(401);
   });
 });
+
+describe('authenticateAdmin — garde-fou anti-ré-impersonation', () => {
+  // Couvre l'ajout `isImpersonatedSession(session)` dans authenticate.ts :
+  // une session impersonée ne doit JAMAIS accéder à une route admin, même
+  // si l'email impersoné est dans la whitelist admin. Sinon un admin qui
+  // impersonifie un autre admin ré-élèverait ses droits.
+  // On laisse la vraie `isImpersonatedSession` (pure function, lit le claim
+  // `impersonated` sur la session ou sur session.user) — pas de mock.
+
+  it('403 si la session est impersonée, même quand isPlatformAdmin renvoie true', async () => {
+    // Session impersonée d'un compte admin : passe isPlatformAdmin mais doit
+    // être rejetée par le check isImpersonatedSession qui vient APRÈS.
+    authMock.mockResolvedValueOnce({
+      user: { email: 'admin@x', id: 'u1', impersonated: true },
+    });
+    isPlatformAdminMock.mockReturnValueOnce(true);
+    const res = await authenticateAdmin(makeReq() as never);
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.response.status).toBe(403);
+  });
+
+  it('403 si le claim impersonated est posé à la racine de la session', async () => {
+    // isImpersonatedSession lit aussi `session.impersonated` (pas seulement
+    // `session.user.impersonated`) — on couvre les deux portées du claim.
+    authMock.mockResolvedValueOnce({
+      user: { email: 'admin@x', id: 'u1' },
+      impersonated: true,
+    });
+    isPlatformAdminMock.mockReturnValueOnce(true);
+    const res = await authenticateAdmin(makeReq() as never);
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.response.status).toBe(403);
+  });
+
+  it('200 pour une session admin NON impersonée (non-régression du chemin nominal)', async () => {
+    // Garde-fou : le check anti-impersonation ne doit pas bloquer un admin
+    // légitime. `impersonated` absent → accès autorisé.
+    authMock.mockResolvedValueOnce({ user: { email: 'admin@x', id: 'u1' } });
+    isPlatformAdminMock.mockReturnValueOnce(true);
+    const res = await authenticateAdmin(makeReq() as never);
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.sessionEmail).toBe('admin@x');
+  });
+});

@@ -95,3 +95,66 @@ describe('auth.ts — invariants de config critiques', () => {
     expect(authSource).toMatch(/Configuration|OAuthCallbackError/);
   });
 });
+
+describe('auth.ts — câblage audit OAuth (oauth_signin_events)', () => {
+  // Vérifie le BRANCHEMENT du logger d'audit OAuth dans auth.ts. Le logger
+  // lui-même (lib/auth/oauth-event-log.ts) a ses 12 tests unitaires dédiés —
+  // ici on verrouille uniquement qu'il reste câblé sur les deux issues du
+  // flow (succès via event signIn, échec via logger.error). Si quelqu'un
+  // débranche un des deux, la table d'audit se vide en silence.
+
+  it('instancie le logger d\'audit via createOauthEventLogger', () => {
+    // Force le passage par le module DI testable plutôt qu'un inline.
+    expect(authSource).toMatch(/createOauthEventLogger\s*\(/);
+  });
+
+  it('câble le succès OAuth : event signIn appelle recordOauthSuccess', () => {
+    // L'event `signIn` Auth.js v5 (≠ callback signIn) n'est appelé que sur
+    // succès — c'est le point de log d'un login OAuth réussi.
+    expect(authSource).toMatch(/events:\s*\{[\s\S]*?signIn\s*\(/);
+    expect(authSource).toMatch(/recordOauthSuccess\s*\(/);
+  });
+
+  it('filtre les providers OAuth (Credentials exclu de la table d\'audit)', () => {
+    // Garde-fou : un login Credentials ne doit PAS polluer oauth_signin_events.
+    // Le set OAUTH_PROVIDER_IDS gate l'appel à recordOauthSuccess.
+    expect(authSource).toMatch(/OAUTH_PROVIDER_IDS/);
+    expect(authSource).toMatch(/OAUTH_PROVIDER_IDS\.has\(/);
+  });
+
+  it('câble l\'échec OAuth : logger.error appelle recordOauthFailure sur les error names OAuth', () => {
+    // Les échecs ne passent pas par l'event signIn — ils sont captés par
+    // l'override logger.error et filtrés sur OAUTH_FAILURE_ERROR_NAMES.
+    expect(authSource).toMatch(/OAUTH_FAILURE_ERROR_NAMES/);
+    expect(authSource).toMatch(/OAUTH_FAILURE_ERROR_NAMES\.has\(/);
+    expect(authSource).toMatch(/recordOauthFailure\s*\(/);
+  });
+});
+
+describe('auth.ts — câblage claims impersonation', () => {
+  // Vérifie que les callbacks jwt/session propagent le marqueur
+  // d'impersonation. La pose du claim se fait ailleurs (route
+  // impersonate-callback) et le helper isImpersonatedSession a ses propres
+  // tests — ici on verrouille uniquement que auth.ts ne mange pas le claim
+  // au refresh (callback jwt) et l'expose côté session (callback session).
+
+  it('le callback jwt préserve le token (claims impersonated survivent au refresh)', () => {
+    // Le callback jwt doit retourner `token` tel quel — sinon les claims
+    // `impersonated` / `impersonatedBy` posés par la route impersonate
+    // seraient perdus au premier updateAge.
+    expect(authSource).toMatch(/jwt\s*\([\s\S]*?return\s+token/);
+  });
+
+  it('le callback session expose le claim impersonated', () => {
+    // Sans cette propagation, ni la bannière d'impersonation ni le garde-fou
+    // anti-ré-impersonation (authenticateAdmin) ne verraient l'état.
+    expect(authSource).toMatch(/token\?\.impersonated\s*===\s*true/);
+    expect(authSource).toMatch(/session\.user\.impersonated\s*=/);
+  });
+
+  it('le callback session propage aussi impersonatedBy', () => {
+    // L'identité de l'admin impersonateur doit remonter pour l'affichage
+    // bannière + l'audit.
+    expect(authSource).toMatch(/session\.user\.impersonatedBy\s*=/);
+  });
+});
