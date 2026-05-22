@@ -12,6 +12,7 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, ExternalLink, Info } from 'lucide-react';
 import { StartTrialButton } from './StartTrialButton';
 
@@ -80,7 +81,7 @@ export function ProspectionCard({
             </CardDescription>
           </div>
           {configured && (
-            <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+            <Badge variant="success">
               Active
             </Badge>
           )}
@@ -97,9 +98,9 @@ export function ProspectionCard({
               </code>
             </div>
 
-            <div className="flex items-start gap-2 mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-              <Info className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
-              <div className="text-xs text-blue-900">
+            <Alert variant="info" className="mt-4">
+              <Info className="h-4 w-4" />
+              <AlertDescription className="text-xs">
                 {tokenValid ? (
                   <span>
                     <strong>Auto-login enabled</strong> — Click to open your dashboard
@@ -109,8 +110,8 @@ export function ProspectionCard({
                     <strong>New login link will be generated</strong> — Click below to access your dashboard
                   </span>
                 )}
-              </div>
-            </div>
+              </AlertDescription>
+            </Alert>
           </div>
         ) : (
           <div className="py-6 text-center text-sm text-muted-foreground space-y-2">

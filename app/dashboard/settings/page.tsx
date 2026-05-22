@@ -11,6 +11,8 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
+import { Badge } from '@/components/ui/badge';
+import { DashboardPageHeader } from '@/components/dashboard/PageHeader';
 import { Settings } from 'lucide-react';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
@@ -39,16 +41,11 @@ export default async function SettingsPage() {
 
   return (
     <div className="flex flex-col gap-8 p-4 md:p-8 max-w-4xl mx-auto w-full">
-      {/* Header */}
-      <div>
-        <div className="flex items-center gap-3 mb-2">
-          <Settings className="h-10 w-10 text-primary" />
-          <h1 className="text-4xl font-bold tracking-tight">Settings</h1>
-        </div>
-        <p className="text-muted-foreground">
-          Manage your account settings and workspaces
-        </p>
-      </div>
+      <DashboardPageHeader
+        title="Settings"
+        description="Manage your account settings and workspaces"
+        icon={Settings}
+      />
 
       <div className="grid gap-6">
         {/* Profile Settings */}
@@ -108,9 +105,9 @@ export default async function SettingsPage() {
                 <div className="rounded-lg border p-4 space-y-2">
                   <div className="flex items-center gap-2">
                     <h3 className="font-semibold">Notifuse</h3>
-                    <span className="ml-auto text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full dark:bg-green-900/30 dark:text-green-400">
+                    <Badge variant="success" className="ml-auto">
                       Active
-                    </span>
+                    </Badge>
                   </div>
                   <div className="text-sm text-muted-foreground space-y-1">
                     <div><strong>Email:</strong> {tenant.notifuseUserEmail}</div>
@@ -156,7 +153,7 @@ export default async function SettingsPage() {
             <Separator />
             <div className="flex justify-between">
               <span className="text-muted-foreground">Email Verified</span>
-              <span className={dbUser?.emailVerified ? 'text-green-600' : 'text-amber-600'}>
+              <span className={dbUser?.emailVerified ? 'text-success' : 'text-warning'}>
                 {dbUser?.emailVerified ? 'Verified' : 'Not verified'}
               </span>
             </div>

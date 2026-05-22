@@ -99,7 +99,7 @@ export function PricingGrid({
           <button
             onClick={() => setInterval('month')}
             className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
-              interval === 'month' ? 'bg-white shadow text-foreground' : 'text-muted-foreground'
+              interval === 'month' ? 'bg-card shadow text-foreground' : 'text-muted-foreground'
             }`}
           >
             Mensuel
@@ -107,10 +107,10 @@ export function PricingGrid({
           <button
             onClick={() => setInterval('year')}
             className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
-              interval === 'year' ? 'bg-white shadow text-foreground' : 'text-muted-foreground'
+              interval === 'year' ? 'bg-card shadow text-foreground' : 'text-muted-foreground'
             }`}
           >
-            Annuel <span className="text-xs text-green-600 ml-1">-15%</span>
+            Annuel <span className="text-xs text-success ml-1">-15%</span>
           </button>
         </div>
       </div>
@@ -231,11 +231,11 @@ function PlanCard({ plan, interval, isCurrentPlan, loading, onSelect, compact = 
   return (
     <Card
       className={`p-6 flex flex-col h-full transition-shadow hover:shadow-lg ${
-        plan.recommended ? 'ring-2 ring-indigo-500 relative' : ''
+        plan.recommended ? 'ring-2 ring-primary relative' : ''
       }`}
     >
       {plan.recommended && (
-        <Badge className="absolute -top-2 left-1/2 -translate-x-1/2 bg-indigo-600 text-white text-xs">
+        <Badge className="absolute -top-2 left-1/2 -translate-x-1/2 text-xs">
           Recommandé
         </Badge>
       )}
@@ -262,9 +262,9 @@ function PlanCard({ plan, interval, isCurrentPlan, loading, onSelect, compact = 
         {plan.features.map((f, i) => (
           <li key={i} className="flex items-start gap-2 text-sm">
             {f.included ? (
-              <Check className="h-4 w-4 text-green-600 shrink-0 mt-0.5" />
+              <Check className="h-4 w-4 text-success shrink-0 mt-0.5" />
             ) : (
-              <X className="h-4 w-4 text-gray-300 shrink-0 mt-0.5" />
+              <X className="h-4 w-4 text-muted-foreground/40 shrink-0 mt-0.5" />
             )}
             <span className={f.included ? '' : 'text-muted-foreground line-through'}>
               {f.label}

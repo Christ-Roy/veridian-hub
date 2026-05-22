@@ -6,7 +6,9 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { Badge, type BadgeProps } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { DashboardPageHeader } from '@/components/dashboard/PageHeader';
 import { AlertCircle, CheckCircle2, Clock, XCircle, FileText } from 'lucide-react';
 import { StripePortalButton } from './StripePortalButton';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
@@ -35,23 +37,27 @@ export default async function BillingPage() {
   );
   const subscription = activeSubscription || subscriptions[0] || null;
 
-  // Helper pour obtenir le badge de statut
+  // Helper pour obtenir le badge de statut. Chaque statut Stripe est mappé sur
+  // un variant sémantique du Badge shadcn (tokens OKLCH) — pas de couleur brute.
   const getStatusBadge = (status: string) => {
-    const statusConfig = {
-      active: { label: 'Active', variant: 'default' as const, icon: CheckCircle2, className: 'bg-green-500' },
-      trialing: { label: 'Trial', variant: 'secondary' as const, icon: Clock, className: 'bg-blue-500' },
-      past_due: { label: 'Past Due', variant: 'destructive' as const, icon: AlertCircle, className: 'bg-orange-500' },
-      canceled: { label: 'Canceled', variant: 'outline' as const, icon: XCircle, className: 'bg-gray-500' },
-      incomplete: { label: 'Incomplete', variant: 'outline' as const, icon: AlertCircle, className: 'bg-yellow-500' },
-      incomplete_expired: { label: 'Expired', variant: 'outline' as const, icon: XCircle, className: 'bg-red-500' },
-      unpaid: { label: 'Unpaid', variant: 'destructive' as const, icon: XCircle, className: 'bg-red-600' },
-    } as const;
+    const statusConfig: Record<
+      string,
+      { label: string; variant: NonNullable<BadgeProps['variant']>; icon: typeof CheckCircle2 }
+    > = {
+      active: { label: 'Active', variant: 'success', icon: CheckCircle2 },
+      trialing: { label: 'Trial', variant: 'info', icon: Clock },
+      past_due: { label: 'Past Due', variant: 'warning', icon: AlertCircle },
+      canceled: { label: 'Canceled', variant: 'outline', icon: XCircle },
+      incomplete: { label: 'Incomplete', variant: 'outline', icon: AlertCircle },
+      incomplete_expired: { label: 'Expired', variant: 'outline', icon: XCircle },
+      unpaid: { label: 'Unpaid', variant: 'destructive', icon: XCircle },
+    };
 
-    const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.incomplete;
+    const config = statusConfig[status] || statusConfig.incomplete;
     const Icon = config.icon;
 
     return (
-      <Badge variant={config.variant} className={`${config.className} text-white`}>
+      <Badge variant={config.variant}>
         <Icon className="w-3 h-3 mr-1" />
         {config.label}
       </Badge>
@@ -65,16 +71,11 @@ export default async function BillingPage() {
 
   return (
     <div className="flex flex-col gap-8 p-4 md:p-8 max-w-4xl mx-auto w-full">
-      {/* Header */}
-      <div>
-        <div className="flex items-center gap-3 mb-2">
-          <FileText className="h-10 w-10 text-primary" />
-          <h1 className="text-4xl font-bold tracking-tight">Billing</h1>
-        </div>
-        <p className="text-muted-foreground">
-          Manage your subscription and payment methods
-        </p>
-      </div>
+      <DashboardPageHeader
+        title="Billing"
+        description="Manage your subscription and payment methods"
+        icon={FileText}
+      />
 
       {/* Billing Info */}
       <div className="grid gap-6">
@@ -219,16 +220,16 @@ export default async function BillingPage() {
               </div>
 
               {subscriptions.length === 0 && (
-                <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500 rounded-md">
-                  <p className="text-sm text-blue-700 dark:text-blue-400">
-                    No subscriptions found. This could mean:
-                  </p>
-                  <ul className="text-xs text-blue-600 dark:text-blue-300 mt-2 ml-4 list-disc space-y-1">
-                    <li>You haven't subscribed yet</li>
-                    <li>Webhook hasn't synced yet (check /api/webhooks logs)</li>
-                    <li>Stripe webhook is not configured</li>
-                  </ul>
-                </div>
+                <Alert variant="info" className="mt-4">
+                  <AlertDescription>
+                    <p className="text-sm">No subscriptions found. This could mean:</p>
+                    <ul className="text-xs mt-2 ml-4 list-disc space-y-1">
+                      <li>You haven't subscribed yet</li>
+                      <li>Webhook hasn't synced yet (check /api/webhooks logs)</li>
+                      <li>Stripe webhook is not configured</li>
+                    </ul>
+                  </AlertDescription>
+                </Alert>
               )}
             </CardContent>
           </Card>

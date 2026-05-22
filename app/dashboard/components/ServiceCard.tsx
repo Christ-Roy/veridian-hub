@@ -9,7 +9,7 @@ import {
   CardContent,
   CardFooter,
 } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+import { Badge, type BadgeProps } from '@/components/ui/badge';
 import {
   ExternalLink,
   BarChart3,
@@ -50,10 +50,13 @@ export interface ServiceCardProps {
   features?: string[];
 }
 
-const BADGE_VARIANTS: Record<NonNullable<ServiceCardProps['badge']>, string> = {
-  BETA: 'bg-orange-100 text-orange-700 hover:bg-orange-100',
-  NEW: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-100',
-  COMING_SOON: 'bg-slate-200 text-slate-700 hover:bg-slate-200',
+const BADGE_VARIANTS: Record<
+  NonNullable<ServiceCardProps['badge']>,
+  NonNullable<BadgeProps['variant']>
+> = {
+  BETA: 'warning',
+  NEW: 'success',
+  COMING_SOON: 'secondary',
 };
 
 export function ServiceCard({
@@ -78,7 +81,7 @@ export function ServiceCard({
             <CardTitle>{name}</CardTitle>
           </div>
           {badge && (
-            <Badge className={BADGE_VARIANTS[badge]} variant="secondary">
+            <Badge variant={BADGE_VARIANTS[badge]}>
               {badge.replace('_', ' ')}
             </Badge>
           )}

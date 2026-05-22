@@ -229,10 +229,10 @@ export function NotifuseAdminPanel({ tenantId, email, initial, onChanged }: Prop
               <span
                 className={`font-medium ${
                   currentStatus === "active"
-                    ? "text-green-700"
+                    ? "text-success"
                     : currentStatus === "suspended"
-                      ? "text-orange-700"
-                      : "text-red-700"
+                      ? "text-warning"
+                      : "text-destructive"
                 }`}
               >
                 {currentStatus}
@@ -257,14 +257,14 @@ export function NotifuseAdminPanel({ tenantId, email, initial, onChanged }: Prop
               </div>
             )}
             {(live?.suspended_at || initial.suspended_at) && (
-              <div className="text-orange-700">
+              <div className="text-warning">
                 Suspendu le {(live?.suspended_at ?? initial.suspended_at)?.slice(0, 19)}
                 {(live?.suspended_reason ?? initial.suspended_reason) &&
                   ` — ${live?.suspended_reason ?? initial.suspended_reason}`}
               </div>
             )}
             {(live?.deleted_at || initial.deleted_at) && (
-              <div className="text-red-700">
+              <div className="text-destructive">
                 Soft-deleted le {(live?.deleted_at ?? initial.deleted_at)?.slice(0, 19)}
               </div>
             )}
@@ -327,7 +327,7 @@ export function NotifuseAdminPanel({ tenantId, email, initial, onChanged }: Prop
                 type="button"
                 onClick={resume}
                 disabled={busy !== null}
-                className="text-xs px-2 py-1 rounded bg-green-100 hover:bg-green-200 text-green-800 flex-1"
+                className="text-xs px-2 py-1 rounded bg-success/15 hover:bg-success/25 text-success flex-1"
               >
                 {busy === "resume" ? "..." : "▶ Resume"}
               </button>
@@ -336,7 +336,7 @@ export function NotifuseAdminPanel({ tenantId, email, initial, onChanged }: Prop
                 type="button"
                 onClick={suspend}
                 disabled={busy !== null}
-                className="text-xs px-2 py-1 rounded bg-orange-100 hover:bg-orange-200 text-orange-800 flex-1"
+                className="text-xs px-2 py-1 rounded bg-warning/15 hover:bg-warning/25 text-warning flex-1"
               >
                 {busy === "suspend" ? "..." : "⏸ Suspend"}
               </button>
@@ -346,7 +346,7 @@ export function NotifuseAdminPanel({ tenantId, email, initial, onChanged }: Prop
                 type="button"
                 onClick={softDelete}
                 disabled={busy !== null}
-                className="text-xs px-2 py-1 rounded bg-red-100 hover:bg-red-200 text-red-800 flex-1"
+                className="text-xs px-2 py-1 rounded bg-destructive/15 hover:bg-destructive/25 text-destructive flex-1"
               >
                 {busy === "delete" ? "..." : "🗑 Soft-delete"}
               </button>

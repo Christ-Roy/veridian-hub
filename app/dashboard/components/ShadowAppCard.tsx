@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { ExternalLink, Lock } from 'lucide-react';
 import type { AppMetadata } from '@/lib/pricing/plans';
 
@@ -36,7 +37,7 @@ export function ShadowAppCard({ app }: ShadowAppCardProps) {
               </CardTitle>
               <CardDescription className="mt-1">{app.tagline}</CardDescription>
             </div>
-            <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-200 text-xs">
+            <Badge variant="warning" className="text-xs">
               <Lock className="h-3 w-3 mr-1" />
               Site Veridian
             </Badge>
@@ -80,12 +81,12 @@ function ShadowAppModal({ app, onClose }: { app: AppMetadata; onClose: () => voi
             <p className="text-sm text-muted-foreground mt-2">{app.tagline}</p>
           </div>
 
-          <div className="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-900">
-            <p>
+          <Alert variant="warning" className="mb-6">
+            <AlertDescription>
               Cette application est <strong>incluse avec l&apos;achat d&apos;un site vitrine Veridian</strong>.
               Découvre nos offres clé en main pour entrepreneurs et TPE.
-            </p>
-          </div>
+            </AlertDescription>
+          </Alert>
 
           <div className="flex flex-col gap-2">
             <Button

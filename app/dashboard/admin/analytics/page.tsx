@@ -14,6 +14,10 @@ import {
   analyticsClient,
   AnalyticsApiError,
 } from '@/lib/analytics/client';
+import { BarChart3 } from 'lucide-react';
+
+import { Badge } from '@/components/ui/badge';
+import { DashboardPageHeader } from '@/components/dashboard/PageHeader';
 
 export const dynamic = 'force-dynamic';
 
@@ -105,15 +109,16 @@ export default async function AdminAnalyticsPage() {
 
   return (
     <div className="space-y-8">
-      <div>
-        <h1 className="text-2xl font-semibold text-foreground">
-          Analytics — Provisioning
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Gestion programmatique des tenants Veridian Analytics. Tout passe
-          par une API server-to-server (<code>ANALYTICS_API_URL</code>).
-        </p>
-      </div>
+      <DashboardPageHeader
+        title="Analytics — Provisioning"
+        icon={BarChart3}
+        description={
+          <>
+            Gestion programmatique des tenants Veridian Analytics. Tout passe
+            par une API server-to-server (<code>ANALYTICS_API_URL</code>).
+          </>
+        }
+      />
 
       {fetchError && (
         <div className="bg-destructive/10 border border-destructive/30 text-destructive rounded-lg p-4 text-sm">
@@ -194,9 +199,9 @@ export default async function AdminAnalyticsPage() {
                         {s.siteKey}
                       </span>
                       {s.gscProperty && (
-                        <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">
+                        <Badge variant="success" className="rounded">
                           GSC: {s.gscProperty.propertyUrl}
-                        </span>
+                        </Badge>
                       )}
                     </div>
                   ))}

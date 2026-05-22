@@ -4,6 +4,8 @@ import { ProspectionCard } from './components/ProspectionCard';
 import { ServiceCard } from './components/ServiceCard';
 import { ShadowAppCard } from './components/ShadowAppCard';
 import { RefreshButton } from './components/RefreshButton';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { DashboardPageHeader } from '@/components/dashboard/PageHeader';
 import { LayoutDashboard } from 'lucide-react';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
@@ -93,43 +95,38 @@ export default async function DashboardPage() {
 
   return (
     <div className="container mx-auto p-8 max-w-6xl">
-      <div className="mb-8">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-3">
-            <LayoutDashboard className="h-10 w-10 text-primary" />
-            <h1 className="text-4xl font-bold tracking-tight">My Workspace</h1>
-          </div>
-          <RefreshButton />
-        </div>
-        <p className="text-muted-foreground">
-          Your Veridian SaaS apps and tracking services in one place
-        </p>
+      <DashboardPageHeader
+        title="My Workspace"
+        description="Your Veridian SaaS apps and tracking services in one place"
+        icon={LayoutDashboard}
+        action={<RefreshButton />}
+        className="mb-8"
+      />
 
-        {process.env.NODE_ENV === 'development' && (
-          <div className="mt-4 p-3 bg-muted rounded text-xs font-mono">
-            <div className="font-semibold mb-1">Debug Info:</div>
-            <div>User ID: {user.id}</div>
-            <div>Email: {user.email}</div>
-            <div>Tenant found: {tenant ? 'yes' : 'no'}</div>
-            {tenant && (
-              <>
-                <div>Tenant ID: {tenant.id}</div>
-                <div>Notifuse workspace: {tenant.notifuseWorkspaceSlug || 'not configured'}</div>
-                <div>Prospection: {tenant.prospectionProvisionedAt ? 'provisioned' : 'not provisioned'}</div>
-                <div>Prospection token valid: {prospectionTokenValid ? 'yes' : 'no/expired'}</div>
-              </>
-            )}
-          </div>
-        )}
-      </div>
+      {process.env.NODE_ENV === 'development' && (
+        <div className="mb-8 p-3 bg-muted rounded text-xs font-mono">
+          <div className="font-semibold mb-1">Debug Info:</div>
+          <div>User ID: {user.id}</div>
+          <div>Email: {user.email}</div>
+          <div>Tenant found: {tenant ? 'yes' : 'no'}</div>
+          {tenant && (
+            <>
+              <div>Tenant ID: {tenant.id}</div>
+              <div>Notifuse workspace: {tenant.notifuseWorkspaceSlug || 'not configured'}</div>
+              <div>Prospection: {tenant.prospectionProvisionedAt ? 'provisioned' : 'not provisioned'}</div>
+              <div>Prospection token valid: {prospectionTokenValid ? 'yes' : 'no/expired'}</div>
+            </>
+          )}
+        </div>
+      )}
 
       {!tenant && (
-        <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
-          <p className="text-sm text-blue-900">
+        <Alert variant="info" className="mb-6">
+          <AlertDescription>
             👋 Bienvenue ! Démarre ton essai gratuit sur l&apos;app de ton choix
             ci-dessous. Pas de carte bancaire, 15 jours offerts par app.
-          </p>
-        </div>
+          </AlertDescription>
+        </Alert>
       )}
 
       <section className="mb-12">

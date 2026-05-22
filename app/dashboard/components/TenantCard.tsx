@@ -13,6 +13,7 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Loader2, ExternalLink, Info } from 'lucide-react';
 import { StartTrialButton } from './StartTrialButton';
 
@@ -97,7 +98,7 @@ export function TenantCard({
             </CardDescription>
           </div>
           {configured && (
-            <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+            <Badge variant="success">
               ✅ Active
             </Badge>
           )}
@@ -116,17 +117,17 @@ export function TenantCard({
               </div>
             )}
 
-            <div className="flex items-start gap-2 mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200">
-              <Info className="h-4 w-4 text-blue-600 mt-0.5 flex-shrink-0" />
-              <div className="text-xs text-blue-900 space-y-2">
+            <Alert variant="info" className="mt-4">
+              <Info className="h-4 w-4" />
+              <AlertDescription className="text-xs space-y-2">
                 <div>
                   <strong>Workspace: {slug}</strong>
                 </div>
                 <div>
                   Click &ldquo;Open&rdquo; to log in automatically with a fresh magic link
                 </div>
-              </div>
-            </div>
+              </AlertDescription>
+            </Alert>
           </div>
         ) : (
           <div className="py-6 text-center text-sm text-muted-foreground space-y-2">
