@@ -2,6 +2,7 @@ import { Metadata } from 'next';
 import { HeroSection } from "@/components/landing/hero-section"
 import { FeaturesSection } from "@/components/landing/features-section"
 import { CTASection } from "@/components/landing/cta-section"
+import { GoogleOneTap } from "@/components/auth/GoogleOneTap"
 
 export const metadata: Metadata = {
   title: 'Pilotez vos SaaS depuis une plateforme unique',
@@ -37,6 +38,10 @@ export const metadata: Metadata = {
 export default function LandingPage() {
   return (
     <div className="flex flex-col">
+      {/* Google One Tap : popup auto-login pour les visiteurs non-loggués.
+          Ne rend aucun markup, se gate lui-même sur session + env + path. */}
+      <GoogleOneTap callbackUrl="/dashboard" />
+
       {/* Bloc 1: Hero - Première impression et CTA principal */}
       <HeroSection />
 
