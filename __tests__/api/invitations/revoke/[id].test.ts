@@ -12,7 +12,7 @@
  *   - 429 rate-limit
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const fixedNow = new Date('2026-05-21T13:00:00Z');
 
@@ -76,6 +76,14 @@ async function callRoute(id: string, req: any) {
 }
 
 beforeEach(async () => {
+  // Horloge figée à `fixedNow`. Sans ça, le test était une bombe à
+  // retardement : `inv_active.expiresAt` (fixedNow + 24h = 2026-05-22T13:00Z)
+  // était comparé au `now` RÉEL par `lib/invitations/revoke.ts:65`, donc
+  // l'invitation "active" devenait expirée dès le 2026-05-22 13:00 UTC
+  // (already_inactive=true au lieu de false). `Date` est faké → `new Date()`
+  // et `Date.now()` (rate-limiter + assertion l.173) renvoient `fixedNow`.
+  vi.useFakeTimers();
+  vi.setSystemTime(fixedNow);
   vi.clearAllMocks();
   invitations.length = 0;
   auditLogs.length = 0;
@@ -100,7 +108,7 @@ beforeEach(async () => {
     targetApp: 'notifuse',
     targetWorkspaceId: 'ws_99',
     targetRole: 'member',
-    expiresAt: new Date(Date.now() - 60_000),
+    expiresAt: new Date(fixedNow.getTime() - 60_000),
     acceptedAt: null,
     acceptedByUserId: null,
   });
@@ -111,12 +119,16 @@ beforeEach(async () => {
     targetApp: 'cms',
     targetWorkspaceId: 'ws_77',
     targetRole: 'admin',
-    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-    acceptedAt: new Date(Date.now() - 60_000),
+    expiresAt: new Date(fixedNow.getTime() + 24 * 60 * 60 * 1000),
+    acceptedAt: new Date(fixedNow.getTime() - 60_000),
     acceptedByUserId: 'user_charlie',
   });
 
   sessionUser = { id: 'user_owner', email: 'owner@example.com' };
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('POST /api/invitations/revoke/[id]', () => {
