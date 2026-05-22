@@ -31,13 +31,13 @@ export default function NameForm({ userName }: { userName: string }) {
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        toast.error(data.error || 'Failed to update name');
+        toast.error(data.error || 'Échec de la mise à jour du nom');
         return;
       }
-      toast.success('Name updated.');
+      toast.success('Nom mis à jour.');
       router.refresh();
     } catch (err: any) {
-      toast.error(err?.message || 'Network error');
+      toast.error(err?.message || 'Erreur réseau');
     } finally {
       setIsSubmitting(false);
     }
@@ -45,18 +45,18 @@ export default function NameForm({ userName }: { userName: string }) {
 
   return (
     <CardWrapper
-      title="Your Name"
-      description="Please enter your full name, or a display name you are comfortable with."
+      title="Votre nom"
+      description="Saisissez votre nom complet, ou un nom d'affichage qui vous convient."
       footer={
         <div className="flex flex-col items-start justify-between sm:flex-row sm:items-center">
-          <p className="pb-4 sm:pb-0">64 characters maximum</p>
+          <p className="pb-4 sm:pb-0">64 caractères maximum</p>
           <Button
             variant="slim"
             type="submit"
             form="nameForm"
             loading={isSubmitting}
           >
-            Update Name
+            Mettre à jour le nom
           </Button>
         </div>
       }
@@ -68,7 +68,7 @@ export default function NameForm({ userName }: { userName: string }) {
             name="fullName"
             className="input-base w-1/2"
             defaultValue={userName}
-            placeholder="Your name"
+            placeholder="Votre nom"
             maxLength={64}
           />
         </form>

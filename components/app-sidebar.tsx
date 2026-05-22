@@ -28,12 +28,12 @@ import {
 
 const navMain = [
   {
-    title: "Dashboard",
+    title: "Tableau de bord",
     url: "/dashboard",
     icon: LayoutDashboardIcon,
   },
   {
-    title: "Integration",
+    title: "Intégration",
     url: "/dashboard/integration",
     icon: ZapIcon,
     disabled: true,
@@ -44,12 +44,12 @@ const navMain = [
     icon: Users2Icon,
   },
   {
-    title: "Billing",
+    title: "Facturation",
     url: "/dashboard/billing",
     icon: FileIcon,
   },
   {
-    title: "Settings",
+    title: "Paramètres",
     url: "/dashboard/settings",
     icon: SettingsIcon,
   },
@@ -57,7 +57,7 @@ const navMain = [
 
 const navSecondary = [
   {
-    title: "Get Help",
+    title: "Aide",
     url: "#",
     icon: HelpCircleIcon,
   },

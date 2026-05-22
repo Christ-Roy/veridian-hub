@@ -96,8 +96,8 @@ export default async function DashboardPage() {
   return (
     <div className="container mx-auto p-8 max-w-6xl">
       <DashboardPageHeader
-        title="My Workspace"
-        description="Your Veridian SaaS apps and tracking services in one place"
+        title="Mon espace de travail"
+        description="Vos apps SaaS et services de suivi Veridian réunis au même endroit"
         icon={LayoutDashboard}
         action={<RefreshButton />}
         className="mb-8"

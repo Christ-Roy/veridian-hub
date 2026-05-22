@@ -59,6 +59,12 @@ const BADGE_VARIANTS: Record<
   COMING_SOON: 'secondary',
 };
 
+const BADGE_LABELS: Record<NonNullable<ServiceCardProps['badge']>, string> = {
+  BETA: 'BETA',
+  NEW: 'NOUVEAU',
+  COMING_SOON: 'Bientôt',
+};
+
 export function ServiceCard({
   name,
   description,
@@ -82,7 +88,7 @@ export function ServiceCard({
           </div>
           {badge && (
             <Badge variant={BADGE_VARIANTS[badge]}>
-              {badge.replace('_', ' ')}
+              {BADGE_LABELS[badge]}
             </Badge>
           )}
         </div>
@@ -110,10 +116,10 @@ export function ServiceCard({
           variant={isComingSoon ? 'secondary' : 'default'}
         >
           {isComingSoon ? (
-            <span>Coming soon</span>
+            <span>Bientôt disponible</span>
           ) : (
             <a href={url} target="_blank" rel="noopener noreferrer">
-              Open
+              Ouvrir
               <ExternalLink className="ml-2 h-4 w-4" />
             </a>
           )}
