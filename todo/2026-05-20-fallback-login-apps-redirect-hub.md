@@ -5,6 +5,33 @@
 > **Owner** : agent Hub (pour spec) + agents Notifuse/Prospection/Analytics/CMS (pour impl côté chaque app)
 > **Créé** : 2026-05-20
 
+## ⚠️ STATUT 2026-05-23 — partiellement livré, blocage côté Hub
+
+**Ce qui est livré** : OAuth Google + Microsoft sur
+`app.veridian.site/login` (Auth.js v5, livré 2026-05-20). Login direct OK
+en prod.
+
+**Ce qui manque (côté Hub uniquement)** : support du param `?next=<url>`.
+Sans ça, un utilisateur qui clique « Continuer avec Google » depuis une
+app downstream est loggué dans le Hub mais **reste sur le Hub** au lieu
+de revenir sur l'app d'origine. Flow inutilisable depuis les apps.
+
+**Impact** : 1+ tickets « boutons OAuth » côté apps downstream **bloqués**
+en attendant ce `?next=` :
+- `notifuse-veridian/todo/2026-05-20-add-oauth-buttons-login-page.md`
+- (Prospection / Analytics / CMS : tickets dérivés à créer s'ils ne le
+  sont pas déjà)
+
+**Vérification 2026-05-23 par agent Notifuse** : aucune trace de
+`?next=` dans `app/login/` ni `app/api/auth/[...nextauth]/`. Ticket
+toujours valide tel quel.
+
+**Estimation Hub restant** : ~30-45 min de code — searchParam dans
+`LoginForm`, whitelist `*.veridian.site` server-side (anti open-redirect),
+relay vers `generateMagicLink` de l'app cible après OAuth réussi.
+
+---
+
 ## Contexte
 
 Aujourd'hui, chaque app downstream a sa propre **page de login fallback** :
