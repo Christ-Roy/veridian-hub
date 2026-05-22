@@ -37,9 +37,14 @@ function generateJsonLd() {
     priceCurrency: 'EUR',
   }));
 
-  const prices = publicPlans
+  // lowPrice = prix payant le plus bas (un AggregateOffer dont lowPrice=0
+  // signale "gratuit" et brouille le rich snippet — on prend le palier
+  // payant minimum). highPrice = plan payant le plus cher.
+  const payablePrices = publicPlans
     .map((p) => p.price_eur)
     .filter((p) => p > 0);
+  const lowPrice = payablePrices.length > 0 ? Math.min(...payablePrices) : 0;
+  const highPrice = payablePrices.length > 0 ? Math.max(...payablePrices) : 0;
 
   return {
     '@context': 'https://schema.org',
@@ -52,8 +57,8 @@ function generateJsonLd() {
     offers: {
       '@type': 'AggregateOffer',
       priceCurrency: 'EUR',
-      lowPrice: String(Math.min(...prices, 0)),
-      highPrice: String(Math.max(...prices, 0)),
+      lowPrice: String(lowPrice),
+      highPrice: String(highPrice),
       offerCount: String(publicPlans.length),
       offers,
     },

@@ -110,6 +110,12 @@ export async function POST(request: NextRequest) {
   const successUrl = getURL(successRedirect);
   const cancelUrl = getURL('/pricing?canceled=1');
 
+  // Détermine les apps cibles du plan (un bundle en touche 2). Posée en
+  // metadata pour que le dispatcher webhook route le `update-plan` sans
+  // re-dériver le bundle. Cohérent avec CONTRAT-BILLING.md §8.2 (`metadata.app`).
+  const appTarget =
+    plan.apps.length > 1 ? 'bundle' : (plan.apps[0] ?? 'unknown');
+
   // Create checkout session
   try {
     const session = await stripe.checkout.sessions.create({
@@ -118,14 +124,21 @@ export async function POST(request: NextRequest) {
       line_items: [{ price: stripePriceId, quantity: 1 }],
       allow_promotion_codes: true,
       billing_address_collection: 'required',
-      customer_update: { address: 'auto' },
+      // automatic_tax : Stripe Tax collecte la TVA selon le pays du client
+      // (décision Robert figée 2026-05-22 — vendre du SaaS en UE = TVA
+      // obligatoire). `customer_update.name` est requis par Stripe Tax pour
+      // pouvoir rattacher l'adresse au Customer.
+      automatic_tax: { enabled: true },
+      customer_update: { address: 'auto', name: 'auto' },
       subscription_data: {
         metadata: {
           // 🔥 Source de vérité de la PlanKey côté Hub. Le webhook
           // checkout.session.completed lira cette metadata pour propager le
-          // plan aux apps downstream (cf docs/CONTRAT-HUB.md §7.4).
+          // plan aux apps downstream (cf docs/CONTRAT-BILLING.md §8.2).
           plan_key: plan.key,
           user_uuid: userUuidValue,
+          // Routage du dispatch : `notifuse` | `prospection` | `bundle`.
+          app: appTarget,
         },
       },
       success_url: successUrl,
