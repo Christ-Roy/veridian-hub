@@ -56,4 +56,23 @@ describe('AppSidebar', () => {
     renderSidebar();
     expect(screen.queryByTestId('sidebar-workspace-name')).toBeNull();
   });
+
+  it('rend les libellés de navigation en français (francisation Lot i18n)', () => {
+    // Le commit i18n a francisé navMain : Dashboard→Tableau de bord,
+    // Billing→Facturation, Settings→Paramètres, etc. On verrouille les
+    // libellés FR pour qu'un retour accidentel à l'anglais soit rouge.
+    renderSidebar();
+    expect(screen.getByText('Tableau de bord')).toBeInTheDocument();
+    expect(screen.getByText('Membres')).toBeInTheDocument();
+    expect(screen.getByText('Facturation')).toBeInTheDocument();
+    expect(screen.getByText('Paramètres')).toBeInTheDocument();
+  });
+
+  it('l\'item Intégration désactivé affiche le badge "Bientôt" (FR)', () => {
+    // L'item disabled porte un badge "Bientôt" — vérifie le wording FR
+    // ajouté par la francisation (pas "Soon" / "Coming soon").
+    renderSidebar();
+    expect(screen.getByText('Intégration')).toBeInTheDocument();
+    expect(screen.getByText('Bientôt')).toBeInTheDocument();
+  });
 });
