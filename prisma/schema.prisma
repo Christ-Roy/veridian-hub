@@ -603,3 +603,36 @@ model AuditLog {
   @@map("audit_log")
   @@schema("hub_app")
 }
+
+// ============================================================================
+// OAUTH SIGN-IN EVENTS — audit log des connexions OAuth (succès + échecs)
+// ============================================================================
+// Append-only. Aucune route ne fait UPDATE ni DELETE sur cette table.
+// Cible : observabilité OAuth (timeline admin), détection de pics d'échecs
+// (brute-force, provider en panne), forensics "qui s'est connecté quand".
+//
+// Câblé sur les deux issues d'un flow OAuth :
+//   - succès : event `signIn` Auth.js v5 (provider + email + isNewUser connus)
+//   - échec  : logger.error Auth.js (OAuthCallbackError / Configuration)
+//
+// `event` reste un String libre (pas un enum) : on n'attend que
+// 'success' | 'failure' aujourd'hui, mais garder un String évite une
+// migration d'enum si on ajoute un état intermédiaire plus tard.
+// Phase 2-3 du ticket todo/2026-05-20-oauth-rate-limiting-monitoring.md.
+
+model OauthSigninEvent {
+  id         String   @id @default(cuid())
+  event      String // 'success' | 'failure'
+  provider   String // 'google' | 'microsoft-entra-id' | 'mock-oauth' | 'unknown'
+  email      String? // null si l'échec survient avant résolution de l'email
+  ip         String?
+  userAgent  String?  @map("user_agent")
+  errorCode  String?  @map("error_code") // ex: 'OAuthCallbackError', 'Configuration'
+  durationMs Int?     @map("duration_ms")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([createdAt(sort: Desc)], map: "oauth_signin_events_created_at_idx")
+  @@index([email])
+  @@map("oauth_signin_events")
+  @@schema("hub_app")
+}

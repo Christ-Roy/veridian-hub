@@ -28,18 +28,23 @@
 
 ### 🟡 Tier MOYEN — à traiter dans la semaine
 
-- [ ] **F. User Google linké → tente login Microsoft (même email)**
-      Comportement Auth.js attendu : link en plus dans `hub_app.accounts` (2 rows
-      pour le même `userId`, providers différents). À valider en pratique :
-      - Le user a-t-il les 2 boutons "Connected" dans Settings → Account ?
-      - Que se passe-t-il si Microsoft retourne un email primaire ≠ Google ?
-      Test à câbler : `__tests__/api/auth/dual-provider.test.ts`
+- [x] **F. User Google linké → tente login Microsoft (même email)** ✅ 2026-05-22
+      Comportement Auth.js confirmé : link en plus dans `hub_app.accounts`
+      (2 rows même `userId`, providers différents) via le PrismaAdapter +
+      `allowDangerousEmailAccountLinking`. Le callback `signIn` retrouve le
+      user par email et autorise sans bloquer le link.
+      Tests câblés : `__tests__/api/auth/dual-provider.test.ts` (scénario F :
+      autorise, MFA non bypassée, re-login idempotent).
+      Reste UI (boutons "Connected" dans Settings → Account) : déjà couvert
+      par le ticket account-settings-connected-providers (livré 2026-05-20).
 
-- [ ] **I. Email primaire Google ≠ Microsoft (rare, possible avec alias)**
-      Ex : compte Microsoft sur `john@outlook.com` mais user existe avec
-      `john.smith@gmail.com`. Auth.js v5 crée alors **2 users distincts**,
-      pas un merge. Si critique business → ajouter un flow "Merge accounts"
-      dans Settings. Si pas critique → documenter qu'on accepte 2 users.
+- [x] **I. Email primaire Google ≠ Microsoft (rare, possible avec alias)** ✅ 2026-05-22
+      Comportement confirmé et **documenté comme accepté** : Auth.js v5 crée
+      **2 users distincts** (pas de merge heuristique). Décision : pas de flow
+      "Merge accounts" pour l'instant — les 2 identités restent indépendantes
+      (MFA propre à chacune, pas de fuite croisée).
+      Tests câblés : `__tests__/api/auth/dual-provider.test.ts` (scénario I :
+      2 users distincts, identités indépendantes, MFA non contaminée).
 
 - [ ] **J. User révoque Google côté myaccount.google.com**
       Symptôme : refresh token invalidé silencieusement. Le user reste loggué

@@ -18,9 +18,16 @@
 > - 22 tests vitest (382/382 vert)
 > - Smoke prod validé : `/signin x12` → 10× 302 puis 429 dès la 11e
 >
-> **⏳ Reste à faire** (phases 2-3, à découpler en tickets dédiés) :
-> - Table `hub_app.oauth_signin_events` (migration Prisma) — pour audit log
-> - Endpoint admin `GET /api/admin/oauth-events` (consultation timeline)
+> **✅ Phases 2-3 livrées** : 2026-05-22 (sprint backend Hub, Lot 1)
+> - Table `hub_app.oauth_signin_events` (migration `20260522140000`)
+> - Logger `lib/auth/oauth-event-log.ts` câblé sur succès (event `signIn`
+>   Auth.js) ET échec (override `logger.error` — OAuthCallbackError /
+>   Configuration / OAuthSignInError / OAuthAccountNotLinked / AccessDenied)
+> - Endpoint admin `GET /api/admin/oauth-events` — paginé keyset, filtres
+>   `?provider= ?event= ?email=`, protégé `authenticateAdmin()` + rate-limit
+> - 25 tests vitest (oauth-event-log + oauth-events route)
+>
+> **⏳ Reste à faire** (hors scope ce ticket — à découpler) :
 > - Alerting Telegram via cron Grafana ou webhook si > 50 callback
 >   failures Hub en 5 min
 > - Migration `console.log` → Pino partout (gros refactor, à découpler)

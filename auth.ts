@@ -16,6 +16,7 @@ import { authConfig } from './auth.config';
 import { createSignInCallback } from '@/lib/auth/sign-in-callback';
 import { createCreateUserEvent } from '@/lib/auth/create-user-event';
 import { buildMockOauthProvider } from '@/lib/auth/mock-oauth-provider';
+import { createOauthEventLogger } from '@/lib/auth/oauth-event-log';
 
 const credentialsSchema = z.object({
   email: z.string().email(),
@@ -26,6 +27,27 @@ const credentialsSchema = z.object({
 // proprement (Auth.js v5 typage Provider n'accepte pas null inline). Renvoie
 // null en prod, un provider Credentials en staging/test/dev avec le flag.
 const mockOauthProvider = buildMockOauthProvider({ prisma });
+
+// Logger d'audit OAuth (table hub_app.oauth_signin_events). Best-effort —
+// n'altère jamais le flow OAuth. Câblé sur l'event `signIn` (succès) et
+// l'override `logger.error` (échec). Cf. lib/auth/oauth-event-log.ts.
+const oauthEventLogger = createOauthEventLogger({ prisma });
+
+// Providers OAuth réels — sert à distinguer un event `signIn` OAuth d'un
+// login Credentials (qu'on ne trace PAS dans oauth_signin_events).
+const OAUTH_PROVIDER_IDS = new Set(['google', 'microsoft-entra-id', 'mock-oauth']);
+
+// Codes d'erreur Auth.js qui signalent un échec de flow OAuth (à tracer).
+// `Configuration` et `OAuthCallbackError` sont déjà tagués critical par le
+// logger ci-dessous. `OAuthSignInError` / `OAuthAccountNotLinked` couvrent
+// les échecs côté flow (provider injoignable, link refusé).
+const OAUTH_FAILURE_ERROR_NAMES = new Set([
+  'Configuration',
+  'OAuthCallbackError',
+  'OAuthSignInError',
+  'OAuthAccountNotLinked',
+  'AccessDenied',
+]);
 
 export const { auth, handlers, signIn, signOut } = NextAuth({
   ...authConfig,
@@ -54,6 +76,14 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
           ts: new Date().toISOString(),
         })
       );
+
+      // Audit : si l'erreur signale un échec de flow OAuth, on append une row
+      // 'failure' dans oauth_signin_events. Best-effort — l'écriture swallow
+      // ses propres erreurs. Pas d'IP/UA ici : le logger Auth.js ne reçoit
+      // pas la request, seul le nom du code d'erreur est exploitable.
+      if (OAUTH_FAILURE_ERROR_NAMES.has(name)) {
+        void oauthEventLogger.recordOauthFailure({ errorCode: name });
+      }
     },
     warn(code) {
       console.warn(JSON.stringify({ tag: '[auth-warn]', level: 'warn', code, ts: new Date().toISOString() }));
@@ -131,11 +161,23 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       if (user) {
         token.uid = user.id;
       }
+      // Les claims `impersonated` / `impersonatedBy` sont posés directement
+      // dans le JWT par /api/auth/impersonate-callback (encode @auth/core).
+      // Ils ne transitent jamais par l'objet `user` — on les laisse vivre
+      // tels quels dans le token : ce `return token` les préserve au refresh.
       return token;
     },
     async session({ session, token }) {
       if (token?.uid && session.user) {
         session.user.id = token.uid as string;
+      }
+      // Expose le marqueur d'impersonation côté session pour que les Server
+      // Components / routes admin puissent (a) afficher une bannière et
+      // (b) refuser la ré-impersonation via isImpersonatedSession().
+      if (token?.impersonated === true && session.user) {
+        session.user.impersonated = true;
+        session.user.impersonatedBy =
+          typeof token.impersonatedBy === 'string' ? token.impersonatedBy : null;
       }
       return session;
     },
@@ -147,5 +189,20 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
     // régression 2026-05-21 : tramtechservices@gmail.com + augustindemaret).
     // Le flow Credentials génère déjà l'UUID lui-même dans signup/route.ts.
     createUser: createCreateUserEvent({ prisma }),
+
+    // Audit : trace les logins OAuth réussis dans oauth_signin_events.
+    // L'event `signIn` Auth.js v5 n'est appelé QUE sur succès — les échecs
+    // passent par l'override `logger.error` ci-dessus. On filtre sur le
+    // provider : un login Credentials ne doit PAS polluer la table OAuth.
+    // Best-effort — `recordOauthSuccess` swallow ses propres erreurs.
+    async signIn({ user, account }) {
+      const providerId = account?.provider;
+      if (providerId && OAUTH_PROVIDER_IDS.has(providerId)) {
+        void oauthEventLogger.recordOauthSuccess({
+          provider: providerId,
+          email: user?.email ?? null,
+        });
+      }
+    },
   },
 });
