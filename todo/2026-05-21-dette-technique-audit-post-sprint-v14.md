@@ -43,6 +43,31 @@ app/(auth)/auth/verify/page.tsx  # page legacy de vérification email Supabase O
 - Les routes Auth.js v5 doivent rester intactes.
 - Faire le retrait **par PR petites** plutôt qu'un gros nettoyage — moins de risque de régression auth.
 
+### Audit 2026-05-22 (Lot C cleanup) — état réel
+
+Audit complet des refs `supabase` dans le code applicatif (`app/`, `lib/`,
+`contexts/`, `utils/`) :
+- **0 import Supabase** (`@supabase/*`), **0 dépendance** `@supabase` dans
+  `package.json`, **0 var ENV** Supabase dans `.env.example` / `.env.dev.example`
+  (déjà nettoyées par PR #90 le 2026-05-13).
+- Toutes les occurrences restantes sont soit `supabaseUserId` (bridge UUID
+  ACTIF — interdit d'y toucher), soit des **commentaires historiques** qui
+  expliquent encore correctement le code :
+  - `app/(auth)/auth/verify/page.tsx` : commentaire "page legacy OTP" — toujours
+    exact, explique pourquoi le stub existe. Conservé.
+  - `app/dashboard/layout.tsx:18` : "Pas d'appel Supabase ici" — garde-fou
+    correct. Conservé.
+- Commentaires Supabase obsolètes repérés mais **hors périmètre Lot C**
+  (cosmétiques, à nettoyer quand on touchera ces fichiers) :
+  `contexts/EnvContext.tsx:76`, `app/(marketing)/layout.tsx:16`,
+  `app/(marketing)/page.tsx:29`.
+
+**Conclusion** : il n'y a plus de dette Supabase fonctionnelle à retirer. Le
+code applicatif est propre. Seul reste un toilettage de commentaires cosmétique
+(3 fichiers ci-dessus) + l'audit du commentaire `app/api/auth/[...nextauth]/`
+mentionné plus haut. La case DoD "0 référence supabase" est de facto atteinte
+si on excepte `supabaseUserId` (volontaire) et les commentaires historiques.
+
 ---
 
 ## 2. Pricing — TODO_PRICE / TODO_STRIPE dans `lib/pricing/plans.ts` (P1)
@@ -130,9 +155,14 @@ Cf memory `reference_dokploy_faux_gitops`. Hub prod composeId `_kxAHDCv1LhvsdwNR
 
 ---
 
-## 8. _signin-legacy mentions (P3)
+## 8. _signin-legacy mentions (P3) — ✅ RÉSOLU 2026-05-22
 
 `app/robots.ts:36` : `/_signin-legacy/` dans le robots.txt. Probablement un path qui n'existe plus depuis Auth.js v5. À retirer si confirmé inutile.
+
+**Fait (Lot C cleanup)** : confirmé inexistant — aucune route `_signin-legacy`
+nulle part dans `app/`. Retiré du `disallow`. En passant, `/signin/` et
+`/signin1/` aussi retirés du `disallow` (ils sont désormais des redirects 308
+`next.config.js`, plus des pages indexables).
 
 ---
 

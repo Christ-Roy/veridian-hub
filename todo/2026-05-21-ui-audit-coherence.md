@@ -29,6 +29,26 @@ Autres frictions : hiérarchie de titres dashboard hétérogène (`text-4xl` vs 
 
 **Risque actuel** : les anciens liens dans des mails (`/signin?...`, `/auth/verify?type=recovery`) fonctionnent. Toute fusion DOIT garder les redirects.
 
+### ✅ Résolu — 2026-05-22 (Lot C cleanup, sprint multi-agents)
+
+- `app/(auth)/signin/page.tsx` + `app/(auth)/signin1/page.tsx` **supprimés**.
+  Remplacés par `async redirects()` dans `next.config.js` (308 permanent
+  → `/login`). `grep` cross-fichiers fait : seule réf restante était
+  `app/dashboard/page.tsx:28 redirect('/signin')` — toujours fonctionnelle
+  via le 308, mais Lot D devrait la pointer direct sur `/login` (double-hop).
+- `app/(auth)/auth/verify/page.tsx` **conservée** : la logique conditionnelle
+  sur `type=recovery` (→ forgot_password) vs défaut (→ /login) ne peut pas
+  être exprimée par un redirect statique `next.config.js`. La page est déjà
+  minimale (stub client-side propre), laissée telle quelle.
+- `app/signin/forgot_password/page.tsx` **conservée** : route active. Le
+  renommage kebab-case `(auth)/forgot-password` reste à faire (Lot D, non
+  bloquant).
+- `console.log` debug `dashboard/layout.tsx` **retiré** (cf. mention §résumé).
+- Test garde-fou ajouté : `__tests__/config/next-config-redirects.test.ts`.
+
+Reste pour Lot D : §2.1 couleurs hardcodées, §2.2 AuthCard, §2.3 titres,
+fusion LoginForm/SignupForm.
+
 ---
 
 ## 2. Incohérences visuelles
