@@ -17,7 +17,11 @@ import {
 import { BarChart3 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent } from '@/components/ui/card';
 import { DashboardPageHeader } from '@/components/dashboard/PageHeader';
+import { AnalyticsTenantPanels } from './AnalyticsTenantPanels';
 
 export const dynamic = 'force-dynamic';
 
@@ -130,36 +134,29 @@ export default async function AdminAnalyticsPage() {
         </div>
       )}
 
-      <section className="bg-card border border-border rounded-lg p-6 space-y-4">
-        <h2 className="text-lg font-semibold">Créer un tenant</h2>
-        <form action={createTenantAction} className="grid gap-3 md:grid-cols-4">
-          <input
-            name="slug"
-            placeholder="slug (ex: tramtech)"
-            required
-            pattern="[a-z0-9][a-z0-9-]*[a-z0-9]"
-            className="border border-border bg-background text-foreground rounded px-3 py-2 text-sm"
-          />
-          <input
-            name="name"
-            placeholder="Nom affiche"
-            required
-            className="border border-border bg-background text-foreground rounded px-3 py-2 text-sm"
-          />
-          <input
-            name="ownerEmail"
-            type="email"
-            placeholder="email owner (optionnel)"
-            className="border border-border bg-background text-foreground rounded px-3 py-2 text-sm"
-          />
-          <button
-            type="submit"
-            className="bg-primary text-primary-foreground rounded px-4 py-2 text-sm font-medium hover:bg-primary/90"
+      <Card>
+        <CardContent className="p-6 space-y-4">
+          <h2 className="text-lg font-semibold">Créer un tenant</h2>
+          <form
+            action={createTenantAction}
+            className="grid gap-3 md:grid-cols-4"
           >
-            Créer
-          </button>
-        </form>
-      </section>
+            <Input
+              name="slug"
+              placeholder="slug (ex: tramtech)"
+              required
+              pattern="[a-z0-9][a-z0-9-]*[a-z0-9]"
+            />
+            <Input name="name" placeholder="Nom affiché" required />
+            <Input
+              name="ownerEmail"
+              type="email"
+              placeholder="email owner (optionnel)"
+            />
+            <Button type="submit">Créer</Button>
+          </form>
+        </CardContent>
+      </Card>
 
       <section className="space-y-4">
         <h2 className="text-lg font-semibold">
@@ -172,113 +169,47 @@ export default async function AdminAnalyticsPage() {
         )}
         <div className="space-y-4">
           {tenants.map((t) => (
-            <div
-              key={t.id}
-              className="bg-card border border-border rounded-lg p-4 space-y-3"
-            >
-              <div className="flex items-center gap-3">
-                <div className="font-semibold text-foreground">{t.name}</div>
-                <code className="text-xs text-muted-foreground">{t.slug}</code>
-                <span className="text-xs text-muted-foreground font-mono">
-                  {t.id}
-                </span>
-              </div>
-
-              {t.sites && t.sites.length > 0 && (
-                <div className="space-y-1">
-                  <div className="text-xs uppercase tracking-wide text-muted-foreground">
-                    Sites
-                  </div>
-                  {t.sites.map((s) => (
-                    <div
-                      key={s.id}
-                      className="flex items-center gap-3 text-sm py-1"
-                    >
-                      <code className="text-primary">{s.domain}</code>
-                      <span className="text-muted-foreground font-mono text-xs">
-                        {s.siteKey}
-                      </span>
-                      {s.gscProperty && (
-                        <Badge variant="success" className="rounded">
-                          GSC: {s.gscProperty.propertyUrl}
-                        </Badge>
-                      )}
-                    </div>
-                  ))}
+            <Card key={t.id}>
+              <CardContent className="p-4 space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="font-semibold text-foreground">{t.name}</div>
+                  <code className="text-xs text-muted-foreground">{t.slug}</code>
+                  <span className="text-xs text-muted-foreground font-mono">
+                    {t.id}
+                  </span>
                 </div>
-              )}
 
-              <details className="text-xs">
-                <summary className="cursor-pointer text-primary hover:underline">
-                  Ajouter un site
-                </summary>
-                <form
-                  action={createSiteAction}
-                  className="grid gap-2 md:grid-cols-4 mt-2"
-                >
-                  <input
-                    type="hidden"
-                    name="tenantId"
-                    value={t.id}
-                  />
-                  <input
-                    name="domain"
-                    placeholder="tramtech.fr"
-                    required
-                    className="border border-border bg-background text-foreground rounded px-2 py-1"
-                  />
-                  <input
-                    name="name"
-                    placeholder="Site vitrine"
-                    required
-                    className="border border-border bg-background text-foreground rounded px-2 py-1"
-                  />
-                  <div></div>
-                  <button
-                    type="submit"
-                    className="bg-primary text-primary-foreground rounded px-3 py-1 hover:bg-primary/90"
-                  >
-                    Créer le site
-                  </button>
-                </form>
-              </details>
+                {t.sites && t.sites.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                      Sites
+                    </div>
+                    {t.sites.map((s) => (
+                      <div
+                        key={s.id}
+                        className="flex items-center gap-3 text-sm py-1"
+                      >
+                        <code className="text-primary">{s.domain}</code>
+                        <span className="text-muted-foreground font-mono text-xs">
+                          {s.siteKey}
+                        </span>
+                        {s.gscProperty && (
+                          <Badge variant="success" className="rounded">
+                            GSC: {s.gscProperty.propertyUrl}
+                          </Badge>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
 
-              {t.sites && t.sites.length > 0 && (
-                <details className="text-xs">
-                  <summary className="cursor-pointer text-primary hover:underline">
-                    Attacher GSC à un site
-                  </summary>
-                  <form
-                    action={attachGscAction}
-                    className="grid gap-2 md:grid-cols-4 mt-2"
-                  >
-                    <select
-                      name="siteId"
-                      required
-                      className="border border-border bg-background text-foreground rounded px-2 py-1"
-                    >
-                      {t.sites.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.domain}
-                        </option>
-                      ))}
-                    </select>
-                    <input
-                      name="propertyUrl"
-                      placeholder="sc-domain:tramtech.fr"
-                      required
-                      className="border border-border bg-background text-foreground rounded px-2 py-1 md:col-span-2"
-                    />
-                    <button
-                      type="submit"
-                      className="bg-primary text-primary-foreground rounded px-3 py-1 hover:bg-primary/90"
-                    >
-                      Attacher
-                    </button>
-                  </form>
-                </details>
-              )}
-            </div>
+                <AnalyticsTenantPanels
+                  tenant={t}
+                  createSiteAction={createSiteAction}
+                  attachGscAction={attachGscAction}
+                />
+              </CardContent>
+            </Card>
           ))}
         </div>
       </section>

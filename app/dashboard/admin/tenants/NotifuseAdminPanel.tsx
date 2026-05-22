@@ -2,8 +2,36 @@
 
 import { useState } from "react";
 import { toast } from "sonner";
+import { Mail } from "lucide-react";
 
 import { NOTIFUSE_PLANS, type NotifusePlan } from "@/lib/notifuse/types";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type PlanSource =
   | "stripe"
@@ -61,6 +89,11 @@ export function NotifuseAdminPanel({ tenantId, email, initial, onChanged }: Prop
     (initial.plan_source as PlanSource) ?? "manual",
   );
   const [reasonDraft, setReasonDraft] = useState("");
+  // Étapes de confirmation : suspension demande une raison, soft-delete une
+  // confirmation. Remplacent les window.prompt() / window.confirm() natifs.
+  const [suspendOpen, setSuspendOpen] = useState(false);
+  const [suspendReason, setSuspendReason] = useState("");
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   if (!initial.provisioned) {
     return <span className="text-xs text-muted-foreground">Notifuse non provisionné</span>;
@@ -84,7 +117,7 @@ export function NotifuseAdminPanel({ tenantId, email, initial, onChanged }: Prop
       });
       if (data.plan) setPlanDraft(data.plan as NotifusePlan);
     } catch (e) {
-      toast.error(`Status échoué: ${e instanceof Error ? e.message : "?"}`);
+      toast.error(`Status échoué : ${e instanceof Error ? e.message : "?"}`);
     } finally {
       setBusy(null);
     }
@@ -110,15 +143,13 @@ export function NotifuseAdminPanel({ tenantId, email, initial, onChanged }: Prop
       await refreshStatus();
       onChanged?.();
     } catch (e) {
-      toast.error(`Update plan échoué: ${e instanceof Error ? e.message : "?"}`);
+      toast.error(`Update plan échoué : ${e instanceof Error ? e.message : "?"}`);
     } finally {
       setBusy(null);
     }
   }
 
-  async function suspend() {
-    const reason = window.prompt(`Raison de la suspension de ${email} ?`);
-    if (!reason || !reason.trim()) return;
+  async function suspend(reason: string) {
     setBusy("suspend");
     try {
       const res = await fetch("/api/admin/notifuse/suspend", {
@@ -132,7 +163,7 @@ export function NotifuseAdminPanel({ tenantId, email, initial, onChanged }: Prop
       await refreshStatus();
       onChanged?.();
     } catch (e) {
-      toast.error(`Suspend échoué: ${e instanceof Error ? e.message : "?"}`);
+      toast.error(`Suspend échoué : ${e instanceof Error ? e.message : "?"}`);
     } finally {
       setBusy(null);
     }
@@ -152,21 +183,13 @@ export function NotifuseAdminPanel({ tenantId, email, initial, onChanged }: Prop
       await refreshStatus();
       onChanged?.();
     } catch (e) {
-      toast.error(`Resume échoué: ${e instanceof Error ? e.message : "?"}`);
+      toast.error(`Resume échoué : ${e instanceof Error ? e.message : "?"}`);
     } finally {
       setBusy(null);
     }
   }
 
   async function softDelete() {
-    if (
-      !window.confirm(
-        `Soft-delete Notifuse pour ${email} ?\n\n` +
-          `Le workspace reste récupérable 30j côté Notifuse. ` +
-          `Le tenant Hub n'est PAS supprimé (utiliser /admin/delete-tenant pour ça).`,
-      )
-    )
-      return;
     setBusy("delete");
     try {
       const res = await fetch("/api/admin/notifuse/delete", {
@@ -180,7 +203,7 @@ export function NotifuseAdminPanel({ tenantId, email, initial, onChanged }: Prop
       await refreshStatus();
       onChanged?.();
     } catch (e) {
-      toast.error(`Delete échoué: ${e instanceof Error ? e.message : "?"}`);
+      toast.error(`Delete échoué : ${e instanceof Error ? e.message : "?"}`);
     } finally {
       setBusy(null);
     }
@@ -192,40 +215,35 @@ export function NotifuseAdminPanel({ tenantId, email, initial, onChanged }: Prop
   const currentPlan = live?.plan ?? (initial.plan as NotifusePlan | undefined) ?? "free";
 
   return (
-    <div className="inline-block">
-      <button
+    <>
+      <Button
         type="button"
+        variant="secondary"
+        size="sm"
+        className="text-xs"
         onClick={() => {
           if (!open) refreshStatus();
-          setOpen(!open);
+          setOpen(true);
         }}
-        className="text-xs px-2 py-1 rounded bg-muted hover:bg-accent text-foreground"
         disabled={busy !== null}
       >
-        📧 Notifuse
-      </button>
+        <Mail />
+        Notifuse
+      </Button>
 
-      {open && (
-        <div className="absolute right-4 mt-2 z-20 w-96 bg-card border border-border rounded-lg shadow-xl p-4 text-left">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <div className="font-semibold text-sm">Notifuse — {email}</div>
-              <div className="text-xs text-muted-foreground">
-                workspace: <code className="bg-muted px-1 rounded">{initial.workspace_id}</code>
-              </div>
-            </div>
-            <button
-              onClick={() => setOpen(false)}
-              className="text-muted-foreground hover:text-foreground text-lg leading-none"
-              aria-label="Close"
-            >
-              ×
-            </button>
-          </div>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Notifuse — {email}</DialogTitle>
+            <DialogDescription>
+              workspace :{" "}
+              <code className="bg-muted px-1 rounded">{initial.workspace_id}</code>
+            </DialogDescription>
+          </DialogHeader>
 
-          <div className="bg-muted rounded p-2 mb-3 text-xs space-y-1">
+          <div className="bg-muted rounded p-2 text-xs space-y-1">
             <div>
-              <span className="text-muted-foreground">Status: </span>
+              <span className="text-muted-foreground">Status : </span>
               <span
                 className={`font-medium ${
                   currentStatus === "active"
@@ -239,17 +257,17 @@ export function NotifuseAdminPanel({ tenantId, email, initial, onChanged }: Prop
               </span>
             </div>
             <div>
-              <span className="text-muted-foreground">Plan actuel: </span>
+              <span className="text-muted-foreground">Plan actuel : </span>
               <code className="bg-card px-1 rounded">{currentPlan}</code>
               {initial.plan_source && (
                 <span className="text-muted-foreground ml-2">
-                  (source: {initial.plan_source})
+                  (source : {initial.plan_source})
                 </span>
               )}
             </div>
             {live && (
               <div>
-                <span className="text-muted-foreground">Quota: </span>
+                <span className="text-muted-foreground">Quota : </span>
                 {live.emails_sent_this_month ?? 0} / {live.monthly_email_quota ?? 0}
                 <span className="text-muted-foreground ml-1">
                   (reste {live.quota_remaining ?? 0})
@@ -268,92 +286,182 @@ export function NotifuseAdminPanel({ tenantId, email, initial, onChanged }: Prop
                 Soft-deleted le {(live?.deleted_at ?? initial.deleted_at)?.slice(0, 19)}
               </div>
             )}
-            <button
+            <Button
               type="button"
+              variant="link"
+              size="sm"
+              className="h-auto p-0 text-xs"
               onClick={refreshStatus}
               disabled={busy !== null}
-              className="text-xs text-primary hover:underline mt-1"
             >
               {busy === "status" ? "Refresh..." : "↻ Refresh status"}
-            </button>
+            </Button>
           </div>
 
-          <div className="space-y-2 mb-3">
+          <div className="space-y-2">
             <div className="text-xs font-medium">Changer le plan</div>
             <div className="flex gap-2">
-              <select
+              <Select
                 value={planDraft}
-                onChange={(e) => setPlanDraft(e.target.value as NotifusePlan)}
-                className="text-xs px-2 py-1 border border-border bg-background text-foreground rounded flex-1"
+                onValueChange={(v) => setPlanDraft(v as NotifusePlan)}
               >
-                {NOTIFUSE_PLANS.map((p) => (
-                  <option key={p} value={p}>
-                    {p}
-                  </option>
-                ))}
-              </select>
-              <select
+                <SelectTrigger className="h-8 flex-1 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {NOTIFUSE_PLANS.map((p) => (
+                    <SelectItem key={p} value={p} className="text-xs">
+                      {p}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
                 value={planSourceDraft}
-                onChange={(e) => setPlanSourceDraft(e.target.value as PlanSource)}
-                className="text-xs px-2 py-1 border border-border bg-background text-foreground rounded"
+                onValueChange={(v) => setPlanSourceDraft(v as PlanSource)}
               >
-                {PLAN_SOURCES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className="h-8 w-40 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {PLAN_SOURCES.map((s) => (
+                    <SelectItem key={s} value={s} className="text-xs">
+                      {s}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-            <input
+            <Input
               type="text"
               value={reasonDraft}
               onChange={(e) => setReasonDraft(e.target.value)}
               placeholder="Raison (optionnel, audit log)"
-              className="text-xs px-2 py-1 border border-border bg-background text-foreground rounded w-full"
+              className="h-8 text-xs"
             />
-            <button
+            <Button
               type="button"
+              size="sm"
+              className="w-full text-xs"
               onClick={applyPlan}
               disabled={busy !== null}
-              className="text-xs px-3 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 w-full"
             >
               {busy === "plan" ? "Application..." : `Appliquer plan ${planDraft}`}
-            </button>
+            </Button>
           </div>
 
           <div className="flex gap-2 pt-3 border-t border-border">
             {currentStatus === "suspended" ? (
-              <button
+              <Button
                 type="button"
+                size="sm"
+                className="flex-1 text-xs bg-success/15 text-success hover:bg-success/25"
                 onClick={resume}
                 disabled={busy !== null}
-                className="text-xs px-2 py-1 rounded bg-success/15 hover:bg-success/25 text-success flex-1"
               >
                 {busy === "resume" ? "..." : "▶ Resume"}
-              </button>
+              </Button>
             ) : currentStatus === "active" ? (
-              <button
+              <Button
                 type="button"
-                onClick={suspend}
+                size="sm"
+                className="flex-1 text-xs bg-warning/15 text-warning hover:bg-warning/25"
+                onClick={() => {
+                  setSuspendReason("");
+                  setSuspendOpen(true);
+                }}
                 disabled={busy !== null}
-                className="text-xs px-2 py-1 rounded bg-warning/15 hover:bg-warning/25 text-warning flex-1"
               >
                 {busy === "suspend" ? "..." : "⏸ Suspend"}
-              </button>
+              </Button>
             ) : null}
             {currentStatus !== "deleted" && (
-              <button
+              <Button
                 type="button"
-                onClick={softDelete}
+                variant="destructive"
+                size="sm"
+                className="flex-1 text-xs bg-destructive/15 text-destructive hover:bg-destructive/25"
+                onClick={() => setDeleteOpen(true)}
                 disabled={busy !== null}
-                className="text-xs px-2 py-1 rounded bg-destructive/15 hover:bg-destructive/25 text-destructive flex-1"
               >
                 {busy === "delete" ? "..." : "🗑 Soft-delete"}
-              </button>
+              </Button>
             )}
           </div>
-        </div>
-      )}
-    </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Suspension — saisie de la raison (ex window.prompt) */}
+      <Dialog open={suspendOpen} onOpenChange={setSuspendOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Suspendre {email} ?</DialogTitle>
+            <DialogDescription>
+              Le workspace Notifuse sera suspendu. La raison est enregistrée
+              dans l&apos;audit log.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="notifuse-suspend-reason">Raison</Label>
+            <Input
+              id="notifuse-suspend-reason"
+              value={suspendReason}
+              onChange={(e) => setSuspendReason(e.target.value)}
+              placeholder="Raison de la suspension"
+              autoFocus
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setSuspendOpen(false)}
+            >
+              Annuler
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              disabled={!suspendReason.trim()}
+              onClick={() => {
+                const reason = suspendReason.trim();
+                setSuspendOpen(false);
+                suspend(reason);
+              }}
+            >
+              Suspendre
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Soft-delete — confirmation (ex window.confirm) */}
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Soft-delete Notifuse pour {email} ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Le workspace reste récupérable 30 jours côté Notifuse. Le tenant
+              Hub n&apos;est PAS supprimé (utiliser /admin/delete-tenant pour
+              ça).
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                setDeleteOpen(false);
+                softDelete();
+              }}
+            >
+              Soft-delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
