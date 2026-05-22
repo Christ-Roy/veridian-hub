@@ -6,6 +6,34 @@
 > **Auditeur** : agent UI audit Opus
 > **Créé** : 2026-05-21
 
+## Résolution — 2026-05-22 (Lot D sprint cleanup)
+
+Quick wins UI traités côté Lot D :
+
+- ✅ **Couleurs hardcodées** : 40+ occurrences `bg-blue-50`/`bg-green-100`/
+  `ring-indigo-500`… remplacées par tokens OKLCH. Ajout des tokens
+  sémantiques `--success` / `--warning` / `--info` (theme + Tailwind) +
+  variants `Badge`/`Alert`. Contrastes dark mode corrigés.
+- ✅ **Forms auth dupliqués** : `<OAuthButtons>` extrait, ~98 LOC de dup
+  éliminées dans LoginForm/SignupForm.
+- ✅ **DashboardPageHeader** : composant créé + appliqué aux 7 pages
+  dashboard. Hiérarchie h1 unifiée `text-3xl font-bold`.
+- ✅ **Footer** : liens morts About/Careers/Blog retirés, libellés FR.
+
+Constat terrain : §2.1 et §2.6 partiellement obsolètes — l'admin
+(`layout.tsx`, `page.tsx`, `tenants/page.tsx`, `analytics/page.tsx`)
+utilisait déjà `bg-card`/`bg-background` au moment de l'intervention
+(corrigé entre l'audit et le sprint). §3.4 locale EUR billing : déjà
+corrigé (`Intl.NumberFormat('fr-FR', EUR)`).
+
+**Reste ouvert** (hors scope quick-wins, à ré-ouvrir si besoin) :
+`<AuthCard>` partagé (§2.2), Sprint A refonte admin shadcn complète,
+Sprint C onboarding post-signup, Sprint D refonte billing, Sprint E
+refonte /docs, routes auth dépréciées en `redirects()` (§1), lint custom
+anti-couleurs (§9.5), `docs/DESIGN-SYSTEM.md` (§9.4). `data-table.tsx`
+(823 L, template shadcn mort, zéro import) : suppression à router vers un
+ticket cleanup.
+
 ## Résumé exécutif
 
 23 pages auditées (6 marketing, 8 auth, 7 dashboard, 1 invite, layouts inclus). Le squelette est sain (shadcn + Card + Tailwind tokens OKLCH), mais **trois grands problèmes minent la cohérence** :
