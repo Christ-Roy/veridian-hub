@@ -78,56 +78,76 @@ describe('extractPayablePlans', () => {
   });
 });
 
+/**
+ * Fixture de catalogue minimal et contrôlé — indépendante de l'état réel de
+ * `plans.ts` (qui contient désormais les Price IDs du provisioning). Les
+ * tests de patch raisonnent sur cette fixture, pas sur le fichier vivant.
+ */
+const FIXTURE_SOURCE = `export const PLANS = {
+  'notifuse-pro': {
+    id: 'notifuse-pro',
+    name: 'Notifuse Pro',
+    stripePriceIdLive: { month: null, year: null },
+    stripePriceIdTest: { month: null, year: null },
+    rank: 2,
+  },
+
+  'notifuse-business': {
+    id: 'notifuse-business',
+    name: 'Notifuse Business',
+    stripePriceIdLive: { month: null, year: null },
+    stripePriceIdTest: { month: null, year: null },
+    rank: 3,
+  },
+};
+`;
+
 describe('patchPlanPriceIds', () => {
   it('remplit stripePriceIdTest avec month + year', () => {
-    const patched = patchPlanPriceIds(SOURCE, 'notifuse-pro', 'Test', {
+    const patched = patchPlanPriceIds(FIXTURE_SOURCE, 'notifuse-pro', 'Test', {
       month: 'price_test_m',
       year: 'price_test_y',
     });
-    // Le bloc notifuse-pro doit contenir les nouveaux IDs.
     const block = patched.slice(
       patched.indexOf("'notifuse-pro': {"),
-      patched.indexOf("'notifuse-pro': {") + 800,
+      patched.indexOf("'notifuse-business': {"),
     );
     expect(block).toContain("stripePriceIdTest: { month: 'price_test_m', year: 'price_test_y' }");
   });
 
   it('remplit stripePriceIdLive sans toucher stripePriceIdTest', () => {
-    const patched = patchPlanPriceIds(SOURCE, 'notifuse-pro', 'Live', {
+    const patched = patchPlanPriceIds(FIXTURE_SOURCE, 'notifuse-pro', 'Live', {
       month: 'price_live_m',
       year: 'price_live_y',
     });
     const block = patched.slice(
       patched.indexOf("'notifuse-pro': {"),
-      patched.indexOf("'notifuse-pro': {") + 800,
+      patched.indexOf("'notifuse-business': {"),
     );
     expect(block).toContain("stripePriceIdLive: { month: 'price_live_m', year: 'price_live_y' }");
-    // stripePriceIdTest reste à null (non touché par un patch Live).
+    // Un patch Live ne touche pas le champ Test (resté null dans la fixture).
     expect(block).toContain('stripePriceIdTest: { month: null, year: null }');
   });
 
   it('écrit null pour un year absent', () => {
-    const patched = patchPlanPriceIds(SOURCE, 'notifuse-pro', 'Test', {
+    const patched = patchPlanPriceIds(FIXTURE_SOURCE, 'notifuse-pro', 'Test', {
       month: 'price_only_month',
       year: null,
     });
     const block = patched.slice(
       patched.indexOf("'notifuse-pro': {"),
-      patched.indexOf("'notifuse-pro': {") + 800,
+      patched.indexOf("'notifuse-business': {"),
     );
     expect(block).toContain("stripePriceIdTest: { month: 'price_only_month', year: null }");
   });
 
   it('ne touche pas les autres plans', () => {
-    const patched = patchPlanPriceIds(SOURCE, 'notifuse-pro', 'Test', {
+    const patched = patchPlanPriceIds(FIXTURE_SOURCE, 'notifuse-pro', 'Test', {
       month: 'price_x',
       year: 'price_y',
     });
-    // notifuse-business garde ses placeholders null.
-    const block = patched.slice(
-      patched.indexOf("'notifuse-business': {"),
-      patched.indexOf("'notifuse-business': {") + 800,
-    );
+    // notifuse-business garde son placeholder null (non ciblé par le patch).
+    const block = patched.slice(patched.indexOf("'notifuse-business': {"));
     expect(block).toContain('stripePriceIdTest: { month: null, year: null }');
   });
 
