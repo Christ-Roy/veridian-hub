@@ -1,8 +1,14 @@
 /**
- * Tests LoginForm — couvre les boutons OAuth (Google + Microsoft) et le
- * fallback Credentials (email/password). Le but : verrouiller que les
- * providers Auth.js v5 sont appelés avec les bons IDs côté next-auth/react,
- * et que le formulaire email/password reste opérationnel.
+ * Tests LoginForm — fallback Credentials (email/password) et intégration des
+ * boutons OAuth (Google + Microsoft).
+ *
+ * Depuis le refacto Lot D, le bloc OAuth (SVG de marque + handlers signIn) est
+ * extrait dans `<OAuthButtons>` (testé en isolation par OAuthButtons.test.tsx).
+ * Les tests OAuth ci-dessous restent donc des tests d'INTÉGRATION assumés : ils
+ * vérifient que LoginForm câble correctement OAuthButtons — bon callbackUrl,
+ * gating `allowOauth`, footer "Créer un compte" propre au login. Ce n'est pas
+ * une duplication d'OAuthButtons.test.tsx : on teste la composition, pas le
+ * composant isolé.
  *
  * Pas de test E2E ici (couvert par Playwright sur staging). On valide
  * uniquement le câblage React → next-auth signIn().
@@ -43,7 +49,7 @@ describe('LoginForm', () => {
     expect(LoginForm.name).toBe('LoginForm');
   });
 
-  it('affiche le bouton "Continuer avec Google" et appelle signIn("google") au clic', () => {
+  it('intègre OAuthButtons : "Continuer avec Google" appelle signIn("google")', () => {
     render(<LoginForm />);
     const googleBtn = screen.getByRole('button', { name: /Continuer avec Google/i });
     expect(googleBtn).toBeTruthy();
@@ -51,12 +57,18 @@ describe('LoginForm', () => {
     expect(signInMock).toHaveBeenCalledWith('google', { callbackUrl: '/dashboard' });
   });
 
-  it('affiche le bouton "Continuer avec Microsoft" et appelle signIn("microsoft-entra-id") au clic', () => {
+  it('intègre OAuthButtons : "Continuer avec Microsoft" appelle signIn("microsoft-entra-id")', () => {
     render(<LoginForm />);
     const microsoftBtn = screen.getByRole('button', { name: /Continuer avec Microsoft/i });
     expect(microsoftBtn).toBeTruthy();
     fireEvent.click(microsoftBtn);
     expect(signInMock).toHaveBeenCalledWith('microsoft-entra-id', { callbackUrl: '/dashboard' });
+  });
+
+  it('affiche le footer login "Créer un compte" pointant vers /signup', () => {
+    render(<LoginForm />);
+    const signupLink = screen.getByRole('link', { name: /Créer un compte/i });
+    expect(signupLink.getAttribute('href')).toBe('/signup');
   });
 
   it('appelle signIn("credentials") avec email + password à la soumission du formulaire', async () => {
@@ -82,10 +94,11 @@ describe('LoginForm', () => {
     }));
   });
 
-  it('cache les boutons OAuth quand allowOauth=false', () => {
+  it('cache OAuthButtons (et son footer) quand allowOauth=false', () => {
     render(<LoginForm allowOauth={false} />);
     expect(screen.queryByRole('button', { name: /Continuer avec Google/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /Continuer avec Microsoft/i })).toBeNull();
+    expect(screen.queryByRole('link', { name: /Créer un compte/i })).toBeNull();
   });
 
   it("n'affiche pas LoginErrorBanner sans ?error= dans l'URL (default mock)", () => {

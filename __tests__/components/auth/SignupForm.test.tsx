@@ -1,8 +1,12 @@
 /**
- * Tests SignupForm — couvre les boutons OAuth (Google + Microsoft) et la
- * validation password côté client. Le but : verrouiller que les providers
- * Auth.js v5 sont appelés avec les bons IDs et que la mismatch password
- * est détectée avant tout appel réseau.
+ * Tests SignupForm — validation password côté client et intégration des
+ * boutons OAuth (Google + Microsoft).
+ *
+ * Depuis le refacto Lot D, le bloc OAuth (SVG de marque + handlers signIn) est
+ * extrait dans `<OAuthButtons>` (testé en isolation par OAuthButtons.test.tsx).
+ * Les tests OAuth ci-dessous restent des tests d'INTÉGRATION assumés : ils
+ * vérifient que SignupForm câble correctement OAuthButtons — bon callbackUrl,
+ * gating `allowOauth`, footer "Se connecter" propre au signup.
  *
  * Pas de test E2E ici (couvert par Playwright sur staging).
  */
@@ -45,7 +49,7 @@ describe('SignupForm', () => {
     expect(SignupForm.name).toBe('SignupForm');
   });
 
-  it('affiche le bouton "Continuer avec Google" et appelle signIn("google") au clic', () => {
+  it('intègre OAuthButtons : "Continuer avec Google" appelle signIn("google")', () => {
     render(<SignupForm />);
     const googleBtn = screen.getByRole('button', { name: /Continuer avec Google/i });
     expect(googleBtn).toBeTruthy();
@@ -53,12 +57,18 @@ describe('SignupForm', () => {
     expect(signInMock).toHaveBeenCalledWith('google', { callbackUrl: '/dashboard' });
   });
 
-  it('affiche le bouton "Continuer avec Microsoft" et appelle signIn("microsoft-entra-id") au clic', () => {
+  it('intègre OAuthButtons : "Continuer avec Microsoft" appelle signIn("microsoft-entra-id")', () => {
     render(<SignupForm />);
     const microsoftBtn = screen.getByRole('button', { name: /Continuer avec Microsoft/i });
     expect(microsoftBtn).toBeTruthy();
     fireEvent.click(microsoftBtn);
     expect(signInMock).toHaveBeenCalledWith('microsoft-entra-id', { callbackUrl: '/dashboard' });
+  });
+
+  it('affiche le footer signup "Se connecter" pointant vers /login', () => {
+    render(<SignupForm />);
+    const loginLink = screen.getByRole('link', { name: /Se connecter/i });
+    expect(loginLink.getAttribute('href')).toBe('/login');
   });
 
   it('refuse la soumission si les mots de passe ne correspondent pas', async () => {
@@ -82,10 +92,11 @@ describe('SignupForm', () => {
     expect(screen.getByText(/Les mots de passe ne correspondent pas/i)).toBeTruthy();
   });
 
-  it('cache les boutons OAuth quand allowOauth=false', () => {
+  it('cache OAuthButtons (et son footer) quand allowOauth=false', () => {
     render(<SignupForm allowOauth={false} />);
     expect(screen.queryByRole('button', { name: /Continuer avec Google/i })).toBeNull();
     expect(screen.queryByRole('button', { name: /Continuer avec Microsoft/i })).toBeNull();
+    expect(screen.queryByRole('link', { name: /Se connecter/i })).toBeNull();
   });
 
   it("n'affiche pas LoginErrorBanner sans ?error= dans l'URL (default mock)", () => {
