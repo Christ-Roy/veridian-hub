@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { randomBytes } from 'crypto';
 
 import { auth } from '@/auth';
 import { isPlatformAdmin } from '@/lib/admin/check-admin';
+import { writeAuditLog } from '@/lib/admin/audit-log';
 import { prisma } from '@/lib/prisma';
 import { createProspectionClientFromEnv } from '@/lib/prospection/client';
+import {
+  createImpersonationToken,
+  isImpersonatedSession,
+} from '@/lib/auth/impersonation';
+import { getURL } from '@/utils/helpers';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -21,6 +26,14 @@ async function requireAdmin(request: NextRequest): Promise<NextResponse | null> 
   if (!isPlatformAdmin(session.user)) {
     return NextResponse.json({ error: 'Forbidden — admin access only' }, { status: 403 });
   }
+  // Anti-ré-impersonation : un user déjà impersoné ne peut pas relancer une
+  // impersonation, même si son email figure dans la whitelist admin.
+  if (isImpersonatedSession(session)) {
+    return NextResponse.json(
+      { error: 'Forbidden — impersonated session cannot impersonate' },
+      { status: 403 },
+    );
+  }
   return null;
 }
 
@@ -31,11 +44,16 @@ async function requireAdmin(request: NextRequest): Promise<NextResponse | null> 
  * Generates auto-login URLs for all services for a given user.
  * Useful for debugging/support — login as any user without knowing their password.
  *
- * Hub login : on crée une Session Auth.js pour le user cible et on retourne
- * un lien `/auth/admin-impersonate?token=<sessionToken>` que le frontend doit
- * utiliser pour set le cookie côté client (cookie httpOnly cross-domain non
- * trivial à set depuis l'API). Pour l'instant on retourne juste le sessionToken
- * — un endpoint dédié `/api/auth/impersonate-set` peut le consommer (TODO LOT D).
+ * Hub login : on génère un **token impersonate court-vécu** (10 min, usage
+ * unique, stocké hashé — cf. lib/auth/impersonation.ts) et on retourne le
+ * lien `/api/auth/impersonate-callback?token=<rawToken>`. Ouvrir ce lien
+ * dans le navigateur consomme le token et pose le cookie de session Auth.js
+ * du user cible (JWT marqué `impersonated`). Le volet session est aussi
+ * disponible isolément via POST /api/auth/impersonate-set.
+ *
+ * NB : la stratégie de session du Hub est `jwt` — créer une row dans la
+ * table `sessions` ne produit AUCUNE session valide (Auth.js ne la lit
+ * jamais en mode JWT). C'est pourquoi on passe par un JWT encodé.
  */
 export async function POST(request: NextRequest) {
   const denial = await requireAdmin(request);
@@ -98,27 +116,33 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Hub session : créer une vraie Session Auth.js pour le user cible.
-  // Le sessionToken doit être posé côté client en cookie `authjs.session-token`
-  // (ou `__Secure-authjs.session-token` en https). On le retourne brut + une
-  // URL helper qui pointe vers un endpoint à créer (cf. TODO LOT D).
-  const sessionToken = randomBytes(32).toString('hex');
-  const expires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
-  await prisma.session.create({
-    data: { sessionToken, userId: user.id, expires },
-  });
+  // Hub session : génère un token impersonate court-vécu (10 min, usage
+  // unique, stocké hashé). Le lien `impersonate-callback` consomme ce token
+  // et pose le cookie de session Auth.js du user cible.
+  const { rawToken, expires } = await createImpersonationToken(prisma, user.id);
+  const hubLink = `${getURL('/api/auth/impersonate-callback')}?token=${encodeURIComponent(rawToken)}`;
 
-  const hubUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://app.veridian.site';
-  const hubLink = `${hubUrl}/api/auth/impersonate-callback?token=${encodeURIComponent(sessionToken)}`;
+  // Audit — qui a déclenché l'impersonation de qui (via la route admin).
+  const session = await auth();
+  const actor = session?.user?.email
+    ? `admin:${session.user.email}`
+    : 'token:ADMIN_SECRET';
+  await writeAuditLog(prisma, {
+    action: 'admin.impersonate.start',
+    actor,
+    targetType: 'user',
+    targetId: user.id,
+    payload: { targetEmail: user.email, expiresAt: expires.toISOString(), via: 'admin.impersonate' },
+  });
 
   return NextResponse.json({
     user_id: user.supabaseUserId ?? user.id,
     email,
     tenant_id: tenant?.id ?? null,
     links: {
-      // TODO LOT D : implémenter /api/auth/impersonate-callback qui set le cookie
-      // `authjs.session-token` (httpOnly, secure, sameSite=lax) avec ce token et
-      // redirige vers /dashboard.
+      // Ouvrir ce lien dans le navigateur consomme le token impersonate et
+      // pose le cookie de session Auth.js (httpOnly, secure, sameSite=lax),
+      // puis redirige vers /dashboard.
       hub: hubLink,
       prospection: prospectionUrl,
       notifuse: tenant?.notifuseWorkspaceSlug
@@ -126,7 +150,9 @@ export async function POST(request: NextRequest) {
         : null,
     },
     session: {
-      token: sessionToken,
+      // Token impersonate brut (usage unique, expire vite) — fourni pour
+      // les usages programmatiques. Pas un cookie de session.
+      token: rawToken,
       expires: expires.toISOString(),
     },
   });

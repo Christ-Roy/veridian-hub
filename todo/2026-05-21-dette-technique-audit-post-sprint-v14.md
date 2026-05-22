@@ -87,14 +87,59 @@ Le fichier `lib/pricing/plans.ts` a **18 occurrences `🚧 TODO_PRICE`** et `�
 
 ---
 
-## 3. TODO impersonate route (P3)
+## 3. TODO impersonate route (P3) — ✅ RÉSOLU 2026-05-22
 
-`app/api/admin/impersonate/route.ts` a 3 `TODO LOT D` :
-- `:38` — endpoint dédié `/api/auth/impersonate-set` à créer
-- `:104` — URL helper à créer
-- `:119` — `/api/auth/impersonate-callback` qui set le cookie de session
+`app/api/admin/impersonate/route.ts` avait 3 `TODO LOT D`. **Tous bouclés**,
+impersonate fonctionne end-to-end.
 
-État actuel : la route admin peut générer un token impersonate mais le user-side n'a pas le callback pour le consommer → impersonate cassé end-to-end. Pas urgent (juste l'admin, pas user-facing), mais à boucler.
+### Ce qui a été livré (Backend Lot 2)
+
+**Diagnostic clé** : l'ancien code créait une row `prisma.session` (token
+random 32 bytes, TTL 24h). Or la stratégie de session du Hub est `jwt`
+(`auth.config.ts:17`) — **Auth.js ne lit JAMAIS la table `sessions` en mode
+JWT**. Le cookie attendu est un JWE signé avec `AUTH_SECRET`. L'ancien
+"token" n'aurait jamais produit de session valide → impersonate était cassé
+par conception, pas juste incomplet.
+
+**Nouveau design** (`lib/auth/impersonation.ts` — helper central) :
+- `createImpersonationToken` : token random 32 bytes, **stocké hashé
+  (SHA-256)** dans `verification_tokens` avec identifier préfixé
+  `impersonate:<userId>`, **TTL 10 min**.
+- `consumeImpersonationToken` : **delete atomique** (`deleteMany` → usage
+  unique garanti même en course concurrente) + check expiry. Source de
+  vérité = l'identifier de la row, pas l'input appelant.
+- `encodeImpersonationSessionJwt` : encode un **vrai JWT Auth.js**
+  (`encode` de `next-auth/jwt`) avec `salt = nom du cookie` (exigence
+  `@auth/core/jwt`). Claims `impersonated:true` + `impersonatedBy`. **TTL
+  session 1h** (vs 90j normal — une impersonation est ponctuelle).
+
+**Endpoints créés** :
+- `POST /api/auth/impersonate-set` — admin-only (`authenticateAdmin`),
+  génère le token + retourne `callback_url`. Audit `admin.impersonate.start`.
+- `GET /api/auth/impersonate-callback?token=…` — consomme le token (usage
+  unique), pose le cookie de session Auth.js (httpOnly/secure/sameSite=lax),
+  redirige `/dashboard`. Audit `admin.impersonate.consume`.
+
+**Garanties sécu** (tier 🔴 HAUT) :
+- Seul un platform admin déclenche (`authenticateAdmin` / `isPlatformAdmin`).
+- Token court-vécu, usage unique, stocké hashé (un dump de
+  `verification_tokens` ne révèle aucun token utilisable).
+- **Anti-ré-impersonation** : `isImpersonatedSession()` bloque toute session
+  impersonée dans `authenticateAdmin`, `requireAdmin` inline de la route
+  impersonate, et `impersonate-set`. Un user impersoné ne peut PAS rebondir.
+- Audit log à chaque start + consume.
+- `AUTH_SECRET` absent → aucun cookie posé, refus net.
+
+**Tests** : 41 tests dédiés (helper crypto réel + 2 routes + route admin
+mise à jour). Suite complète 1063/1063 verte, `pnpm build` OK.
+
+### TODO restant — bannière UI (hors périmètre backend)
+
+Le claim `session.user.impersonated` + `impersonatedBy` est **exposé côté
+session** (callbacks `auth.ts`) et typé (`types/next-auth.d.ts`). Reste à
+brancher une **bannière visuelle "Mode impersonation"** dans le layout
+dashboard — travail UI à confier à l'agent frontend. Le backend est prêt :
+il suffit de lire `session.user.impersonated` dans un Server Component.
 
 ---
 

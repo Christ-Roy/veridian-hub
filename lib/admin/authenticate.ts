@@ -15,6 +15,7 @@ import { timingSafeEqual } from 'node:crypto';
 
 import { auth } from '@/auth';
 import { isPlatformAdmin } from '@/lib/admin/check-admin';
+import { isImpersonatedSession } from '@/lib/auth/impersonation';
 import { adminApiLimiter, extractClientIp } from '@/lib/auth/rate-limit';
 
 export type AdminAuthSuccess = {
@@ -94,6 +95,18 @@ export async function authenticateAdmin(
     return {
       ok: false,
       response: NextResponse.json({ error: 'forbidden' }, { status: 403 }),
+    };
+  }
+  // Anti-ré-impersonation : une session impersonée NE doit jamais accéder à
+  // une route admin, même si l'email impersoné est dans la whitelist admin.
+  // Sinon un admin impersonant un autre admin élèverait à nouveau ses droits.
+  if (isImpersonatedSession(session)) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: 'forbidden', message: 'Impersonated session has no admin access.' },
+        { status: 403 }
+      ),
     };
   }
   return { ok: true, sessionEmail: session.user.email ?? null };
