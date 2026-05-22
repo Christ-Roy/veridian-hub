@@ -1176,7 +1176,7 @@ pour éviter l'enum).
   "tenant_id": "string",
   "data": { /* event-specific */ },
   "idempotency_key": "uuid v4",
-  "emitted_at": "ISO8601",
+  "occurred_at": "ISO8601",
   "contract_version": "1.4"
 }
 ```
@@ -1365,7 +1365,7 @@ Content-Type: application/json
     "touched_by": "user_id:abc123"
   },
   "idempotency_key": "550e8400-e29b-41d4-a716-446655440000",
-  "emitted_at": "2026-05-21T14:23:00.123Z",
+  "occurred_at": "2026-05-21T14:23:00.123Z",
   "contract_version": "1.4"
 }
 ```
@@ -1422,7 +1422,7 @@ apps d'émettre dès aujourd'hui sans bloquer le Hub).
 ##### Request
 
 Identique au schema v1.4 ci-dessus (event + tenant_id + data + idempotency_key
-+ emitted_at + contract_version).
++ occurred_at + contract_version).
 
 ##### Events couverts
 
@@ -1464,7 +1464,7 @@ WH-NOTIFUSE-V14 stub doit être branché pour UPSERT `tenant_trials`.
     "first_reached_at": "2026-05-22T10:00:00.000Z"
   },
   "idempotency_key": "uuid-v4",
-  "emitted_at": "2026-05-22T10:00:00.000Z",
+  "occurred_at": "2026-05-22T10:00:00.000Z",
   "contract_version": "1.4"
 }
 ```
