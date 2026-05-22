@@ -14,7 +14,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { PricingGrid } from '@/components/pricing/PricingGrid';
 import type { Plan } from '@/lib/pricing/plans';
 
@@ -25,6 +25,7 @@ function makePlan(overrides: Partial<Plan> & Pick<Plan, 'key' | 'name'>): Plan {
     price_eur: 0,
     price_eur_yearly_per_month: null,
     stripePriceId: { month: null, year: null },
+    stripePriceIdTest: { month: null, year: null },
     apps: ['notifuse'],
     members_seats: 'unlimited',
     quotas: { notifuse: { emails_per_month: 'unlimited', members_max: 'unlimited' } },
@@ -73,6 +74,31 @@ describe('PricingGrid (rendu)', () => {
     expect(screen.getByRole('heading', { name: /Tarifs Veridian/i, level: 1 })).toBeTruthy();
     expect(screen.getByRole('button', { name: /^Mensuel$/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /Annuel/i })).toBeTruthy();
+  });
+
+  it('le bouton Annuel affiche l\'argument de réduction -17%', () => {
+    // Le toggle annuel porte un libellé "-17%" pour matérialiser l'économie
+    // du paiement annuel. Verrouille ce wording — c'est un argument de
+    // conversion, pas un détail cosmétique.
+    renderGrid();
+    const annuel = screen.getByRole('button', { name: /Annuel/i });
+    expect(annuel.textContent).toMatch(/-17\s*%/);
+  });
+
+  it('bascule l\'affichage du prix mensuel ↔ annuel au clic sur le toggle', () => {
+    // Notifuse Pro : 29€/mois, 24€/mois facturé annuellement. Le clic sur
+    // "Annuel" doit faire apparaître le prix annuel, le retour "Mensuel"
+    // le prix mensuel — c'est la logique métier du toggle.
+    renderGrid();
+    // Au montage : intervalle mensuel → 29€ visible.
+    expect(screen.getByText('29€')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /Annuel/i }));
+    expect(screen.getByText('24€')).toBeTruthy();
+    expect(screen.getByText(/facturé annuellement/i)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Mensuel$/i }));
+    expect(screen.getByText('29€')).toBeTruthy();
   });
 
   it('rend une carte par plan fourni', () => {

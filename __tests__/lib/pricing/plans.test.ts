@@ -157,6 +157,49 @@ describe('PLANS catalogue', () => {
   });
 });
 
+describe('stripePriceIdTest — mapping adaptateur canonical → Hub', () => {
+  // adaptCanonicalToHub mappe désormais DEUX jeux de Stripe Price IDs :
+  // stripePriceIdLive → Plan.stripePriceId (compte prod) et
+  // stripePriceIdTest → Plan.stripePriceIdTest (compte test/preprod).
+  // Ces tests verrouillent que le champ test est bien rempli et qu'il
+  // n'est pas confondu avec le champ live.
+
+  it('chaque plan expose un champ stripePriceIdTest avec les clés month/year', () => {
+    for (const plan of Object.values(PLANS)) {
+      expect(plan.stripePriceIdTest).toBeDefined();
+      expect(plan.stripePriceIdTest).toHaveProperty('month');
+      expect(plan.stripePriceIdTest).toHaveProperty('year');
+    }
+  });
+
+  it('les plans payants ont des Stripe Price IDs TEST distincts des IDs LIVE', () => {
+    // Garde-fou anti-confusion : si l'adaptateur recopiait stripePriceIdLive
+    // dans stripePriceIdTest, le checkout en staging taperait le compte prod.
+    // notifuse-pro a des IDs renseignés sur les 2 comptes — ils doivent différer.
+    const proMonthTest = PLANS['notifuse-pro'].stripePriceIdTest.month;
+    const proMonthLive = PLANS['notifuse-pro'].stripePriceId.month;
+    expect(proMonthTest).toBeTruthy();
+    expect(proMonthLive).toBeTruthy();
+    expect(proMonthTest).not.toBe(proMonthLive);
+  });
+
+  it('les Stripe Price IDs TEST ont le préfixe price_ quand renseignés', () => {
+    for (const plan of Object.values(PLANS)) {
+      for (const id of [plan.stripePriceIdTest.month, plan.stripePriceIdTest.year]) {
+        if (id !== null) {
+          expect(id).toMatch(/^price_/);
+        }
+      }
+    }
+  });
+
+  it('les plans gratuits ont stripePriceIdTest month/year à null', () => {
+    // Un plan free n'a pas de Price Stripe — ni live ni test.
+    expect(PLANS['notifuse-free'].stripePriceIdTest).toEqual({ month: null, year: null });
+    expect(PLANS['prospection-free'].stripePriceIdTest).toEqual({ month: null, year: null });
+  });
+});
+
 describe('APPS catalogue (v1.3)', () => {
   it('contient les 4 apps Veridian', () => {
     expect(Object.keys(APPS).sort()).toEqual(['analytics', 'cms', 'notifuse', 'prospection']);
