@@ -78,31 +78,23 @@ export default function Footer() {
                 href="/"
                 className="text-foreground transition duration-150 ease-in-out hover:text-muted-foreground"
               >
-                Home
+                Accueil
               </Link>
             </li>
             <li className="py-3 md:py-0 md:pb-4">
               <Link
-                href="/"
+                href="/pricing"
                 className="text-foreground transition duration-150 ease-in-out hover:text-muted-foreground"
               >
-                About
+                Tarifs
               </Link>
             </li>
             <li className="py-3 md:py-0 md:pb-4">
               <Link
-                href="/"
+                href="/docs"
                 className="text-foreground transition duration-150 ease-in-out hover:text-muted-foreground"
               >
-                Careers
-              </Link>
-            </li>
-            <li className="py-3 md:py-0 md:pb-4">
-              <Link
-                href="/"
-                className="text-foreground transition duration-150 ease-in-out hover:text-muted-foreground"
-              >
-                Blog
+                Documentation
               </Link>
             </li>
           </ul>
@@ -119,7 +111,7 @@ export default function Footer() {
                 href="/privacy"
                 className="text-foreground transition duration-150 ease-in-out hover:text-muted-foreground"
               >
-                Privacy Policy
+                Politique de confidentialité
               </Link>
             </li>
             <li className="py-3 md:py-0 md:pb-4">
@@ -127,7 +119,7 @@ export default function Footer() {
                 href="/terms"
                 className="text-foreground transition duration-150 ease-in-out hover:text-muted-foreground"
               >
-                Terms of Use
+                Conditions d&apos;utilisation
               </Link>
             </li>
             <li className="py-3 md:py-0 md:pb-4">
