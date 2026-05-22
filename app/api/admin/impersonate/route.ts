@@ -1,41 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { auth } from '@/auth';
-import { isPlatformAdmin } from '@/lib/admin/check-admin';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 import { writeAuditLog } from '@/lib/admin/audit-log';
 import { prisma } from '@/lib/prisma';
 import { createProspectionClientFromEnv } from '@/lib/prospection/client';
-import {
-  createImpersonationToken,
-  isImpersonatedSession,
-} from '@/lib/auth/impersonation';
+import { createImpersonationToken } from '@/lib/auth/impersonation';
 import { getURL } from '@/utils/helpers';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-
-async function requireAdmin(request: NextRequest): Promise<NextResponse | null> {
-  const adminSecret = process.env.ADMIN_SECRET;
-  const headerSecret = request.headers.get('x-admin-secret');
-  if (adminSecret && headerSecret === adminSecret) return null;
-
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
-  if (!isPlatformAdmin(session.user)) {
-    return NextResponse.json({ error: 'Forbidden — admin access only' }, { status: 403 });
-  }
-  // Anti-ré-impersonation : un user déjà impersoné ne peut pas relancer une
-  // impersonation, même si son email figure dans la whitelist admin.
-  if (isImpersonatedSession(session)) {
-    return NextResponse.json(
-      { error: 'Forbidden — impersonated session cannot impersonate' },
-      { status: 403 },
-    );
-  }
-  return null;
-}
 
 /**
  * POST /api/admin/impersonate
@@ -56,8 +29,12 @@ async function requireAdmin(request: NextRequest): Promise<NextResponse | null> 
  * jamais en mode JWT). C'est pourquoi on passe par un JWT encodé.
  */
 export async function POST(request: NextRequest) {
-  const denial = await requireAdmin(request);
-  if (denial) return denial;
+  // Auth admin durcie : x-admin-secret en comparaison timing-safe OU session
+  // platform admin, + rate-limit IP. `authenticateAdmin` rejette aussi toute
+  // session impersonée (anti-ré-impersonation) — un user impersoné ne peut
+  // pas relancer une impersonation. Cf. lib/admin/authenticate.ts.
+  const adminAuth = await authenticateAdmin(request);
+  if (!adminAuth.ok) return adminAuth.response;
 
   let body: { email?: string };
   try {
@@ -123,9 +100,9 @@ export async function POST(request: NextRequest) {
   const hubLink = `${getURL('/api/auth/impersonate-callback')}?token=${encodeURIComponent(rawToken)}`;
 
   // Audit — qui a déclenché l'impersonation de qui (via la route admin).
-  const session = await auth();
-  const actor = session?.user?.email
-    ? `admin:${session.user.email}`
+  // `adminAuth.sessionEmail` est null si l'auth a réussi via x-admin-secret.
+  const actor = adminAuth.sessionEmail
+    ? `admin:${adminAuth.sessionEmail}`
     : 'token:ADMIN_SECRET';
   await writeAuditLog(prisma, {
     action: 'admin.impersonate.start',
