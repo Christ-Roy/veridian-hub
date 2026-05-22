@@ -66,8 +66,13 @@ export type ImpersonationClaims = {
  * cookie sécurisé. Le `salt` de chiffrement du JWT DOIT être identique au
  * nom du cookie (cf. @auth/core/jwt : `salt = cookieName`), sinon le JWT
  * encodé ici ne pourra pas être déchiffré par le middleware.
+ *
+ * NB : nommée `secureCookiesEnabled` et PAS `useSecureCookies` — le préfixe
+ * `use` ferait croire à ESLint (react-hooks/rules-of-hooks) que c'est un
+ * React Hook, ce qui casse le lint puisqu'elle est appelée dans des
+ * fonctions async / non-composants.
  */
-export function useSecureCookies(): boolean {
+export function secureCookiesEnabled(): boolean {
   const url = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_SITE_URL || '';
   // Pas d'URL configurée → on suppose dev local (localhost) → non-secure.
   if (!url) return false;
@@ -75,7 +80,7 @@ export function useSecureCookies(): boolean {
 }
 
 /** Nom du cookie de session Auth.js, dépend du préfixe sécurisé. */
-export function sessionCookieName(secure = useSecureCookies()): string {
+export function sessionCookieName(secure = secureCookiesEnabled()): string {
   return secure ? '__Secure-authjs.session-token' : 'authjs.session-token';
 }
 

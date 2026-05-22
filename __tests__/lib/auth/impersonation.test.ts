@@ -6,7 +6,7 @@
  *  - création de token : identifier préfixé, expiry 10min, stocké hashé
  *  - consommation : usage unique (delete atomique), token expiré, inconnu
  *  - JWT impersonation décodable par @auth/core avec le bon salt + claims
- *  - useSecureCookies / sessionCookieName cohérents avec le scheme d'URL
+ *  - secureCookiesEnabled / sessionCookieName cohérents avec le scheme d'URL
  *  - isImpersonatedSession détecte les sessions impersonées
  */
 
@@ -22,7 +22,7 @@ import {
   createImpersonationToken,
   consumeImpersonationToken,
   encodeImpersonationSessionJwt,
-  useSecureCookies,
+  secureCookiesEnabled,
   sessionCookieName,
   isImpersonatedSession,
 } from '@/lib/auth/impersonation';
@@ -224,7 +224,7 @@ describe('encodeImpersonationSessionJwt', () => {
   });
 });
 
-describe('useSecureCookies / sessionCookieName', () => {
+describe('secureCookiesEnabled / sessionCookieName', () => {
   let prev: { nextauth?: string; site?: string };
   beforeEach(() => {
     prev = {
@@ -242,21 +242,21 @@ describe('useSecureCookies / sessionCookieName', () => {
   it('HTTPS → secure cookies + préfixe __Secure-', () => {
     process.env.NEXTAUTH_URL = 'https://app.veridian.site';
     delete process.env.NEXT_PUBLIC_SITE_URL;
-    expect(useSecureCookies()).toBe(true);
+    expect(secureCookiesEnabled()).toBe(true);
     expect(sessionCookieName()).toBe('__Secure-authjs.session-token');
   });
 
   it('http://localhost → non-secure + cookie non préfixé', () => {
     process.env.NEXTAUTH_URL = 'http://localhost:3000';
     delete process.env.NEXT_PUBLIC_SITE_URL;
-    expect(useSecureCookies()).toBe(false);
+    expect(secureCookiesEnabled()).toBe(false);
     expect(sessionCookieName()).toBe('authjs.session-token');
   });
 
   it('aucune URL configurée → suppose dev local (non-secure)', () => {
     delete process.env.NEXTAUTH_URL;
     delete process.env.NEXT_PUBLIC_SITE_URL;
-    expect(useSecureCookies()).toBe(false);
+    expect(secureCookiesEnabled()).toBe(false);
   });
 });
 

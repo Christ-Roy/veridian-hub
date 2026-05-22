@@ -31,7 +31,7 @@ import {
   consumeImpersonationToken,
   encodeImpersonationSessionJwt,
   sessionCookieName,
-  useSecureCookies,
+  secureCookiesEnabled,
   IMPERSONATION_SESSION_TTL_S,
 } from '@/lib/auth/impersonation';
 import { getURL } from '@/utils/helpers';
@@ -124,7 +124,7 @@ export async function GET(request: NextRequest) {
   });
 
   // 5. Pose le cookie de session Auth.js + redirige vers le dashboard.
-  const secure = useSecureCookies();
+  const secure = secureCookiesEnabled();
   const cookieName = sessionCookieName(secure);
   const res = NextResponse.redirect(getURL('/dashboard'), 303);
   res.cookies.set(cookieName, sessionJwt, {
