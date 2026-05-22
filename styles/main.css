@@ -59,6 +59,14 @@
     --destructive: oklch(0.5523 0.1927 32.7272);  /* Destructive - Red */
     --destructive-foreground: oklch(0.9934 0.0032 17.2118); /* Destructive text - White */
 
+    /* Semantic status colors (success / warning / info) - used by Badge, Alert, status pills */
+    --success: oklch(0.6231 0.1320 160.9080);     /* Success - Green */
+    --success-foreground: oklch(0.9911 0 0);      /* Success text - White */
+    --warning: oklch(0.7686 0.1647 70.0804);      /* Warning - Amber */
+    --warning-foreground: oklch(0.2046 0 0);      /* Warning text - Dark */
+    --info: oklch(0.6231 0.1880 259.8145);        /* Info - Blue */
+    --info-foreground: oklch(0.9911 0 0);         /* Info text - White */
+
     /* Border and Input */
     --border: oklch(0.9037 0 0);                  /* Border color - Light gray */
     --input: oklch(0.9731 0 0);                   /* Input background - Light gray */
@@ -142,6 +150,14 @@
     /* Destructive colors */
     --destructive: oklch(0.3123 0.0852 29.7877);  /* Destructive - Dark red */
     --destructive-foreground: oklch(0.9368 0.0045 34.3092); /* Destructive text - White */
+
+    /* Semantic status colors (success / warning / info) - dark mode variants */
+    --success: oklch(0.6959 0.1491 162.4796);     /* Success - Teal/green */
+    --success-foreground: oklch(0.1822 0 0);      /* Success text - Dark */
+    --warning: oklch(0.8369 0.1644 84.4286);      /* Warning - Amber */
+    --warning-foreground: oklch(0.1822 0 0);      /* Warning text - Dark */
+    --info: oklch(0.7137 0.1434 254.6240);        /* Info - Blue */
+    --info-foreground: oklch(0.1822 0 0);         /* Info text - Dark */
 
     /* Border and Input */
     --border: oklch(0.2809 0 0);                  /* Border color - Dark gray */
