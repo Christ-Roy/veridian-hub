@@ -42,16 +42,19 @@ NC=$'\033[0m'
 # franchit le seuil de 20.
 LIVE_KEY_PATTERN='(sk|rk|pk)_live_[A-Za-z0-9]{20,}'
 
-# Périmètre : tous les fichiers trackés par Git, sauf ce script lui-même
-# (qui contient le motif dans sa doc) et le lockfile pnpm (hashes binaires
-# qui peuvent matcher par hasard et ne sont pas du code éditable).
+# Périmètre : tous les fichiers trackés par Git, sauf :
+#  - ce script lui-même (le motif est dans sa doc)
+#  - son fichier de test (contient des fausses clés-exemples pour vérifier
+#    que le détecteur les attrape — seul autre endroit légitime du motif)
+#  - le lockfile pnpm (hashes binaires qui peuvent matcher par hasard)
 SELF="scripts/ci/check-no-stripe-live-key.sh"
+SELF_TEST="__tests__/scripts/ci/check-no-stripe-live-key.test.ts"
 
 HITS=""
 while IFS= read -r file; do
   [ -f "$file" ] || continue
   case "$file" in
-    "$SELF"|pnpm-lock.yaml) continue ;;
+    "$SELF"|"$SELF_TEST"|pnpm-lock.yaml) continue ;;
   esac
   # grep -E sur le fichier ; -I ignore les binaires.
   if MATCH=$(grep -EnI "$LIVE_KEY_PATTERN" "$file" 2>/dev/null); then
