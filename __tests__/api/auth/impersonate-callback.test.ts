@@ -9,6 +9,7 @@
  *  - user cible supprimé entre-temps → redirect erreur 404
  *  - succès : cookie de session Auth.js posé + redirect /dashboard + audit log
  *  - le cookie est un JWT impersonation valide (impersonated=true)
+ *  - contexte HTTP local → cookie non préfixé (secure=false)
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -146,6 +147,48 @@ describe('GET /api/auth/impersonate-callback', () => {
     const auditArg = auditLogCreate.mock.calls[0][0] as { data: Record<string, unknown> };
     expect(auditArg.data.action).toBe('admin.impersonate.consume');
     expect(auditArg.data.targetId).toBe('user-42');
+  });
+
+  it('contexte HTTP local → cookie non préfixé (authjs.session-token, secure=false)', async () => {
+    // En dev local (NEXTAUTH_URL en http://), secureCookiesEnabled() retourne
+    // false → le callback doit poser le cookie SANS préfixe __Secure- et avec
+    // secure=false. Sinon le navigateur rejette le cookie sur http:// et la
+    // session impersonée ne s'établit jamais. Couvre le chemin du cookie name
+    // dans le callback (le pendant du test "succès" qui, lui, est en HTTPS).
+    process.env.NEXTAUTH_URL = 'http://localhost:3000';
+    process.env.NEXT_PUBLIC_SITE_URL = 'http://localhost:3000';
+    const raw = 'f'.repeat(64);
+    verificationTokenFindUnique.mockResolvedValue({
+      identifier: 'impersonate:user-local',
+      token: hashImpersonationToken(raw),
+      expires: new Date(Date.now() + 60_000),
+    });
+    verificationTokenDeleteMany.mockResolvedValue({ count: 1 });
+    userFindUnique.mockResolvedValue({
+      id: 'user-local',
+      email: 'dev@localhost',
+      name: null,
+      image: null,
+    });
+
+    const { GET } = await import('@/app/api/auth/impersonate-callback/route');
+    const res = await GET(makeReq(raw));
+
+    // Cookie posé sous le nom NON préfixé.
+    const cookie = res.cookies.get(sessionCookieName(false));
+    expect(cookie).toBeDefined();
+    expect(cookie?.secure).toBe(false);
+    // Le cookie __Secure- ne doit PAS exister en contexte HTTP.
+    expect(res.cookies.get('__Secure-authjs.session-token')).toBeUndefined();
+
+    // Le JWT reste décodable avec le salt = nom du cookie non préfixé.
+    const decoded = await decode({
+      token: cookie!.value,
+      secret: TEST_SECRET,
+      salt: sessionCookieName(false),
+    });
+    expect(decoded?.uid).toBe('user-local');
+    expect(decoded?.impersonated).toBe(true);
   });
 
   it('AUTH_SECRET absent → aucun cookie posé, redirect erreur', async () => {

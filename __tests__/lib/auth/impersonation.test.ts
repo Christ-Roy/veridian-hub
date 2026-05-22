@@ -258,6 +258,30 @@ describe('secureCookiesEnabled / sessionCookieName', () => {
     delete process.env.NEXT_PUBLIC_SITE_URL;
     expect(secureCookiesEnabled()).toBe(false);
   });
+
+  it('NEXTAUTH_URL a la précédence sur NEXT_PUBLIC_SITE_URL', () => {
+    // La fonction lit `NEXTAUTH_URL || NEXT_PUBLIC_SITE_URL` : si NEXTAUTH_URL
+    // est en HTTP, le scheme HTTPS de NEXT_PUBLIC_SITE_URL ne doit PAS le
+    // surclasser. Garde-fou contre un cookie __Secure- posé en dev local
+    // (qui serait alors rejeté par le navigateur sur http://).
+    process.env.NEXTAUTH_URL = 'http://localhost:3000';
+    process.env.NEXT_PUBLIC_SITE_URL = 'https://app.veridian.site';
+    expect(secureCookiesEnabled()).toBe(false);
+    expect(sessionCookieName()).toBe('authjs.session-token');
+
+    // Et inversement : NEXTAUTH_URL HTTPS prime même si NEXT_PUBLIC_SITE_URL absent.
+    process.env.NEXTAUTH_URL = 'https://app.veridian.site';
+    delete process.env.NEXT_PUBLIC_SITE_URL;
+    expect(secureCookiesEnabled()).toBe(true);
+  });
+
+  it('fallback sur NEXT_PUBLIC_SITE_URL quand NEXTAUTH_URL est absent', () => {
+    // Cas prod réel : seul NEXT_PUBLIC_SITE_URL est défini.
+    delete process.env.NEXTAUTH_URL;
+    process.env.NEXT_PUBLIC_SITE_URL = 'https://app.veridian.site';
+    expect(secureCookiesEnabled()).toBe(true);
+    expect(sessionCookieName()).toBe('__Secure-authjs.session-token');
+  });
 });
 
 describe('isImpersonatedSession', () => {
