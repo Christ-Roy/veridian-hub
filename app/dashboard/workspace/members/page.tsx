@@ -30,11 +30,10 @@ export default async function WorkspaceMembersPage() {
     },
   });
 
-  // Auto-self-heal : si l'user n'a aucun workspace (cas user prod legacy
-  // pas encore backfillé OU bug de provisioning passé entre les mailles),
-  // on provisionne ici à la volée. Idempotent côté provisionDefaultWorkspace.
-  // À court terme : backfill script rattrape les 23 users prod. Ce fallback
-  // reste comme filet anti-régression.
+  // Auto-self-heal : si l'user n'a aucun workspace (bug de provisioning
+  // passé entre les mailles), on provisionne ici à la volée. Idempotent
+  // côté provisionDefaultWorkspace. Filet anti-régression permanent
+  // (le backfill prod des users historiques est fait depuis 2026-05-21).
   if (!dbWorkspace) {
     try {
       await provisionDefaultWorkspace(
