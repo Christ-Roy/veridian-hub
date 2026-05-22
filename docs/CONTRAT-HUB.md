@@ -8,11 +8,17 @@
 > apps), reviewers humains, Robert Brunon.
 >
 > **Compagnon** :
-> - `veridian-infra/docs/saas-standards.md` — patterns cross-app (DB, auth, rôles,
->   audit log, soft delete). Ce contrat-ci **n'y duplique rien**, il pointe.
+> - `SAAS-STANDARDS.md` (même dossier) — patterns cross-app (DB, auth, rôles,
+>   audit log, soft delete, checklist d'audit). Migré depuis
+>   `veridian-infra/docs/saas-standards.md` le 2026-05-22 (le Hub est le
+>   centre des docs partagées). Ce contrat grave les **invariants** et le
+>   **contrat HTTP** ; SAAS-STANDARDS grave les **patterns d'implémentation**
+>   (modèles Prisma de référence, stack auth Next.js, checklist). Recouvrement
+>   partiel assumé (HMAC §6.1, paywall §5.4, audit log §7) — les deux docs
+>   restent maintenus.
 > - `CI-ARCHITECTURE.md` — pipeline CI/CD cross-app. Idem, pas de duplication.
 >
-> **Versionnage** : `v1.5` (2026-05-21). Toute évolution majeure → bump version + section
+> **Versionnage** : `v1.6` (2026-05-22). Toute évolution majeure → bump version + section
 > "Changements" en bas.
 >
 > **Compagnon technique** : `CONTRAT-HUB-API-REF.md` (même dossier, symlinké
@@ -40,6 +46,7 @@
 
 1. [Pourquoi ce contrat](#1-pourquoi-ce-contrat)
    - 1.4 [Hub source de vérité + résilience apps (v1.4)](#14-hub-source-de-vérité--résilience-apps-gravé-v14)
+   - 1.4bis [Billing résilience niveau 1 (v1.6)](#14bis-billing-résilience-niveau-1-gravé-v16)
 2. [Le modèle en 1 schéma](#2-le-modèle-en-1-schéma)
 3. [Plans Veridian — matrice cross-app](#3-plans-veridian--matrice-cross-app)
    - 3.5 [Multi-membre = feature payante (v1.3)](#35-multi-membre--feature-payante-gravé-v13)
@@ -184,6 +191,85 @@ if (!plan.ok) throw new Error("Hub unavailable");
 const plan = await db.tenants.findUnique({ where: { id: tenantId } }).plan;
 // Le plan est tenu à jour par les webhooks Hub → app (POST /api/tenants/update-plan)
 ```
+
+---
+
+### 1.4bis Billing résilience niveau 1 (gravé v1.6)
+
+> 🔥 Gravé en v1.6 (2026-05-22) suite au livrable Notifuse "lot H
+> résilience billing niveau 1". Complète §1.4 : §1.4 dit "l'app continue
+> sur son cache si Hub down" ; §1.4bis grave **comment l'app mesure la
+> fraîcheur de ce cache** et ce qu'elle fait quand il devient trop vieux.
+
+**Problème adressé** : §1.4 autorise l'app à servir un plan en cache local
+si le Hub est down. Mais un cache local n'a aucune valeur s'il est devenu
+obsolète depuis des jours (downgrade Stripe non propagé, tenant suspendu non
+reçu). Niveau 1 = l'app **mesure l'âge du dernier push Hub** et dégrade
+progressivement au lieu de servir un cache mort en silence.
+
+#### Le mécanisme — `last_hub_sync_at`
+
+Chaque app downstream ajoute une colonne `last_hub_sync_at TIMESTAMPTZ` sur
+sa table de plan tenant. Elle est **mise à jour à chaque mutation HMAC
+reçue du Hub** (toute opération §5.x qui modifie l'état du tenant) :
+provision, update-plan, suspend, resume, soft-delete, restore, touch,
+attach-owner, attach-member, grant-unlimited.
+
+Le timestamp est donc une **preuve fraîche que le lien Hub→app fonctionne**.
+Il ne dépend pas d'un ping dédié : tout trafic HMAC légitime le rafraîchit.
+
+#### Les 3 phases de fraîcheur
+
+Le middleware paywall de l'app évalue l'âge de `last_hub_sync_at` à chaque
+requête sensible :
+
+| Phase | Âge | Comportement |
+|---|---|---|
+| **Fresh** | < 24h | Mode normal. Le cache plan local est considéré fiable. |
+| **Stale** | 24h – 72h | Grace period optimiste : writes et reads passent normalement. Log `warn` rate-limité (ne pas spammer). Signal soft que le push Hub se dégrade. |
+| **Dead** | > 72h | Writes bloqués : `503` + header `Retry-After: 3600` + body `error_code=hub_sync_dead`. Reads passent (best-effort, cohérent §1.4 "l'app reste lisible si Hub down"). |
+
+**Seuils** : 24h (Fresh→Stale) et 72h (Stale→Dead). Constantes nommées
+côté app (`HubSyncFreshThreshold` / `HubSyncDeadThreshold` chez Notifuse).
+
+#### Code erreur partagé — `hub_sync_dead`
+
+Nouveau code d'erreur cross-app, à ajouter à la table §5.10 :
+
+| Code | HTTP | Sens | Headers |
+|---|---|---|---|
+| `hub_sync_dead` | `503` | L'app n'a pas reçu de mutation du Hub depuis > 72h. Le cache plan local n'est plus jugé fiable pour autoriser des écritures. | `Retry-After: 3600` |
+
+Côté UX : un état `soft_deleted` connu localement **prime sur** `hub_sync_dead`
+— si le tenant est déjà soft-deleted, on affiche le paywall soft-delete
+habituel, pas une erreur d'infra. Les routes admin Hub (`/api/veridian/*` /
+`/api/tenants/*`) sont **exemptées** du blocage Dead : le Hub doit toujours
+pouvoir réveiller une app en lui poussant une mutation fraîche.
+
+#### Pattern réplicable cross-app
+
+Le mécanisme est volontairement générique. Notifuse l'implémente le premier
+(migration V39 + `EvaluateHubSyncStatus`), mais il **peut être étendu tel
+quel à Prospection, Analytics et CMS** pour une résilience cross-app
+symétrique. Recette pour une nouvelle app :
+
+1. Migration : ajouter `last_hub_sync_at TIMESTAMPTZ` sur la table de plan.
+2. Toucher ce timestamp dans **toute** mutation HMAC §5.x reçue du Hub.
+3. Middleware paywall : `EvaluateHubSyncStatus(last_hub_sync_at)` → Fresh /
+   Stale / Dead avec les seuils 24h / 72h.
+4. Sur Dead : `503 + Retry-After: 3600 + error_code=hub_sync_dead` sur les
+   writes uniquement, exempter les routes admin Hub.
+
+#### Limites assumées du niveau 1
+
+Niveau 1 = **cache plan local + mesure de fraîcheur du push**. Il ne couvre
+pas le cas où un webhook Stripe arrive sur un Hub qui tourne mais ne
+propage pas (bug Hub, queue bloquée) : l'app verra le lien "Fresh" alors
+que son plan est faux.
+
+Le **niveau 2** (l'app vérifie l'état directement chez Stripe en fallback)
+est **explicitement déprorisé par Robert (2026-05-21)** : over-engineering
+pour le stade actuel. Trigger de réévaluation : 10+ clients payants.
 
 ---
 
@@ -1173,6 +1259,7 @@ Format standard :
 | 500 | `internal_error` | bug app (avec `details.request_id` pour debug) |
 | 502 | `upstream_error` | dépendance externe (DB, Stripe) en panne |
 | 503 | `service_unavailable` | maintenance planifiée |
+| 503 | `hub_sync_dead` | aucune mutation Hub reçue depuis > 72h, cache plan local jugé non fiable pour les writes (avec header `Retry-After: 3600`) — cf §1.4bis |
 
 ### 5.11 Idempotency-Key header
 
@@ -2836,15 +2923,16 @@ Chaque app doit déclarer dans `<app>/docs/features-by-plan.md` :
 ### 10.1 Endpoints downstream
 
 > Mise à jour 2026-05-21 (v1.4) suite à l'audit cross-app exhaustif.
+> Mise à jour 2026-05-22 (v1.6) : Analytics branchée — endpoints socle B3.
 
 | Endpoint | Notifuse | Prospection | Analytics | CMS |
 |---|---|---|---|---|
-| 1. `POST provision` (§5.1) | ✅ | ✅ | ❌ | ❌ |
+| 1. `POST provision` (§5.1) | ✅ | ✅ | ✅ B3 2026-05-22 | ❌ |
 | 2. `POST update-plan` (§5.2) | ✅ | ✅ | ❌ | ❌ |
-| 3. `POST attach-owner` (§5.3) | ✅ | ✅ | ❌ | ❌ |
+| 3. `POST attach-owner` (§5.3) | ✅ | ✅ | ✅ B3 2026-05-22 | ❌ |
 | 4. `POST suspend` (§5.4) | ✅ | ✅ | ❌ | ❌ |
 | 5. `POST resume` (§5.4) | ✅ | ✅ | ❌ | ❌ |
-| 6. `GET health` (§5.5) | ✅ | ✅ | ❌ | ❌ |
+| 6. `GET health` (§5.5) | ✅ | ✅ | ✅ B3 2026-05-22 | ❌ |
 | 7. `POST generateMagicLink` (§5.6) | ✅ | ✅ | ❌ | ❌ |
 | 8. `POST soft-delete` (§5.8.1) | ✅ | ✅ | ❌ | ❌ |
 | 9. `POST restore` (§5.8.2) | ✅ | ✅ | ❌ | ❌ |
@@ -2862,10 +2950,11 @@ Chaque app doit déclarer dans `<app>/docs/features-by-plan.md` :
 | 21. `POST attach-member` workspace (§5.22.2 NEW) | ❌ ticket | ❌ ticket | ❌ | ❌ |
 | 22. `GET /api/users/by-email` (§5.12, discovery) | ❌ | ❌ | ❌ | ❌ |
 
-**Score conformité (livré + partiel) au 2026-05-21** :
+**Score conformité (livré + partiel) au 2026-05-22** :
 - Notifuse : **13/22 = 59 %** (socle + lifecycle solides, multi-membre + discovery TODO)
 - Prospection : **13/22 = 59 %** (idem socle, multi-membre + discovery TODO)
-- Analytics : **0/22** (pas branchée)
+- Analytics : **3/22 = 14 %** (socle B3 branché — provision, attach-owner, health ;
+  update-plan + suspend/resume + magic link TODO, cf tickets S3)
 - CMS : **0/22** (pas branchée)
 
 ### 10.2 Plans supportés
@@ -2894,16 +2983,17 @@ Chaque app doit déclarer dans `<app>/docs/features-by-plan.md` :
 ### 10.4 Auth & sécurité
 
 > Mise à jour 2026-05-21 (v1.4).
+> Mise à jour 2026-05-22 (v1.6) : Analytics couvre le socle sécurité HMAC (B3).
 
 | Item | Notifuse | Prospection | Analytics | CMS |
 |---|---|---|---|---|
-| HMAC standard `{ts}.{body}` | ✅ | ✅ (`hmac.ts` + 19 tests) | — | — |
-| Anti-replay timestamp 5min | ✅ | ✅ | — | — |
-| Comparaison temps constant | ✅ | ✅ (`crypto.timingSafeEqual`) | — | — |
-| Pas de password user en DB | ✅ | ✅ | — | — |
-| Magic link only auth | ✅ | ✅ | — | — |
+| HMAC standard `{ts}.{body}` | ✅ | ✅ (`hmac.ts` + 19 tests) | ✅ (`veridian-bridge/src/hub-hmac.ts`) | — |
+| Anti-replay timestamp 5min | ✅ | ✅ | ✅ | — |
+| Comparaison temps constant | ✅ | ✅ (`crypto.timingSafeEqual`) | ✅ (`crypto.timingSafeEqual`) | — |
+| Pas de password user en DB | ✅ | ✅ | ✅ (jamais stocké côté bridge) | — |
+| Magic link only auth | ✅ | ✅ | — (pas encore d'auth user côté bridge, voir S3) | — |
 | Legacy HMAC accepté (transition) | — | ✅ flags `ACCEPT_LEGACY_HMAC` / `ACCEPT_LEGACY_BEARER` | — | — |
-| SKIP_HMAC bloqué en prod/staging | ✅ | ✅ | — | — |
+| SKIP_HMAC bloqué en prod/staging | ✅ | ✅ | ✅ (`assertSkipHmacAllowed()`) | — |
 
 ### 10.5 Tests d'intégration
 
@@ -3645,6 +3735,43 @@ chaque app retry indéfiniment avec backoff plafond 1h.
 ---
 
 ## 16. Changements
+
+### v1.6 — 2026-05-22
+
+Sprint cleanup Hub. Trois mises à jour documentaires.
+
+**Nouveau** :
+
+- **§1.4bis Billing résilience niveau 1** : grave le mécanisme
+  `last_hub_sync_at` livré côté Notifuse (lot H). Complète §1.4 — l'app
+  mesure la fraîcheur du push Hub→app et dégrade en 3 phases
+  Fresh (<24h) / Stale (24-72h) / Dead (>72h). Code erreur partagé
+  `hub_sync_dead` (`503` + `Retry-After: 3600`). Pattern réplicable
+  Prospection / Analytics / CMS. Niveau 2 (Stripe direct check côté app)
+  explicitement déprorisé par Robert — trigger à 10+ clients payants.
+
+**Mises à jour matrice de conformité (§10)** :
+
+- §10.1 Endpoints downstream : Analytics passe de `❌` à `✅` sur
+  `provision` (§5.1), `attach-owner` (§5.3) et `health` (§5.5) — socle
+  livré par le ticket B3 du giga-sprint 2026-05-22
+  (`veridian-analytics-engine`, 42 tests verts). Score Analytics
+  `0/22 → 3/22 = 14 %`.
+- §10.4 Auth & sécurité : Analytics passe à `✅` sur HMAC standard,
+  anti-replay 5min, comparaison temps constant, pas de password user en DB,
+  SKIP_HMAC bloqué prod/staging. Magic link et legacy HMAC restent `—`
+  (pas d'auth user côté bridge, voir tickets S3).
+
+**Compagnon migré** :
+
+- `SAAS-STANDARDS.md` (patterns cross-app — DB, auth, rôles, audit log,
+  soft delete, checklist d'audit) migré de `veridian-infra/docs/saas-standards.md`
+  vers `veridian-hub/docs/` (le Hub est le centre des docs partagées,
+  décision Robert 2026-05-21). Pointeur en-tête mis à jour. Recouvrement
+  partiel avec ce contrat assumé — les deux docs restent maintenus.
+
+**Inchangé depuis v1.5** : §1.1-§1.4, §2-§9, §10.2-§10.11, §11-§15.
+Structure générale préservée.
 
 ### v1.5+ — 2026-05-21 (trial state machine)
 
