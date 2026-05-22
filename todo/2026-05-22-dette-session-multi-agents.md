@@ -55,11 +55,18 @@
 - Cause probable : race entre agents qui écrivent les fichiers pendant que je lance `pnpm test`.
 - Pas un vrai bug de test, mais ça brouille le signal. Si ça persiste hors contexte multi-agents → investiguer l'isolation vitest (`pool`, `isolate`).
 
-## 7. 32 tickets todo/ pending, 0 archivés en done/ malgré le sprint (🟢 — hygiène)
+## 7. 32 tickets todo/ pending, 0 archivés en done/ malgré le sprint (🟢 — hygiène) — ✅ TRAITÉ 2026-05-22
 
 - Le sprint v1.4 a livré ~10 tickets mais `todo/done/` montre 0 archivé (le refresh-todo dit "0 done").
 - En réalité plusieurs ont été `mv` vers done/ par les agents (trial-state-machine, api-ref, etc.) mais le compteur est faux ou le scanner rate.
 - **Action P2** : passer en revue les 32 tickets pending, archiver ceux réellement livrés (vérifier vs git log), relancer `./scripts/refresh-todo.sh`.
+
+**Fait (Lot 4 dette, commit `d1f17cb`)** : audit vs git log + archivage de 4 tickets
+réellement livrés vers `todo/done/` (webhook occurred_at résolu par `f126fa5`,
+audit-cross-app doc consommé, audit-perf-hub 3 fix N+1 déjà en done/,
+security-audit-followups tous items FIXÉ/VÉRIFIÉ/NOT-A-BUG). `done/` était déjà
+non-vide (26 tickets archivés par sprints précédents — le compteur "0 done"
+était bien faux). `refresh-todo.sh` relancé.
 
 ## 8. 3 trous business cross-app (🔴 P1 — pas Hub, à router)
 

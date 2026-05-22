@@ -111,17 +111,18 @@ Estimation : 1-2j de boulot agent QA dédié si on attaque tout. Sinon, attaquer
 
 ---
 
-## 5. Dépendances outdated (P2)
+## 5. Dépendances outdated (P2) — ✅ PATCHES SAFE FAITS 2026-05-22
 
 `pnpm outdated` révèle :
-- `@stripe/stripe-js` 2.4.0 → 9.6.0 — **bond majeur**. Risque de breaking changes côté checkout/elements. Audit avant upgrade.
-- `@playwright/test` 1.59.1 → 1.60.0 — patch safe
-- `pg` 8.20.0 → 8.21.0 — patch safe
-- `vitest` 4.1.5 → 4.1.7 — patch safe
-- `@types/bcryptjs` deprecated — passer à `@types/bcrypt` ou retirer si `bcryptjs` n'est plus utilisé (Auth.js v5 utilise sa propre lib hash)
-- `@types/node` 20.19 → 25.9 — Node 25 LTS sortie. Notre image Docker est `node:20-alpine`. Pas upgrader avant que Dockerfile passe en node:22 ou 24.
+- `@stripe/stripe-js` 2.4.0 → 9.6.0 — **bond majeur**. Risque de breaking changes côté checkout/elements. Audit avant upgrade. **LAISSÉ** (hors périmètre patches safe).
+- `stripe` (SDK serveur) 14.25.0 → 22.1.1 — **bond majeur** aussi. **LAISSÉ**, à auditer avec @stripe/stripe-js dans le sprint pricing.
+- ✅ `@playwright/test` 1.59.1 → 1.60.0 — **bumpé** (commit `5eac119`)
+- ✅ `pg` 8.20.0 → 8.21.0 — **bumpé** (commit `5eac119`)
+- ✅ `vitest` 4.1.5 → 4.1.7 — **bumpé** (commit `5eac119`)
+- `@types/bcryptjs` deprecated — passer à `@types/bcrypt` ou retirer si `bcryptjs` n'est plus utilisé (Auth.js v5 utilise sa propre lib hash). **RESTE** (P3, hors patches safe).
+- `@types/node` 20.19 → 25.9 — Node 25 sortie. Notre image Docker est `node:20-alpine`. Pas upgrader avant que Dockerfile passe en node:22 ou 24. **LAISSÉ** (volontaire).
 
-Sprint dette tech mineur pour les patches safe + audit Stripe SDK majeur.
+Les 3 patches safe ont été appliqués : `pnpm install` + `pnpm test` (1006 verts) + `pnpm build` verts. Reste l'audit Stripe SDK majeur (×2 paquets) pour le sprint pricing.
 
 ---
 
@@ -140,6 +141,13 @@ Sprint dette tech mineur pour les patches safe + audit Stripe SDK majeur.
 1. Confirmer avec l'agent Notifuse quand toute leur émission passe en v1.4 (events `tenant.suspended`, `email.sent`, `tenant.quota_exceeded` en particulier).
 2. Quand confirmé : supprimer `handleLegacyNotifuseHmac` + cleanup metadata `notifuse_processed_events`.
 3. Migration data : `UPDATE hub_app.tenants SET metadata = metadata - 'notifuse_processed_events'`.
+
+### Vérif 2026-05-22 (Lot 4 dette) — état confirmé
+
+Code legacy toujours présent dans `app/api/webhooks/notifuse/route.ts` :
+`handleLegacyNotifuseHmac` (l.107+), headers `x-veridian-notifuse-signature`,
+idempotence via `tenant.metadata.notifuse_processed_events`. **NON SUPPRIMÉ** —
+dépend de l'agent Notifuse (étape 1 ci-dessus pas encore validée). Reste ouvert.
 
 ---
 
@@ -185,9 +193,41 @@ L'agent DBA prod a fait le backfill 23 users via SQL direct (CTE en transaction)
 
 ---
 
-## 11. Comments obsolètes / commentaires "legacy bridge" (P3)
+## 11. Comments obsolètes / commentaires "legacy bridge" (P3) — ✅ TRAITÉ 2026-05-22
 
 `app/api/account/profile/route.ts:11` et `app/dashboard/workspace/members/page.tsx:32` mentionnent "user prod legacy en attente de backfill". Maintenant que le backfill est fait, ces commentaires sont obsolètes. Cleanup pendant qu'on touche.
+
+**Fait (Lot 4 dette, commit `08df40f`)** :
+- `members/page.tsx` : commentaire self-heal réécrit — "À court terme : backfill
+  23 users prod" supprimé (backfill fait 2026-05-21), filet anti-régression
+  décrit comme permanent. Aucune logique modifiée, test page vert (10/10).
+- `profile/route.ts:11` : "legacy bridge" décrit `providerAccountId` du
+  `supabaseUserId` bridge UUID — **toujours actif**, commentaire exact. Non touché.
+
+---
+
+## 12. Erreurs tsc e2e/staging-full — conflit playwright-core / @playwright/test (P3)
+
+22 erreurs `TS2345` dans `e2e/staging-full/*.spec.ts` (vérifié 2026-05-22,
+après bump `@playwright/test` 1.60 — **le bump ne les résout pas**) :
+
+```
+error TS2345: Argument of type 'typeof import(".../playwright-core@1.60.0/.../types/types")'
+is not assignable to parameter of type 'typeof import(".../@playwright+test@1.60.0/.../@playwright/test/index")'
+```
+
+**Cause** : plusieurs helpers (`loginCredentials`, etc.) typent leur param
+`playwright: typeof import('@playwright/test')`, mais la fixture `playwright`
+injectée par `@playwright/test` est typée `playwright-core` (deux modules
+distincts, types non assignables). Fichiers touchés : `05`, `06`, `11-invite-page-ux`,
+`11-ui-invite`, `12-stripe-billing`, `15-legacy-tenants-paths`.
+
+**Impact réel : nul** sur build (`next build` exclut e2e) et sur vitest
+(e2e ≠ vitest). Uniquement du bruit `tsc --noEmit` strict.
+
+**Fix recommandé** (hors périmètre dette code, ticket dédié) : retyper le
+param helper en `Pick<PlaywrightWorkerArgs, 'playwright'>['playwright']` ou
+utiliser directement la fixture Playwright typée plutôt qu'un import manuel.
 
 ---
 
@@ -203,7 +243,7 @@ L'agent DBA prod a fait le backfill 23 users via SQL direct (CTE en transaction)
 - [ ] 0 référence `supabase` dans le code applicatif (sauf `supabaseUserId` bridge volontaire)
 - [ ] 0 `🚧 TODO_*` dans `lib/pricing/plans.ts` (prices remplis + stripePriceId set)
 - [ ] tests-pending.txt < 30 entrées
-- [ ] Dépendances safe patchées (pg, postcss, vitest, playwright, tsx)
+- [x] Dépendances safe patchées (pg, vitest, playwright — 2026-05-22 commit `5eac119`)
 - [ ] Audit majeur Stripe SDK fait + plan upgrade documenté
 - [ ] Composes Dokploy : composeFile inline vidé pour les 5 stacks
 - [ ] Données seed staging nettoyées
