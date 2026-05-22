@@ -13,6 +13,7 @@ import {
   getAppPlansForBundle,
   buildCheckoutUrl,
 } from '@/lib/pricing/helpers';
+import { PLANS } from '@/lib/pricing/plans';
 
 describe('getPlanByKey', () => {
   it('retourne le plan pour une clé valide', () => {
@@ -42,8 +43,18 @@ describe('getPlanByStripePriceId', () => {
     expect(getPlanByStripePriceId('price_unknown_123')).toBeNull();
   });
 
-  // Note : les plans payants ont stripePriceId.month = null (placeholders TODO).
-  // Ce test sera enrichi quand les vrais Stripe Price IDs seront ajoutés.
+  // Roundtrip : si le catalogue a un Price ID rempli (post setup-stripe-prices),
+  // le resolver doit retrouver le plan. Robuste que les IDs soient remplis ou
+  // non — tant que tous sont null (avant provisioning) le test no-op.
+  it('roundtrip : un Price ID du catalogue résout vers son plan', () => {
+    for (const plan of Object.values(PLANS)) {
+      for (const interval of ['month', 'year'] as const) {
+        const id = plan.stripePriceId[interval];
+        if (!id) continue;
+        expect(getPlanByStripePriceId(id)?.key).toBe(plan.key);
+      }
+    }
+  });
 });
 
 describe('comparePlanRank', () => {
@@ -67,10 +78,24 @@ describe('comparePlanRank', () => {
 });
 
 describe('getStripePriceIdForCheckout', () => {
-  it('throw si le stripePriceId est placeholder (null)', () => {
-    expect(() => getStripePriceIdForCheckout('notifuse-pro', 'month')).toThrow(
+  // Les plans free n'ont JAMAIS de Stripe Price ID (pas de checkout) — le
+  // throw est testable dessus sans dépendre de l'état de provisioning des
+  // plans payants (dont les IDs se remplissent après setup-stripe-prices).
+  it('throw si le plan n_a pas de Stripe Price ID (plan free)', () => {
+    expect(() => getStripePriceIdForCheckout('notifuse-free', 'month')).toThrow(
       /no Stripe Price ID/,
     );
+  });
+
+  it('retourne l_ID si le plan payant a un Price ID configuré', () => {
+    const proId = PLANS['notifuse-pro'].stripePriceId.month;
+    if (proId) {
+      // Catalogue provisionné → le helper retourne l'ID tel quel.
+      expect(getStripePriceIdForCheckout('notifuse-pro', 'month')).toBe(proId);
+    } else {
+      // Catalogue pas encore provisionné → throw attendu.
+      expect(() => getStripePriceIdForCheckout('notifuse-pro', 'month')).toThrow();
+    }
   });
 });
 
