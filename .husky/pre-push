@@ -82,4 +82,14 @@ else
   echo "⚠ scripts/ci/check-env-sync.sh absent ou non exécutable"
 fi
 
+# ─── 7. Aucune clé Stripe LIVE en clair ─────────────────────────────────
+# Filet anti-fuite secret : refuse tout fichier tracké contenant une clé
+# Stripe LIVE en clair (sk_live_/rk_live_/pk_live_). Les clés LIVE vivent
+# uniquement comme ENV runtime injectée par Dokploy prod — jamais commitées.
+if [ -x scripts/ci/check-no-stripe-live-key.sh ]; then
+  scripts/ci/check-no-stripe-live-key.sh
+else
+  echo "⚠ scripts/ci/check-no-stripe-live-key.sh absent ou non exécutable"
+fi
+
 exit 0
