@@ -4,9 +4,12 @@
 
 import { redirect } from 'next/navigation';
 
+import { ShieldCheck } from 'lucide-react';
+
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { Card } from '@/components/ui/card';
+import { DashboardPageHeader } from '@/components/dashboard/PageHeader';
 import { SecurityMfaToggle } from './SecurityMfaToggle';
 
 export default async function SecuritySettingsPage() {
@@ -26,12 +29,11 @@ export default async function SecuritySettingsPage() {
 
   return (
     <div className="max-w-2xl mx-auto p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold">Sécurité</h1>
-        <p className="text-sm text-muted-foreground">
-          Renforce la protection de ton compte Veridian.
-        </p>
-      </div>
+      <DashboardPageHeader
+        title="Sécurité"
+        description="Renforce la protection de ton compte Veridian."
+        icon={ShieldCheck}
+      />
 
       <Card className="p-6 space-y-4">
         <div>

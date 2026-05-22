@@ -2,7 +2,10 @@
  * Hub admin — Overview dashboard.
  * Stats globaux sur les tenants, plans, signups récents.
  */
+import { LayoutDashboard } from 'lucide-react';
+
 import { prisma } from '@/lib/prisma';
+import { DashboardPageHeader } from '@/components/dashboard/PageHeader';
 
 export default async function AdminOverviewPage() {
   // Récupérer tous les tenants (le layout admin a déjà gate sur isPlatformAdmin)
@@ -42,7 +45,11 @@ export default async function AdminOverviewPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">Overview plateforme</h1>
+      <DashboardPageHeader
+        title="Overview plateforme"
+        icon={LayoutDashboard}
+        className="mb-6"
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
         {cards.map((c) => (

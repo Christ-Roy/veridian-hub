@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { Users } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { DashboardPageHeader } from '@/components/dashboard/PageHeader';
 import { InviteModal } from '@/components/workspace/InviteModal';
 import { MembersTable } from '@/components/workspace/MembersTable';
 import type { WorkspaceMember, WorkspaceRole } from '@/types/workspace';
@@ -57,15 +58,11 @@ export default async function WorkspaceMembersPage() {
     // au lieu d'un redirect silencieux. Les logs côté serveur tracent l'erreur.
     return (
       <div className="flex flex-col gap-8 p-4 md:p-8 max-w-4xl mx-auto w-full">
-        <div>
-          <div className="flex items-center gap-3 mb-2">
-            <Users className="h-10 w-10 text-primary" />
-            <h1 className="text-4xl font-bold tracking-tight">Membres</h1>
-          </div>
-          <p className="text-muted-foreground">
-            Impossible de charger votre workspace pour le moment.
-          </p>
-        </div>
+        <DashboardPageHeader
+          title="Membres"
+          description="Impossible de charger votre workspace pour le moment."
+          icon={Users}
+        />
         <Card>
           <CardHeader>
             <CardTitle>Erreur temporaire</CardTitle>
@@ -111,16 +108,16 @@ export default async function WorkspaceMembersPage() {
 
   return (
     <div className="flex flex-col gap-8 p-4 md:p-8 max-w-4xl mx-auto w-full">
-      <div>
-        <div className="flex items-center gap-3 mb-2">
-          <Users className="h-10 w-10 text-primary" />
-          <h1 className="text-4xl font-bold tracking-tight">Membres</h1>
-        </div>
-        <p className="text-muted-foreground">
-          Gérez les membres et les accès de votre workspace{' '}
-          <strong>{dbWorkspace.name}</strong>.
-        </p>
-      </div>
+      <DashboardPageHeader
+        title="Membres"
+        description={
+          <>
+            Gérez les membres et les accès de votre workspace{' '}
+            <strong>{dbWorkspace.name}</strong>.
+          </>
+        }
+        icon={Users}
+      />
 
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
