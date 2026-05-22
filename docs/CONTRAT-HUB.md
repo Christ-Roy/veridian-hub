@@ -667,6 +667,7 @@ versionné `/api/v1/tenants/*` à partir du jour où on bumpe v2).
 | 6 | `GET /api/tenants/{id}/health` | HMAC Hub | Cron Hub 1×/h ou check manuel | ✅ |
 | 7 | `POST /api/workspaces.generateMagicLink` | Bearer api_key | User click "Open <App>" | ✅ |
 | 8 | `DELETE /api/tenants/{id}` | HMAC Hub | Hard delete admin | ⚠️ Recommandé (sinon Hub ne peut pas supprimer un tenant) |
+| 9 | `POST /api/sso/issue-magic-link` | HMAC Hub | Bounce OAuth depuis Hub (cf. §6bis.8.3) | ✅ |
 
 ### 5.1 `POST /api/tenants/provision`
 
@@ -2049,7 +2050,7 @@ mock — au choix de l'app, du moment que le test couvre le scénario contrat
 > sur un magic-link mail à chaque app qu'il visite dans la stack, tout en
 > gardant une **résilience totale** si Hub tombe.
 
-### 6bis.1 Vue d'ensemble — 3 couches dégradées
+### 6bis.1 Vue d'ensemble — 4 couches dégradées
 
 L'utilisateur arrive sur une app downstream (`<app>.app.veridian.site`).
 L'app tente l'authentification dans cet ordre, premier succès gagne :
@@ -2080,6 +2081,19 @@ L'app tente l'authentification dans cet ordre, premier succès gagne :
    importe — **pas de dépendance Notifuse pour ne pas créer une chaîne
    de dépendance**) → click → cookie session app local → home. **Zéro
    dépendance Hub.** Résilience absolue.
+
+4. **Couche 4 — Bounce OAuth Hub (choix explicite OAuth depuis l'app)**
+   User est sur `/login` app (couches 1+2 ont échoué), il clique
+   « Continuer avec Google » ou « Continuer avec Microsoft » → redirect
+   vers `app.veridian.site/login?next=<encoded_url_app>` → Hub fait le
+   flow OAuth (Auth.js v5 Google/Microsoft) → Hub valide `next` contre
+   regex `^https://[a-z0-9-]+\.veridian\.site(/.*)?$` (anti
+   open-redirect) → Hub appelle l'endpoint contrat
+   `POST <app>/api/sso/issue-magic-link` (HMAC §6.1) avec
+   `{hub_user_id, email}` → l'app génère son magic link interne (réutilise
+   sa logique couche 3) et le retourne → Hub `302` vers le magic link →
+   user atterrit sur l'app, session locale créée. **Détails techniques :
+   §6bis.8.**
 
 ### 6bis.2 Couche 2 — détails techniques
 
@@ -2309,6 +2323,165 @@ if (cookieDomain && !cookieDomain.startsWith('.')) {
 Les cookies app **ne sont JAMAIS cross-subdomain** — seul le cookie Hub
 l'est. Les apps fonctionnent en cookies isolés et utilisent le cookie Hub
 en lecture seule via couche 2.
+
+### 6bis.8 Couche 4 — Bounce OAuth Hub (gravé v1.6, 2026-05-23)
+
+> 🔥 Section ajoutée 2026-05-23 après incident « ticket OAuth qui traîne ».
+> **Objet** : standardiser le flow où une app downstream **délègue
+> explicitement** l'auth au Hub (clic « Continuer avec Google/Microsoft »)
+> et récupère l'user en session locale après. Couche 4 est l'**unique**
+> chemin OAuth depuis une app downstream : aucune app n'implémente OAuth
+> en local. Dette tech zéro, identité Veridian centralisée.
+>
+> **Extensibilité** : tout flow décrit ici est **agnostique au nom de
+> l'app**. Ajouter `veridian-newapp` au futur ne demande **aucune
+> modification Hub** — uniquement implémenter l'endpoint contrat
+> §6bis.8.3 côté `veridian-newapp` et ajouter ses boutons.
+
+#### 6bis.8.1 Quand la couche 4 se déclenche
+
+Couches 1+2 ont échoué (user pas reconnu via Hub broker ni cookie
+cross-subdomain), couche 3 est dispo (magic link mail) MAIS le user
+choisit explicitement OAuth. Bouton standard côté app `/login` :
+
+```tsx
+// Pattern standardisé pour TOUTE app downstream
+<Button onClick={() => {
+  const next = encodeURIComponent(window.location.href);
+  window.location.href = `https://app.veridian.site/login?next=${next}`;
+}}>
+  <GoogleLogo /> Continuer avec Google
+</Button>
+// idem pour Microsoft — même bouton, même redirect Hub
+```
+
+L'app n'a **rien** d'autre à câbler côté front : pas de provider OAuth
+local, pas de credentials Google/Microsoft, pas de callback. Couche 4
+externalise tout au Hub.
+
+#### 6bis.8.2 Côté Hub — gestion du param `?next=`
+
+**Spec contractuelle (ce que le Hub DOIT faire)** :
+
+1. **Accepter le param `next` sur `/login`** : `app.veridian.site/login?next=<encoded_url>`.
+2. **Whitelist server-side (anti open-redirect)** : valider `next` contre
+   le regex strict :
+   ```
+   ^https://[a-z0-9-]+\.veridian\.site(/.*)?$
+   ```
+   - Rejeter tout autre domaine (un attaquant ne doit pas pouvoir
+     détourner le bounce vers `evil.com`).
+   - Pattern intentionnellement large : **toute future app
+     `*.veridian.site` est éligible sans modif Hub**.
+   - Refuser `app.veridian.site` lui-même (pas de bounce vers Hub —
+     redirect normal `/dashboard`).
+3. **Persister `next` pendant le flow OAuth** : cookie temporaire
+   `__Secure-veridian-next` (HttpOnly, sameSite=lax, TTL 5 min, scope
+   exact `app.veridian.site`) OU param state Auth.js. **Jamais** dans
+   l'URL OAuth public (fuite Referer).
+4. **Après OAuth réussi** (Google ou Microsoft) :
+   - Lire `next` (cookie/state).
+   - Extraire le sous-domaine app : `<app>.veridian.site` → app name
+     `<app>` (regex capture).
+   - Appeler l'endpoint contrat §6bis.8.3 de l'app cible en HMAC §6.1.
+   - Recevoir `{magic_link_url}` → effacer le cookie `next` →
+     `302 magic_link_url`.
+5. **Erreurs** :
+   - `next` absent ou invalide → ignorer, redirect normal `/dashboard`.
+   - App cible inatteignable / 5xx → page d'erreur Hub
+     « Impossible de revenir sur <app> » avec CTA « Retour
+     veridian.site » (pas de loop).
+   - App répond `400 user_not_in_app` → Hub redirige vers
+     `app.veridian.site/dashboard?app=<app>&hint=signup` (l'user a un
+     compte Hub mais pas encore ce produit → flow start-app standard
+     §5.1).
+
+#### 6bis.8.3 Côté apps downstream — endpoint contrat OBLIGATOIRE
+
+**Tout app downstream qui s'intègre au Hub DOIT exposer** :
+
+```
+POST /api/sso/issue-magic-link
+Headers : X-Veridian-Hub-Signature (HMAC §6.1), X-Veridian-Timestamp
+Body    : { "hub_user_id": "<uuid>", "email": "<string>" }
+```
+
+**Réponse 200** :
+```json
+{ "magic_link_url": "https://<app>.app.veridian.site/auth/token?t=<token>" }
+```
+
+**Réponse 400** :
+```json
+{ "error": "user_not_in_app", "hint": "no workspace for this hub_user_id" }
+```
+
+(L'user a un compte Hub mais aucun workspace dans cette app — le Hub
+gère la redirection signup-app §6bis.8.2 point 5.)
+
+**Réponse 5xx** : app HS, Hub affiche page d'erreur (cf. 6bis.8.2).
+
+**Sémantique** :
+- L'app **réutilise sa logique couche 3** (génération de magic_link
+  local, table `<app>_magic_links`, TTL 15 min). C'est exactement le
+  même mécanisme, juste déclenché par Hub au lieu d'un email.
+- Si plusieurs workspaces pour ce user dans l'app : retourner le magic
+  link vers le **dernier actif** (`MAX(workspaces.last_seen_at)` ou
+  équivalent). L'user peut switcher après dans l'UI app.
+- L'endpoint **ne crée jamais** de workspace. Pas d'auto-provisioning
+  silencieux — cf. règle §6bis.2 « Pas d'auto-création ».
+
+**Ce que l'app NE fait PAS** : pas de provider OAuth local, pas de
+callback Google/Microsoft, pas de gestion de scope OAuth. Tout reste
+au Hub.
+
+#### 6bis.8.4 Cas particuliers
+
+- **`?next=` avec user déjà loggué au Hub** (cookie session Hub présent
+  AVANT le clic « Continuer avec Google ») : skip OAuth, aller directement
+  à l'étape « appeler issue-magic-link de l'app cible ». L'user n'aura
+  même pas vu Google.
+- **L'app cible est l'app où l'user clique** (boucle théorique
+  app→Hub→app) : géré naturellement par l'étape 5 du flow Hub — la couche
+  4 termine sur un magic_link app, donc l'user atterrit loggué sur l'app
+  d'origine.
+- **Staging** : whitelist staging = `^https://[a-z0-9-]+\.staging\.veridian\.site(/.*)?$`.
+  Cookie `next` scopé `hub.staging.veridian.site`. Pas de cross-pollution
+  prod/staging (cf. §6bis.7.2).
+
+#### 6bis.8.5 Tests contractuels obligatoires
+
+L'app downstream DOIT couvrir en CI bloquant :
+
+- `POST /api/sso/issue-magic-link` sans HMAC valide → 401.
+- HMAC valide + body valide + user existe → 200 avec `magic_link_url`
+  format `https://<self>.../auth/token?t=...`.
+- HMAC valide + user inconnu en local → 400 `user_not_in_app`.
+- Le magic link retourné, suivi par GET, log bien l'user (cookie session
+  app posé).
+- Rate limit : 10 issue-magic-link / minute / user (anti-abus si Hub
+  compromis).
+
+Le Hub DOIT couvrir en CI bloquant :
+
+- `?next=https://evil.com` → ignoré, redirect `/dashboard` (regex strict).
+- `?next=https://newapp.veridian.site/x` → flow nominal (regex large
+  vérifie automatiquement la couverture des apps futures).
+- `?next` mal encodé → ignoré sans 500.
+
+#### 6bis.8.6 Onboarding d'une nouvelle app — récap (mise à jour §11)
+
+Une app `veridian-newapp` qui s'ajoute à la stack n'a **rien à demander
+au Hub** pour le bounce OAuth :
+
+1. Implémenter l'endpoint `POST /api/sso/issue-magic-link` (cf.
+   §6bis.8.3) — réutilise la logique magic_link couche 3.
+2. Ajouter les 2 boutons standardisés sur `/login` (cf. §6bis.8.1).
+3. Domaine DNS `newapp.app.veridian.site` (et `newapp.staging.veridian.site`).
+
+Le Hub la prend en charge automatiquement via le regex de la whitelist.
+Aucune PR Hub, aucune migration Hub, aucun déploiement Hub n'est requis
+pour onboarder l'OAuth de la nouvelle app.
 
 ---
 
@@ -3304,11 +3477,15 @@ Hub Veridian :
 ### 11.2 Implémenter le contrat
 
 - [ ] Lire **intégralement** ce fichier `CONTRAT-HUB.md`.
-- [ ] Implémenter les 8 endpoints obligatoires (§5).
+- [ ] Implémenter les 9 endpoints obligatoires (§5) — dont
+      `POST /api/sso/issue-magic-link` pour le bounce OAuth (cf. §6bis.8.3).
 - [ ] Implémenter les 5 événements webhook vers Hub (§7).
 - [ ] Implémenter les plans payants + 3 plans offerts obligatoires (§3).
 - [ ] Rédiger `<app>/docs/features-by-plan.md` (§9).
 - [ ] Ajouter test d'intégration scénario complet (§12) en CI bloquant.
+- [ ] Ajouter sur `/login` les 2 boutons standardisés « Continuer avec
+      Google » + « Continuer avec Microsoft » qui redirigent vers
+      `app.veridian.site/login?next=<encoded_self_url>` (cf. §6bis.8.1).
 
 ### 11.3 Coordonner avec l'agent Hub
 
