@@ -36,6 +36,16 @@ const nextConfig = {
   // Allow cross-origin requests in dev mode (behind Traefik reverse proxy)
   allowedDevOrigins: ['https://dev.veridian.site'],
 
+  // Routes auth dépréciées — anciennement des pages stub `redirect('/login')`.
+  // Supprimées au profit de redirects 308 gérés par Next (pas de bundle React
+  // pour 4 lignes de redirect). /login reste l'entrée canonique d'auth.
+  async redirects() {
+    return [
+      { source: '/signin', destination: '/login', permanent: true },
+      { source: '/signin1', destination: '/login', permanent: true },
+    ];
+  },
+
   // Skip type checking and linting during build for faster builds
   // Type checking should be done in CI/CD
   typescript: {

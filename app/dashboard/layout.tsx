@@ -63,16 +63,6 @@ export default async function DashboardLayout({
   const currentWorkspaceName = workspace?.name ?? null;
   const hasActiveSubscription = !!subscription;
 
-  if (process.env.NODE_ENV === 'development') {
-    console.log('[Dashboard Layout] User info:', {
-      userId: user.id,
-      email: user.email,
-      createdAt: userCreatedAt,
-      hasActiveSubscription,
-      subscription: subscription ? { id: subscription.id, status: subscription.status } : null,
-    });
-  }
-
   // initialIsAdmin sera passé en prop dès que AppSidebar/NavUser l'acceptent
   // (LOT C). Pour l'instant on calcule la valeur côté serveur — utile à terme
   // pour passer au sidebar et éviter qu'il refasse un fetch côté client.

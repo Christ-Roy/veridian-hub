@@ -31,9 +31,6 @@ export default function robots(): MetadataRoute.Robots {
           // Zones privées - Désactivées
           '/dashboard/',
           '/api/',
-          '/signin/',
-          '/signin1/',
-          '/_signin-legacy/',
           '/auth/',
           '/login/',
           '/signup/',

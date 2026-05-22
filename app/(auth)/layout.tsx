@@ -3,15 +3,14 @@ import { PropsWithChildren } from 'react';
 /**
  * AUTH LAYOUT
  *
- * Layout pour les pages d'authentification (signin, signup).
+ * Layout pour les pages d'authentification (login, signup).
  * Design simple et centré, pas de sidebar ni navbar.
  *
  * Utilisé pour :
- * - /signin
- * - /signin1 (version shadcn)
+ * - /login
  * - /signup
- * - /auth/callback
- * - /auth/reset_password
+ * - /auth/reset
+ * - /auth/verify
  */
 export default function AuthLayout({ children }: PropsWithChildren) {
   return (
