@@ -82,7 +82,7 @@ async function emitActivityThreshold(
         event: 'tenant.activity_threshold_reached',
         tenant_id: tenant,
         idempotency_key: idempotencyKey,
-        emitted_at: new Date().toISOString(),
+        occurred_at: new Date().toISOString(),
         contract_version: '1.4',
         data: { threshold: 5, current: 5 },
       },

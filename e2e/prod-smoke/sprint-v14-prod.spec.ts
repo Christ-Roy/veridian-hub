@@ -136,7 +136,7 @@ test.describe('Hub PROD sprint v1.4 — Webhooks app → Hub (Bearer v1.4)', () 
         event: 'tenant.touched',
         tenant_id: 'fake',
         idempotency_key: '00000000-0000-4000-8000-000000000000',
-        emitted_at: new Date().toISOString(),
+        occurred_at: new Date().toISOString(),
       }),
       headers: {
         'content-type': 'application/json',
@@ -177,7 +177,7 @@ test.describe('Hub PROD sprint v1.4 — Webhooks app → Hub (Bearer v1.4)', () 
         event: 'tenant.touched',
         tenant_id: 'fake',
         idempotency_key: '00000000-0000-4000-8000-000000000000',
-        emitted_at: new Date().toISOString(),
+        occurred_at: new Date().toISOString(),
       }),
       headers: {
         'content-type': 'application/json',

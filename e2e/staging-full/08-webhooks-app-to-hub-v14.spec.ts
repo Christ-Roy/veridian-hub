@@ -48,7 +48,7 @@ function v14Payload(
     event,
     tenant_id: tenantId,
     idempotency_key: randomUUID(),
-    emitted_at: new Date().toISOString(),
+    occurred_at: new Date().toISOString(),
     contract_version: '1.4',
     data: extra,
   };
@@ -169,7 +169,7 @@ test.describe('Journey 8 — Body validation', () => {
       event: 'tenant.touched',
       tenant_id: 'wks_42',
       idempotency_key: 'not-a-uuid',
-      emitted_at: new Date().toISOString(),
+      occurred_at: new Date().toISOString(),
       data: {},
     });
     expect(res.status()).toBe(400);

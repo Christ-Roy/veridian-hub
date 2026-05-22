@@ -585,7 +585,7 @@ test.describe('Cas 3 — Webhook Notifuse legacy HMAC (metadata.notifuse_process
       event: 'tenant.touched',
       tenant_id: tenantSlug,
       idempotency_key: idemKey,
-      emitted_at: new Date().toISOString(),
+      occurred_at: new Date().toISOString(),
       contract_version: '1.4',
       data: {},
     };
@@ -861,7 +861,7 @@ test.describe('Cas 5 — Invitation expirée + tenant soft-deleted (cleanup path
       event: 'tenant.touched',
       tenant_id: softDeletedTenantSlug,
       idempotency_key: idemKey,
-      emitted_at: new Date().toISOString(),
+      occurred_at: new Date().toISOString(),
       contract_version: '1.4',
       data: { ts: Date.now() },
     };

@@ -281,7 +281,7 @@ test.describe.serial('S3 — Injection / payload malveillants', () => {
         authorization: `Bearer ${huge}`,
         'content-type': 'application/json',
       },
-      data: { event: 'tenant.touched', tenant_id: 't', idempotency_key: randomUUID(), emitted_at: new Date().toISOString(), data: {} },
+      data: { event: 'tenant.touched', tenant_id: 't', idempotency_key: randomUUID(), occurred_at: new Date().toISOString(), data: {} },
       failOnStatusCode: false,
     });
     // 401 (bearer invalide) ou 400 / 431 (header too large) selon Traefik.
