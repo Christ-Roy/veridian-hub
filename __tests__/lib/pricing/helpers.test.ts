@@ -44,14 +44,24 @@ describe('getPlanByStripePriceId', () => {
   });
 
   // Roundtrip : si le catalogue a un Price ID rempli (post setup-stripe-prices),
-  // le resolver doit retrouver le plan. Robuste que les IDs soient remplis ou
-  // non — tant que tous sont null (avant provisioning) le test no-op.
-  it('roundtrip : un Price ID du catalogue résout vers son plan', () => {
+  // le resolver doit retrouver UN plan qui porte ce Price ID. On ne teste pas
+  // l'égalité stricte de clé : `prospection-enterprise` est un alias legacy de
+  // `prospection-business` et partage le même stripePriceId — un price donné
+  // peut donc résoudre vers l'un ou l'autre. L'invariant correct : le plan
+  // résolu porte bien ce price ID. Robuste que les IDs soient remplis ou non.
+  it('roundtrip : un Price ID du catalogue résout vers un plan portant ce Price ID', () => {
     for (const plan of Object.values(PLANS)) {
       for (const interval of ['month', 'year'] as const) {
         const id = plan.stripePriceId[interval];
         if (!id) continue;
-        expect(getPlanByStripePriceId(id)?.key).toBe(plan.key);
+        const resolved = getPlanByStripePriceId(id);
+        expect(resolved).not.toBeNull();
+        // Le plan résolu doit porter ce Price ID (sur month ou year).
+        const resolvedIds = [
+          resolved!.stripePriceId.month,
+          resolved!.stripePriceId.year,
+        ];
+        expect(resolvedIds).toContain(id);
       }
     }
   });
