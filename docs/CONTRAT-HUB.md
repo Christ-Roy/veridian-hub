@@ -18,7 +18,7 @@
 >   restent maintenus.
 > - `CI-ARCHITECTURE.md` — pipeline CI/CD cross-app. Idem, pas de duplication.
 >
-> **Versionnage** : `v1.6` (2026-05-22). Toute évolution majeure → bump version + section
+> **Versionnage** : `v1.7` (2026-05-22). Toute évolution majeure → bump version + section
 > "Changements" en bas.
 >
 > **Compagnon technique** : `CONTRAT-HUB-API-REF.md` (même dossier, symlinké
@@ -27,6 +27,14 @@
 > curl reproductibles, tests obligatoires. **Lire en parallèle de ce contrat**
 > pour toute implémentation. Le contrat ici grave les **invariants** et la
 > **vision** ; l'API-REF grave la **technique**.
+>
+> **Compagnon billing** : `CONTRAT-BILLING.md` (même dossier, symlinké
+> depuis la racine). Depuis v1.7 (2026-05-22), la partie **billing** du
+> contrat — frontière Stripe, payload `update-plan`, dunning,
+> réconciliation, articulation trial — est extraite dans ce fichier
+> dédié, scopé aux **apps commerciales** (Notifuse, Prospection). Ce
+> contrat-ci ne couvre plus le billing : §7.4 / §5.2 / §8bis renvoient à
+> `CONTRAT-BILLING.md`.
 >
 > 🔥 **Règle absolue (gravée en v1.1)** : tout ce qui est décrit dans ce contrat
 > fait l'objet d'un **contrôle accru en CI ET d'un smoke manuel via navigateur
@@ -200,6 +208,12 @@ const plan = await db.tenants.findUnique({ where: { id: tenantId } }).plan;
 > résilience billing niveau 1". Complète §1.4 : §1.4 dit "l'app continue
 > sur son cache si Hub down" ; §1.4bis grave **comment l'app mesure la
 > fraîcheur de ce cache** et ce qu'elle fait quand il devient trop vieux.
+>
+> 📦 Articulation billing : `CONTRAT-BILLING.md` §4.2 explique pourquoi
+> ce mécanisme **ne contredit pas le fail-open billing** (la phase Dead
+> bloque les writes mais jamais les reads, le downgrade reste toujours
+> une décision explicite du Hub). La présente section reste la source de
+> vérité du **mécanisme** `last_hub_sync_at` (générique, pas que billing).
 
 **Problème adressé** : §1.4 autorise l'app à servir un plan en cache local
 si le Hub est down. Mais un cache local n'a aucune valeur s'il est devenu
@@ -358,6 +372,13 @@ Stripe expire ou est canceled pour un tenant qui a `plan IN (lifetime_*, interna
 le webhook **ne doit pas** downgrade le tenant à `free`. C'est ce que Notifuse a
 implémenté via `plan_source` (cf `veridian-hub/app/api/admin/notifuse/update-plan/route.ts:23`).
 **Cette protection est obligatoire pour toute app downstream.**
+
+> 📦 Le **mécanisme billing** de cette immunité (les 3 plans offerts sont
+> portés par `plan_source = grant_manual` dans le payload `update-plan` v2 ;
+> un `update-plan plan_source=stripe`/`downgrade_auto` qui viserait un
+> tenant `grant_manual` est rejeté `409`) est gravé dans
+> **`CONTRAT-BILLING.md` §3.3 + §3.4**. La présente section ne fait que
+> définir le **catalogue** des plans offerts cross-app.
 
 ### 3.4 Pricing target Robert (brainstorm, à figer plan par plan avec chaque agent)
 
@@ -693,36 +714,24 @@ versionné `/api/v1/tenants/*` à partir du jour où on bumpe v2).
 
 ### 5.2 `POST /api/tenants/update-plan`
 
-> 🔥 **Nouvel endpoint exigé suite à la feature pricing 2026-05-18**.
+> 📦 **Spec extraite vers `CONTRAT-BILLING.md` v2.0 (2026-05-22).**
+> L'endpoint `update-plan` est un endpoint **billing** : son schéma de
+> payload, son versionnement, ses invariants et ses codes d'erreur sont
+> désormais gravés dans le contrat billing dédié.
 
-**Request** :
-```json
-{
-  "tenant_id": "string",
-  "plan": "string (un des plans supportés par l'app)",
-  "plan_source": "stripe|manual|lifetime_site_vitrine|lifetime_partner|internal",
-  "reason": "string (optionnel, audit trail)"
-}
-```
+L'endpoint `POST /api/tenants/update-plan` (Hub → app, HMAC) reste **un
+endpoint obligatoire** côté apps **commerciales** (Notifuse, Prospection).
+Sa spec complète vit dans **`CONTRAT-BILLING.md` §3** — payload v2
+versionné (`contract_version: "2.0"`), enum `plan` fermé, enum
+`plan_source` à 4 valeurs (`stripe | stripe_trial | grant_manual |
+downgrade_auto`), idempotence sur `idempotency_key`, immunité des plans
+offerts.
 
-**Response 200** :
-```json
-{
-  "tenant_id": "string (echo)",
-  "plan": "string (echo)",
-  "previous_plan": "string|null",
-  "applied_at": "ISO8601"
-}
-```
+L'immunité des plans offerts (un tenant `grant_manual` ne se fait pas
+downgrader par un event Stripe) est aussi rappelée §3.3 ci-dessous.
 
-**Comportement critique** :
-- Si `plan_source = "stripe"` et que le tenant a un `plan_source` actuel dans
-  `("lifetime_site_vitrine", "lifetime_partner", "internal")` → **REJET** (409
-  Conflict). Stripe ne peut pas downgrade un plan offert manuellement.
-- Si `plan_source = "manual"` → l'admin Hub écrase tout. Stocker `plan_source`
-  pour bloquer les downgrades Stripe futurs.
-- Audit : append dans une table `veridian_plan_history` ou équivalent (au moins
-  les 50 derniers changements gardés).
+Les apps **client-only** (CMS, Analytics) ne sont **pas** concernées par
+`update-plan` — elles n'ont pas de billing Stripe end-user.
 
 ### 5.3 `POST /api/tenants/attach-owner`
 
@@ -2346,49 +2355,27 @@ Endpoint Hub : `POST https://app.veridian.site/api/webhooks/<app_name>`
 
 ### 7.4 Stripe → Hub → apps (chaîne billing complète)
 
-> 🔥 Gravé en v1.2. Le contrat précédent parlait des webhooks app→Hub mais
-> jamais du chemin Stripe→Hub→apps.
+> 📦 **Section extraite vers `CONTRAT-BILLING.md` v2.0 (2026-05-22).** La
+> chaîne `Stripe → Hub → apps`, le payload `update-plan`, le dunning, la
+> réconciliation et l'articulation trial sont désormais spec'd dans le
+> contrat billing dédié. Ce contrat-ci ne couvre plus le billing.
 
-#### 7.4.1 Stripe webhook reçu par Hub
+La chaîne billing complète (webhooks Stripe consommés par le Hub,
+propagation HMAC `update-plan` vers les apps, immunité des plans offerts,
+échec partiel de propagation) est gravée dans **`CONTRAT-BILLING.md`** :
 
-Hub expose `POST /api/webhooks/stripe` qui consomme :
+- **§2** — frontière Stripe unidirectionnelle : un seul endpoint
+  `POST /api/webhooks` côté Hub, les apps ne reçoivent jamais de webhook
+  Stripe.
+- **§3** — payload `update-plan` v2 versionné et figé.
+- **§5** — dunning (`invoice.payment_failed`), géré entièrement Hub-side.
+- **§6** — réconciliation POLL (`GET /api/tenants/{id}/billing-state`).
 
-| Event Stripe | Action Hub |
-|---|---|
-| `checkout.session.completed` | Mappe `stripe_price_id` → `plan` via `lib/pricing/plans.ts`. Appelle `update-plan` HMAC sur chaque app concernée par le bundle (cf §3.4 bundle Veridian). |
-| `customer.subscription.updated` | Détecte si plan changé. Si oui, propage via `update-plan` sur apps concernées. |
-| `customer.subscription.deleted` | Si `cancel_at_period_end=true` à l'expiration → propage `soft_delete` sur apps. Si `canceled` immédiat → idem. |
-| `invoice.payment_failed` | Marque tenant `past_due` côté Hub. Pas d'action immédiate sur apps. Si 3 échecs successifs → `suspend`. |
-| `invoice.payment_succeeded` | Si tenant était `suspended` pour past_due → `resume`. |
-| `customer.subscription.trial_will_end` | Notif email user (CTA upgrade). Pas d'action apps. |
-
-#### 7.4.2 Propagation Hub → apps : synchrone obligatoire
-
-Pour chaque app concernée, le Hub appelle `update-plan` HMAC **en synchrone**
-(timeout 10s par app). Pas de fire-and-forget côté Stripe webhook.
-
-- Si une app retourne 5xx → Hub retry 3× avec backoff (1s, 2s, 4s) puis
-  passe à l'app suivante mais log un erreur observable.
-- Si une app retourne 4xx → Hub log erreur, ne retry pas (problème de spec).
-- Stripe attend max 30s la response du Hub. Au-delà → Stripe retry son webhook
-  automatiquement (idempotent côté Hub via `event.id`).
-
-#### 7.4.3 Default conservateur en cas d'échec partiel
-
-Si Hub a propagé sur 2 apps sur 3 et la 3e a 5xx :
-- État Hub : plan mis à jour, `last_propagation_failed_app: <app_name>` en
-  metadata tenant.
-- L'admin lifecycle panel (§8.5) affiche un badge "Désync : `<app>` pas à jour
-  depuis 2026-05-18T..." avec un bouton "Re-propage".
-- Cron Hub horaire : tente de re-propager les désyncs détectées.
-- Si désync > 24h : alerte Grafana (§13.4).
-
-#### 7.4.4 Immunité plans offerts (rappel)
-
-Si tenant a `plan_source IN ('lifetime_*', 'internal')`, Hub **ignore** les
-events Stripe `subscription.deleted` ou `updated` qui voudraient downgrade.
-Log warning observable. Ce comportement est gravé §3.3 mais répété ici car
-c'est le point d'entrée critique de la chaîne.
+Les webhooks **app → Hub** non-billing (`tenant.touched`,
+`tenant.member_role_changed`, etc.) restent décrits §7.1–§7.3 ci-dessus.
+Le signal `tenant.activity_threshold_reached` transite par ce canal mais
+sa **sémantique billing** (déclencheur de trial) est gravée
+`CONTRAT-BILLING.md` §7.4.
 
 ---
 
@@ -2721,6 +2708,15 @@ acheté un site) :
 > Implémentation Hub : `lib/trial/`, `app/api/cron/trial-tick/`,
 > `app/api/webhooks/notifuse/` (handler `tenant.activity_threshold_reached`).
 > Migration : `prisma/migrations/20260521150000_add_tenant_trials/`.
+>
+> 📦 **Interface billing extraite vers `CONTRAT-BILLING.md` §7 (2026-05-22).**
+> La section ci-dessous documente l'**implémentation Hub-interne** de la
+> state machine (schéma SQL `tenant_trials`, cron tick, décisions figées).
+> Le **contrat cross-app** côté apps commerciales — comment le trial se
+> traduit en `update-plan plan_source=stripe_trial`, pourquoi `stripe_trial`
+> ≠ `stripe`, le signal `activity_threshold_reached` comme seul flux
+> billing app→Hub — est gravé `CONTRAT-BILLING.md` §7. Une app qui
+> consomme le trial lit `CONTRAT-BILLING.md`, pas cette section.
 
 Le trial Pro 15j ne démarre PAS au signup (= attire les spammeurs et les
 curieux). Il démarre quand le user a prouvé son engagement métier — pour
@@ -3735,6 +3731,43 @@ chaque app retry indéfiniment avec backoff plafond 1h.
 ---
 
 ## 16. Changements
+
+### v1.7 — 2026-05-22 (extraction billing)
+
+Sprint cleanup Hub — découpage du contrat monolithique par préoccupation.
+
+**Billing extrait vers `CONTRAT-BILLING.md` v2.0** :
+
+- La partie **billing** du contrat est extraite dans un fichier dédié
+  `docs/CONTRAT-BILLING.md` v2.0 (symlink racine
+  `veridian-platform/CONTRAT-BILLING.md`). Ticket
+  `todo/2026-05-22-extraire-contrat-billing.md`.
+- **§7.4 Stripe → Hub → apps** : contenu remplacé par un pointeur court
+  vers `CONTRAT-BILLING.md` §2/§3/§5/§6. La chaîne billing complète
+  (frontière Stripe unidirectionnelle, payload `update-plan` v2, dunning,
+  réconciliation POLL) y est gravée.
+- **§5.2 `update-plan`** : spec détaillée du payload remplacée par un
+  pointeur vers `CONTRAT-BILLING.md` §3 (payload v2 versionné,
+  `contract_version: "2.0"`, enum `plan` fermé, enum `plan_source` à 4
+  valeurs `stripe | stripe_trial | grant_manual | downgrade_auto`).
+- **§3.3 plans offerts** : le **catalogue** des plans offerts reste ici ;
+  le **mécanisme billing** de l'immunité Stripe (porté par
+  `plan_source=grant_manual`) renvoie à `CONTRAT-BILLING.md` §3.3/§3.4.
+- **§8bis trial state machine** : l'**implémentation Hub-interne** (schéma
+  SQL `tenant_trials`, cron tick, décisions figées) reste ici ;
+  l'**interface billing cross-app** du trial renvoie à
+  `CONTRAT-BILLING.md` §7.
+- **§1.4bis** : pointeur de cohérence ajouté vers `CONTRAT-BILLING.md`
+  §4.2 (fail-open billing).
+- Aucune ancre `§x.y` du contrat Hub n'a changé — les titres de section
+  sont conservés, seul le corps billing est remplacé par des pointeurs.
+  Les références en prose (`§3.3`, `§5.2`, `§5.9`, `§7.4`, `§1.4bis`) des
+  tickets cross-app restent valides.
+
+**À venir** (hors périmètre de ce sprint) : extraction d'un
+`CONTRAT-AUTH.md` (OAuth, sessions, magic links, identité user). Le reste
+(provisioning, lifecycle non-billing, webhooks génériques, multi-membre,
+permissions) reste dans ce contrat.
 
 ### v1.6 — 2026-05-22
 

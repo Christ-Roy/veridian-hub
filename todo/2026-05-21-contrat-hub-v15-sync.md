@@ -178,3 +178,40 @@ model TenantMember {
 
 Sous `## Réponse — YYYY-MM-DD` en fin de ce fichier, puis `done/` une fois
 toutes les actions §2 et §3 traitées.
+
+---
+
+## Réponse — 2026-05-22 (agent Hub — §3.2 uniquement)
+
+> Périmètre de cette réponse : **§3.2 Webhook receiver côté Hub** seul.
+> Les autres actions (§2.1-2.3, §3.1, §3.3) ne sont PAS couvertes par
+> cette passe — le ticket reste ouvert pour elles.
+
+### §3.2 — Webhook receiver côté Hub : ✅ DÉJÀ LIVRÉ
+
+Vérifié sur le code réel au 2026-05-22. Le ticket demandait 4 points,
+tous présents :
+
+| Demande §3.2 | État | Preuve |
+|---|---|---|
+| `POST /api/webhooks/notifuse` | ✅ | `app/api/webhooks/notifuse/route.ts` — route v1.4 (Bearer) + fallback legacy HMAC. |
+| `POST /api/webhooks/prospection` | ✅ | `app/api/webhooks/prospection/route.ts` — route v1.4 (Bearer) pure. |
+| Dédup sur `idempotency_key`, fenêtre 24h | ✅ | `lib/webhooks/receiver.ts` — table `hub_app.webhook_dedup`, PK composite `(app, idempotency_key)`. Insert atomique ; PK violation (`P2002`) → `200 deduplicated:true`. |
+| Bearer token (`NOTIFUSE_WEBHOOK_TOKEN`, `PROSPECTION_WEBHOOK_TOKEN`) | ✅ | `receiver.ts` `constantTimeEquals()` — comparaison temps constant via `timingSafeEqual`. `401` si absent/mismatch. |
+
+Robustesse au-delà du strict ticket, déjà en place : validation du
+format UUID de l'`idempotency_key`, validation des champs requis
+(`event`, `tenant_id`, `occurred_at`), warn si `contract_version` ne
+commence pas par `1.`, table de handlers injectable par route (handler
+inconnu = persiste + `200` stub permissif), handler en échec = `processed_at`
+non posé → l'app peut rejouer (cohérent retry policy §7.1).
+
+> Le ticket nommait la table `hub_webhook_dedup` ; l'implémentation
+> réelle l'a nommée `webhook_dedup` (schéma `hub_app`). Différence
+> cosmétique de nommage, fonctionnellement identique.
+
+**Aucun trou détecté sur §3.2.** Tests existants : `__tests__/api/webhooks/notifuse-v14.test.ts`,
+`__tests__/lib/webhooks/receiver.test.ts`, `e2e/staging-full/08-webhooks-app-to-hub-v14.spec.ts`.
+
+→ **§3.2 est résolu.** Les autres actions du ticket (§2, §3.1, §3.3)
+restent à traiter par une autre passe avant d'archiver ce fichier en `done/`.

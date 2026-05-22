@@ -12,10 +12,15 @@
 > Toute modification d'un endpoint doit aussi être reflétée ici **et** dans
 > le contrat (§5).
 >
-> **Version** : 1.2 (2026-05-21 nuit) — ajout sections Hub-locaux (Stripe
-> webhooks, Admin API, Workspace, Invitations Hub-side, Trial/cron),
-> **Flows E2E** documentés bout en bout, et **Matrice de statut** finale
-> par endpoint (statut livré/partiel/en cours/non prévu).
+> **Version** : 1.3 (2026-05-22) — la spec **contractuelle billing**
+> (frontière Stripe, payload `update-plan` v2, dunning, réconciliation
+> POLL, articulation trial) est désormais gravée dans
+> `CONTRAT-BILLING.md` v2.0. Cette API-REF garde la **référence
+> technique des routes** billing (sections "Stripe webhook orchestrator"
+> et "Billing & Pricing" ci-dessous) mais renvoie à `CONTRAT-BILLING.md`
+> pour les invariants et la vision. v1.2 (2026-05-21 nuit) — ajout
+> sections Hub-locaux (Stripe webhooks, Admin API, Workspace, Invitations
+> Hub-side, Trial/cron), **Flows E2E** bout en bout, **Matrice de statut**.
 >
 > 🔥 **Convention** : ce document ne fait JAMAIS référence à une
 > implémentation app spécifique dans le schema canonique. Il décrit le
@@ -1241,6 +1246,12 @@ contractuels distincts, chacun avec son schema dédié dans ce document.
 
 ### Stripe webhook orchestrator
 
+> 📦 **Source de vérité contractuelle : `CONTRAT-BILLING.md` v2.0.** Cette
+> section décrit la **route technique** de l'orchestrateur Stripe. Les
+> invariants (frontière Stripe unidirectionnelle, payload `update-plan`
+> v2, dunning, réconciliation POLL, articulation trial) sont gravés dans
+> `CONTRAT-BILLING.md`. En cas de divergence, `CONTRAT-BILLING.md` fait foi.
+
 #### STRIPE-WH — POST /api/webhooks (Stripe central)
 
 **Statut** : ✅ livré 2026-05-21 (refactor orchestrateur, ticket
@@ -1486,6 +1497,11 @@ pas d'effet de bord côté trial state machine).
 ---
 
 ### Billing & Pricing
+
+> 📦 **Source de vérité contractuelle : `CONTRAT-BILLING.md` v2.0.** Les
+> routes ci-dessous sont la **référence technique** ; le contrat billing
+> (frontière Stripe, `update-plan` v2, trial, réconciliation) prime pour
+> les invariants.
 
 #### BILLING-CHECKOUT — POST /api/billing/checkout
 
