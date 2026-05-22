@@ -17,7 +17,7 @@
  *   - audit log contient downstream_call + downstream_http_status
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const validToken = 'a'.repeat(64);
 const expiredToken = 'b'.repeat(64);
@@ -115,6 +115,14 @@ async function callRoute(token: string, req: any) {
 }
 
 beforeEach(async () => {
+  // Horloge figée à `fixedNow`. Sans ça, le test était une bombe à
+  // retardement : `inv_active.expiresAt` (fixedNow + 24h = 2026-05-22T12:00Z)
+  // était comparé au `now` RÉEL par `lib/invitations/accept.ts:138`, donc
+  // l'invitation "active" devenait expirée dès le 2026-05-22 12:00 UTC →
+  // 9 tests cascadaient en 410. `Date` est faké → `new Date()` et
+  // `Date.now()` (dont le rate-limiter dépend) renvoient tous `fixedNow`.
+  vi.useFakeTimers();
+  vi.setSystemTime(fixedNow);
   vi.clearAllMocks();
   invitations.length = 0;
   auditLogs.length = 0;
@@ -147,7 +155,7 @@ beforeEach(async () => {
     targetWorkspaceId: 'ws_99',
     targetRole: 'member',
     message: null,
-    expiresAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+    expiresAt: new Date(fixedNow.getTime() - 24 * 60 * 60 * 1000),
     acceptedAt: null,
     acceptedByUserId: null,
   });
@@ -159,12 +167,16 @@ beforeEach(async () => {
     targetWorkspaceId: 'ws_77',
     targetRole: 'admin',
     message: null,
-    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
-    acceptedAt: new Date(Date.now() - 60_000),
+    expiresAt: new Date(fixedNow.getTime() + 24 * 60 * 60 * 1000),
+    acceptedAt: new Date(fixedNow.getTime() - 60_000),
     acceptedByUserId: 'user_other',
   });
 
   sessionUser = { id: 'user_alice', email: 'alice@example.com' };
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('POST /api/invitations/[token]/accept', () => {
