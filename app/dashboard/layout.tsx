@@ -9,6 +9,34 @@ import { PurchaseTracker } from '@/components/analytics/purchase-tracker';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { isPlatformAdmin } from '@/lib/admin/check-admin';
 import { prisma } from '@/lib/prisma';
+import { resolveTrialBannerState } from '@/lib/trial/banner-state';
+
+/**
+ * Récupère les lignes `tenant_trials` brutes du user.
+ *
+ * `tenant_trials` a une clé `(tenantId, app)` sans relation Prisma vers
+ * `Tenant`/`User` — on résout donc en 2 reads : les tenants du user, puis
+ * leurs lignes de trial. Tout échec DB → tableau vide (pas de bandeau plutôt
+ * qu'un crash du dashboard). L'agrégation en une phase d'affichage est faite
+ * par `resolveTrialBannerState` côté appelant (qui croise aussi l'état
+ * subscription).
+ */
+async function fetchTrialRows(userUuidValue: string) {
+  try {
+    const tenants = await prisma.tenant.findMany({
+      where: { userId: userUuidValue, deletedAt: null },
+      select: { id: true },
+    });
+    if (tenants.length === 0) return [];
+    return await prisma.tenantTrial.findMany({
+      where: { tenantId: { in: tenants.map((t) => t.id) } },
+      select: { state: true },
+    });
+  } catch (err) {
+    console.error('[Dashboard Layout] Failed to fetch trial rows:', err);
+    return [];
+  }
+}
 
 export default async function DashboardLayout({
   children,
@@ -22,16 +50,16 @@ export default async function DashboardLayout({
     redirect('/login');
   }
 
-  // PERF (fix N+1 du 2026-05-21) : 4 queries séquentielles → 3 queries parallèles
-  // via Promise.all. Le getCurrentUser ne renvoie pas createdAt mais le findUnique
-  // est nécessaire ailleurs ; on parallélise les 3 reads indépendants pour diviser
-  // par ~3 la latence serveur dashboard. CONTRAT IDs : subscriptions.user_id est
-  // en UUID → userUuid(user). Pour les legacy sans workspace, on tombe sur null
-  // sans crasher (cf provisioning au signup post-2026-05-21).
-  const [dbUser, workspace, subscription] = await Promise.all([
+  // PERF (fix N+1 du 2026-05-21, étendu 2026-05-22) : reads indépendants
+  // parallélisés via Promise.all. `fetchTrialRows` fait lui-même 2 reads
+  // séquentiels (tenants → tenant_trials) car `tenant_trials` n'a pas de
+  // relation Prisma — mais ces 2 reads tournent en parallèle des 3 autres.
+  // CONTRAT IDs : subscriptions.user_id et tenants.user_id sont en UUID →
+  // userUuid(user). Legacy sans workspace → null sans crasher.
+  const [dbUser, workspace, subscription, trialRows] = await Promise.all([
     prisma.user.findUnique({
       where: { id: user.id },
-      select: { createdAt: true, name: true, image: true },
+      select: { name: true, image: true },
     }),
     prisma.workspace
       .findFirst({
@@ -57,11 +85,17 @@ export default async function DashboardLayout({
         console.error('[Dashboard Layout] Failed to fetch subscription:', err);
         return null;
       }),
+    fetchTrialRows(userUuid(user)),
   ]);
 
-  const userCreatedAt = dbUser?.createdAt?.toISOString() ?? new Date().toISOString();
   const currentWorkspaceName = workspace?.name ?? null;
   const hasActiveSubscription = !!subscription;
+
+  // Phase trial à afficher dans le bandeau. `null` = aucun bandeau (phases
+  // silencieuses du flow trial : signup → 5e mail → J+2, cf
+  // `docs/PRICING-VERIDIAN.md`). Le bandeau n'apparaît qu'à partir de la
+  // révélation du trial (state machine en `trial_active`+).
+  const trialBanner = resolveTrialBannerState(trialRows, hasActiveSubscription);
 
   // initialIsAdmin sera passé en prop dès que AppSidebar/NavUser l'acceptent
   // (LOT C). Pour l'instant on calcule la valeur côté serveur — utile à terme
@@ -91,11 +125,9 @@ export default async function DashboardLayout({
           workspaceName={currentWorkspaceName}
         />
         <main className="flex-1 flex flex-col overflow-hidden w-full">
-          {/* Bandeau freemium - à l'intérieur du main content */}
-          <FreemiumBanner
-            userCreatedAt={userCreatedAt}
-            hasActiveSubscription={hasActiveSubscription}
-          />
+          {/* Bandeau trial — rendu seulement si la state machine a révélé le
+              trial (phase 4+). En phases silencieuses trialBanner === null. */}
+          {trialBanner && <FreemiumBanner phase={trialBanner.phase} />}
           <div className="flex-1 overflow-auto">{children}</div>
         </main>
       </div>
