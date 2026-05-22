@@ -110,7 +110,7 @@ export function PricingGrid({
               interval === 'year' ? 'bg-card shadow text-foreground' : 'text-muted-foreground'
             }`}
           >
-            Annuel <span className="text-xs text-success ml-1">-15%</span>
+            Annuel <span className="text-xs text-success ml-1">-17%</span>
           </button>
         </div>
       </div>

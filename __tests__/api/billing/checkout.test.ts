@@ -10,7 +10,9 @@
  *   5. 400 si plan non-Stripe (lifetime_*, internal)
  *   6. 503 si Stripe Price ID pas configuré (placeholder TODO)
  *   7. 502 si Stripe API call fail
- *   8. 200 + URL si tout OK, metadata `plan_key` + `user_uuid` set
+ *   8. 200 + URL si tout OK, metadata `plan_key` + `user_uuid` + `app` set
+ *   9. automatic_tax activé sur toute session (Stripe Tax — Robert 2026-05-22)
+ *  10. metadata.app = 'bundle' pour un plan multi-apps
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -58,26 +60,38 @@ vi.mock('@/lib/pricing/helpers', async () => {
           key: 'notifuse-pro',
           price_eur: 19,
           plan_source: 'stripe',
+          apps: ['notifuse'],
           stripePriceId: { month: 'price_test_notifuse_pro_m', year: null },
         },
         'notifuse-pro-no-stripe': {
           key: 'notifuse-pro-no-stripe',
           price_eur: 19,
           plan_source: 'stripe',
+          apps: ['notifuse'],
           stripePriceId: { month: null, year: null }, // placeholder
         },
-        'notifuse-free': { key: 'notifuse-free', price_eur: 0, plan_source: 'stripe', stripePriceId: { month: null, year: null } },
+        'notifuse-free': { key: 'notifuse-free', price_eur: 0, plan_source: 'stripe', apps: ['notifuse'], stripePriceId: { month: null, year: null } },
         'lifetime-partner': {
           key: 'lifetime-partner',
           price_eur: 0,
           plan_source: 'lifetime_partner',
+          apps: ['notifuse', 'prospection'],
           stripePriceId: { month: null, year: null },
+        },
+        // Bundle multi-apps — vérifie metadata.app = 'bundle'.
+        'veridian-pro': {
+          key: 'veridian-pro',
+          price_eur: 49,
+          plan_source: 'stripe',
+          apps: ['notifuse', 'prospection'],
+          stripePriceId: { month: 'price_test_veridian_pro_m', year: null },
         },
       };
       return fixtures[k] ?? null;
     }),
     getStripePriceIdForCheckout: vi.fn((k: string, interval: string) => {
       if (k === 'notifuse-pro' && interval === 'month') return 'price_test_notifuse_pro_m';
+      if (k === 'veridian-pro' && interval === 'month') return 'price_test_veridian_pro_m';
       throw new Error(`No Stripe Price ID for ${k}/${interval}`);
     }),
   };
@@ -152,7 +166,7 @@ describe('POST /api/billing/checkout', () => {
     expect(res.status).toBe(502);
   });
 
-  it('returns 200 + URL when all valid, metadata includes plan_key + user_uuid', async () => {
+  it('returns 200 + URL when all valid, metadata includes plan_key + user_uuid + app', async () => {
     sessionsCreateMock.mockResolvedValueOnce({
       id: 'cs_test_123',
       url: 'https://checkout.stripe.com/c/test_123',
@@ -167,7 +181,40 @@ describe('POST /api/billing/checkout', () => {
     const sessionArgs = sessionsCreateMock.mock.calls[0][0];
     expect(sessionArgs.subscription_data.metadata.plan_key).toBe('notifuse-pro');
     expect(sessionArgs.subscription_data.metadata.user_uuid).toBe('uuid-1');
+    expect(sessionArgs.subscription_data.metadata.app).toBe('notifuse');
     expect(sessionArgs.line_items[0].price).toBe('price_test_notifuse_pro_m');
     expect(sessionArgs.mode).toBe('subscription');
+  });
+
+  it('enables automatic_tax on the checkout session (Stripe Tax — Robert 2026-05-22)', async () => {
+    sessionsCreateMock.mockResolvedValueOnce({
+      id: 'cs_tax',
+      url: 'https://checkout.stripe.com/c/tax',
+    });
+    const { POST } = await import('@/app/api/billing/checkout/route');
+    const res = await POST(makeReq({ plan: 'notifuse-pro', interval: 'month' }));
+    expect(res.status).toBe(200);
+
+    const sessionArgs = sessionsCreateMock.mock.calls[0][0];
+    // Stripe Tax : la TVA doit être collectée auto sur TOUTE session.
+    expect(sessionArgs.automatic_tax).toEqual({ enabled: true });
+    // customer_update.name='auto' est requis par Stripe Tax.
+    expect(sessionArgs.customer_update).toMatchObject({ name: 'auto', address: 'auto' });
+  });
+
+  it('sets metadata.app = "bundle" for a multi-app plan', async () => {
+    sessionsCreateMock.mockResolvedValueOnce({
+      id: 'cs_bundle',
+      url: 'https://checkout.stripe.com/c/bundle',
+    });
+    const { POST } = await import('@/app/api/billing/checkout/route');
+    const res = await POST(makeReq({ plan: 'veridian-pro', interval: 'month' }));
+    expect(res.status).toBe(200);
+
+    const sessionArgs = sessionsCreateMock.mock.calls[0][0];
+    // Un bundle débloque 2 apps → le dispatcher webhook doit savoir router
+    // vers Notifuse ET Prospection (cf CONTRAT-BILLING.md §8.2).
+    expect(sessionArgs.subscription_data.metadata.app).toBe('bundle');
+    expect(sessionArgs.subscription_data.metadata.plan_key).toBe('veridian-pro');
   });
 });

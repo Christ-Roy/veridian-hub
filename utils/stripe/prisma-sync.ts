@@ -115,18 +115,36 @@ export async function manageSubscriptionStatusChange(
   }
 
   const subscription = await stripe.subscriptions.retrieve(subscriptionId, {
-    expand: ['default_payment_method'],
+    // On expand le product du price pour pouvoir lire `metadata.veridian_plan`
+    // posé par scripts/admin/setup-stripe-prices.ts — c'est la 3ᵉ source de
+    // résolution du PlanKey, robuste même si le catalogue local n'a pas encore
+    // le Price ID synchronisé.
+    expand: ['default_payment_method', 'items.data.price.product'],
   });
 
-  const stripePriceId = subscription.items.data[0]?.price.id ?? null;
+  const priceObj = subscription.items.data[0]?.price ?? null;
+  const stripePriceId = priceObj?.id ?? null;
   const isActive = ['active', 'trialing'].includes(subscription.status);
 
-  // ─── Lookup PlanKey depuis le catalogue ───
-  // Priorité 1 : metadata `plan_key` qu'on a posée lors du checkout
-  // (cf app/api/billing/checkout/route.ts). Source de vérité explicite.
-  // Priorité 2 : mapping stripe_price_id → PlanKey via catalogue + legacy.
+  // ─── Lookup PlanKey — 3 sources, par ordre de priorité ───
+  // 1. metadata `plan_key` de la subscription, posée au checkout
+  //    (cf app/api/billing/checkout/route.ts). Source explicite la plus sûre.
+  // 2. metadata `veridian_plan` du Price / Product Stripe, posée par le
+  //    script de provisioning. Survit même si le catalogue local n'a pas
+  //    encore le Price ID (déploiements désynchronisés).
+  // 3. mapping stripe_price_id → PlanKey via catalogue + LEGACY mapping.
   let planKey: string | null =
     (subscription.metadata?.plan_key as string | undefined) ?? null;
+
+  if (!planKey && priceObj) {
+    const priceMetaPlan = priceObj.metadata?.veridian_plan;
+    const product = priceObj.product;
+    const productMetaPlan =
+      product && typeof product === 'object' && 'metadata' in product
+        ? (product.metadata?.veridian_plan as string | undefined)
+        : undefined;
+    planKey = priceMetaPlan ?? productMetaPlan ?? null;
+  }
 
   if (!planKey && stripePriceId) {
     const planFromPriceId = getPlanByStripePriceId(stripePriceId);
@@ -135,7 +153,7 @@ export async function manageSubscriptionStatusChange(
     } else {
       console.warn(
         `[stripe-sync] Unknown stripe_price_id ${stripePriceId} for sub ${subscription.id} ` +
-          `— add it to LEGACY_STRIPE_PRICE_MAPPING in lib/pricing/plans.ts`,
+          `— add it to the catalogue or LEGACY_STRIPE_PRICE_MAPPING in lib/pricing/plans.ts`,
       );
     }
   }
