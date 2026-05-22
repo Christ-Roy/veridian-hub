@@ -81,28 +81,29 @@ Partiellement implémenté, suite à livrer :
 
 - ✅ **OAuth Sign-in Hub** (Google + Microsoft) : livré 2026-05-20
 - ✅ **Magic link cross-app** Hub → Notifuse / Prospection : éprouvé
-- ⏳ **Pattern Discovery cross-app** : Hub interroge chaque app via
-  `GET /api/users/by-email` au login (vs colonnes dénormalisées dans
-  `hub_app.tenants`). Tickets dispatchés dans chaque app downstream 2026-05-20.
-  Spec parent : `veridian-hub/todo/2026-05-20-hub-discovery-by-email-pattern.md`
-- ⏳ **API admin Hub** pour provisioning manuel propre (mode service) :
-  endpoints `POST /api/admin/users/create` + `link-app` + audit log.
-  Ticket : `veridian-hub/todo/2026-05-20-admin-api-tenant-provisioning.md`
-- ⏳ **Sync tenants 3 niveaux** (discovery pull + webhook push + cron reconcile) :
-  spec dans `veridian-hub/todo/2026-05-20-tenant-sync-strategy.md`
-- ⏳ **Flow invitation centralisé Hub** (au lieu de magic link cross-app
-  par app) : spec dans `veridian-hub/todo/2026-05-20-hub-invitation-endpoints.md`
-- ⏳ **Stripe trial intelligent** : flow 5 mails → 2j silence → 15j visible
-  → +30j inconditionnel si CB → débit auto ou paywall. **Source de vérité** :
-  `veridian-hub/docs/PRICING-VERIDIAN.md`. Tickets actifs :
-  - `veridian-hub/todo/2026-05-21-stripe-webhook-orchestrator.md`
-  - `veridian-hub/todo/2026-05-21-trial-state-machine.md`
-  - `notifuse-veridian/todo/2026-05-21-trial-eligible-signal.md`
-  - `notifuse-veridian/todo/2026-05-21-paywall-degraded-mode-soft-deleted.md`
+- ✅ **API admin Hub** (provisioning manuel, mode service) : livré 2026-05-20
+- ✅ **Flow invitation centralisé Hub** : livré 2026-05-21 (9/9 étapes,
+  endpoints invitation cross-app + UI + email)
+- ✅ **Stripe webhook orchestrator + trial state machine** : livré en prod
+  sprint v1.4 (2026-05-21). Flow 5 mails → 2j → 15j → downgrade.
+- ⏳ **Pattern Discovery cross-app** (`GET /api/users/by-email` au login) :
+  spec posée, pas encore câblé côté Hub
+- ⏳ **Sync tenants 3 niveaux** (discovery pull + webhook push + cron
+  reconcile) : spec posée
+- ⏳ **Pricing checkout réel** (Stripe Products/Prices + page billing) :
+  giga sprint à venir, voir §"Pricing & trial cross-app" ci-dessous
 - ⏳ **Compte Veridian unique** : 1 email → 1 Stripe Customer → N subscriptions
 
-Détail des problèmes architecturaux dans `veridian-infra/todo/VISION-CROSS-APP.md`
-et CONTRAT-HUB.md (source de vérité 2682L).
+> Le backlog vivant par repo est injecté en début de session (hook
+> SessionStart) et agrégé dans `veridian-platform/TODO.md`
+> (`./scripts/refresh-todo.sh`). Ne pas maintenir de liste de tickets en
+> dur ici — seuls les statuts ✅/⏳ de la vision cible, pas les chemins
+> de fichiers qui pourrissent à l'archivage.
+
+Détail des problèmes architecturaux dans `veridian-infra/todo/VISION-CROSS-APP.md`.
+Contrats techniques : `CONTRAT-HUB.md` (cross-app), `CONTRAT-BILLING.md`
+(billing apps commerciales — extraction en cours, cf ticket Hub
+`2026-05-22-extraire-contrat-billing.md`).
 
 ## 💰 Pricing & trial cross-app
 

@@ -121,18 +121,15 @@ L'app ne doit JAMAIS être défigurée par des limites visibles.
 
 ### Tickets pricing/trial actifs côté Hub
 
-- `todo/2026-05-21-stripe-webhook-orchestrator.md` — endpoint webhook
-  Stripe central, dispatche `update-plan` vers apps downstream
-- `todo/2026-05-21-trial-state-machine.md` — orchestration trial
-  cross-app (timer 5 mails → 2j → 15j → +30j si CB → débit/paywall)
-- `todo/2026-05-21-contrat-hub-v15-sync.md` — webhook receivers
-  app→Hub (signaux engagement, ex: 5e mail Notifuse)
-- `todo/2026-05-20-hub-discovery-by-email-pattern.md` — discovery
-  cross-app `GET /api/users/by-email`
+Ne PAS maintenir une liste de tickets en dur ici — elle pourrit en liens
+cassés dès qu'un ticket migre vers `todo/done/`. Le backlog vivant est
+injecté en début de session par le hook SessionStart (bloc `§3 CURRENT
+REPO`). Pour la vue cross-app : `veridian-platform/TODO.md` (régénéré par
+`./scripts/refresh-todo.sh`).
 
-L'état d'avancement à date est tracé dans
-`docs/PRICING-VERIDIAN.md` §"Implémentations actuelles — Hub". À mettre
-à jour quand un de ces tickets est livré.
+Source de vérité de l'avancement billing/trial :
+`docs/PRICING-VERIDIAN.md` §"Implémentations actuelles — Hub" (matrice
+⏳/✅ par brique, mise à jour à chaque livraison).
 
 ## CI/CD
 
