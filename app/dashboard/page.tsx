@@ -27,7 +27,7 @@ import { APPS } from '@/lib/pricing/plans';
 export default async function DashboardPage() {
   const user = await getCurrentUser();
   if (!user) {
-    redirect('/signin');
+    redirect('/login');
   }
 
   const tenant = await prisma.tenant.findFirst({
