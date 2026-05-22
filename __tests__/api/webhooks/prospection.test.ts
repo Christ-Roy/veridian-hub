@@ -116,7 +116,7 @@ function validPayload(seed: string, event = 'tenant.touched') {
     tenant_id: 't_prospection_1',
     data: { reason: 'user_active_on_soft_deleted' },
     idempotency_key: uuid(seed),
-    emitted_at: new Date().toISOString(),
+    occurred_at: new Date().toISOString(),
     contract_version: '1.4',
   };
 }
@@ -292,6 +292,44 @@ describe('POST /api/webhooks/prospection — dedup & unknown events', () => {
   });
 });
 
+describe('POST /api/webhooks/prospection — occurred_at field (contrat §5.18.4)', () => {
+  it('accepts a payload with occurred_at → 200 (Prospection conforme au contrat)', async () => {
+    const { POST } = await import('@/app/api/webhooks/prospection/route');
+    const body = validPayload('occurred-ok', 'tenant.member_role_changed');
+    // Garde-fou anti-régression : le contrat dit `occurred_at`, pas `emitted_at`.
+    expect(body).toHaveProperty('occurred_at');
+    expect(body).not.toHaveProperty('emitted_at');
+    const res = await POST(
+      makeReq({ authHeader: `Bearer ${TOKEN}`, body }) as any,
+    );
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toEqual({ ok: true, accepted: true, dispatched: true });
+    expect(rows).toHaveLength(1);
+  });
+
+  it('rejects the legacy field name emitted_at → 400 missing occurred_at', async () => {
+    const { POST } = await import('@/app/api/webhooks/prospection/route');
+    const res = await POST(
+      makeReq({
+        authHeader: `Bearer ${TOKEN}`,
+        body: {
+          event: 'tenant.member_role_changed',
+          tenant_id: 't_prospection_1',
+          data: {},
+          idempotency_key: uuid('legacy-field'),
+          emitted_at: new Date().toISOString(),
+        },
+      }) as any,
+    );
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('invalid_payload');
+    expect(json.details.fields).toContain('occurred_at');
+    expect(rows).toHaveLength(0);
+  });
+});
+
 describe('POST /api/webhooks/prospection — payload validation', () => {
   it('returns 400 invalid_payload on non-JSON body', async () => {
     const { POST } = await import('@/app/api/webhooks/prospection/route');
@@ -313,7 +351,7 @@ describe('POST /api/webhooks/prospection — payload validation', () => {
       body: {
         event: 'tenant.touched',
         tenant_id: 't_1',
-        emitted_at: new Date().toISOString(),
+        occurred_at: new Date().toISOString(),
       },
     });
     const res = await POST(req as any);

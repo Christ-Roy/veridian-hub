@@ -37,8 +37,8 @@ export interface V14WebhookPayload {
   data?: Record<string, unknown>;
   /** UUID v4 fourni par l'émetteur — clé de dédup. */
   idempotency_key: string;
-  /** ISO 8601 timestamp d'émission côté app. */
-  emitted_at: string;
+  /** ISO 8601 timestamp de l'événement côté app (contrat §5.18.4). */
+  occurred_at: string;
   /** Version du contrat. Doit commencer par "1." sinon log warn. */
   contract_version?: string;
 }
@@ -158,8 +158,11 @@ export async function handleWebhook(
   ) {
     missing.push('idempotency_key');
   }
-  if (typeof payload.emitted_at !== 'string' || payload.emitted_at.length === 0) {
-    missing.push('emitted_at');
+  if (
+    typeof payload.occurred_at !== 'string' ||
+    payload.occurred_at.length === 0
+  ) {
+    missing.push('occurred_at');
   }
   if (missing.length > 0) {
     return NextResponse.json(

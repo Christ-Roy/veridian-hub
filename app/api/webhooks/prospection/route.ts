@@ -2,7 +2,7 @@
  * Webhooks Prospection → Hub (contrat v1.4 §7.1).
  *
  * Auth : `Authorization: Bearer <PROSPECTION_WEBHOOK_TOKEN>`
- * Body : { event, tenant_id, data, idempotency_key, emitted_at,
+ * Body : { event, tenant_id, data, idempotency_key, occurred_at,
  *          contract_version }
  *
  * Dédup : `hub_app.webhook_dedup` PK (app, idempotency_key) — fenêtre 24h.

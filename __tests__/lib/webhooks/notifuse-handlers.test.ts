@@ -42,7 +42,7 @@ describe('v14Handlers.tenant.activity_threshold_reached', () => {
         reached_at: '2026-05-21T09:00:00.000Z',
       },
       idempotency_key: '00000000-0000-4000-8000-000000000001',
-      emitted_at: '2026-05-21T09:00:01.000Z',
+      occurred_at: '2026-05-21T09:00:01.000Z',
     });
 
     expect(upsertMock).toHaveBeenCalledTimes(1);
@@ -78,14 +78,14 @@ describe('v14Handlers.tenant.activity_threshold_reached', () => {
       tenant_id: 't_replay',
       data: {},
       idempotency_key: '00000000-0000-4000-8000-000000000002',
-      emitted_at: '2026-05-21T09:00:00.000Z',
+      occurred_at: '2026-05-21T09:00:00.000Z',
     });
     await handler({
       event: 'tenant.activity_threshold_reached',
       tenant_id: 't_replay',
       data: {},
       idempotency_key: '00000000-0000-4000-8000-000000000003',
-      emitted_at: '2026-05-23T09:00:00.000Z',
+      occurred_at: '2026-05-23T09:00:00.000Z',
     });
 
     expect(upsertMock).toHaveBeenCalledTimes(2);
@@ -110,7 +110,7 @@ describe('v14Handlers.tenant.activity_threshold_reached', () => {
         tenant_id: 't_err',
         data: {},
         idempotency_key: '00000000-0000-4000-8000-000000000004',
-        emitted_at: '2026-05-21T09:00:00.000Z',
+        occurred_at: '2026-05-21T09:00:00.000Z',
       }),
     ).rejects.toThrow(/db connection lost/);
   });

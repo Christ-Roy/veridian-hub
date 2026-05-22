@@ -5,7 +5,7 @@
  *
  * 1. v1.4 (contrat-hub.md §7.1, CONTRAT-HUB-API-REF.md "Webhooks app → Hub")
  *    Auth : `Authorization: Bearer <NOTIFUSE_WEBHOOK_TOKEN>`
- *    Body : { event, tenant_id, data, idempotency_key, emitted_at,
+ *    Body : { event, tenant_id, data, idempotency_key, occurred_at,
  *             contract_version }
  *    Dédup : table `hub_app.webhook_dedup` (PK app+idempotency_key, 24h)
  *    Events : `tenant.touched`, `tenant.member_role_changed`,

@@ -145,7 +145,7 @@ describe('POST /api/webhooks/notifuse — v1.4 (Bearer)', () => {
         event: 'tenant.touched',
         tenant_id: 't_1',
         idempotency_key: '00000000-0000-4000-8000-000000000001',
-        emitted_at: '2026-05-21T10:00:00.000Z',
+        occurred_at: '2026-05-21T10:00:00.000Z',
       }),
       headers: { authorization: `Bearer ${V14_TOKEN}` },
     });

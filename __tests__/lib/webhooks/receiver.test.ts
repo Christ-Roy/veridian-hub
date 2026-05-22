@@ -7,7 +7,7 @@
  *   - 401 avec mauvais token (taille égale + taille différente)
  *   - 400 body non-JSON
  *   - 400 champs requis manquants (event, tenant_id, idempotency_key invalide,
- *     emitted_at)
+ *     occurred_at)
  *   - 200 happy path + persist + processedAt + handler called
  *   - 200 handler inconnu → dispatched=false mais persist + processedAt
  *   - 200 replay (PK violation P2002) → deduplicated=true
@@ -198,7 +198,7 @@ describe('lib/webhooks/receiver — handleWebhook validation', () => {
       authReq({
         tenant_id: 't_1',
         idempotency_key: uuid('aaa'),
-        emitted_at: new Date().toISOString(),
+        occurred_at: new Date().toISOString(),
       }),
       { app: 'test', expectedToken: TOKEN, handlers: {} },
     );
@@ -213,7 +213,7 @@ describe('lib/webhooks/receiver — handleWebhook validation', () => {
       authReq({
         event: 'tenant.touched',
         idempotency_key: uuid('bbb'),
-        emitted_at: new Date().toISOString(),
+        occurred_at: new Date().toISOString(),
       }),
       { app: 'test', expectedToken: TOKEN, handlers: {} },
     );
@@ -229,7 +229,7 @@ describe('lib/webhooks/receiver — handleWebhook validation', () => {
         event: 'tenant.touched',
         tenant_id: 't_1',
         idempotency_key: 'not-a-uuid',
-        emitted_at: new Date().toISOString(),
+        occurred_at: new Date().toISOString(),
       }),
       { app: 'test', expectedToken: TOKEN, handlers: {} },
     );
@@ -238,7 +238,7 @@ describe('lib/webhooks/receiver — handleWebhook validation', () => {
     expect(json.details.fields).toContain('idempotency_key');
   });
 
-  it('returns 400 on missing emitted_at', async () => {
+  it('returns 400 on missing occurred_at', async () => {
     const { handleWebhook } = await import('@/lib/webhooks/receiver');
     const res = await handleWebhook(
       authReq({
@@ -249,6 +249,8 @@ describe('lib/webhooks/receiver — handleWebhook validation', () => {
       { app: 'test', expectedToken: TOKEN, handlers: {} },
     );
     expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.details.fields).toContain('occurred_at');
   });
 
   it('returns 400 when body is not an object', async () => {
@@ -269,7 +271,7 @@ describe('lib/webhooks/receiver — dispatch & dedup', () => {
       tenant_id: 't_1',
       data: { foo: 'bar' },
       idempotency_key: uuid(seed),
-      emitted_at: new Date().toISOString(),
+      occurred_at: new Date().toISOString(),
       contract_version: '1.4',
     };
   }
@@ -356,7 +358,7 @@ describe('lib/webhooks/receiver — dispatch & dedup', () => {
       event: 'tenant.touched',
       tenant_id: 't_1',
       idempotency_key: key,
-      emitted_at: new Date().toISOString(),
+      occurred_at: new Date().toISOString(),
     };
     const r1 = await handleWebhook(authReq(body), {
       app: 'notifuse',
