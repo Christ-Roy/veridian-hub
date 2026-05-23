@@ -1,4 +1,5 @@
 import { LoginForm } from '@/components/auth/LoginForm';
+import { GoogleOneTap } from '@/components/auth/GoogleOneTap';
 import Logo from '@/components/icons/Logo';
 import { redirect } from 'next/navigation';
 import { getAuthTypes } from '@/utils/auth-helpers/settings';
@@ -16,6 +17,10 @@ export default async function LoginPage() {
 
   return (
     <div className="min-h-screen w-full flex flex-col lg:flex-row">
+      {/* Google One Tap : popup auto-login en complément du bouton OAuth
+          classique. Aucun markup rendu, se gate lui-même. */}
+      <GoogleOneTap callbackUrl="/dashboard" />
+
       {/* Left side - Form */}
       <div className="flex-1 flex items-center justify-center p-6 lg:p-12 bg-background">
         <div className="w-full max-w-sm">

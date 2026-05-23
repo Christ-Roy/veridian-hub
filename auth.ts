@@ -16,6 +16,7 @@ import { authConfig } from './auth.config';
 import { createSignInCallback } from '@/lib/auth/sign-in-callback';
 import { createCreateUserEvent } from '@/lib/auth/create-user-event';
 import { buildMockOauthProvider } from '@/lib/auth/mock-oauth-provider';
+import { buildGoogleOneTapProvider } from '@/lib/auth/google-one-tap-provider';
 import { createOauthEventLogger } from '@/lib/auth/oauth-event-log';
 
 const credentialsSchema = z.object({
@@ -28,6 +29,13 @@ const credentialsSchema = z.object({
 // null en prod, un provider Credentials en staging/test/dev avec le flag.
 const mockOauthProvider = buildMockOauthProvider({ prisma });
 
+// Provider Google One Tap — valide le id_token GSI renvoyé par la popup
+// One Tap puis déroule le flow Auth.js normal (callback signIn → hook MFA,
+// audit, session). Renvoie null en staging (Tailscale-only, pas d'origin
+// déclaré chez Google) ou si GOOGLE_OAUTH_CLIENT_ID est absent.
+// Cf. lib/auth/google-one-tap-provider.ts.
+const googleOneTapProvider = buildGoogleOneTapProvider({ prisma });
+
 // Logger d'audit OAuth (table hub_app.oauth_signin_events). Best-effort —
 // n'altère jamais le flow OAuth. Câblé sur l'event `signIn` (succès) et
 // l'override `logger.error` (échec). Cf. lib/auth/oauth-event-log.ts.
@@ -35,7 +43,14 @@ const oauthEventLogger = createOauthEventLogger({ prisma });
 
 // Providers OAuth réels — sert à distinguer un event `signIn` OAuth d'un
 // login Credentials (qu'on ne trace PAS dans oauth_signin_events).
-const OAUTH_PROVIDER_IDS = new Set(['google', 'microsoft-entra-id', 'mock-oauth']);
+// `google-one-tap` est un provider Credentials techniquement, mais c'est un
+// vrai sign-in Google (id_token GSI validé) — on le trace comme tel.
+const OAUTH_PROVIDER_IDS = new Set([
+  'google',
+  'microsoft-entra-id',
+  'mock-oauth',
+  'google-one-tap',
+]);
 
 // Codes d'erreur Auth.js qui signalent un échec de flow OAuth (à tracer).
 // `Configuration` et `OAuthCallbackError` sont déjà tagués critical par le
@@ -101,6 +116,9 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
     // provider est `null` et exclu du tableau par le `.filter()` ci-dessous.
     // Cf. lib/auth/mock-oauth-provider.ts pour les 3 garde-fous.
     ...(mockOauthProvider ? [mockOauthProvider] : []),
+    // Provider Google One Tap — null en staging (privatisation Tailscale)
+    // ou si le client_id OAuth Google n'est pas configuré.
+    ...(googleOneTapProvider ? [googleOneTapProvider] : []),
     Credentials({
       name: 'Email',
       credentials: {

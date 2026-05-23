@@ -200,7 +200,10 @@ describe('dispatchStripeEvent — checkout.session.completed', () => {
     );
   });
 
-  it('mode=payment → ignored (no subscription dispatched)', async () => {
+  it('mode=payment SANS metadata.kind=refill_leads → ignored (no subscription, no refill)', async () => {
+    // Note : un mode=payment avec metadata.kind=refill_leads est routé vers
+    // handleRefillLeadsCheckout (cf dispatcher-refill.test.ts). Ici on couvre
+    // explicitement la branche "ni subscription, ni refill" → bien ignored.
     const { dispatchStripeEvent } = await import('@/lib/stripe/dispatcher');
     const event = makeEvent('checkout.session.completed', {
       id: 'cs_pay',
@@ -216,6 +219,39 @@ describe('dispatchStripeEvent — checkout.session.completed', () => {
       expect(result.reason).toMatch(/checkout not subscription mode/);
     }
     expect(manageSubscriptionMock).not.toHaveBeenCalled();
+  });
+
+  it('mode=payment AVEC metadata.kind=refill_leads → routé vers refill (PAS ignored, PAS update-plan)', async () => {
+    // Garde-fou anti-régression : si quelqu'un casse le routage refill dans le
+    // dispatcher, ce test détecte que le flux `update-plan` est appelé à tort.
+    // Le détail du dispatch (HMAC, retry, idempotency) vit dans
+    // dispatcher-refill.test.ts — ici on vérifie juste la séparation des flux.
+    const { dispatchStripeEvent } = await import('@/lib/stripe/dispatcher');
+    const event = makeEvent('checkout.session.completed', {
+      id: 'cs_refill_route',
+      mode: 'payment',
+      subscription: null,
+      customer: 'cus_refill',
+      metadata: { kind: 'refill_leads', quantity: '500' },
+    });
+
+    // On injecte un client refill qui throw : le dispatcher doit catch via
+    // l'alertFn (handleRefillLeadsCheckout) — mais surtout PAS appeler
+    // manageSubscriptionStatusChange.
+    const result = await dispatchStripeEvent(event, {
+      creditLeadsClient: {
+        async creditLeads() {
+          throw new Error('refill client mocked');
+        },
+      } as never,
+    });
+
+    // Le contrat est : ne JAMAIS appeler le flow subscription pour un refill.
+    expect(manageSubscriptionMock).not.toHaveBeenCalled();
+    // L'outcome est `processed` (avec refill: ok=false par mock throw) ou
+    // `failed` selon le path d'erreur. Les deux sont acceptables ici, ce qui
+    // compte c'est le non-call subscription.
+    expect(['processed', 'failed']).toContain(result.status);
   });
 
   it('mode=subscription but subscription missing → ignored', async () => {

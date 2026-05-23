@@ -19,6 +19,11 @@ import { toDateTime } from '@/utils/helpers';
 import { getPlanByStripePriceId, getAppPlansForBundle } from '@/lib/pricing/helpers';
 import { NotifuseClient } from '@/lib/notifuse/client';
 import { NotifuseError, isNotifusePlan, type NotifusePlan } from '@/lib/notifuse/types';
+import {
+  computeWelcomeLeadsDelta,
+  type ProspectionLocalPlan,
+} from '@/lib/billing/refill-leads';
+import { grantWelcomeLeadsBestEffort } from '@/utils/tenants/provision';
 
 /**
  * Résultat de propagation Stripe → apps downstream, retourné par
@@ -213,6 +218,7 @@ export async function manageSubscriptionStatusChange(
     notifuseWorkspaceSlug: string | null;
     notifusePlan: string | null;
     prospectionPlan: string | null;
+    notifuseUserEmail: string | null;
     metadata: unknown;
   } | null = null;
 
@@ -224,6 +230,7 @@ export async function manageSubscriptionStatusChange(
         notifuseWorkspaceSlug: true,
         notifusePlan: true,
         prospectionPlan: true,
+        notifuseUserEmail: true,
         metadata: true,
       },
     });
@@ -291,6 +298,48 @@ export async function manageSubscriptionStatusChange(
       `(planKey=${planKey}, isActive=${isActive}, immune=${isImmuneNotifuse})`,
   );
 
+  // ─── 1bis. Welcome leads sur UPGRADE Prospection ───
+  // Si le palier Prospection augmente (free → pro → business), on crédite le
+  // DELTA de welcome leads (cf PRICING-VERIDIAN.md §78 + §97). Downgrade =
+  // pas d'appel (leads permanents). Idempotency_key déterministe (tenant +
+  // welcome_plan) → l'invariant "1 welcome par palier" est tenu côté
+  // Prospection même si on rejoue.
+  //
+  // On utilise l'email owner comme tenantIdOrEmail (résolution dual côté
+  // Prospection). Fallback : si email non en DB, on tente le tenantId.
+  if (isActive && isValidProspectionLocalPlan(targetProspection)) {
+    const oldPlan = isValidProspectionLocalPlan(tenant.prospectionPlan)
+      ? (tenant.prospectionPlan as ProspectionLocalPlan)
+      : null;
+    const delta = computeWelcomeLeadsDelta(oldPlan, targetProspection);
+    if (delta > 0) {
+      const ownerEmail = tenant.notifuseUserEmail;
+      if (ownerEmail) {
+        const welcomeRes = await grantWelcomeLeadsBestEffort({
+          hubTenantId: tenant.id,
+          ownerEmail,
+          welcomePlan: targetProspection,
+          quantityOverride: delta,
+        });
+        if (!welcomeRes.success) {
+          console.warn(
+            `[stripe-sync] welcome leads delta=${delta} grant failed (non-blocking) ` +
+              `tenant=${tenant.id} plan=${targetProspection} err=${welcomeRes.error}`,
+          );
+        } else {
+          console.log(
+            `[stripe-sync] welcome leads delta=${delta} credited tenant=${tenant.id} ` +
+              `plan=${targetProspection}`,
+          );
+        }
+      } else {
+        console.warn(
+          `[stripe-sync] welcome leads delta=${delta} skip — no owner email on tenant ${tenant.id}`,
+        );
+      }
+    }
+  }
+
   // ─── 2. Propagation HMAC Hub → Notifuse (§7.4) ───
   // Si l'app a son workspace provisionné. Si immune → on skip (le tenant ne
   // doit pas être bougé par Stripe).
@@ -351,4 +400,11 @@ function buildDefaultNotifuseClient(): NotifuseClient | null {
   const hubSecret = process.env.NOTIFUSE_HUB_API_SECRET;
   if (!apiUrl || !hubSecret) return null;
   return new NotifuseClient({ apiUrl, hubSecret });
+}
+
+/** Type-guard pour le plan local Prospection (BDD stocke des strings libres). */
+function isValidProspectionLocalPlan(
+  value: string | null | undefined,
+): value is ProspectionLocalPlan {
+  return value === 'freemium' || value === 'pro' || value === 'business';
 }

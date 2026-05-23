@@ -64,6 +64,9 @@ services:
       STRIPE_SECRET_KEY_LIVE: ${STRIPE_SECRET_KEY_TEST:-sk_test_fake}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET_TEST:-whsec_fake}
       STRIPE_WEBHOOK_SECRET_LIVE: ${STRIPE_WEBHOOK_SECRET_TEST:-whsec_fake}
+      # Product refill leads — isProduction() retourne false sur staging
+      # (DOMAIN=staging.veridian.site) donc utils/env.ts lit _TEST.
+      STRIPE_REFILL_PRODUCT_ID_TEST: ${STRIPE_REFILL_PRODUCT_ID_TEST:-prod_refill_fake}
 
       # ─── URLs staging ──────────────────────────────────────────────────
       NEXT_PUBLIC_SITE_URL: https://hub.staging.veridian.site

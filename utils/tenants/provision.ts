@@ -13,6 +13,12 @@ import {
   createProspectionClientFromEnv,
   ProspectionError,
 } from '@/lib/prospection/client';
+import {
+  createCreditLeadsClientFromEnv,
+  dispatchRefillWelcome,
+  getWelcomeLeadsForProspectionPlan,
+  type ProspectionLocalPlan,
+} from '@/lib/billing/refill-leads';
 import { prisma } from '@/lib/prisma';
 
 function slugify(email: string): string {
@@ -250,6 +256,23 @@ export async function provisionProspectionTenant(
 
     logStep('PROSPECTION', 'Stored in DB');
 
+    // ─── Welcome leads (best-effort, non-bloquant) ───
+    // Le tenant Hub vient d'être créé/mis à jour, le workspace Prospection
+    // existe. On crédite le quota welcome du plan freemium (cf
+    // PRICING-VERIDIAN.md §78 — 100 leads pour Free). Idempotency_key
+    // DÉTERMINISTE (tenantId + welcome_plan) → un retry ou un re-signup
+    // réémet la même clé et l'endpoint Prospection renvoie 200 sans
+    // double-crédit. Le garde DB Prospection `(workspace_id, welcome_plan)
+    // UNIQUE` est un 2e filet en cas de bug clé.
+    //
+    // Échec ici n'invalide PAS le provisioning : le user a son workspace,
+    // un cron de réconciliation (P2) peut rejouer.
+    await grantWelcomeLeadsBestEffort({
+      hubTenantId: tenantId,
+      ownerEmail: email,
+      welcomePlan: 'freemium',
+    });
+
     return {
       success: true,
       tenantId: data.tenant_id,
@@ -260,6 +283,66 @@ export async function provisionProspectionTenant(
     logError('PROSPECTION', error);
     return { success: false, error: error.message };
   }
+}
+
+/**
+ * Crédite les welcome leads d'un palier sur un tenant Prospection. Best-effort :
+ * échec loggué, jamais re-throw. Le caller continue son flow normalement.
+ *
+ * Utilisé :
+ *   - au provisioning Prospection initial (plan freemium → 100 leads)
+ *   - à l'upgrade de plan (delta entre paliers, cf dispatcher webhook)
+ */
+export async function grantWelcomeLeadsBestEffort(args: {
+  hubTenantId: string;
+  ownerEmail: string;
+  welcomePlan: ProspectionLocalPlan;
+  /** Optionnel : override quantity (utilisé pour les deltas d'upgrade). */
+  quantityOverride?: number;
+}): Promise<{ success: boolean; error?: string; quantity?: number }> {
+  const quantity =
+    args.quantityOverride ??
+    getWelcomeLeadsForProspectionPlan(args.welcomePlan);
+
+  if (quantity <= 0) {
+    logStep('PROSPECTION', `Welcome leads skip — quantity=${quantity} for plan ${args.welcomePlan}`);
+    return { success: true, quantity: 0 };
+  }
+
+  const client = createCreditLeadsClientFromEnv();
+  if (!client) {
+    logStep(
+      'PROSPECTION',
+      'Welcome leads skip — PROSPECTION_API_URL / PROSPECTION_HUB_API_SECRET missing',
+    );
+    return { success: false, error: 'client_not_configured' };
+  }
+
+  // tenantIdOrEmail envoyé dans le path Prospection : on passe l'email
+  // owner (résolution dual UUID/email côté Prospection). Le keyTenantId
+  // utilisé pour générer l'idempotency_key reste le Hub Tenant.id, qui est
+  // stable et ne dépend pas de l'email (si l'email change un jour).
+  const result = await dispatchRefillWelcome(client, {
+    tenantIdOrEmail: args.ownerEmail,
+    quantity,
+    welcomePlan: args.welcomePlan,
+    keyTenantId: args.hubTenantId,
+  });
+
+  if (result.ok) {
+    logStep(
+      'PROSPECTION',
+      `Welcome leads credited: plan=${args.welcomePlan} quantity=${quantity} ` +
+        `attempts=${result.attempts} replay=${result.response.idempotent_replay ?? false}`,
+    );
+    return { success: true, quantity };
+  }
+
+  console.warn(
+    `[PROSPECTION] Welcome leads grant failed (non-blocking) — plan=${args.welcomePlan} ` +
+      `quantity=${quantity} status=${result.status ?? 'network'} err=${result.error}`,
+  );
+  return { success: false, error: result.error, quantity };
 }
 
 // ============================================================

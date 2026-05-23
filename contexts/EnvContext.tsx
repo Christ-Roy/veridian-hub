@@ -12,6 +12,13 @@ export type EnvConfig = {
   NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: string;
   NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_LIVE: string;
   NEXT_PUBLIC_GTM_ID: string;
+  /**
+   * Client ID OAuth Google — requis côté navigateur par le widget Google
+   * One Tap (accounts.google.com/gsi/client). Ce n'est PAS un secret : le
+   * client_id OAuth apparaît dans toutes les URLs OAuth publiques. Vide en
+   * staging (One Tap désactivé, cf. google-one-tap-provider.ts).
+   */
+  NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID: string;
 };
 
 /**
@@ -33,6 +40,7 @@ const buildTimeEnv: EnvConfig = {
   NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '',
   NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_LIVE: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_LIVE || '',
   NEXT_PUBLIC_GTM_ID: process.env.NEXT_PUBLIC_GTM_ID || '',
+  NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID: process.env.NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID || '',
 };
 
 /**

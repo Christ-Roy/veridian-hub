@@ -6,6 +6,12 @@ import { LayoutDashboard } from 'lucide-react';
 
 import { prisma } from '@/lib/prisma';
 import { DashboardPageHeader } from '@/components/dashboard/PageHeader';
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 
 export default async function AdminOverviewPage() {
   // Récupérer tous les tenants (le layout admin a déjà gate sur isPlatformAdmin)
@@ -53,33 +59,39 @@ export default async function AdminOverviewPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
         {cards.map((c) => (
-          <div key={c.label} className="bg-card border border-border rounded-lg p-6">
-            <div className="text-xs uppercase text-muted-foreground tracking-wide">
-              {c.label}
-            </div>
-            <div className="text-3xl font-bold mt-2">{c.value}</div>
-          </div>
+          <Card key={c.label}>
+            <CardContent className="p-6">
+              <div className="text-xs uppercase text-muted-foreground tracking-wide">
+                {c.label}
+              </div>
+              <div className="text-3xl font-bold mt-2">{c.value}</div>
+            </CardContent>
+          </Card>
         ))}
       </div>
 
-      <div className="bg-card border border-border rounded-lg p-6">
-        <h2 className="text-sm font-semibold text-muted-foreground uppercase mb-4">
-          Répartition par plan
-        </h2>
-        <div className="space-y-2">
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm font-semibold text-muted-foreground uppercase">
+            Répartition par plan
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2">
           {Object.entries(byPlan)
             .sort(([, a], [, b]) => b - a)
             .map(([plan, count]) => (
               <div key={plan} className="flex items-center justify-between">
                 <span className="text-sm font-medium">{plan}</span>
-                <span className="text-sm font-mono text-muted-foreground">{count}</span>
+                <span className="text-sm font-mono text-muted-foreground">
+                  {count}
+                </span>
               </div>
             ))}
           {Object.keys(byPlan).length === 0 && (
             <div className="text-sm text-muted-foreground">Aucun tenant.</div>
           )}
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

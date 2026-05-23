@@ -5,48 +5,78 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { ExternalLink, Lock } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  ExternalLink,
+  Sparkles,
+  BarChart3,
+  FileText,
+  AppWindow,
+  type LucideIcon,
+} from 'lucide-react';
 import type { AppMetadata } from '@/lib/pricing/plans';
 
 interface ShadowAppCardProps {
   app: AppMetadata;
 }
 
+// Les apps client_only portent un emoji dans AppMetadata (lib/pricing/plans.ts,
+// hors périmètre). On le résout en icône lucide ici pour rester cohérent avec
+// le pattern conteneur tinté des autres cards du dashboard (ServiceCard,
+// ProspectionCard, TenantCard).
+const APP_ICONS: Record<string, LucideIcon> = {
+  analytics: BarChart3,
+  cms: FileText,
+};
+
 /**
  * Card "shadow marketing" pour apps client_only (Analytics, CMS) quand le
  * tenant n'a pas de plan lifetime_site_vitrine. Cf CONTRAT-HUB.md §8.9.
  *
- * État visuel : card grisée + badge "Inclus avec un site Veridian". Au click,
- * modal explicative + CTA vers veridian.site/sites.
+ * État visuel : card "upsell" pleinement lisible (pas grisée, pas de cadenas)
+ * avec badge "Offre site Veridian" — elle doit se lire comme une découverte,
+ * pas comme une feature verrouillée (cf ticket onboarding §4). Au click,
+ * Dialog explicatif (shadcn — focus trap, Escape, aria) + CTA vers
+ * veridian.site/sites.
  */
 export function ShadowAppCard({ app }: ShadowAppCardProps) {
   const [modalOpen, setModalOpen] = useState(false);
+  const Icon = APP_ICONS[app.key] ?? AppWindow;
 
   return (
     <>
       <Card
-        className="opacity-60 cursor-pointer hover:opacity-80 hover:shadow-md transition-all border-dashed"
+        className="cursor-pointer hover:shadow-md hover:border-primary/40 transition-all"
         onClick={() => setModalOpen(true)}
       >
         <CardHeader>
           <div className="flex items-start justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2 text-xl">
-                <span className="text-2xl">{app.icon}</span>
-                <span>{app.display_name}</span>
-              </CardTitle>
-              <CardDescription className="mt-1">{app.tagline}</CardDescription>
+            <div className="flex items-center gap-3">
+              <div className="rounded-md bg-primary/10 p-2">
+                <Icon className="h-6 w-6 text-primary" />
+              </div>
+              <div>
+                <CardTitle className="text-xl">{app.display_name}</CardTitle>
+                <CardDescription className="mt-1">{app.tagline}</CardDescription>
+              </div>
             </div>
-            <Badge variant="warning" className="text-xs">
-              <Lock className="h-3 w-3 mr-1" />
-              Site Veridian
+            <Badge variant="secondary" className="text-xs">
+              <Sparkles className="h-3 w-3 mr-1" />
+              Offre site Veridian
             </Badge>
           </div>
         </CardHeader>
         <CardContent>
           <div className="py-4 text-center text-sm text-muted-foreground">
             <p>Cette app est <strong>incluse avec l&apos;achat d&apos;un site vitrine Veridian</strong>.</p>
-            <p className="text-xs mt-2">Click pour en savoir plus.</p>
+            <p className="text-xs mt-2">Clique pour découvrir l&apos;offre.</p>
           </div>
         </CardContent>
         <CardFooter>
@@ -57,38 +87,24 @@ export function ShadowAppCard({ app }: ShadowAppCardProps) {
         </CardFooter>
       </Card>
 
-      {modalOpen && (
-        <ShadowAppModal app={app} onClose={() => setModalOpen(false)} />
-      )}
-    </>
-  );
-}
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent>
+          <DialogHeader className="items-center text-center">
+            <div className="rounded-md bg-primary/10 p-3 mb-1">
+              <Icon className="h-8 w-8 text-primary" />
+            </div>
+            <DialogTitle>{app.display_name}</DialogTitle>
+            <DialogDescription>{app.tagline}</DialogDescription>
+          </DialogHeader>
 
-function ShadowAppModal({ app, onClose }: { app: AppMetadata; onClose: () => void }) {
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
-      onClick={onClose}
-    >
-      <div
-        className="relative w-full max-w-lg mx-4 animate-in slide-in-from-bottom-4 duration-300"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <Card className="p-8 shadow-2xl">
-          <div className="text-center mb-6">
-            <div className="text-5xl mb-3">{app.icon}</div>
-            <h2 className="text-2xl font-bold">{app.display_name}</h2>
-            <p className="text-sm text-muted-foreground mt-2">{app.tagline}</p>
-          </div>
-
-          <Alert variant="warning" className="mb-6">
+          <Alert variant="warning">
             <AlertDescription>
               Cette application est <strong>incluse avec l&apos;achat d&apos;un site vitrine Veridian</strong>.
               Découvre nos offres clé en main pour entrepreneurs et TPE.
             </AlertDescription>
           </Alert>
 
-          <div className="flex flex-col gap-2">
+          <DialogFooter className="flex-col gap-2 sm:flex-col sm:space-x-0">
             <Button
               className="w-full"
               size="lg"
@@ -96,18 +112,18 @@ function ShadowAppModal({ app, onClose }: { app: AppMetadata; onClose: () => voi
                 if (app.marketing_url) {
                   window.open(app.marketing_url, '_blank', 'noopener,noreferrer');
                 }
-                onClose();
+                setModalOpen(false);
               }}
             >
               <ExternalLink className="mr-2 h-4 w-4" />
               Voir les sites Veridian
             </Button>
-            <Button variant="outline" className="w-full" onClick={onClose}>
+            <Button variant="outline" className="w-full" onClick={() => setModalOpen(false)}>
               Fermer
             </Button>
-          </div>
-        </Card>
-      </div>
-    </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }

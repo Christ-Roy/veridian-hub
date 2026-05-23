@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, ExternalLink, Info } from 'lucide-react';
+import { Loader2, ExternalLink, Info, Target } from 'lucide-react';
 import { StartTrialButton } from './StartTrialButton';
 
 interface ProspectionCardProps {
@@ -31,7 +31,9 @@ export function ProspectionCard({
 }: ProspectionCardProps) {
   const [loading, setLoading] = useState(false);
 
-  const planLabel = plan === 'freemium' ? 'Free (300 prospects)' : plan === 'pro' ? 'Pro (illimite)' : plan;
+  // Pas de quota chiffré dans le label — docs/PRICING-VERIDIAN.md interdit
+  // les compteurs visibles (tout illimité, conversion par la durée Free).
+  const planLabel = plan === 'freemium' ? 'Free' : plan === 'pro' ? 'Pro' : plan;
 
   const handleOpen = async () => {
     setLoading(true);
@@ -47,8 +49,8 @@ export function ProspectionCard({
         const data = await res.json();
 
         if (!res.ok || !data.login_url) {
-          toast.error('Failed to generate login link', {
-            description: data.error || 'Unknown error',
+          toast.error('Impossible de générer le lien de connexion', {
+            description: data.error || 'Erreur inconnue',
             duration: 5000,
           });
           return;
@@ -58,8 +60,8 @@ export function ProspectionCard({
       }
     } catch (error: any) {
       console.error('Error opening Prospection:', error);
-      toast.error('Error', {
-        description: error.message || 'Failed to open Prospection',
+      toast.error('Erreur', {
+        description: error.message || "Impossible d'ouvrir Prospection",
         duration: 5000,
       });
     } finally {
@@ -71,18 +73,20 @@ export function ProspectionCard({
     <Card className="hover:shadow-lg transition-shadow">
       <CardHeader>
         <div className="flex items-start justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2 text-xl">
-              <span className="text-2xl">🎯</span>
-              <span>Prospection</span>
-            </CardTitle>
-            <CardDescription className="mt-1">
-              Qualification de leads .fr
-            </CardDescription>
+          <div className="flex items-center gap-3">
+            <div className="rounded-md bg-primary/10 p-2">
+              <Target className="h-6 w-6 text-primary" />
+            </div>
+            <div>
+              <CardTitle className="text-xl">Prospection</CardTitle>
+              <CardDescription className="mt-1">
+                Qualification de leads .fr
+              </CardDescription>
+            </div>
           </div>
           {configured && (
             <Badge variant="success">
-              Active
+              Actif
             </Badge>
           )}
         </div>
@@ -92,7 +96,7 @@ export function ProspectionCard({
         {configured ? (
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Plan:</span>
+              <span className="text-muted-foreground">Formule :</span>
               <code className="bg-muted px-2 py-1 rounded text-xs">
                 {planLabel}
               </code>
@@ -103,11 +107,11 @@ export function ProspectionCard({
               <AlertDescription className="text-xs">
                 {tokenValid ? (
                   <span>
-                    <strong>Auto-login enabled</strong> — Click to open your dashboard
+                    <strong>Connexion automatique activée</strong> — clique pour ouvrir ton tableau de bord
                   </span>
                 ) : (
                   <span>
-                    <strong>New login link will be generated</strong> — Click below to access your dashboard
+                    <strong>Un nouveau lien de connexion sera généré</strong> — clique ci-dessous pour accéder à ton tableau de bord
                   </span>
                 )}
               </AlertDescription>
@@ -119,8 +123,7 @@ export function ProspectionCard({
               Qualifie tes leads .fr en quelques clics
             </p>
             <p className="text-xs">
-              Essai gratuit 15 jours — 300 prospects inclus, aucune carte
-              bancaire demandée.
+              Essai gratuit 15 jours — aucune carte bancaire demandée.
             </p>
           </div>
         )}
@@ -137,12 +140,12 @@ export function ProspectionCard({
             {loading ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {tokenValid ? 'Opening...' : 'Generating link...'}
+                {tokenValid ? 'Ouverture...' : 'Génération du lien...'}
               </>
             ) : (
               <>
                 <ExternalLink className="mr-2 h-4 w-4" />
-                Open Prospection
+                Ouvrir Prospection
               </>
             )}
           </Button>

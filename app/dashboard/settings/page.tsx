@@ -42,8 +42,8 @@ export default async function SettingsPage() {
   return (
     <div className="flex flex-col gap-8 p-4 md:p-8 max-w-4xl mx-auto w-full">
       <DashboardPageHeader
-        title="Settings"
-        description="Manage your account settings and workspaces"
+        title="Paramètres"
+        description="Gérez les paramètres de votre compte et vos workspaces"
         icon={Settings}
       />
 
@@ -51,9 +51,9 @@ export default async function SettingsPage() {
         {/* Profile Settings */}
         <Card>
           <CardHeader>
-            <CardTitle>Profile</CardTitle>
+            <CardTitle>Profil</CardTitle>
             <CardDescription>
-              Update your personal information
+              Mettez à jour vos informations personnelles
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -66,9 +66,9 @@ export default async function SettingsPage() {
         {/* Security Settings */}
         <Card>
           <CardHeader>
-            <CardTitle>Security</CardTitle>
+            <CardTitle>Sécurité</CardTitle>
             <CardDescription>
-              Change your password
+              Modifiez votre mot de passe
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -96,7 +96,7 @@ export default async function SettingsPage() {
             <CardHeader>
               <CardTitle>Workspaces</CardTitle>
               <CardDescription>
-                Your active workspaces and integrations
+                Vos workspaces et intégrations actifs
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -106,13 +106,13 @@ export default async function SettingsPage() {
                   <div className="flex items-center gap-2">
                     <h3 className="font-semibold">Notifuse</h3>
                     <Badge variant="success" className="ml-auto">
-                      Active
+                      Actif
                     </Badge>
                   </div>
                   <div className="text-sm text-muted-foreground space-y-1">
-                    <div><strong>Email:</strong> {tenant.notifuseUserEmail}</div>
+                    <div><strong>Email :</strong> {tenant.notifuseUserEmail}</div>
                     <div>
-                      <strong>Workspace:</strong>{' '}
+                      <strong>Workspace :</strong>{' '}
                       <code className="text-xs bg-muted px-2 py-0.5 rounded">
                         {tenant.notifuseWorkspaceSlug}
                       </code>
@@ -123,13 +123,13 @@ export default async function SettingsPage() {
 
               {!tenant.notifuseWorkspaceSlug && (
                 <div className="text-center py-6 text-muted-foreground">
-                  <p>No workspaces configured yet</p>
+                  <p>Aucun workspace configuré pour l&apos;instant</p>
                   <p className="text-sm mt-2">
-                    Go to the{' '}
+                    Rendez-vous sur le{' '}
                     <a href="/dashboard" className="text-primary hover:underline">
-                      dashboard
+                      tableau de bord
                     </a>{' '}
-                    to create your first workspace
+                    pour créer votre premier workspace
                   </p>
                 </div>
               )}
@@ -140,29 +140,29 @@ export default async function SettingsPage() {
         {/* Account Info */}
         <Card>
           <CardHeader>
-            <CardTitle>Account Information</CardTitle>
+            <CardTitle>Informations du compte</CardTitle>
             <CardDescription>
-              View your account details
+              Consultez les détails de votre compte
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Account ID</span>
+              <span className="text-muted-foreground">Identifiant du compte</span>
               <code className="text-xs bg-muted px-2 py-0.5 rounded">{user.id.slice(0, 8)}...</code>
             </div>
             <Separator />
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Email Verified</span>
+              <span className="text-muted-foreground">Email vérifié</span>
               <span className={dbUser?.emailVerified ? 'text-success' : 'text-warning'}>
-                {dbUser?.emailVerified ? 'Verified' : 'Not verified'}
+                {dbUser?.emailVerified ? 'Vérifié' : 'Non vérifié'}
               </span>
             </div>
             <Separator />
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Member Since</span>
+              <span className="text-muted-foreground">Membre depuis</span>
               <span>
                 {dbUser?.createdAt
-                  ? new Date(dbUser.createdAt).toLocaleDateString()
+                  ? new Date(dbUser.createdAt).toLocaleDateString('fr-FR')
                   : '—'}
               </span>
             </div>
@@ -172,14 +172,14 @@ export default async function SettingsPage() {
         {/* Danger Zone */}
         <Card className="border-destructive">
           <CardHeader>
-            <CardTitle className="text-destructive">Danger Zone</CardTitle>
+            <CardTitle className="text-destructive">Zone de danger</CardTitle>
             <CardDescription>
-              Irreversible actions
+              Actions irréversibles
             </CardDescription>
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground mb-4">
-              If you need to delete your account or workspaces, please contact support.
+              Pour supprimer votre compte ou vos workspaces, contactez le support.
             </p>
           </CardContent>
         </Card>

@@ -39,7 +39,7 @@ export function NavMain({
                 <SidebarMenuButton
                   tooltip={item.title}
                   asChild
-                  className={item.title === "Dashboard" ? "bg-primary text-primary-foreground hover:bg-primary/90" : ""}
+                  className={item.url === "/dashboard" ? "bg-primary text-primary-foreground hover:bg-primary/90" : ""}
                 >
                   <Link href={item.url}>
                     {item.icon && <item.icon />}

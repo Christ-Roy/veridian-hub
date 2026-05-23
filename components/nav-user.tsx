@@ -103,13 +103,13 @@ export function NavUser({
               <DropdownMenuItem asChild>
                 <Link href="/dashboard/settings" className="cursor-pointer">
                   <UserCircleIcon />
-                  Account
+                  Mon compte
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link href="/dashboard/billing" className="cursor-pointer">
                   <CreditCardIcon />
-                  Billing
+                  Facturation
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
@@ -128,7 +128,7 @@ export function NavUser({
               }}
             >
               <LogOutIcon />
-              Log out
+              Déconnexion
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

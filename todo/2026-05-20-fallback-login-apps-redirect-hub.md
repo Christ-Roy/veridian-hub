@@ -5,6 +5,56 @@
 > **Owner** : agent Hub (pour spec) + agents Notifuse/Prospection/Analytics/CMS (pour impl côté chaque app)
 > **Créé** : 2026-05-20
 
+## ⚠️ STATUT 2026-05-23 — spec gravée dans CONTRAT-HUB, à implémenter
+
+**Ce ticket n'est plus une spec à débattre — c'est une implémentation à
+livrer.** La spec OAuth cross-app a été formalisée dans le contrat
+2026-05-23 :
+
+➡️ **`docs/CONTRAT-HUB.md` §6bis.8 « Couche 4 — Bounce OAuth Hub »**
+
+Le contrat couvre désormais, de façon **agnostique au nom des apps** (toute
+future `*.veridian.site` est éligible sans modif Hub) :
+- 6bis.8.1 — bouton standardisé côté apps downstream
+- 6bis.8.2 — gestion du `?next=` côté Hub + whitelist regex anti
+  open-redirect
+- 6bis.8.3 — endpoint contractuel `POST /api/sso/issue-magic-link`
+  exposé par chaque app (réutilise la logique magic_link couche 3)
+- 6bis.8.4 — cas particuliers (user déjà loggué, staging, boucle)
+- 6bis.8.5 — tests contractuels obligatoires Hub + apps
+- 6bis.8.6 — récap onboarding nouvelle app (zéro modif Hub requise)
+
+Et la §5 liste désormais 9 endpoints obligatoires (le 9e étant
+`issue-magic-link`).
+
+**Ce qui est livré** : OAuth Google + Microsoft sur
+`app.veridian.site/login` (Auth.js v5, livré 2026-05-20). Login direct OK
+en prod.
+
+**Ce qui reste à implémenter (agent Hub)** :
+1. Param `?next=<url>` sur `/login` Hub (cf. 6bis.8.2)
+2. Cookie temporaire `__Secure-veridian-next` pour persister `next`
+   pendant le flow OAuth
+3. Après OAuth réussi : extraire app cible du `next`, appeler
+   `POST /api/sso/issue-magic-link` en HMAC, redirect 302 vers le magic
+   link reçu
+4. Gestion erreurs (5xx app, 400 user_not_in_app, next invalide)
+5. Tests CI bloquants (cf. 6bis.8.5)
+
+**Ce qui reste à implémenter (chaque app downstream)** :
+- Endpoint `POST /api/sso/issue-magic-link` (HMAC §6.1, contrat 6bis.8.3)
+- Boutons standardisés sur `/login` (6bis.8.1)
+- Tests CI bloquants
+
+**Impact actuel** : 1+ tickets bloqués en attente côté apps :
+- `notifuse-veridian/todo/2026-05-20-add-oauth-buttons-login-page.md`
+- Prospection / Analytics / CMS : à créer si pas déjà fait.
+
+**Estimation Hub restant** : ~45-60 min (élargi pour couvrir la
+gestion cookie + erreurs propres + tests).
+
+---
+
 ## Contexte
 
 Aujourd'hui, chaque app downstream a sa propre **page de login fallback** :

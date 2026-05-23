@@ -1,10 +1,10 @@
 # 🔒 Veille CVE automatique — veridian-hub
 
 > **Généré par** : `veridian-infra/.github/workflows/cron-trivy.yml`
-> **Dernier run** : 2026-05-22 04:05 UTC
-> **Run URL** : local-cron@mail.mybigserveur.local:2026-05-22
+> **Dernier run** : 2026-05-23 04:06 UTC
+> **Run URL** : local-cron@mail.mybigserveur.local:2026-05-23
 > **Image scannée** : `ghcr.io/christ-roy/veridian-hub:latest`
-> **CVE bruts détectés** : 7 (avant filtrage)
+> **CVE bruts détectés** : 8 (avant filtrage)
 > **Scoring** : `veridian-infra/ci/trivy-scoring.yml`
 
 ## TL;DR
@@ -12,7 +12,7 @@
 - 🚨 **0 RED** — fix prioritaire
 - 🔴 **0 HIGH** — action recommandée cette semaine
 - 🟡 **5 MEDIUM** — récap, pas urgent
-- 🟢 **1 NOISE** — annexe collapse
+- 🟢 **2 NOISE** — annexe collapse
 
 ✅ **Rien d'urgent.** Quelques items MEDIUM à voir quand t'as 5 min.
 
@@ -60,13 +60,14 @@
 
 ---
 
-## 🟢 NOISE filtré (1 CVE)
+## 🟢 NOISE filtré (2 CVE)
 
 <details>
-<summary>Liste complète (1 groupe — clique pour déplier)</summary>
+<summary>Liste complète (2 groupes — clique pour déplier)</summary>
 
 | Package | Installed | Fix | CVE count | Max score |
 |---|---|---|---|---|
+| `qs` | 6.15.1 | 6.15.2 | 1 | 6 |
 | `brace-expansion` | 2.0.2 | 5.0.5 | 1 | 6 |
 
 </details>

@@ -70,6 +70,14 @@ export default async function RootLayout({ children }: PropsWithChildren) {
     NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '',
     NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_LIVE: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_LIVE || '',
     NEXT_PUBLIC_GTM_ID: process.env.NEXT_PUBLIC_GTM_ID || '',
+    // Le client_id OAuth Google n'a pas de var NEXT_PUBLIC_ dédiée côté
+    // compose : on réutilise GOOGLE_OAUTH_CLIENT_ID (déjà injecté pour
+    // Auth.js) et on le sert au navigateur via window.__ENV__. Le client_id
+    // OAuth est public par nature, pas un secret.
+    NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID:
+      process.env.NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID ||
+      process.env.GOOGLE_OAUTH_CLIENT_ID ||
+      '',
   };
 
   return (

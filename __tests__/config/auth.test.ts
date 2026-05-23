@@ -87,6 +87,18 @@ describe('auth.ts — invariants de config critiques', () => {
     expect(authSource).toMatch(/mockOauthProvider\s*\?\s*\[mockOauthProvider\]\s*:\s*\[\]/);
   });
 
+  it('provider Google One Tap câblé conditionnellement (null en staging Tailscale)', () => {
+    // Le câblage One Tap a été ajouté côté auth.ts (le provider lui-même
+    // est testé dans google-one-tap-provider.test.ts). Ici on verrouille
+    // uniquement que auth.ts l'instancie ET l'insère sous garde — comme le
+    // mock provider, il doit renvoyer null en staging / sans client_id et
+    // être exclu du tableau plutôt qu'inliné sans guard.
+    expect(authSource).toMatch(/buildGoogleOneTapProvider\s*\(/);
+    expect(authSource).toMatch(
+      /googleOneTapProvider\s*\?\s*\[googleOneTapProvider\]\s*:\s*\[\]/,
+    );
+  });
+
   it('le logger Auth.js émet [auth-error][critical] sur Configuration + OAuthCallbackError', () => {
     // Garde-fou monitoring Grafana Loki. Si quelqu'un retire le logger
     // structuré, les incidents OAuth deviennent invisibles dans les
@@ -120,6 +132,16 @@ describe('auth.ts — câblage audit OAuth (oauth_signin_events)', () => {
     // Le set OAUTH_PROVIDER_IDS gate l'appel à recordOauthSuccess.
     expect(authSource).toMatch(/OAUTH_PROVIDER_IDS/);
     expect(authSource).toMatch(/OAUTH_PROVIDER_IDS\.has\(/);
+  });
+
+  it('google-one-tap est tracé comme un vrai sign-in OAuth (présent dans OAUTH_PROVIDER_IDS)', () => {
+    // `google-one-tap` est techniquement un provider Credentials, mais c'est
+    // un vrai login Google (id_token GSI validé). Il doit donc figurer dans
+    // OAUTH_PROVIDER_IDS pour que les sign-in One Tap remontent dans
+    // oauth_signin_events au lieu d'être confondus avec un login mot de passe.
+    expect(authSource).toMatch(
+      /OAUTH_PROVIDER_IDS\s*=\s*new Set\(\[[\s\S]*?'google-one-tap'[\s\S]*?\]\)/,
+    );
   });
 
   it('câble l\'échec OAuth : logger.error appelle recordOauthFailure sur les error names OAuth', () => {

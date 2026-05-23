@@ -24,11 +24,11 @@ export default function PasswordForm() {
     setSuccess(false);
 
     if (newPassword.length < 6) {
-      setError('Password must be at least 6 characters long');
+      setError('Le mot de passe doit contenir au moins 6 caractères');
       return;
     }
     if (newPassword !== confirmPassword) {
-      setError('Passwords do not match');
+      setError('Les mots de passe ne correspondent pas');
       return;
     }
 
@@ -43,7 +43,7 @@ export default function PasswordForm() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(data.error || 'Failed to update password');
+        setError(data.error || 'Échec de la mise à jour du mot de passe');
         return;
       }
 
@@ -53,7 +53,7 @@ export default function PasswordForm() {
 
       setTimeout(() => setSuccess(false), 5000);
     } catch (err: any) {
-      setError(err?.message || 'An unexpected error occurred');
+      setError(err?.message || 'Une erreur inattendue est survenue');
     } finally {
       setIsSubmitting(false);
     }
@@ -70,17 +70,17 @@ export default function PasswordForm() {
       {success && (
         <div className="p-4 rounded-md bg-green-500/10 border border-green-500/20">
           <p className="text-sm text-green-600 dark:text-green-400 font-medium">
-            Password updated successfully.
+            Mot de passe mis à jour.
           </p>
         </div>
       )}
 
       <div className="space-y-2">
-        <Label htmlFor="new-password">New Password</Label>
+        <Label htmlFor="new-password">Nouveau mot de passe</Label>
         <Input
           id="new-password"
           type="password"
-          placeholder="Enter new password"
+          placeholder="Saisir le nouveau mot de passe"
           value={newPassword}
           onChange={(e) => setNewPassword(e.target.value)}
           required
@@ -88,16 +88,16 @@ export default function PasswordForm() {
           disabled={isSubmitting}
         />
         <p className="text-xs text-muted-foreground">
-          Must be at least 6 characters long
+          Au moins 6 caractères
         </p>
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="confirm-password">Confirm New Password</Label>
+        <Label htmlFor="confirm-password">Confirmer le nouveau mot de passe</Label>
         <Input
           id="confirm-password"
           type="password"
-          placeholder="Confirm new password"
+          placeholder="Confirmer le nouveau mot de passe"
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.target.value)}
           required
@@ -111,7 +111,7 @@ export default function PasswordForm() {
         disabled={isSubmitting || !newPassword || !confirmPassword}
         className="w-full"
       >
-        {isSubmitting ? 'Updating...' : 'Update Password'}
+        {isSubmitting ? 'Mise à jour...' : 'Mettre à jour le mot de passe'}
       </Button>
     </form>
   );

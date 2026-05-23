@@ -36,13 +36,13 @@ export default function EmailForm({
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        toast.error(data.error || 'Failed to update email');
+        toast.error(data.error || "Échec de la mise à jour de l'email");
         return;
       }
-      toast.success('Email updated. Please check your inbox to verify.');
+      toast.success('Email mis à jour. Vérifiez votre boîte de réception pour confirmer.');
       router.refresh();
     } catch (err: any) {
-      toast.error(err?.message || 'Network error');
+      toast.error(err?.message || 'Erreur réseau');
     } finally {
       setIsSubmitting(false);
     }
@@ -50,12 +50,12 @@ export default function EmailForm({
 
   return (
     <CardWrapper
-      title="Your Email"
-      description="Please enter the email address you want to use to login."
+      title="Votre email"
+      description="Saisissez l'adresse email que vous souhaitez utiliser pour vous connecter."
       footer={
         <div className="flex flex-col items-start justify-between sm:flex-row sm:items-center">
           <p className="pb-4 sm:pb-0">
-            We will email you to verify the change.
+            Nous vous enverrons un email pour confirmer le changement.
           </p>
           <Button
             variant="slim"
@@ -63,7 +63,7 @@ export default function EmailForm({
             form="emailForm"
             loading={isSubmitting}
           >
-            Update Email
+            Mettre à jour l'email
           </Button>
         </div>
       }
@@ -75,7 +75,7 @@ export default function EmailForm({
             name="newEmail"
             className="input-base w-1/2"
             defaultValue={userEmail ?? ''}
-            placeholder="Your email"
+            placeholder="Votre email"
             maxLength={64}
           />
         </form>

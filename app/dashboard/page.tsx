@@ -4,7 +4,7 @@ import { ProspectionCard } from './components/ProspectionCard';
 import { ServiceCard } from './components/ServiceCard';
 import { ShadowAppCard } from './components/ShadowAppCard';
 import { RefreshButton } from './components/RefreshButton';
-import { Alert, AlertDescription } from '@/components/ui/alert';
+import { OnboardingChecklist } from './components/OnboardingChecklist';
 import { DashboardPageHeader } from '@/components/dashboard/PageHeader';
 import { LayoutDashboard } from 'lucide-react';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
@@ -46,6 +46,32 @@ export default async function DashboardPage() {
       metadata: true,
     },
   });
+
+  // Workspace réel du user — auto-créé au signup (commit 29737a4). Sert au
+  // titre dynamique de la page et au repère d'onboarding. `_count.members`
+  // permet de savoir si le user a déjà invité quelqu'un. Tout échec DB →
+  // fallback silencieux (le dashboard reste affichable).
+  const workspace = await prisma.workspace
+    .findFirst({
+      where: {
+        members: { some: { userId: user.id } },
+        deletedAt: null,
+      },
+      select: { name: true, _count: { select: { members: true } } },
+    })
+    .catch((err) => {
+      console.error('[Dashboard] Failed to fetch workspace:', err);
+      return null;
+    });
+  const workspaceName = workspace?.name ?? 'Mon espace de travail';
+
+  // Heuristique d'onboarding (pas de colonne `onboardingCompleted`, donc pas
+  // de migration DB) : l'onboarding est en cours tant qu'aucune app n'a été
+  // démarrée. Contrairement à l'ancien repère gardé sur `!tenant`, il ne
+  // disparaît pas au premier trial — il disparaît à la première app démarrée.
+  const hasStartedApp =
+    !!tenant?.prospectionProvisionedAt || !!tenant?.notifuseWorkspaceSlug;
+  const hasInvitedMember = (workspace?._count.members ?? 1) > 1;
 
   // §8.9.4 : tenants avec un plan offert "lifetime_site_vitrine" voient
   // Analytics + CMS comme apps actives. Détecté via metadata.notifuse_plan_source
@@ -96,8 +122,8 @@ export default async function DashboardPage() {
   return (
     <div className="container mx-auto p-8 max-w-6xl">
       <DashboardPageHeader
-        title="My Workspace"
-        description="Your Veridian SaaS apps and tracking services in one place"
+        title={workspaceName}
+        description="Vos apps SaaS et services de suivi Veridian réunis au même endroit"
         icon={LayoutDashboard}
         action={<RefreshButton />}
         className="mb-8"
@@ -120,14 +146,11 @@ export default async function DashboardPage() {
         </div>
       )}
 
-      {!tenant && (
-        <Alert variant="info" className="mb-6">
-          <AlertDescription>
-            👋 Bienvenue ! Démarre ton essai gratuit sur l&apos;app de ton choix
-            ci-dessous. Pas de carte bancaire, 15 jours offerts par app.
-          </AlertDescription>
-        </Alert>
-      )}
+      <OnboardingChecklist
+        workspaceName={workspaceName}
+        hasStartedApp={hasStartedApp}
+        hasInvitedMember={hasInvitedMember}
+      />
 
       <section className="mb-12">
         <div className="mb-4">

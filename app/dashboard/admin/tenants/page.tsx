@@ -2,6 +2,36 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
+import { Users } from "lucide-react";
+
+import { DashboardPageHeader } from "@/components/dashboard/PageHeader";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 import { NotifuseAdminPanel, type NotifuseSummary } from "./NotifuseAdminPanel";
 
@@ -40,6 +70,8 @@ export default function AdminTenantsPage() {
   const [tenants, setTenants] = useState<Tenant[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("");
+  // Tenant ciblé par le dialog de suppression de trial (null = dialog fermé).
+  const [trialToClear, setTrialToClear] = useState<Tenant | null>(null);
 
   async function fetchTenants() {
     setLoading(true);
@@ -49,7 +81,7 @@ export default function AdminTenantsPage() {
       const body = await res.json();
       setTenants(body.tenants ?? body ?? []);
     } catch (e) {
-      toast.error(`Chargement échoué: ${e instanceof Error ? e.message : "?"}`);
+      toast.error(`Chargement échoué : ${e instanceof Error ? e.message : "?"}`);
     } finally {
       setLoading(false);
     }
@@ -78,7 +110,7 @@ export default function AdminTenantsPage() {
       if (data.notifuse_url) urls.push(data.notifuse_url);
       for (const u of urls) window.open(u, "_blank", "noopener");
     } catch (e) {
-      toast.error(`Impersonate échoué: ${e instanceof Error ? e.message : "?"}`);
+      toast.error(`Impersonate échoué : ${e instanceof Error ? e.message : "?"}`);
     }
   }
 
@@ -103,7 +135,7 @@ export default function AdminTenantsPage() {
       });
       await fetchTenants();
     } catch (e) {
-      toast.error(`Set plan échoué: ${e instanceof Error ? e.message : '?'}`);
+      toast.error(`Set plan échoué : ${e instanceof Error ? e.message : '?'}`);
     }
   }
 
@@ -131,7 +163,7 @@ export default function AdminTenantsPage() {
       );
       await fetchTenants();
     } catch (e) {
-      toast.error(`Set trial échoué: ${e instanceof Error ? e.message : '?'}`);
+      toast.error(`Set trial échoué : ${e instanceof Error ? e.message : '?'}`);
     }
   }
 
@@ -143,98 +175,120 @@ export default function AdminTenantsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold">Tenants</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Plans par app + trial editable. Source de vérité : DB Hub +
-            propagation Notifuse via HMAC.
-          </p>
-        </div>
-        <input
-          type="text"
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          placeholder="Filtrer par email..."
-          className="px-3 py-2 border border-border bg-background text-foreground rounded-lg text-sm w-64 focus-visible:ring-2 focus-visible:ring-ring outline-none"
-        />
-      </div>
+      <DashboardPageHeader
+        title="Tenants"
+        icon={Users}
+        description="Plans par app + trial éditable. Source de vérité : DB Hub + propagation Notifuse via HMAC."
+        action={
+          <Input
+            type="text"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="Filtrer par email..."
+            className="w-64"
+            aria-label="Filtrer les tenants par email"
+          />
+        }
+        className="mb-6"
+      />
 
-      <div className="bg-card rounded-lg border border-border overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-muted border-b border-border">
-            <tr>
-              <th className="text-left px-4 py-2 font-medium">Email</th>
-              <th className="text-left px-4 py-2 font-medium">Plan Prospection</th>
-              <th className="text-left px-4 py-2 font-medium">Plan Notifuse</th>
-              <th className="text-left px-4 py-2 font-medium">Trial expire</th>
-              <th className="text-left px-4 py-2 font-medium">Créé le</th>
-              <th className="text-left px-4 py-2 font-medium">Notifuse</th>
-              <th className="text-right px-4 py-2 font-medium">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
+      <div className="bg-card rounded-lg border border-border overflow-x-auto">
+        <Table>
+          <TableHeader className="bg-muted">
+            <TableRow>
+              <TableHead>Email</TableHead>
+              <TableHead>Plan Prospection</TableHead>
+              <TableHead>Plan Notifuse</TableHead>
+              <TableHead>Trial expire</TableHead>
+              <TableHead>Créé le</TableHead>
+              <TableHead>Notifuse</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {loading && (
-              <tr>
-                <td colSpan={7} className="text-center text-muted-foreground py-8">
+              <TableRow>
+                <TableCell
+                  colSpan={7}
+                  className="text-center text-muted-foreground py-8"
+                >
                   Chargement...
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             )}
             {!loading && filtered.length === 0 && (
-              <tr>
-                <td colSpan={7} className="text-center text-muted-foreground py-8">
+              <TableRow>
+                <TableCell
+                  colSpan={7}
+                  className="text-center text-muted-foreground py-8"
+                >
                   Aucun tenant.
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             )}
             {!loading &&
               filtered.map((t) => {
                 const notifusePlan = t.services?.notifuse?.plan ?? 'free';
-                const prospectionPlan = t.services?.prospection?.plan ?? 'freemium';
+                const prospectionPlan =
+                  t.services?.prospection?.plan ?? 'freemium';
+                const notifuseProvisioned = !!t.services?.notifuse?.provisioned;
                 const trialValue = t.trial_ends_at
                   ? t.trial_ends_at.slice(0, 10)
                   : '';
                 return (
-                  <tr key={t.tenant_id ?? t.email} className="border-b border-border hover:bg-muted/50">
-                    <td className="px-4 py-2 font-medium">{t.email}</td>
+                  <TableRow key={t.tenant_id ?? t.email}>
+                    <TableCell className="font-medium">{t.email}</TableCell>
 
-                    <td className="px-4 py-2">
-                      <select
+                    <TableCell>
+                      <Select
                         value={prospectionPlan}
-                        onChange={(e) => {
-                          if (t.tenant_id) setPlan(t.tenant_id, 'prospection', e.target.value);
+                        onValueChange={(v) => {
+                          if (t.tenant_id) setPlan(t.tenant_id, 'prospection', v);
                         }}
-                        className="text-xs px-2 py-1 rounded border border-border bg-background text-foreground"
                       >
-                        {PROSPECTION_PLAN_OPTIONS.map((p) => (
-                          <option key={p} value={p}>{p}</option>
-                        ))}
-                      </select>
-                    </td>
+                        <SelectTrigger className="h-8 w-36 text-xs">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {PROSPECTION_PLAN_OPTIONS.map((p) => (
+                            <SelectItem key={p} value={p} className="text-xs">
+                              {p}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
 
-                    <td className="px-4 py-2">
-                      <select
+                    <TableCell>
+                      <Select
                         value={notifusePlan}
-                        onChange={(e) => {
-                          if (t.tenant_id) setPlan(t.tenant_id, 'notifuse', e.target.value);
+                        onValueChange={(v) => {
+                          if (t.tenant_id) setPlan(t.tenant_id, 'notifuse', v);
                         }}
-                        disabled={!t.services?.notifuse?.provisioned}
-                        className="text-xs px-2 py-1 rounded border border-border bg-background text-foreground disabled:opacity-50"
-                        title={
-                          t.services?.notifuse?.provisioned
-                            ? ''
-                            : 'Workspace Notifuse non provisionné'
-                        }
+                        disabled={!notifuseProvisioned}
                       >
-                        {NOTIFUSE_PLAN_OPTIONS.map((p) => (
-                          <option key={p} value={p}>{p}</option>
-                        ))}
-                      </select>
-                    </td>
+                        <SelectTrigger
+                          className="h-8 w-44 text-xs"
+                          title={
+                            notifuseProvisioned
+                              ? ''
+                              : 'Workspace Notifuse non provisionné'
+                          }
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {NOTIFUSE_PLAN_OPTIONS.map((p) => (
+                            <SelectItem key={p} value={p} className="text-xs">
+                              {p}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </TableCell>
 
-                    <td className="px-4 py-2 text-xs">
-                      <input
+                    <TableCell className="text-xs">
+                      <Input
                         type="date"
                         defaultValue={trialValue}
                         onBlur={(e) => {
@@ -243,26 +297,28 @@ export default function AdminTenantsPage() {
                           const next = e.target.value;
                           if (next === current) return;
                           if (next === '') {
-                            if (confirm(`Supprimer le trial pour ${t.email} (free pour toujours) ?`)) {
-                              setTrial(t.tenant_id, null);
-                            } else {
-                              e.target.value = current;
-                            }
+                            // Suppression de trial = action sensible →
+                            // confirmation via AlertDialog. On remet la valeur
+                            // courante en attendant la décision de l'admin ;
+                            // le dialog déclenchera setTrial(null) si confirmé.
+                            e.target.value = current;
+                            setTrialToClear(t);
                           } else {
                             setTrial(t.tenant_id, new Date(next).toISOString());
                           }
                         }}
-                        className="text-xs px-2 py-1 rounded border border-border bg-background text-foreground w-36"
+                        className="h-8 w-36 text-xs"
+                        aria-label={`Date de fin de trial pour ${t.email}`}
                       />
-                    </td>
+                    </TableCell>
 
-                    <td className="px-4 py-2 text-xs text-muted-foreground">
+                    <TableCell className="text-xs text-muted-foreground">
                       {t.created_at
                         ? new Date(t.created_at).toLocaleDateString("fr-FR")
                         : "-"}
-                    </td>
+                    </TableCell>
 
-                    <td className="px-4 py-2 relative">
+                    <TableCell className="relative">
                       {t.tenant_id && t.services?.notifuse ? (
                         <NotifuseAdminPanel
                           tenantId={t.tenant_id}
@@ -273,22 +329,56 @@ export default function AdminTenantsPage() {
                       ) : (
                         <span className="text-xs text-muted-foreground">-</span>
                       )}
-                    </td>
+                    </TableCell>
 
-                    <td className="px-4 py-2 text-right">
-                      <button
+                    <TableCell className="text-right">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        className="text-xs"
                         onClick={() => impersonate(t.email ?? "")}
-                        className="text-xs px-2 py-1 rounded bg-muted text-foreground hover:bg-accent"
                       >
                         Impersonate
-                      </button>
-                    </td>
-                  </tr>
+                      </Button>
+                    </TableCell>
+                  </TableRow>
                 );
               })}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
+
+      <AlertDialog
+        open={trialToClear !== null}
+        onOpenChange={(open) => {
+          if (!open) setTrialToClear(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Supprimer le trial ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Le tenant{' '}
+              <strong>{trialToClear?.email}</strong> passera en accès gratuit
+              sans date de fin (free pour toujours). Tu peux toujours redéfinir
+              une date de trial ensuite.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (trialToClear?.tenant_id) {
+                  setTrial(trialToClear.tenant_id, null);
+                }
+                setTrialToClear(null);
+              }}
+            >
+              Supprimer le trial
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
