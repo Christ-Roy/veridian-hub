@@ -93,6 +93,19 @@ services:
       PROSPECTION_TENANT_API_SECRET: ${PROSPECTION_TENANT_API_SECRET_STAGING:-staging-secret}
       PROSPECTION_WEBHOOK_TOKEN: ${PROSPECTION_WEBHOOK_TOKEN:-staging-token-not-real}
 
+      # ─── Analytics ─────────────────────────────────────────────────────
+      # URL admin API (Pattern A legacy x-admin-key — lib/analytics/client.ts).
+      ANALYTICS_API_URL: ${ANALYTICS_API_URL_STAGING:-https://analytics-engine.staging.veridian.site}
+      ANALYTICS_ADMIN_KEY: ${ANALYTICS_ADMIN_KEY_STAGING:-}
+      # HMAC partagé Hub ↔ Analytics bridge (contrat v1 §6.1 — sprint B3).
+      # Secret réel généré 2026-05-22 (HUB_HMAC_SECRET_ANALYTICS_STAGING dans
+      # ~/credentials/.all-creds.env, aussi exposé sous le nom canonique
+      # ANALYTICS_HUB_API_SECRET_STAGING). Fallback safe pour les boots
+      # locaux sans CI : tous les appels HMAC seront refusés côté bridge
+      # (mismatch attendu). Côté Analytics bridge la var s'appelle
+      # HUB_HMAC_SECRET et porte la même valeur.
+      ANALYTICS_HUB_API_SECRET: ${ANALYTICS_HUB_API_SECRET_STAGING:-staging-analytics-hub-secret-not-real-e2e}
+
       # ─── Services tiers staging ────────────────────────────────────────
       BREVO_API_KEY: ${BREVO_API_KEY_STAGING:-}
       CRON_SECRET: staging-cron-secret

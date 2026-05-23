@@ -68,6 +68,18 @@ services:
       # Bearer token v1.4 — Prospection POST /api/webhooks/prospection.
       PROSPECTION_WEBHOOK_TOKEN: ${PROSPECTION_WEBHOOK_TOKEN}
 
+      # ─── Analytics prod ────────────────────────────────────────────────
+      # URL admin API (Pattern A legacy x-admin-key — lib/analytics/client.ts).
+      ANALYTICS_API_URL: ${ANALYTICS_API_URL:-https://analytics.app.veridian.site}
+      ANALYTICS_ADMIN_KEY: ${ANALYTICS_ADMIN_KEY:-}
+      # HMAC partagé Hub ↔ Analytics bridge (contrat v1 §6.1 — sprint B3).
+      # Valeur dans ~/credentials/.all-creds.env (ANALYTICS_HUB_API_SECRET,
+      # = ANALYTICS_ENGINE_PROD_HUB_HMAC_SECRET côté Analytics). À injecter
+      # dans Dokploy ENV stack Hub prod le jour du câblage du client HMAC
+      # Hub→Analytics (ticket veridian-analytics
+      # `2026-05-20-hub-integration-when-saas-launched.md`).
+      ANALYTICS_HUB_API_SECRET: ${ANALYTICS_HUB_API_SECRET:-}
+
       # ─── Services tiers prod ───────────────────────────────────────────
       BREVO_API_KEY: ${BREVO_API_KEY}
       CRON_SECRET: ${CRON_SECRET}
