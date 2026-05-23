@@ -40,6 +40,7 @@ import {
   adminHeaders,
   freshIpHeader,
   uniqueEmail as makeEmail,
+  setupCall,
   withRateLimitRetry,
 } from './_helpers';
 import { runSqlOnStaging, selectScalar } from './_sql-helper';
@@ -274,12 +275,19 @@ test.describe('Journey 13 — S6 Idempotence link-app', () => {
     request,
   }) => {
     const email = uniqueEmail('idem');
-    await withRateLimitRetry(() =>
-      request.post(`${STAGING_URL}/api/admin/users/create`, {
-        headers: { ...adminHeaders(), 'content-type': 'application/json' },
-        data: { email, name: 'Idem' },
-        failOnStatusCode: false,
-      }),
+
+    // setupCall garantit que l'user existe avant de tenter le link.
+    // Sans ça, un 429 silencieux ici fait planter le linkApp en 404
+    // user_not_found, et on diagnostique faussement un bug d'idempotence
+    // (vu le 2026-05-23 sur run staging-full E2E).
+    await setupCall(
+      () =>
+        request.post(`${STAGING_URL}/api/admin/users/create`, {
+          headers: { ...adminHeaders(), 'content-type': 'application/json' },
+          data: { email, name: 'Idem' },
+          failOnStatusCode: false,
+        }),
+      { label: 's6-create-user', expectedStatus: [200] },
     );
 
     const slug = `e2e-idem-${RUN_STAMP}`;
@@ -291,28 +299,36 @@ test.describe('Journey 13 — S6 Idempotence link-app', () => {
       tenant_name: 'Idem Tenant',
     };
 
-    const first = await withRateLimitRetry(() =>
-      request.post(`${STAGING_URL}/api/admin/tenants/link-app`, {
-        headers: { ...adminHeaders(), 'content-type': 'application/json' },
-        data: payload,
-        failOnStatusCode: false,
-      }),
+    const first = await setupCall(
+      () =>
+        request.post(`${STAGING_URL}/api/admin/tenants/link-app`, {
+          headers: { ...adminHeaders(), 'content-type': 'application/json' },
+          data: payload,
+          failOnStatusCode: false,
+        }),
+      { label: 's6-link-first', expectedStatus: [200] },
     );
-    expect(first.status()).toBe(200);
     const firstBody = await first.json();
     const firstTenantId = firstBody.tenant_id;
 
-    const second = await withRateLimitRetry(() =>
-      request.post(`${STAGING_URL}/api/admin/tenants/link-app`, {
-        headers: { ...adminHeaders(), 'content-type': 'application/json' },
-        data: { ...payload, tenant_name: 'Idem Tenant V2' },
-        failOnStatusCode: false,
-      }),
+    const second = await setupCall(
+      () =>
+        request.post(`${STAGING_URL}/api/admin/tenants/link-app`, {
+          headers: { ...adminHeaders(), 'content-type': 'application/json' },
+          data: { ...payload, tenant_name: 'Idem Tenant V2' },
+          failOnStatusCode: false,
+        }),
+      { label: 's6-link-second', expectedStatus: [200] },
     );
-    expect(second.status()).toBe(200);
     const secondBody = await second.json();
-    expect(secondBody.tenant_id).toBe(firstTenantId);
-    expect(secondBody.created).toBe(false);
+    expect(
+      secondBody.tenant_id,
+      'idempotence : 2e link sur même user/app DOIT renvoyer le même tenant_id (pas de doublon en DB)',
+    ).toBe(firstTenantId);
+    expect(
+      secondBody.created,
+      'idempotence : 2e link ne doit PAS recréer une row',
+    ).toBe(false);
   });
 });
 

@@ -660,15 +660,22 @@ test.describe('Cas 4 — Subscription legacy sans users.stripe_customer_id', () 
     });
     expect(billingRes.status()).toBe(200);
     const html = await billingRes.text();
-    // La page render "Active" pour status=active. Si la sub n'est pas trouvée,
-    // elle affiche "No active subscription".
+    // La page rend le composant SubscriptionCard quand une sub existe (titre
+    // "Mon abonnement" + description "Le détail de ta formule Veridian.").
+    // Quand aucune sub n'est trouvée, EmptyBillingState affiche "Aucun
+    // abonnement actif" + CTA "Découvrir les formules". Les strings sont en
+    // français (cf. app/dashboard/billing/page.tsx + EmptyBillingState.tsx).
     expect(
       html,
-      '/dashboard/billing doit afficher la sub legacy',
-    ).toContain('Current Plan');
+      '/dashboard/billing doit afficher la sub legacy (titre Mon abonnement)',
+    ).toContain('Mon abonnement');
     expect(
-      html.includes('No active subscription'),
-      'sub legacy doit être visible (pas "No active subscription")',
+      html,
+      '/dashboard/billing doit rendre le composant SubscriptionCard (description plan)',
+    ).toContain('formule Veridian');
+    expect(
+      html.includes('Aucun abonnement actif'),
+      'sub legacy doit être visible (pas "Aucun abonnement actif" qui est l\'EmptyBillingState)',
     ).toBe(false);
 
     await loginCtx.dispose();

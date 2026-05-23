@@ -90,4 +90,29 @@ describe('<SubscriptionCard>', () => {
     );
     expect(screen.getByText('/ quarter')).toBeInTheDocument();
   });
+
+  // Anti-régression E2E spec 15 Cas 4 (2026-05-23) : une subscription
+  // « legacy » (pré-sprint v1.4) peut exister avec price_id=NULL et
+  // unitAmount=0. La page billing doit quand même rendre la card avec
+  // un libellé safe ("Abonnement" fallback) sans crasher — sinon on a un
+  // user dont la sub Stripe est active mais qui voit "Aucun abonnement
+  // actif" et fait un nouveau checkout (= double-billing).
+  it('legacy : sub sans price (planName fallback "Abonnement", 0 €) rend sans crash', () => {
+    render(
+      <SubscriptionCard
+        subscription={makeView({
+          planName: 'Abonnement',
+          unitAmount: 0,
+          currency: 'EUR',
+          interval: null,
+          currentPeriodEnd: null,
+        })}
+      />
+    );
+    expect(screen.getByText('Abonnement')).toBeInTheDocument();
+    // 0 € en fr-FR.
+    expect(screen.getByText(/0/)).toBeInTheDocument();
+    // Pas de prochaine échéance affichée si currentPeriodEnd null.
+    expect(screen.queryByText(/prochaine échéance/i)).not.toBeInTheDocument();
+  });
 });

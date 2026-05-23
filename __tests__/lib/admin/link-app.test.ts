@@ -105,6 +105,48 @@ describe('linkApp — update idempotent', () => {
     expect(updateData.metadata.cms).toBeDefined();
     expect(updateData.metadata.cms.external_tenant_slug).toBe('avse');
   });
+
+  // Anti-régression E2E spec 13 S6 (2026-05-23) :
+  // « link 2× même tenant → mêmes IDs (pas de doublon) ». Le 1er call doit
+  // créer (created=true), le 2e doit reprendre la même row (created=false,
+  // tenantId identique). Si ce contrat casse, on duplique des Tenants en
+  // DB à chaque appel admin → comptes facturés en double, dashboards
+  // affichant deux fois la même app, etc.
+  it('link 2× consécutifs (même user/app) retournent le même tenantId — pas de doublon', async () => {
+    // 1er appel : pas de tenant existant → create
+    findFirstMock.mockResolvedValueOnce(null);
+    createMock.mockResolvedValueOnce({ id: 't-shared-uuid' });
+
+    const first = await linkApp(prisma, { ...baseInput, app: 'cms' });
+    expect(first.created).toBe(true);
+    expect(first.tenantId).toBe('t-shared-uuid');
+
+    // 2e appel : le tenant existe maintenant (simulé par le mock)
+    findFirstMock.mockResolvedValueOnce({
+      id: 't-shared-uuid',
+      metadata: {
+        cms: {
+          external_tenant_id: '1',
+          external_tenant_slug: 'avse',
+          tenant_name: 'AVSE Monétique',
+        },
+      },
+    });
+    updateMock.mockResolvedValueOnce({ id: 't-shared-uuid' });
+
+    const second = await linkApp(prisma, {
+      ...baseInput,
+      app: 'cms',
+      tenantName: 'AVSE Monétique V2',
+    });
+    expect(second.created).toBe(false);
+    expect(second.tenantId).toBe('t-shared-uuid');
+    expect(second.tenantId).toBe(first.tenantId);
+
+    // Sanity : aucune création parasite au 2e appel.
+    expect(createMock).toHaveBeenCalledTimes(1);
+    expect(updateMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('unlinkApp', () => {
