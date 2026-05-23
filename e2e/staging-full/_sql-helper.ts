@@ -54,12 +54,40 @@ export function runSqlOnStaging(sql: string): string {
     const e = err as { stderr?: Buffer | string; stdout?: Buffer | string; message?: string };
     const stderr = e.stderr?.toString() ?? '';
     const stdout = e.stdout?.toString() ?? '';
+    // Distinguer l'origine du fail pour ne pas envoyer le caller chercher
+    // un bug d'infra alors que c'est juste un typo SQL.
+    //
+    //   • psql ERROR / FATAL / DETAIL → bug dans le SQL appelant (colonne
+    //     n'existe pas, type mismatch, contrainte FK, etc.) → faute du
+    //     caller, le helper marche très bien.
+    //   • SSH connect timeout / Permission denied → vrai problème infra
+    //     (clé SSH, alias dev-pub manquant, host down).
+    //   • docker exec: Error No such container → container renommé/down.
+    //   • Tout le reste (timeout, OOM, etc.) → catégorie "Connection".
+    let kind = 'Connection';
+    if (/ERROR:|FATAL:|DETAIL:/.test(stderr)) {
+      kind = 'PostgreSQL';
+    } else if (/Permission denied|Could not resolve hostname|Connection refused|ssh:/i.test(stderr)) {
+      kind = 'SSH';
+    } else if (/No such container|is not running|Error response from daemon/i.test(stderr)) {
+      kind = 'Docker';
+    }
     throw new Error(
-      `SQL exec failed on ${SSH_HOST}:${DB_CONTAINER}\n` +
+      `[${kind}] SQL exec failed on ${SSH_HOST}:${DB_CONTAINER}\n` +
         `SQL: ${sql.slice(0, 200)}${sql.length > 200 ? '…' : ''}\n` +
         `STDERR: ${stderr}\n` +
         `STDOUT: ${stdout}\n` +
-        `MSG: ${e.message ?? 'unknown'}`,
+        `MSG: ${e.message ?? 'unknown'}\n` +
+        (kind === 'PostgreSQL'
+          ? '\nHINT: erreur SQL côté Postgres — vérifie les noms de colonnes ' +
+            '(snake_case dans la DB, cf. @map(...) dans prisma/schema.prisma) ' +
+            'et le schéma `hub_app.*`.'
+          : kind === 'SSH'
+            ? '\nHINT: vérifie `ssh dev-pub` et la clé chargée (ssh-add -l).'
+            : kind === 'Docker'
+              ? '\nHINT: `ssh dev-pub docker ps` pour vérifier que ' +
+                `${DB_CONTAINER} tourne. Surcharge avec E2E_DB_CONTAINER.`
+              : ''),
     );
   }
 }

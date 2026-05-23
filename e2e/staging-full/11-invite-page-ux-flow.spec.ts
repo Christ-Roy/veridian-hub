@@ -349,9 +349,12 @@ test.describe('Journey 11 — S7 token consumé (Cross-App Invitation marqué ac
 
     // Marque l'invitation comme déjà acceptée via SQL direct (sinon il
     // faudrait faire un accept réel + login mock OAuth).
+    // ⚠️ Les colonnes sont en snake_case côté DB (cf Prisma @map dans
+    // schema.prisma : `acceptedAt @map("accepted_at")`). NE PAS quoter
+    // en camelCase, ça reproduit `column "acceptedAt" does not exist`.
     runSqlOnStaging(
       `UPDATE hub_app.cross_app_invitations
-       SET "acceptedAt" = NOW()
+       SET accepted_at = NOW()
        WHERE token = '${inv.token}';`,
     );
 
