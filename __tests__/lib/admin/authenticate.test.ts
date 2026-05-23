@@ -374,4 +374,39 @@ describe('authenticateAdmin — bypass rate-limit E2E staging', () => {
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.response.status).toBe(401);
   });
+
+  // ─── Refactor 2026-05-23 : passage à enforceWithBypass ──────────────────
+  // L'implémentation `authenticateAdmin` est passée du couple
+  // `shouldBypassRateLimit + adminApiLimiter.enforce` au wrapper
+  // `adminApiLimiter.enforceWithBypass(ip, request.headers)`. Le comportement
+  // observable doit rester strictement identique :
+  //   - le tag de log change de `[admin-ratelimit-bypass]` à `[ratelimit-bypass]`
+  //     (centralisé dans RateLimiter, plus de double-log)
+  //   - tout le reste (gate prod, secret ≥ 32 chars, timing-safe) inchangé
+  //
+  // Ce test verrouille l'invariant noir-boîte : 100 requêtes en staging
+  // avec bypass valide traversent toutes, et 0 ne déclenche un counter
+  // incrémenté côté `adminApiLimiter` (storage non touché → un client
+  // SANS bypass passé juste après ne se prend PAS un 429 hérité).
+  it('refactor enforceWithBypass : storage limiter inchangé après 100 bypass', async () => {
+    const { adminApiLimiter } = await import('@/lib/auth/rate-limit');
+    adminApiLimiter.reset();
+    // 100 requêtes bypass — devraient toutes passer en 200/401 selon secret.
+    for (let i = 0; i < 100; i++) {
+      await authenticateAdmin(
+        new Request('http://x/api/admin/foo', {
+          method: 'POST',
+          headers: {
+            'x-forwarded-for': '14.14.14.14',
+            'x-admin-secret': 'super-secret-for-tests',
+            'x-veridian-e2e-bypass-ratelimit': BYPASS_SECRET,
+          },
+        }) as never
+      );
+    }
+    // Le storage interne du limiter ne doit PAS avoir été incrémenté
+    // (bypass = pas de hit comptabilisé) — sinon un client legit sans
+    // bypass se prendrait un 429 immérité juste après.
+    expect(adminApiLimiter.size()).toBe(0);
+  });
 });

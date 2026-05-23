@@ -98,13 +98,19 @@ vi.mock('@/lib/prisma', () => {
 });
 
 let ipCounter = 0;
-function makeReq(opts: { body?: any; ip?: string } = {}) {
+function makeReq(
+  opts: { body?: any; ip?: string; rateLimitBypass?: string } = {},
+) {
   ipCounter += 1;
   const raw = opts.body === undefined ? '' : JSON.stringify(opts.body);
+  const headers = new Headers({
+    'x-forwarded-for': opts.ip ?? `10.2.0.${ipCounter}`,
+  });
+  if (opts.rateLimitBypass) {
+    headers.set('x-veridian-e2e-bypass-ratelimit', opts.rateLimitBypass);
+  }
   return {
-    headers: new Headers({
-      'x-forwarded-for': opts.ip ?? `10.2.0.${ipCounter}`,
-    }),
+    headers,
     text: async () => raw,
   } as any;
 }
@@ -290,6 +296,63 @@ describe('POST /api/invitations/[token]/accept', () => {
     }
     const r31 = await callRoute(acceptedToken, makeReq({ ip: sharedIp }));
     expect(r31.status).toBe(429);
+  });
+
+  // ─── Bypass E2E rate-limit (passage à enforceWithBypass) ─────────────
+  // La route POST /api/invitations/[token]/accept utilise désormais
+  // `invitationVerifyLimiter.enforceWithBypass(ip, headers)` (commit
+  // "fix(auth): bypass rate-limit étendu"). On verrouille ici que :
+  //   - staging + header secret valide → 50+ req traversent sans 429
+  //   - prod + même secret → 429 quand cap dépassé (garde-fou)
+  it('bypass header valide en staging → traverse au-delà du cap (50 req)', async () => {
+    const ORIG_DEPLOY_ENV = process.env.DEPLOY_ENV;
+    const ORIG_SECRET = process.env.E2E_RATELIMIT_BYPASS_SECRET;
+    const BYPASS = 'a'.repeat(48);
+    process.env.DEPLOY_ENV = 'staging';
+    process.env.E2E_RATELIMIT_BYPASS_SECRET = BYPASS;
+    try {
+      const sharedIp = '10.55.55.55';
+      for (let i = 0; i < 50; i++) {
+        const r = await callRoute(
+          acceptedToken,
+          makeReq({ ip: sharedIp, rateLimitBypass: BYPASS }),
+        );
+        expect(r.status, `req #${i} should bypass (got ${r.status})`).not.toBe(429);
+      }
+    } finally {
+      if (ORIG_DEPLOY_ENV === undefined) delete process.env.DEPLOY_ENV;
+      else process.env.DEPLOY_ENV = ORIG_DEPLOY_ENV;
+      if (ORIG_SECRET === undefined) delete process.env.E2E_RATELIMIT_BYPASS_SECRET;
+      else process.env.E2E_RATELIMIT_BYPASS_SECRET = ORIG_SECRET;
+    }
+  });
+
+  it('GARDE-FOU PROD : bypass header ignoré, 429 quand cap dépassé', async () => {
+    const ORIG_DEPLOY_ENV = process.env.DEPLOY_ENV;
+    const ORIG_SECRET = process.env.E2E_RATELIMIT_BYPASS_SECRET;
+    const BYPASS = 'a'.repeat(48);
+    process.env.DEPLOY_ENV = 'prod';
+    process.env.E2E_RATELIMIT_BYPASS_SECRET = BYPASS;
+    try {
+      const sharedIp = '10.44.44.44';
+      for (let i = 0; i < 30; i++) {
+        const r = await callRoute(
+          acceptedToken,
+          makeReq({ ip: sharedIp, rateLimitBypass: BYPASS }),
+        );
+        expect(r.status).toBe(409);
+      }
+      const blocked = await callRoute(
+        acceptedToken,
+        makeReq({ ip: sharedIp, rateLimitBypass: BYPASS }),
+      );
+      expect(blocked.status, 'PROD MUST ignore bypass header').toBe(429);
+    } finally {
+      if (ORIG_DEPLOY_ENV === undefined) delete process.env.DEPLOY_ENV;
+      else process.env.DEPLOY_ENV = ORIG_DEPLOY_ENV;
+      if (ORIG_SECRET === undefined) delete process.env.E2E_RATELIMIT_BYPASS_SECRET;
+      else process.env.E2E_RATELIMIT_BYPASS_SECRET = ORIG_SECRET;
+    }
   });
 
   // ─── Phase 4b — downstream propagation ──────────────────────────────

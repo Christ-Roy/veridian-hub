@@ -13,7 +13,7 @@
  *   - Cache-Control: no-store toujours présent
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 import { createHmac } from 'node:crypto';
 
 const SECRET = 'test-secret-notifuse-discovery';
@@ -97,6 +97,11 @@ function signGet(opts: {
   ipOverride?: string;
   url?: string;
   extraQuery?: Record<string, string>;
+  /**
+   * Si défini, ajoute `x-veridian-e2e-bypass-ratelimit` — utilisé pour
+   * tester l'intégration enforceWithBypass sur les deux limiters discovery.
+   */
+  rateLimitBypass?: string;
 }): { url: string; headers: Headers } {
   ipCounter += 1;
   const ts = opts.timestamp ?? String(Date.now());
@@ -123,6 +128,9 @@ function signGet(opts: {
     'x-veridian-timestamp': ts,
     'x-veridian-hub-signature': sig,
   });
+  if (opts.rateLimitBypass) {
+    headers.set('x-veridian-e2e-bypass-ratelimit', opts.rateLimitBypass);
+  }
   return { url, headers };
 }
 
@@ -417,5 +425,68 @@ describe('GET /api/users/by-email', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.tenants).toEqual([{ app: 'notifuse', role: 'admin' }]);
+  });
+});
+
+// ─── Bypass E2E rate-limit (passage à enforceWithBypass) ─────────────────
+// GET /api/users/by-email utilise désormais
+// `discoveryPreVerifyLimiter.enforceWithBypass(ip, headers)` ET
+// `discoveryAppLimiter.enforceWithBypass(app, headers)` — les 2 couches
+// (pré-HMAC IP + post-HMAC app) bypassent ensemble en staging.
+describe('GET /api/users/by-email — bypass E2E header', () => {
+  const ORIG_DEPLOY_ENV = process.env.DEPLOY_ENV;
+  const ORIG_SECRET = process.env.E2E_RATELIMIT_BYPASS_SECRET;
+  const BYPASS = 'd'.repeat(48);
+
+  beforeEach(() => {
+    process.env.DEPLOY_ENV = 'staging';
+    process.env.E2E_RATELIMIT_BYPASS_SECRET = BYPASS;
+  });
+
+  afterAll(() => {
+    if (ORIG_DEPLOY_ENV === undefined) delete process.env.DEPLOY_ENV;
+    else process.env.DEPLOY_ENV = ORIG_DEPLOY_ENV;
+    if (ORIG_SECRET === undefined) delete process.env.E2E_RATELIMIT_BYPASS_SECRET;
+    else process.env.E2E_RATELIMIT_BYPASS_SECRET = ORIG_SECRET;
+  });
+
+  it('bypass header valide en staging → 80+ discovery sans 429 (2 couches)', async () => {
+    usersDb.push({
+      id: 'u1',
+      email: 'bypassed@example.com',
+      supabaseUserId: '00000000-0000-0000-0000-0000000000bb',
+    });
+    // 80 > caps des deux limiters (60/min IP + 30/min app)
+    for (let i = 0; i < 80; i++) {
+      const { url, headers } = signGet({
+        app: 'notifuse',
+        email: 'bypassed@example.com',
+        ipOverride: '10.99.0.1', // même IP pour saturer pre-limiter
+        rateLimitBypass: BYPASS,
+      });
+      const r = await callRoute(buildReq(url, headers));
+      expect(r.status, `req #${i} should bypass (got ${r.status})`).toBe(200);
+    }
+  });
+
+  it('GARDE-FOU PROD : bypass header ignoré, 429 quand cap dépassé', async () => {
+    process.env.DEPLOY_ENV = 'prod';
+    usersDb.push({
+      id: 'u2',
+      email: 'prodbypass@example.com',
+      supabaseUserId: '00000000-0000-0000-0000-0000000000cc',
+    });
+    let lastStatus = 0;
+    for (let i = 0; i < 65; i++) {
+      const { url, headers } = signGet({
+        app: 'notifuse',
+        email: 'prodbypass@example.com',
+        ipOverride: '10.99.0.2',
+        rateLimitBypass: BYPASS,
+      });
+      const r = await callRoute(buildReq(url, headers));
+      lastStatus = r.status;
+    }
+    expect(lastStatus, 'PROD MUST ignore bypass header').toBe(429);
   });
 });

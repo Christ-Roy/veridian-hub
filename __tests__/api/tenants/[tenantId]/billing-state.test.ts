@@ -46,6 +46,11 @@ function buildReq(opts: {
   signWithSecret?: string | null;
   timestamp?: string;
   badSignature?: string;
+  /**
+   * Si défini, ajoute `x-veridian-e2e-bypass-ratelimit` — utilisé pour
+   * tester l'intégration `billingStatePollLimiter.enforceWithBypass()`.
+   */
+  rateLimitBypass?: string;
 }): Request {
   const ts = opts.timestamp ?? String(Date.now());
   const app = opts.app ?? 'notifuse';
@@ -65,6 +70,9 @@ function buildReq(opts: {
   });
   if (signature !== undefined) {
     headers.set('x-veridian-hub-signature', signature);
+  }
+  if (opts.rateLimitBypass) {
+    headers.set('x-veridian-e2e-bypass-ratelimit', opts.rateLimitBypass);
   }
 
   return new Request('https://hub.veridian.site/api/tenants/x/billing-state', {
@@ -309,6 +317,66 @@ describe('GET /api/tenants/[tenantId]/billing-state — rate-limit', () => {
     const r61 = await callRoute(buildReq({}), VALID_UUID_2);
     expect(r61.status).toBe(429);
     expect(r61.headers.get('Retry-After')).toBeTruthy();
+  });
+});
+
+// ─── Bypass E2E rate-limit (passage à enforceWithBypass) ─────────────────
+// GET /api/tenants/[tenantId]/billing-state utilise désormais
+// `billingStatePollLimiter.enforceWithBypass('app:notifuse', headers)`.
+describe('GET /api/tenants/[tenantId]/billing-state — bypass E2E header', () => {
+  const ORIG_DEPLOY_ENV = process.env.DEPLOY_ENV;
+  const ORIG_SECRET = process.env.E2E_RATELIMIT_BYPASS_SECRET;
+  const BYPASS = 'b'.repeat(48);
+
+  beforeEach(() => {
+    process.env.DEPLOY_ENV = 'staging';
+    process.env.E2E_RATELIMIT_BYPASS_SECRET = BYPASS;
+    tenantFindUniqueMock.mockImplementation(async ({ where }: any) => ({
+      id: where.id,
+      notifusePlan: 'pro',
+      prospectionPlan: 'freemium',
+      metadata: { notifuse_plan_source: 'stripe' },
+      updatedAt: new Date(),
+      subscription: { stripeSubscriptionId: 'sub_x' },
+    }));
+    tenantTrialFindUniqueMock.mockResolvedValue(null);
+  });
+
+  afterAll(() => {
+    if (ORIG_DEPLOY_ENV === undefined) delete process.env.DEPLOY_ENV;
+    else process.env.DEPLOY_ENV = ORIG_DEPLOY_ENV;
+    if (ORIG_SECRET === undefined) delete process.env.E2E_RATELIMIT_BYPASS_SECRET;
+    else process.env.E2E_RATELIMIT_BYPASS_SECRET = ORIG_SECRET;
+  });
+
+  it('bypass header valide en staging → 100+ poll sans 429', async () => {
+    for (let i = 0; i < 100; i++) {
+      const hexChar = (i % 16).toString(16);
+      const tid = `22222222-3333-4444-8555-666666666${hexChar.repeat(3)}`;
+      const r = await callRoute(
+        buildReq({ rateLimitBypass: BYPASS }),
+        tid,
+      );
+      expect(r.status, `req #${i} should bypass (got ${r.status})`).toBe(200);
+    }
+  });
+
+  it('GARDE-FOU PROD : bypass header ignoré, 429 quand cap dépassé', async () => {
+    process.env.DEPLOY_ENV = 'prod';
+    for (let i = 0; i < 60; i++) {
+      const hexChar = (i % 16).toString(16);
+      const tid = `33333333-4444-4555-8666-777777777${hexChar.repeat(3)}`;
+      const r = await callRoute(
+        buildReq({ rateLimitBypass: BYPASS }),
+        tid,
+      );
+      expect(r.status).toBe(200);
+    }
+    const blocked = await callRoute(
+      buildReq({ rateLimitBypass: BYPASS }),
+      VALID_UUID_2,
+    );
+    expect(blocked.status, 'PROD MUST ignore bypass header').toBe(429);
   });
 });
 

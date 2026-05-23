@@ -87,6 +87,12 @@ function buildReq(opts: {
   timestamp?: string;
   badSignature?: string;
   ip?: string;
+  /**
+   * Si défini, ajoute le header `x-veridian-e2e-bypass-ratelimit` —
+   * utilisé pour tester l'intégration du bypass E2E staging
+   * (cf. RateLimiter.enforceWithBypass).
+   */
+  rateLimitBypass?: string;
 }): any {
   ipCounter += 1;
   const rawBody = opts.body === undefined ? '' : JSON.stringify(opts.body);
@@ -109,6 +115,9 @@ function buildReq(opts: {
   });
   if (signature !== undefined) {
     headers.set('x-veridian-invitation-signature', signature);
+  }
+  if (opts.rateLimitBypass) {
+    headers.set('x-veridian-e2e-bypass-ratelimit', opts.rateLimitBypass);
   }
 
   return {
@@ -381,6 +390,71 @@ describe('POST /api/invitations/create', () => {
     );
     expect(r61.status).toBe(429);
     expect(r61.headers.get('Retry-After')).toBeTruthy();
+  });
+
+  // ─── Bypass E2E rate-limit (commit "fix(auth): bypass rate-limit étendu") ──
+  // Le ticket P1 2026-05-23 a fait passer la route de `enforce(ip)` vers
+  // `enforceWithBypass(ip, request.headers)`. Tests d'intégration ici
+  // pour verrouiller :
+  //   - bypass header valide + staging → 100+ req traversent (pas de 429)
+  //   - bypass header valide + prod    → 429 quand même au-delà du cap
+  //   - bypass header wrong            → comportement enforce() normal
+  describe('bypass E2E rate-limit header', () => {
+    const ORIG_DEPLOY_ENV = process.env.DEPLOY_ENV;
+    const ORIG_BYPASS_SECRET = process.env.E2E_RATELIMIT_BYPASS_SECRET;
+    const BYPASS_SECRET = 'i'.repeat(48);
+
+    beforeEach(async () => {
+      process.env.DEPLOY_ENV = 'staging';
+      process.env.E2E_RATELIMIT_BYPASS_SECRET = BYPASS_SECRET;
+      const { invitationCreateLimiter } = await import('@/lib/auth/rate-limit');
+      invitationCreateLimiter.reset();
+    });
+
+    afterAll(() => {
+      if (ORIG_DEPLOY_ENV === undefined) delete process.env.DEPLOY_ENV;
+      else process.env.DEPLOY_ENV = ORIG_DEPLOY_ENV;
+      if (ORIG_BYPASS_SECRET === undefined)
+        delete process.env.E2E_RATELIMIT_BYPASS_SECRET;
+      else process.env.E2E_RATELIMIT_BYPASS_SECRET = ORIG_BYPASS_SECRET;
+    });
+
+    it('bypass valide en staging → 75+ req sur même IP sans 429', async () => {
+      const sharedIp = '10.99.88.77';
+      for (let i = 0; i < 75; i++) {
+        const r = await callRoute(
+          buildReq({
+            body: { ...validBody, invitee_email: `bypass${i}@example.com` },
+            ip: sharedIp,
+            rateLimitBypass: BYPASS_SECRET,
+          }),
+        );
+        expect(r.status, `req #${i} should bypass (got ${r.status})`).not.toBe(429);
+      }
+    });
+
+    it('GARDE-FOU PROD : bypass header ignoré, 429 quand cap dépassé', async () => {
+      process.env.DEPLOY_ENV = 'prod';
+      const sharedIp = '10.88.77.66';
+      for (let i = 0; i < 60; i++) {
+        const r = await callRoute(
+          buildReq({
+            body: { ...validBody, invitee_email: `prod${i}@example.com` },
+            ip: sharedIp,
+            rateLimitBypass: BYPASS_SECRET,
+          }),
+        );
+        expect([200, 201]).toContain(r.status);
+      }
+      const blocked = await callRoute(
+        buildReq({
+          body: { ...validBody, invitee_email: 'prod-overflow@example.com' },
+          ip: sharedIp,
+          rateLimitBypass: BYPASS_SECRET,
+        }),
+      );
+      expect(blocked.status, 'PROD MUST ignore bypass header').toBe(429);
+    });
   });
 });
 

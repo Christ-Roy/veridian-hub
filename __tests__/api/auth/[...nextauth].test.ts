@@ -13,7 +13,7 @@
  * vérifier qu'ils sont appelés (ou pas) selon le pathname + cap.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 
 const upstreamGetMock = vi.fn(async () => new Response('ok', { status: 200 }));
 const upstreamPostMock = vi.fn(async () => new Response('ok', { status: 200 }));
@@ -39,10 +39,15 @@ beforeEach(() => {
   credentialsLoginLimiter.reset();
 });
 
-const buildReq = (path: string, ip = '1.2.3.4', method: 'GET' | 'POST' = 'GET') =>
+const buildReq = (
+  path: string,
+  ip = '1.2.3.4',
+  method: 'GET' | 'POST' = 'GET',
+  extraHeaders: Record<string, string> = {},
+) =>
   new Request(`http://hub.test${path}`, {
     method,
-    headers: { 'x-forwarded-for': ip },
+    headers: { 'x-forwarded-for': ip, ...extraHeaders },
   });
 
 describe('Rate-limit wrapper Auth.js — /api/auth/signin', () => {
@@ -154,5 +159,79 @@ describe('Rate-limit wrapper Auth.js — POST', () => {
     }
     const blocked = await POST(buildReq('/api/auth/signin', '9.9.9.9', 'POST'));
     expect(blocked.status).toBe(429);
+  });
+});
+
+// ─── Bypass E2E rate-limit (passage à enforceWithBypass) ─────────────────
+// withRateLimit() utilise désormais `limiter.enforceWithBypass(ip, headers)`
+// pour permettre aux specs e2e/staging-full de traverser sans cap.
+// On vérifie le wiring ICI parce que c'est où le bypass est consommé pour
+// les 3 limiters Auth.js : oauthStart, oauthCallback, credentialsLogin.
+describe('Rate-limit wrapper Auth.js — bypass E2E header', () => {
+  const ORIG_DEPLOY_ENV = process.env.DEPLOY_ENV;
+  const ORIG_SECRET = process.env.E2E_RATELIMIT_BYPASS_SECRET;
+  const BYPASS = 'n'.repeat(48);
+
+  beforeEach(() => {
+    process.env.DEPLOY_ENV = 'staging';
+    process.env.E2E_RATELIMIT_BYPASS_SECRET = BYPASS;
+  });
+
+  afterAll(() => {
+    if (ORIG_DEPLOY_ENV === undefined) delete process.env.DEPLOY_ENV;
+    else process.env.DEPLOY_ENV = ORIG_DEPLOY_ENV;
+    if (ORIG_SECRET === undefined) delete process.env.E2E_RATELIMIT_BYPASS_SECRET;
+    else process.env.E2E_RATELIMIT_BYPASS_SECRET = ORIG_SECRET;
+  });
+
+  const bypassReq = (path: string, ip: string, method: 'GET' | 'POST' = 'GET') =>
+    buildReq(path, ip, method, { 'x-veridian-e2e-bypass-ratelimit': BYPASS });
+
+  it('bypass valide en staging : 50+ signin sans 429 (oauthStartLimiter)', async () => {
+    const { GET } = await import('@/app/api/auth/[...nextauth]/route');
+    for (let i = 0; i < 50; i++) {
+      const r = await GET(bypassReq('/api/auth/signin', '10.10.10.10'));
+      expect(r.status, `req #${i}`).toBe(200);
+    }
+  });
+
+  it('bypass valide en staging : 50+ callback/google sans 429 (oauthCallbackLimiter)', async () => {
+    const { GET } = await import('@/app/api/auth/[...nextauth]/route');
+    for (let i = 0; i < 50; i++) {
+      const r = await GET(bypassReq('/api/auth/callback/google', '10.10.11.11'));
+      expect(r.status, `req #${i}`).toBe(200);
+    }
+  });
+
+  it('bypass valide en staging : 50+ callback/credentials sans 429 (credentialsLoginLimiter)', async () => {
+    const { POST } = await import('@/app/api/auth/[...nextauth]/route');
+    for (let i = 0; i < 50; i++) {
+      const r = await POST(
+        bypassReq('/api/auth/callback/credentials', '10.10.12.12', 'POST'),
+      );
+      expect(r.status, `req #${i}`).toBe(200);
+    }
+  });
+
+  it('GARDE-FOU PROD : bypass ignoré, 11e signin → 429 (oauthStart)', async () => {
+    process.env.DEPLOY_ENV = 'prod';
+    const { GET } = await import('@/app/api/auth/[...nextauth]/route');
+    for (let i = 0; i < 10; i++) {
+      await GET(bypassReq('/api/auth/signin', '10.20.20.20'));
+    }
+    const blocked = await GET(bypassReq('/api/auth/signin', '10.20.20.20'));
+    expect(blocked.status, 'PROD MUST ignore bypass header').toBe(429);
+  });
+
+  it('GARDE-FOU PROD : bypass ignoré, 6e callback/credentials → 429', async () => {
+    process.env.DEPLOY_ENV = 'prod';
+    const { POST } = await import('@/app/api/auth/[...nextauth]/route');
+    for (let i = 0; i < 5; i++) {
+      await POST(bypassReq('/api/auth/callback/credentials', '10.30.30.30', 'POST'));
+    }
+    const blocked = await POST(
+      bypassReq('/api/auth/callback/credentials', '10.30.30.30', 'POST'),
+    );
+    expect(blocked.status, 'PROD MUST ignore bypass header').toBe(429);
   });
 });
