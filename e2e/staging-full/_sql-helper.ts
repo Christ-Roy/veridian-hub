@@ -181,3 +181,65 @@ export function backdateTrialActive(
      WHERE tenant_id = '${tenantId}' AND app = '${app}';`,
   );
 }
+
+/**
+ * Crée (idempotent) un tenant minimal dans `hub_app.tenants` avec `slug =
+ * tenantId`, pour qu'il matche le filtre EXISTS du cron trial-tick (cf
+ * commit 2a1a12e du 2026-05-21 — ajout du filtre soft-deleted dans les 3
+ * phases du cron).
+ *
+ * Sans ce tenant, les rows `tenant_trials` créées par les specs sont
+ * ignorées par le cron (activated=0, notified=0, expired=0) car le filtre
+ * EXISTS ne trouve aucune row matchante.
+ *
+ * Retourne le `id` UUID du tenant créé (utile pour le cleanup ciblé).
+ * Idempotent : si la row existe déjà, retourne l'id existant.
+ *
+ * NB : `user_id` est un UUID arbitraire — pas de FK dure vers users, donc
+ * pas besoin de créer un User. Le cron lookup via slug = tenantId.
+ */
+export function ensureTenantForTrial(tenantId: string): string {
+  if (!/^[A-Za-z0-9._:-]+$/.test(tenantId)) {
+    throw new Error(`ensureTenantForTrial: unsafe identifier (${tenantId})`);
+  }
+  // INSERT idempotent + RETURNING pour récupérer l'id.
+  // On utilise une CTE WITH ins AS (...) UNION ALL SELECT existant pour
+  // qu'on récupère toujours un id quel que soit le résultat de l'INSERT.
+  const sql = `
+    WITH ins AS (
+      INSERT INTO hub_app.tenants (id, user_id, name, slug, status)
+      VALUES (gen_random_uuid(), gen_random_uuid(),
+              'E2E trial fixture ${tenantId}', '${tenantId}', 'active')
+      ON CONFLICT (slug) DO NOTHING
+      RETURNING id
+    )
+    SELECT id::text FROM ins
+    UNION ALL
+    SELECT id::text FROM hub_app.tenants WHERE slug = '${tenantId}'
+    LIMIT 1;
+  `;
+  const out = runSqlOnStaging(sql);
+  const id = out.split('\n')[0].trim();
+  if (!id) {
+    throw new Error(
+      `ensureTenantForTrial: failed to obtain tenant id for slug=${tenantId}`,
+    );
+  }
+  return id;
+}
+
+/**
+ * Supprime un tenant minimal créé par `ensureTenantForTrial`. Idempotent.
+ *
+ * Important : NE PAS supprimer un tenant qui n'a pas été créé par les E2E
+ * — on garde la même contrainte de nommage que `deleteTenantTrial` pour
+ * éviter qu'un test passe par erreur un slug réel.
+ */
+export function deleteTenantBySlug(tenantId: string): void {
+  if (!/^[A-Za-z0-9._:-]+$/.test(tenantId)) {
+    throw new Error(`deleteTenantBySlug: unsafe identifier (${tenantId})`);
+  }
+  runSqlOnStaging(
+    `DELETE FROM hub_app.tenants WHERE slug = '${tenantId}';`,
+  );
+}

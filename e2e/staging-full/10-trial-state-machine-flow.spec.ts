@@ -53,6 +53,8 @@ import {
   deleteTenantTrial,
   setEligibleAt,
   backdateTrialActive,
+  ensureTenantForTrial,
+  deleteTenantBySlug,
 } from './_sql-helper';
 
 const CRON_SECRET = process.env.CRON_SECRET || 'staging-cron-secret';
@@ -225,6 +227,11 @@ test.describe('Journey 10 — S3/S4 cron tick activation eligible → trial_acti
   }) => {
     const t = tenantId('s3');
     try {
+      // Crée la row tenants minimale pour matcher le filtre EXISTS du cron
+      // (cf commit 2a1a12e — sans ça, le cron ignorerait la row même en cas
+      // de régression future qui retirerait le check "eligible <48h").
+      ensureTenantForTrial(t);
+
       // INSERT direct : state=eligible, eligible_at=NOW (donc <48h)
       const insertRes = await emitActivityThreshold(request, t);
       expect(insertRes.status()).toBe(200);
@@ -245,6 +252,7 @@ test.describe('Journey 10 — S3/S4 cron tick activation eligible → trial_acti
       ).toBe('eligible');
     } finally {
       deleteTenantTrial(t, 'notifuse');
+      deleteTenantBySlug(t);
     }
   });
 
@@ -253,6 +261,10 @@ test.describe('Journey 10 — S3/S4 cron tick activation eligible → trial_acti
   }) => {
     const t = tenantId('s4');
     try {
+      // 0. Crée la row tenants minimale (filtre EXISTS du cron — cf 2a1a12e).
+      //    Sans ça, le cron ignore la row tenant_trials et activated=0.
+      ensureTenantForTrial(t);
+
       // 1. Émet le signal → row 'eligible'
       const sig = await emitActivityThreshold(request, t);
       expect(sig.status()).toBe(200);
@@ -306,6 +318,7 @@ test.describe('Journey 10 — S3/S4 cron tick activation eligible → trial_acti
       ).toBeLessThan(24 * 60 * 60 * 1000);
     } finally {
       deleteTenantTrial(t, 'notifuse');
+      deleteTenantBySlug(t);
     }
   });
 });
@@ -318,6 +331,9 @@ test.describe('Journey 10 — S5/S6 ending soon (J+12)', () => {
   }) => {
     const t = tenantId('s5');
     try {
+      // Crée la row tenants minimale (filtre EXISTS du cron — cf 2a1a12e).
+      ensureTenantForTrial(t);
+
       const sig = await emitActivityThreshold(request, t);
       expect(sig.status()).toBe(200);
 
@@ -348,6 +364,7 @@ test.describe('Journey 10 — S5/S6 ending soon (J+12)', () => {
       expect(notified).toBe('t'); // psql -tA renvoie 't'/'f' pour boolean
     } finally {
       deleteTenantTrial(t, 'notifuse');
+      deleteTenantBySlug(t);
     }
   });
 
@@ -356,6 +373,9 @@ test.describe('Journey 10 — S5/S6 ending soon (J+12)', () => {
   }) => {
     const t = tenantId('s6');
     try {
+      // Crée la row tenants minimale (filtre EXISTS du cron — cf 2a1a12e).
+      ensureTenantForTrial(t);
+
       const sig = await emitActivityThreshold(request, t);
       expect(sig.status()).toBe(200);
 
@@ -384,6 +404,7 @@ test.describe('Journey 10 — S5/S6 ending soon (J+12)', () => {
       expect(notified).toBe('t');
     } finally {
       deleteTenantTrial(t, 'notifuse');
+      deleteTenantBySlug(t);
     }
   });
 });
@@ -396,6 +417,9 @@ test.describe('Journey 10 — S7/S8 finalize (J+15)', () => {
   }) => {
     const t = tenantId('s7');
     try {
+      // Crée la row tenants minimale (filtre EXISTS du cron — cf 2a1a12e).
+      ensureTenantForTrial(t);
+
       const sig = await emitActivityThreshold(request, t);
       expect(sig.status()).toBe(200);
 
@@ -436,6 +460,7 @@ test.describe('Journey 10 — S7/S8 finalize (J+15)', () => {
       ).toMatch(/\d{4}-\d{2}-\d{2}/);
     } finally {
       deleteTenantTrial(t, 'notifuse');
+      deleteTenantBySlug(t);
     }
   });
 
@@ -548,6 +573,9 @@ test.describe('Journey 10 — S9 race condition (SELECT FOR UPDATE SKIP LOCKED)'
   }) => {
     const t = tenantId('s9');
     try {
+      // Crée la row tenants minimale (filtre EXISTS du cron — cf 2a1a12e).
+      ensureTenantForTrial(t);
+
       const sig = await emitActivityThreshold(request, t);
       expect(sig.status()).toBe(200);
 
@@ -595,6 +623,7 @@ test.describe('Journey 10 — S9 race condition (SELECT FOR UPDATE SKIP LOCKED)'
       ).toMatch(/\d{4}-\d{2}-\d{2}/);
     } finally {
       deleteTenantTrial(t, 'notifuse');
+      deleteTenantBySlug(t);
     }
   });
 });
