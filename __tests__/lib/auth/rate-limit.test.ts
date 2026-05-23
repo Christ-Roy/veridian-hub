@@ -196,4 +196,27 @@ describe('exported limiter instances', () => {
     expect(invitationVerifyLimiter.enforce('test-ip-verify').ok).toBe(false);
     invitationVerifyLimiter.reset();
   });
+
+  it('exports discoveryPreVerifyLimiter avec capacity 60/min (anti-flood pré-HMAC discovery)', async () => {
+    const { discoveryPreVerifyLimiter } = await import('@/lib/auth/rate-limit');
+    discoveryPreVerifyLimiter.reset();
+    for (let i = 0; i < 60; i++) {
+      expect(discoveryPreVerifyLimiter.enforce('test-ip-disc-pre').ok).toBe(true);
+    }
+    expect(discoveryPreVerifyLimiter.enforce('test-ip-disc-pre').ok).toBe(false);
+    discoveryPreVerifyLimiter.reset();
+  });
+
+  it('exports discoveryAppLimiter avec capacity 30/min (plafond par secret HMAC discovery)', async () => {
+    const { discoveryAppLimiter } = await import('@/lib/auth/rate-limit');
+    discoveryAppLimiter.reset();
+    // Clé = nom d'app (après vérif HMAC) — pas IP. Isolation par secret.
+    for (let i = 0; i < 30; i++) {
+      expect(discoveryAppLimiter.enforce('notifuse').ok).toBe(true);
+    }
+    expect(discoveryAppLimiter.enforce('notifuse').ok).toBe(false);
+    // Une autre app n'est pas affectée par l'épuisement de notifuse.
+    expect(discoveryAppLimiter.enforce('prospection').ok).toBe(true);
+    discoveryAppLimiter.reset();
+  });
 });
