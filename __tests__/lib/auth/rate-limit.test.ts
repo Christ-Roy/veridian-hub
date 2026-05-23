@@ -197,6 +197,24 @@ describe('exported limiter instances', () => {
     invitationVerifyLimiter.reset();
   });
 
+  it('exports billingStatePollLimiter avec capacity 60/min (POLL billing-state par secret)', async () => {
+    // Limiter introduit par l'agent billing (commit 49b18e8) pour
+    // GET /api/tenants/[tenantId]/billing-state — réconciliation §6.3.
+    // Couvert ici car la règle 1-pour-1 du scanner exige un test() par
+    // nouvel export public et le contrat de cap par secret doit rester
+    // stable (un changement non-intentionnel = breaking pour les cron
+    // downstream qui poll cet endpoint).
+    const { billingStatePollLimiter } = await import('@/lib/auth/rate-limit');
+    billingStatePollLimiter.reset();
+    for (let i = 0; i < 60; i++) {
+      expect(billingStatePollLimiter.enforce('app:notifuse').ok).toBe(true);
+    }
+    expect(billingStatePollLimiter.enforce('app:notifuse').ok).toBe(false);
+    // Isolation par clé : une autre app/secret n'est pas affectée.
+    expect(billingStatePollLimiter.enforce('app:prospection').ok).toBe(true);
+    billingStatePollLimiter.reset();
+  });
+
   it('exports discoveryPreVerifyLimiter avec capacity 60/min (anti-flood pré-HMAC discovery)', async () => {
     const { discoveryPreVerifyLimiter } = await import('@/lib/auth/rate-limit');
     discoveryPreVerifyLimiter.reset();
