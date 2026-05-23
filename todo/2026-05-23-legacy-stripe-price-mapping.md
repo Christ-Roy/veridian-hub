@@ -106,8 +106,16 @@ et supprimer l'entrée du LEGACY_STRIPE_PRICE_MAPPING (la dette s'auto-purge).
 
 ## 3. DEFINITION OF DONE
 
-- [ ] Mapping `price_1SvGFYRgvfRggzUNMoGboHCU → <PlanKey>` ajouté dans `lib/pricing/plans.ts`
-- [ ] Test unitaire qui vérifie que `getPlanByStripePriceId('price_1SvGFY...')` retourne le bon plan
-- [ ] Re-trigger un event sur la sub via `POST /v1/events/<id>/retry` → logs Hub plus de warning
-- [ ] Décision business sur le sort du client legacy (recancel ou re-checkout v3)
-- [ ] Une fois le client résolu : retirer le mapping (la sub legacy n'existe plus)
+- [x] Mapping `price_1SvGFYRgvfRggzUNMoGboHCU → veridian-pro` ajouté dans `lib/pricing/plans.ts` (commit `6a85441` puis rebased `00a9fca`/`6a85441` selon historique staging)
+- [x] Mapping `price_1SyXiRRgvfRggzUNDEr7BkUj → veridian-pro` (add-on workflow credits metered de la même sub, vérifié via API Stripe LIVE le 2026-05-23)
+- [x] Tests unitaires qui vérifient :
+  - `getPlanByStripePriceId('price_1SvGFY...')` retourne `veridian-pro` (`__tests__/lib/pricing/helpers.test.ts`)
+  - `getPlanByStripePriceId('price_1SyXiR...')` retourne `veridian-pro`
+  - Catalogue prime sur legacy (ordre du resolver)
+  - Mapping → PlanKey existante (anti-typo)
+  - Mapping ne fuit pas dans PLANS / PUBLIC / PAYABLE
+  - Dispatcher Hub ne logue plus le warning `Unknown stripe_price_id` (`__tests__/utils/stripe/prisma-sync.test.ts`)
+- [x] Section §3.7 ajoutée à `docs/CONTRAT-BILLING.md` (v2.2) — spec garde-fous + runbook audit/nettoyage
+- [ ] Re-trigger un event sur la sub via `POST /v1/events/<id>/retry` → logs Hub plus de warning (à faire en prod post-deploy main)
+- [ ] **Décision business** sur le sort du client legacy `cus_UTrPVfNjDmFie5` / `userUuid=49224170-7da2-411e-8d6b-8a5060e8486b` (recancel ou re-checkout v3) — **action Robert**
+- [ ] Une fois le client résolu : retirer le mapping (la sub legacy n'existe plus). Audit : `curl -G https://api.stripe.com/v1/subscriptions/search -u "$SK_LIVE:" --data-urlencode "query=items.price:'price_1SvGFYRgvfRggzUNMoGboHCU'"` — quand `data: []`, retirer les 2 entrées du mapping + ce ticket → `todo/done/`.
