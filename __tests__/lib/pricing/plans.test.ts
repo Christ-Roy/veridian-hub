@@ -10,6 +10,7 @@ import {
   PUBLIC_PLANS,
   PAYABLE_PLANS,
   MANUAL_PLANS,
+  LEGACY_STRIPE_PRICE_MAPPING,
   type PlanKey,
 } from '@/lib/pricing/plans';
 
@@ -197,6 +198,63 @@ describe('stripePriceIdTest — mapping adaptateur canonical → Hub', () => {
     // Un plan free n'a pas de Price Stripe — ni live ni test.
     expect(PLANS['notifuse-free'].stripePriceIdTest).toEqual({ month: null, year: null });
     expect(PLANS['prospection-free'].stripePriceIdTest).toEqual({ month: null, year: null });
+  });
+});
+
+describe('LEGACY_STRIPE_PRICE_MAPPING (cf CONTRAT-BILLING §3.7)', () => {
+  // Le mapping legacy résout les Stripe Price IDs de catalogues v1/v2
+  // (antérieurs au pivot v3 du 2026-05-22) vers une PlanKey du catalogue
+  // actuel. Garde-fous testés ici côté catalogue (résolution dynamique
+  // testée dans helpers.test.ts).
+
+  it('chaque valeur du mapping est une PlanKey existante du catalogue', () => {
+    // Garde-fou anti-typo : un mapping vers une PlanKey inexistante ferait
+    // crasher getPlanByStripePriceId() au runtime (PLANS[legacyKey]
+    // undefined).
+    for (const [priceId, planKey] of Object.entries(LEGACY_STRIPE_PRICE_MAPPING)) {
+      expect(PLANS[planKey], `mapping ${priceId} → ${planKey} pointe vers une PlanKey inexistante`)
+        .toBeDefined();
+    }
+  });
+
+  it('aucune entrée legacy n_est un Price ID déjà présent dans le catalogue actuel', () => {
+    // Si un Price ID v3 du catalogue se retrouve aussi dans le mapping legacy,
+    // c'est un signal d'oubli de nettoyage. Le catalogue prime techniquement
+    // (cf helpers.ts) mais on ne veut pas de duplicat sémantique.
+    const catalogueIds = new Set<string>();
+    for (const plan of Object.values(PLANS)) {
+      for (const id of [
+        plan.stripePriceId.month,
+        plan.stripePriceId.year,
+        plan.stripePriceIdTest.month,
+        plan.stripePriceIdTest.year,
+      ]) {
+        if (id) catalogueIds.add(id);
+      }
+    }
+    for (const legacyId of Object.keys(LEGACY_STRIPE_PRICE_MAPPING)) {
+      expect(catalogueIds.has(legacyId), `Price ID ${legacyId} est dans le catalogue ET le mapping legacy`)
+        .toBe(false);
+    }
+  });
+
+  it('aucune entrée legacy ne fuit dans PLANS / PUBLIC_PLANS / PAYABLE_PLANS', () => {
+    // Le mapping est strictement un mécanisme de résolution — il ne doit
+    // JAMAIS faire apparaître de nouveaux plans dans le catalogue exposé
+    // (page /pricing, checkout). On vérifie ici que les clés du mapping
+    // n'apparaissent pas comme PlanKey.
+    const planKeys = new Set(Object.keys(PLANS));
+    for (const priceId of Object.keys(LEGACY_STRIPE_PRICE_MAPPING)) {
+      expect(planKeys.has(priceId)).toBe(false);
+    }
+  });
+
+  it('sub legacy v2 sub_1TUtgWRgvfRggzUNC5OjqiuU : ses 2 Price IDs sont mappés vers veridian-pro', () => {
+    // Documentation exécutable de la sub legacy qui a motivé ce mapping
+    // (ticket 2026-05-23-legacy-stripe-price-mapping.md). Si quelqu'un
+    // retire ces entrées sans archiver le ticket, le test casse.
+    expect(LEGACY_STRIPE_PRICE_MAPPING['price_1SvGFYRgvfRggzUNMoGboHCU']).toBe('veridian-pro');
+    expect(LEGACY_STRIPE_PRICE_MAPPING['price_1SyXiRRgvfRggzUNDEr7BkUj']).toBe('veridian-pro');
   });
 });
 
