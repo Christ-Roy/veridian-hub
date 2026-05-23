@@ -16,18 +16,35 @@ import { signIn } from "next-auth/react";
 import { LoginErrorBanner } from "@/components/auth/LoginErrorBanner";
 import { OAuthButtons, SignupLink } from "@/components/auth/OAuthButtons";
 
+export interface LoginFormProps extends React.ComponentProps<"form"> {
+  allowEmail?: boolean;
+  allowOauth?: boolean;
+  /**
+   * Nom de l'app cible si on est en mode bounce OAuth depuis une app
+   * downstream (`?next=` détecté + validé côté server). Quand non-null,
+   * les boutons OAuth redirigent vers `/auth/bounce` après le login pour
+   * fabriquer le magic link app cible.
+   */
+  bounceApp?: string | null;
+}
+
 export function LoginForm({
   className,
   allowEmail = true,
   allowOauth = true,
+  bounceApp = null,
   ...props
-}: React.ComponentProps<"form"> & {
-  allowEmail?: boolean;
-  allowOauth?: boolean;
-}) {
+}: LoginFormProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get('callbackUrl') ?? '/dashboard';
+  const requestedCallbackUrl = searchParams.get('callbackUrl');
+  // Si on est en mode bounce, on FORCE le callbackUrl vers /auth/bounce.
+  // L'override est volontaire : l'app downstream a délégué l'auth au Hub
+  // dans le but de bouncer, on ne laisse pas un `callbackUrl=` arbitraire
+  // détourner le flow.
+  const callbackUrl = bounceApp
+    ? '/api/auth/bounce/complete'
+    : requestedCallbackUrl ?? '/dashboard';
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -62,7 +79,9 @@ export function LoginForm({
         <div className="flex flex-col items-center gap-1 text-center">
           <h1 className="text-2xl font-bold">Connexion</h1>
           <p className="text-muted-foreground text-sm text-balance">
-            Accédez à votre espace Veridian
+            {bounceApp
+              ? `Connectez-vous pour revenir sur ${bounceApp}`
+              : 'Accédez à votre espace Veridian'}
           </p>
         </div>
         <LoginErrorBanner />
