@@ -155,13 +155,21 @@ test.describe('Journey 6 — Flow signup → /tenants/start → /tenants/status'
       data: { app: 'notifuse' },
       failOnStatusCode: false,
     });
-    // 200 (idempotent ou succès) OU 500 si Notifuse downstream pas dispo.
-    // On accepte 502/503 aussi (downstream pas dispo en staging à un instant t)
-    // mais on log warning explicite.
+    // DURCI 2026-05-23 (ticket e2e-harden-tolerances) :
+    // 200/201/202 = succès Hub (avec ou sans downstream). 502/503 = downstream
+    // Notifuse HS (légitime en staging à un instant t — gateway error remontée
+    // proprement). Plus de tolérance 500 : un 500 = Hub a crashé en gérant
+    // l'erreur downstream, c'est un bug Hub à fixer.
+    const bodyText = await res.text();
     expect(
       [200, 201, 202, 502, 503],
-      `start notifuse status=${res.status()} body=${await res.text()}`,
+      `start notifuse status=${res.status()} body=${bodyText.slice(0, 400)}. ` +
+        `Un 500 ici = Hub n'a pas catch proprement l'erreur downstream.`,
     ).toContain(res.status());
+    expect(
+      res.status(),
+      'INVARIANT : Hub ne doit JAMAIS crash 500 sur /tenants/start',
+    ).not.toBe(500);
 
     // Le call /tenants/start peut renvoyer 200 sans aucune row Tenant créée
     // si le downstream Notifuse a échoué (compose staging : Notifuse n'accepte

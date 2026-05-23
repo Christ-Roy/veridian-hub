@@ -314,7 +314,13 @@ test.describe('Journey 11 — S4/S5/S6 acceptation cross-app loggué', () => {
       data: {},
       failOnStatusCode: false,
     });
+    // DURCI 2026-05-23 (ticket e2e-harden-tolerances) : 502 reste légitime
+    // (downstream Notifuse staging HS), 500 = bug Hub à fixer.
     expect([200, 202, 502]).toContain(acceptRes.status());
+    expect(
+      acceptRes.status(),
+      'INVARIANT : pas de 500 sur accept invitation',
+    ).not.toBe(500);
     await ctx1.dispose();
 
     // 2e visite → la page doit afficher "déjà utilisée".

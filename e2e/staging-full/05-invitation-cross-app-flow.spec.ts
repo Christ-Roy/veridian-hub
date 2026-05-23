@@ -403,11 +403,18 @@ test.describe(
         }),
       );
 
-      // Status code DOIT être dans le set autorisé.
+      // Status code DOIT être dans le set autorisé. 502 = downstream
+      // Notifuse HS staging (vrai gateway error, pas un crash Hub).
+      // DURCI 2026-05-23 (ticket e2e-harden-tolerances) : on assert aussi
+      // qu'on n'a JAMAIS 500 (un 500 = Hub crash en gérant l'erreur downstream).
       expect(
         [200, 202, 502],
         `accept status (got ${acceptRes.status()}) — autres = régression`,
       ).toContain(acceptRes.status());
+      expect(
+        acceptRes.status(),
+        'INVARIANT : /api/invitations/:token/accept ne doit JAMAIS crash 500',
+      ).not.toBe(500);
 
       const acceptBody = await acceptRes.json();
       // downstream_call DOIT être présent et valide (ce champ a été ajouté
@@ -461,7 +468,11 @@ test.describe(
           failOnStatusCode: false,
         }),
       );
+      // DURCI 2026-05-23 : 502 légitime (downstream HS), 500 = bug Hub.
       expect([200, 202, 502]).toContain(first.status());
+      expect(first.status(), 'INVARIANT : pas de 500 sur accept').not.toBe(
+        500,
+      );
 
       const second = await withRateLimitRetry(() =>
         ctx.post(`/api/invitations/${token}/accept`, {

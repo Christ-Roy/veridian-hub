@@ -96,12 +96,19 @@ async function postProspection(
 // ─── Auth ────────────────────────────────────────────────────────────────
 
 test.describe('Journey 8 — Webhook receiver v1.4 auth', () => {
-  test('Notifuse sans Authorization → 401', async ({ request }) => {
+  test('Notifuse sans Authorization → 401 (jamais 500, secret toujours présent en staging)', async ({ request }) => {
     const res = await postNotifuse(request, v14Payload('tenant.touched'), null);
-    // Pas d'auth = fallback HMAC legacy → 401 (missing signature) ou 500
-    // (secret missing) selon ENV. On accepte les deux puisque l'invariant
-    // sécu (« pas de 200 sans auth ») est respecté.
-    expect([400, 401, 500]).toContain(res.status());
+    // DURCI 2026-05-23 (ticket e2e-harden-tolerances) :
+    // L'ancienne tolérance `[400, 401, 500]` cachait un défaut de
+    // configuration (secret manquant côté staging). Maintenant le secret
+    // NOTIFUSE_WEBHOOK_TOKEN est obligatoirement présent en staging
+    // (sourcé par scripts/e2e/staging-full.sh + injecté côté Hub). Un 500
+    // ici = vraie régression de config à fixer.
+    expect(
+      [400, 401],
+      `Webhook sans auth doit être rejeté 400/401 (got ${res.status()}). ` +
+        `Un 500 = NOTIFUSE_WEBHOOK_TOKEN manquant côté Hub, fix la config.`,
+    ).toContain(res.status());
     expect(
       res.status(),
       'CRITIQUE : un webhook sans auth ne doit JAMAIS retourner 200',

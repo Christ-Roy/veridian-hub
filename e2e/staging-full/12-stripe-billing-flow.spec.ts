@@ -20,16 +20,19 @@
  *   S5 POST /api/billing/checkout auth + interval invalide → 400 invalid_payload
  *   S6 POST /api/billing/checkout auth + plan='notifuse-free' →
  *      400 plan_is_free (pas de checkout pour plan gratuit)
- *   S7 POST /api/billing/checkout auth + plan='notifuse-pro' → soit
- *      200 {url: 'https://checkout.stripe.com/...'} (Stripe configuré),
- *      soit 503 stripe_price_not_configured (price ID placeholder pas
- *      rempli → cas staging fréquent — marker fixme)
+ *   S7 POST /api/billing/checkout auth + plan='notifuse-pro' → STRICT 200
+ *      avec body.url = https://checkout.stripe.com/... + body.session_id.
+ *      Plus de fallback 502/503 toléré (Stripe TEST staging entièrement
+ *      configuré depuis 2026-05-23 — un 5xx ici = vrai bug Stripe à fixer,
+ *      comme le head_office manquant qui a masqué un checkout pété pendant
+ *      6h avant durcissement). Cf. ticket 2026-05-23-e2e-harden-tolerances.
  *   S8 POST /api/billing/checkout body vide / mauvais content-type → 400
  *   S9 GET /api/webhooks sans body → 400 (signature manquante / body vide)
  *
  * **DÉPENDANCES STAGING** :
  *   - Mock OAuth provider actif (OAUTH_TEST_PROVIDER=true)
- *   - STRIPE_SECRET_KEY peut être placeholder en staging → S7 tolérera 503
+ *   - STRIPE_SECRET_KEY_TEST + Stripe Tax head_office FR configurés
+ *     (cf. spec 12bis qui asserte la config compte côté API Stripe)
  */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 
@@ -176,7 +179,7 @@ test.describe('Journey 12 — S4-S8 POST /api/billing/checkout avec auth', () =>
     }
   });
 
-  test('S7 : plan payable → 200 {url Stripe} OU 503 stripe_price_not_configured', async ({
+  test('S7 : plan payable → STRICT 200 + URL Stripe valide (plus de fallback 5xx)', async ({
     request,
     playwright,
   }) => {
@@ -188,21 +191,37 @@ test.describe('Journey 12 — S4-S8 POST /api/billing/checkout avec auth', () =>
         failOnStatusCode: false,
       });
 
-      // Staging peut avoir des price IDs placeholders → 503 acceptable.
-      // Prod doit retourner 200. CI prod-smoke fera la diff.
-      expect([200, 502, 503]).toContain(res.status());
-      const body = await res.json();
+      // DURCI 2026-05-23 (ticket e2e-harden-tolerances) :
+      // L'ancienne tolérance `[200, 502, 503]` a masqué pendant 6h un vrai
+      // bug Stripe (head_office: null côté preprod → automatic_tax rejetait
+      // chaque session avec stripe_session_failed). Plus jamais ça.
+      // Staging a maintenant Stripe TEST entièrement configuré (Prices,
+      // tax.head_office FR, automatic_tax actif). Un 5xx ici = vrai bug à
+      // fixer côté Hub ou côté Stripe — pas à tolérer.
+      const bodyText = await res.text();
+      expect(
+        res.status(),
+        `Checkout doit retourner 200, sinon Stripe est cassé. ` +
+          `Body: ${bodyText.slice(0, 500)}. ` +
+          `Si 503 stripe_price_not_configured → vérifier setup-stripe-prices.ts. ` +
+          `Si 5xx avec stripe_session_failed → vérifier head_office (cf. spec 12bis).`,
+      ).toBe(200);
 
-      if (res.status() === 200) {
-        expect(
-          typeof body.url,
-          'session.url doit être une string Stripe',
-        ).toBe('string');
-        expect(body.url).toMatch(/^https:\/\/(checkout\.stripe\.com|js\.stripe\.com)/);
-        expect(typeof body.session_id).toBe('string');
-      } else if (res.status() === 503) {
-        expect(body.error).toBe('stripe_price_not_configured');
-      }
+      const data = JSON.parse(bodyText) as {
+        url?: unknown;
+        session_id?: unknown;
+      };
+      expect(
+        typeof data.url,
+        'session.url doit être une string Stripe',
+      ).toBe('string');
+      expect(data.url as string).toMatch(
+        /^https:\/\/(checkout\.stripe\.com|js\.stripe\.com)/,
+      );
+      expect(
+        typeof data.session_id,
+        'session_id doit être présent pour idempotence côté client',
+      ).toBe('string');
     } finally {
       await ctx.dispose();
     }

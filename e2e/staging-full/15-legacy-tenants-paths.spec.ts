@@ -718,14 +718,19 @@ test.describe('Cas 4 — Subscription legacy sans users.stripe_customer_id', () 
         failOnStatusCode: false,
       }),
     );
-    // Acceptable : 200 (reuse réussit côté Stripe), 502 (Stripe refuse le
-    // cus_xxx inexistant ou create session échoue), 503 (price not configured
-    // en staging — Stripe Price IDs souvent dummy en staging).
-    // 400 = soit plan inconnu (key invalide) soit invalid_json — pas du legacy.
-    // 401 = pas authentifié (impossible ici).
+    // DURCI 2026-05-23 (ticket e2e-harden-tolerances) :
+    // Stripe TEST staging entièrement configuré depuis 2026-05-23
+    // (Prices catalogués + head_office FR), donc 503 stripe_price_not_configured
+    // n'est plus un fallback acceptable. Acceptable ici :
+    //   - 200 (reuse réussit côté Stripe — improbable car cus_legacy fictif
+    //     mais on accepte au cas où Stripe TEST devient permissif)
+    //   - 502 (Stripe refuse le cus_xxx inexistant → stripe_customer_failed
+    //     ou stripe_session_failed — comportement attendu du code legacy reuse)
+    // 400 = bug (plan inconnu ou invalid_json), 500 = bug Hub (pas de catch),
+    // 503 = misconfig Stripe staging (cf. ticket e2e-harden-tolerances).
     expect(
-      [200, 502, 503],
-      `checkout status (got ${checkoutRes.status()}) — révèle bug si 400/500`,
+      [200, 502],
+      `checkout status (got ${checkoutRes.status()}) — révèle bug si 400/500/503`,
     ).toContain(checkoutRes.status());
 
     if (checkoutRes.status() === 200) {
