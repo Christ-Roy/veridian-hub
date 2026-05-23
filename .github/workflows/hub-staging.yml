@@ -134,6 +134,11 @@ jobs:
           # DEPLOY_ENV='prod', donc aucun risque de fuite via ce secret en prod.
           # Le secret est partagé avec le runner E2E via ~/credentials/.all-creds.env.
           E2E_RATELIMIT_BYPASS_SECRET: ${{ secrets.STAGING_E2E_RATELIMIT_BYPASS_SECRET }}
+          # ADMIN_SECRET staging — doit matcher la valeur HUB_ADMIN_SECRET
+          # utilisée par les runners E2E (depuis ~/credentials/.all-creds.env).
+          # Sans alignement, tous les calls admin renvoient 401 alors que le
+          # rate-limit bypass marche (cf incident 2026-05-23 post-fix bypass).
+          ADMIN_SECRET_STAGING: ${{ secrets.STAGING_HUB_ADMIN_SECRET }}
           # ⚠️ OAuth Sign-in (Google/Microsoft) PAS configuré côté staging
           # à cause de la privatisation Tailscale (hub.staging.veridian.site
           # → IP Tailscale 100.92.215.42 non résolvable publiquement). Si on
@@ -171,6 +176,7 @@ jobs:
             printf 'STRIPE_WEBHOOK_SECRET_TEST=%s\n' "$STRIPE_WEBHOOK_SECRET_TEST"
             printf 'STRIPE_REFILL_PRODUCT_ID_TEST=%s\n' "$STRIPE_REFILL_PRODUCT_ID_TEST"
             printf 'E2E_RATELIMIT_BYPASS_SECRET=%s\n' "$E2E_RATELIMIT_BYPASS_SECRET"
+            printf 'ADMIN_SECRET_STAGING=%s\n' "$ADMIN_SECRET_STAGING"
           } > "$ENVFILE"
           scp -i ~/.ssh/staging_key "$ENVFILE" "$DEV_USER@$DEV_HOST:${{ env.STAGING_DIR }}/.env"
           rm -f "$ENVFILE"
