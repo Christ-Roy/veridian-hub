@@ -21,34 +21,11 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-import { handleWebhook, type HandlerTable } from '@/lib/webhooks/receiver';
+import { handleWebhook } from '@/lib/webhooks/receiver';
+import { prospectionHandlers } from '@/lib/webhooks/prospection-handlers';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-const handlers: HandlerTable = {
-  'tenant.touched': async (payload) => {
-    console.info(
-      '[webhook:prospection] tenant.touched',
-      payload.tenant_id,
-      payload.data,
-    );
-  },
-  'tenant.member_role_changed': async (payload) => {
-    console.info(
-      '[webhook:prospection] tenant.member_role_changed',
-      payload.tenant_id,
-      payload.data,
-    );
-  },
-  'tenant.activity_threshold_reached': async (payload) => {
-    console.info(
-      '[webhook:prospection] tenant.activity_threshold_reached',
-      payload.tenant_id,
-      payload.data,
-    );
-  },
-};
 
 export async function POST(request: NextRequest) {
   const token = process.env.PROSPECTION_WEBHOOK_TOKEN;
@@ -64,6 +41,6 @@ export async function POST(request: NextRequest) {
   return handleWebhook(request, {
     app: 'prospection',
     expectedToken: token,
-    handlers,
+    handlers: prospectionHandlers,
   });
 }

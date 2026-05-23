@@ -17,6 +17,15 @@
 
 import { prisma } from '@/lib/prisma';
 import type { HandlerTable } from '@/lib/webhooks/receiver';
+import {
+  applyMemberEvent,
+  applyOwnerChanged,
+  applyPurged,
+  applyQuotaExceeded,
+  applyResumed,
+  applySoftDeleted,
+  applySuspended,
+} from '@/lib/sync/snapshot-updater';
 
 export const v14Handlers: HandlerTable = {
   'tenant.touched': async (payload) => {
@@ -38,6 +47,95 @@ export const v14Handlers: HandlerTable = {
       '[webhook:notifuse] tenant.member_role_changed',
       payload.tenant_id,
       payload.data,
+    );
+  },
+
+  // ==========================================================================
+  // Niveau 2 du tenant sync — materialisation des events dans
+  // `tenants.metadata.notifuse_*`. Cf todo/2026-05-20-tenant-sync-strategy.md.
+  //
+  // Note coexistence : ces handlers v1.4 traitent EN PLUS des handlers HMAC
+  // legacy de `app/api/webhooks/notifuse/route.ts` (héritage). Tant que le
+  // fork Notifuse n'a pas migré sur v1.4 Bearer, les events `tenant.suspended/
+  // resumed/deleted` arrivent par la voie legacy. Les handlers v1.4 ci-dessous
+  // sont prêts à prendre le relais sans changement quand Notifuse migrera.
+  // ==========================================================================
+
+  'tenant.suspended': async (payload) => {
+    await applySuspended(
+      'notifuse',
+      payload.tenant_id,
+      payload.data as { suspended_at?: string; reason?: string } | undefined,
+      payload.occurred_at,
+    );
+  },
+
+  'tenant.resumed': async (payload) => {
+    await applyResumed(
+      'notifuse',
+      payload.tenant_id,
+      payload.data as { resumed_at?: string } | undefined,
+      payload.occurred_at,
+    );
+  },
+
+  'tenant.soft_deleted': async (payload) => {
+    await applySoftDeleted(
+      'notifuse',
+      payload.tenant_id,
+      payload.data as { soft_deleted_at?: string; reason?: string } | undefined,
+      payload.occurred_at,
+    );
+  },
+
+  'tenant.purged': async (payload) => {
+    await applyPurged(
+      'notifuse',
+      payload.tenant_id,
+      payload.data as { purged_at?: string; rows_deleted?: number } | undefined,
+      payload.occurred_at,
+    );
+  },
+
+  'tenant.owner_changed': async (payload) => {
+    await applyOwnerChanged(
+      'notifuse',
+      payload.tenant_id,
+      payload.data as
+        | { old_owner_email?: string; new_owner_email?: string }
+        | undefined,
+      payload.occurred_at,
+    );
+  },
+
+  'tenant.quota_exceeded': async (payload) => {
+    await applyQuotaExceeded(
+      'notifuse',
+      payload.tenant_id,
+      payload.data as
+        | { quota_type?: string; current?: number; limit?: number }
+        | undefined,
+      payload.occurred_at,
+    );
+  },
+
+  'tenant.member_added': async (payload) => {
+    await applyMemberEvent(
+      'notifuse',
+      payload.tenant_id,
+      'added',
+      payload.data as { user_email?: string; role?: string } | undefined,
+      payload.occurred_at,
+    );
+  },
+
+  'tenant.member_removed': async (payload) => {
+    await applyMemberEvent(
+      'notifuse',
+      payload.tenant_id,
+      'removed',
+      payload.data as { user_email?: string; reason?: string } | undefined,
+      payload.occurred_at,
     );
   },
 

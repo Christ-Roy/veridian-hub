@@ -68,6 +68,21 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 
+// Niveau 2 du tenant sync : les nouveaux handlers `tenant.suspended/resumed/...`
+// délèguent vers ces helpers. On les mocke en no-op observable pour isoler la
+// route handler du contrat Prisma → ce sont les tests
+// `__tests__/lib/sync/snapshot-updater.test.ts` qui couvrent la vraie logique.
+const syncMocks = {
+  applySuspended: vi.fn(async () => undefined),
+  applyResumed: vi.fn(async () => undefined),
+  applySoftDeleted: vi.fn(async () => undefined),
+  applyPurged: vi.fn(async () => undefined),
+  applyOwnerChanged: vi.fn(async () => undefined),
+  applyQuotaExceeded: vi.fn(async () => undefined),
+  applyMemberEvent: vi.fn(async () => undefined),
+};
+vi.mock('@/lib/sync/snapshot-updater', () => syncMocks);
+
 const ORIGINAL_TOKEN = process.env.PROSPECTION_WEBHOOK_TOKEN;
 
 beforeEach(() => {
@@ -359,5 +374,107 @@ describe('POST /api/webhooks/prospection — payload validation', () => {
     const json = await res.json();
     expect(json.details.fields).toContain('idempotency_key');
     expect(rows).toHaveLength(0);
+  });
+});
+
+// ============================================================================
+// Niveau 2 du tenant sync — events suspended/resumed/etc. dispatchés depuis
+// la table `prospectionHandlers` extraite (ticket
+// todo/2026-05-20-tenant-sync-strategy.md).
+//
+// Garde-fou anti-régression du refactor route → module : on vérifie que la
+// route délègue bien aux helpers `lib/sync/snapshot-updater` via les nouveaux
+// handlers, et que la row dedup est persistée + marquée processed_at malgré
+// le passage par les helpers.
+// ============================================================================
+
+describe('POST /api/webhooks/prospection — Niveau 2 sync events', () => {
+  it('dispatches tenant.suspended → applySuspended(prospection) + row persisted', async () => {
+    const { POST } = await import('@/app/api/webhooks/prospection/route');
+    const body = {
+      event: 'tenant.suspended',
+      tenant_id: 't_prospection_1',
+      data: { suspended_at: '2026-05-23T10:00:00Z', reason: 'admin' },
+      idempotency_key: uuid('sync-susp'),
+      occurred_at: '2026-05-23T10:00:01Z',
+      contract_version: '1.4',
+    };
+    const res = await POST(
+      makeReq({ authHeader: `Bearer ${TOKEN}`, body }) as any,
+    );
+    expect(res.status).toBe(200);
+    expect((await res.json()).dispatched).toBe(true);
+    expect(syncMocks.applySuspended).toHaveBeenCalledWith(
+      'prospection',
+      't_prospection_1',
+      { suspended_at: '2026-05-23T10:00:00Z', reason: 'admin' },
+      '2026-05-23T10:00:01Z',
+    );
+    expect(rows[0].eventType).toBe('tenant.suspended');
+    expect(rows[0].processedAt).toBeInstanceOf(Date);
+  });
+
+  it('dispatches tenant.resumed → applyResumed(prospection)', async () => {
+    const { POST } = await import('@/app/api/webhooks/prospection/route');
+    const body = {
+      event: 'tenant.resumed',
+      tenant_id: 't_prospection_2',
+      data: { resumed_at: '2026-05-23T12:00:00Z' },
+      idempotency_key: uuid('sync-resu'),
+      occurred_at: '2026-05-23T12:00:01Z',
+      contract_version: '1.4',
+    };
+    const res = await POST(
+      makeReq({ authHeader: `Bearer ${TOKEN}`, body }) as any,
+    );
+    expect(res.status).toBe(200);
+    expect(syncMocks.applyResumed).toHaveBeenCalledWith(
+      'prospection',
+      't_prospection_2',
+      { resumed_at: '2026-05-23T12:00:00Z' },
+      '2026-05-23T12:00:01Z',
+    );
+  });
+
+  it('dispatches tenant.member_added → applyMemberEvent(prospection, added)', async () => {
+    const { POST } = await import('@/app/api/webhooks/prospection/route');
+    const body = {
+      event: 'tenant.member_added',
+      tenant_id: 't_prospection_3',
+      data: { user_email: 'm@x.com', role: 'member' },
+      idempotency_key: uuid('sync-mem'),
+      occurred_at: '2026-05-23T17:00:00Z',
+      contract_version: '1.4',
+    };
+    const res = await POST(
+      makeReq({ authHeader: `Bearer ${TOKEN}`, body }) as any,
+    );
+    expect(res.status).toBe(200);
+    expect(syncMocks.applyMemberEvent).toHaveBeenCalledWith(
+      'prospection',
+      't_prospection_3',
+      'added',
+      { user_email: 'm@x.com', role: 'member' },
+      '2026-05-23T17:00:00Z',
+    );
+  });
+
+  it('handler throw → 500 + row stays unprocessed (replayable by app)', async () => {
+    const { POST } = await import('@/app/api/webhooks/prospection/route');
+    syncMocks.applySuspended.mockRejectedValueOnce(new Error('db down'));
+    const body = {
+      event: 'tenant.suspended',
+      tenant_id: 't_throw',
+      data: {},
+      idempotency_key: uuid('sync-throw'),
+      occurred_at: '2026-05-23T10:00:01Z',
+      contract_version: '1.4',
+    };
+    const res = await POST(
+      makeReq({ authHeader: `Bearer ${TOKEN}`, body }) as any,
+    );
+    expect(res.status).toBe(500);
+    // La row reste rejouable (processedAt = null) selon la convention §7.1.
+    expect(rows[0].processedAt).toBeNull();
   });
 });

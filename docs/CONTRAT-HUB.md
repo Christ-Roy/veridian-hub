@@ -3141,13 +3141,34 @@ Chaque app doit déclarer dans `<app>/docs/features-by-plan.md` :
 
 ### 10.3 Webhooks app → Hub
 
-| Event | Notifuse | Prospection | Analytics | CMS |
-|---|---|---|---|---|
-| `tenant.suspended` | ⚠️ Partiel | ❌ | — | — |
-| `tenant.resumed` | ⚠️ Partiel | ❌ | — | — |
-| `tenant.deleted` | ⚠️ Partiel | ❌ | — | — |
-| `tenant.owner_changed` | ❌ | ❌ | — | — |
-| `tenant.quota_exceeded` | ❌ | ❌ | — | — |
+> Mise à jour 2026-05-23 : handlers v1.4 côté Hub étendus pour matérialiser
+> les events dans `tenants.metadata.<app>_*` (Niveau 2 du tenant sync, cf
+> `veridian-hub/lib/sync/snapshot-updater.ts` et
+> `veridian-hub/todo/2026-05-20-tenant-sync-strategy.md`). Côté apps,
+> l'émission reste à livrer — tickets dans `notifuse-veridian/todo/` et
+> `veridian-prospection/todo/` (`2026-05-23-emit-webhook-events-niveau2-sync.md`).
+
+| Event | Hub handler v1.4 | Notifuse émet | Prospection émet | Analytics | CMS |
+|---|---|---|---|---|---|
+| `tenant.suspended` | ✅ matérialise `<app>_status='suspended'` + `_suspended_at` + `_suspended_reason` | ⚠️ Partiel (legacy HMAC) | ❌ ticket | — | — |
+| `tenant.resumed` | ✅ reset suspended_* + `<app>_resumed_at` | ⚠️ Partiel (legacy HMAC) | ❌ ticket | — | — |
+| `tenant.soft_deleted` | ✅ `<app>_status='deleted'` + `<app>_soft_deleted_at` | ❌ | ❌ ticket | — | — |
+| `tenant.purged` | ✅ `<app>_purged_at` + `<app>_purged_rows` | ❌ | ❌ ticket | — | — |
+| `tenant.owner_changed` | ✅ append `<app>_owner_history` (10 derniers) | ❌ | ❌ ticket | — | — |
+| `tenant.quota_exceeded` | ✅ last-known `<app>_quota_*` | ⚠️ Partiel (legacy HMAC) | ❌ ticket | — | — |
+| `tenant.member_added` | ✅ append `<app>_member_events` (50 derniers) | ❌ | ❌ ticket | — | — |
+| `tenant.member_removed` | ✅ append `<app>_member_events` | ❌ | ❌ ticket | — | — |
+
+### 10.3.1 Stratégie de sync 3-niveaux (livré Hub côté code 2026-05-23)
+
+Hub a livré l'infrastructure complète des 3 niveaux du
+[ticket sync](../todo/2026-05-20-tenant-sync-strategy.md). Statut par niveau :
+
+| Niveau | Code Hub | Endpoints downstream | Effet observable |
+|---|---|---|---|
+| **1 — Discovery pull** | ✅ `lib/sync/discovery.ts` (HMAC, parallèle, timeout 2s, dégradation gracieuse) | ❌ 0/4 apps livrent `GET /api/users/by-email` | Tant que 0 app → `{found:false}` partout. À mesure que chaque app livre, ses cards apparaissent au login. |
+| **2 — Webhook push** | ✅ Handlers v1.4 étendus + `lib/sync/snapshot-updater.ts` matérialise dans `tenants.metadata.<app>_*` | ❌ Apps n'émettent pas encore les events v1.4 — tickets posés | Aucun effet visible tant qu'aucune app émet ; quand elles émettront, snapshot Hub auto-sync sans pull. |
+| **3 — Cron reconcile** | ✅ `POST /api/cron/reconcile-tenants` (hourly via `.github/workflows/hub-reconcile-cron.yml`) | Dépend du Niveau 1 (interroge via discovery) | **Mode dry-run uniquement (P0)**. Log structuré Grafana Loki + alerte Telegram si drifts > 5 (configurable via `RECONCILE_ALERT_THRESHOLD`). Auto-repair opt-in seulement quand discovery est généralisé. |
 
 ### 10.4 Auth & sécurité
 
