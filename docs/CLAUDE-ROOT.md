@@ -287,6 +287,40 @@ L'agent **ne quitte pas la session** tant que :
 4. **Si rollback déclenché** : confirmer que prod est revenue stable + ouvrir un fix immédiat sur staging
 5. **Si CI plante imprévu** : `ssh prod-pub` + `docker logs` ou Dokploy API `docker.getContainerLogs` → diagnostic clair à Robert
 
+### 🚨 RÈGLE TEAM LEAD — E2E lourd OBLIGATOIRE avant promo main
+
+**S'applique à tout agent qui orchestre une salve de sous-agents (team lead) ou qui s'apprête à promote staging → main.**
+
+La CI staging actuelle ne lance QUE les tests unitaires Vitest. Les **E2E Playwright** (`e2e/staging-full/*.spec.ts` pour Hub, équivalents pour Prospection/Notifuse) ne tournent **automatiquement nulle part**. Si tu ne les lances pas, tu shippes à l'aveugle même si la CI staging est verte.
+
+**Avant TOUTE promotion vers main, le team lead DOIT** :
+
+1. **Lancer la suite E2E lourde du repo concerné** contre staging réel :
+   - Hub : `HEADED=0 STAGING_URL=https://hub.staging.veridian.site pnpm e2e:staging:full` (16 specs dont 4 Stripe, 5-10 min)
+   - Prospection : équivalent local (à câbler si pas dispo)
+   - Notifuse / CMS / Analytics : idem
+2. **Lire les résultats spec par spec**, pas juste "exit code 0"
+3. **Pour CHAQUE spec rouge** :
+   - Créer un ticket dans `<repo>/todo/YYYY-MM-DD-e2e-fix-<spec-name>.md` avec stack trace + reproduction
+   - Spawn un sub-agent Opus dédié (worktree isolé) pour fixer
+   - **Bloquer la promo main** tant que toutes les specs ne sont pas vertes
+4. **Si nouvelle salve d'agents nécessaire** (plusieurs specs cassées sur des périmètres différents) : lancer **plusieurs sub-agents Opus en parallèle**, un par périmètre, avec consigne stricte "tu fixes UNIQUEMENT la spec X, tu ne touches pas au reste"
+5. **Ne promote que quand le E2E lourd repasse vert intégralement**
+
+**Pourquoi cette règle dure** :
+
+- Les tests unitaires Vitest mockent Stripe / les apps downstream / la DB — un mock passant ne garantit rien sur le flow réel
+- L'incident 2026-05-23 (staging tournait avec `pk_test_fake/sk_test_fake` au lieu des vraies clés Stripe TEST) prouve que la CI peut être verte alors qu'aucun flow réel ne marche
+- Le coût d'un E2E lourd raté en prod = bien plus que les 10 min d'attente du `pnpm e2e:staging:full`
+
+**Pour faciliter cette discipline** :
+
+- Ticket P1 ouvert (`veridian-hub/todo/2026-05-22-ci-e2e-billing-preprod.md`) pour câbler les E2E Stripe en CI automatique → quand ce sera fait, la règle deviendra "fais confiance à la CI E2E", pas "lance à la main"
+- Idem pour les autres apps : chaque repo doit câbler son `*-e2e-full.yml` workflow GH Actions, déclenché sur push staging
+- En attendant ce câblage, **le team lead lance à la main, point.**
+
+**Sanction** : un push main sans avoir lancé le E2E lourd = faute professionnelle. Si tu provoques un rollback prod parce que tu n'as pas attendu les E2E, tu refais tout le runbook (diagnostic, fix, re-test, re-push, monitoring 30 min) **et tu écris une postmortem** dans `<repo>/todo/POSTMORTEM-YYYY-MM-DD.md`.
+
 ### Auto-promotion : où est-elle câblée ?
 
 - ✅ **Hub** : auto-promote câblé dans `hub-staging.yml:promote-to-main` mais
