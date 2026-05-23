@@ -617,14 +617,75 @@ session Checkout, ne reçoit pas le webhook Stripe `checkout.session.completed`
 de l'achat de leads. Le Hub le reçoit, et propage à Prospection un
 **signal de crédit dédié** — pas un `update-plan`.
 
-> 🔵 **À spec'er** : l'endpoint exact du signal de crédit leads
-> (`POST <prospection>/api/tenants/{id}/credit-leads` ou équivalent) n'est
-> pas figé dans ce contrat v2.0. Il fera l'objet d'un ticket dédié quand
-> le refill leads sera implémenté (cf les trous business "route
-> `/api/refill-leads` absente" + "welcome leads grant non câblé" relevés
-> dans `veridian-hub/todo/2026-05-21-audit-cross-app-state.md`). Ce que ce
-> contrat fige dès maintenant : **le refill leads ne passe PAS par
-> `update-plan`, et le Hub reste le seul à parler à Stripe.**
+### Signal de crédit leads — figé 2026-05-23 (v2.1)
+
+Endpoint Prospection :
+`POST <prospection>/api/tenants/{tenantIdOrEmail}/credit-leads`
+(le path accepte UUID du Tenant Hub OU email owner, cf
+`src/lib/hub/tenant-lookup.ts` veridian-prospection).
+
+Auth : HMAC Pattern A (§6.1 `CONTRAT-HUB.md`).
+- Header `X-Veridian-Timestamp: <ms>`
+- Header `X-Veridian-Hub-Signature: <hex SHA-256>`
+- Signature calculée sur `${timestamp}.${rawJsonBody}` avec
+  `PROSPECTION_HUB_API_SECRET` (rotation séparée du HMAC update-plan).
+
+Body purchase (refill payant) :
+```
+{
+  "quantity": <int 1..100000>,
+  "source": "purchase",
+  "stripe_payment_id": "<pi_xxx | cs_xxx>",
+  "idempotency_key": "<uuid v4 DÉTERMINISTE, dérivé de stripe event.id>",
+  "contract_version": "2.0"
+}
+```
+
+Body welcome (provisioning ou upgrade) :
+```
+{
+  "quantity": <int > 0>,
+  "source": "welcome",
+  "welcome_plan": "freemium" | "pro" | "business",  // plan LOCAL Prospection
+  "idempotency_key": "<uuid v4 DÉTERMINISTE, dérivé de tenant_id+welcome_plan>",
+  "contract_version": "2.0"
+}
+```
+
+Réponses :
+- `200 { credited, balance }` — crédit appliqué
+- `200 { credited: 0, balance, idempotent_replay: true }` — no-op
+  anti-double-grant (l'idem-key vue, OU le palier welcome déjà crédité
+  via l'index unique `(workspace_id, welcome_plan)`)
+- `400 invalid_payload` — `contract_version` major ≠ 2
+- `422 invalid_body` — welcome sans `welcome_plan`, purchase avec
+  `welcome_plan`, `welcome_plan` hors enum
+- `404 tenant_not_found`
+
+Mapping plans canoniques Hub → local Prospection (à appliquer côté Hub
+AVANT l'appel) :
+- `free` → `freemium`
+- `pro` → `pro`
+- `business` → `business`
+- `enterprise` → `business` (pas de palier enterprise local refill)
+
+Retry policy (côté Hub, dispatch post-paiement) : 3 tentatives,
+backoff 1s/3s. 4xx = pas de retry (payload rejeté, bug code-côté).
+5xx + erreurs réseau = retry. Échec des 3 tentatives → alerte Telegram
+`[CRITICAL][refill]` (le user a payé, ne JAMAIS perdre le crédit —
+cron de réconciliation à câbler en P2).
+
+Welcome leads — DELTA d'upgrade :
+- Provision Free → `quantity: 100`, `welcome_plan: "freemium"`
+- Upgrade Free→Pro → `quantity: 1900` (= 2000 − 100)
+- Upgrade Pro→Business → `quantity: 6000` (= 8000 − 2000)
+- Downgrade → **AUCUN appel** (leads permanents,
+  cf `PRICING-VERIDIAN.md` §97)
+
+Implémentation Hub : `lib/billing/refill-leads.ts` (lib pure),
+`app/api/billing/refill-leads/checkout/route.ts` (Checkout one-shot),
+`lib/stripe/dispatcher.ts` (route les webhooks Stripe avec
+`metadata.kind=refill_leads`).
 
 ---
 

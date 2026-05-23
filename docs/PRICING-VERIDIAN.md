@@ -342,6 +342,8 @@ le Hub n'a pas son endpoint webhook receiver.
 | Webhook receivers app→Hub (signaux engagement, ex: 5e mail Notifuse) | ⏳ **en cours** | `veridian-hub/todo/2026-05-21-contrat-hub-v15-sync.md` |
 | Notifuse `POST /api/tenants/update-plan` (consommé par Hub) | ✅ **livré** côté Notifuse | cf. section précédente |
 | Stripe SDK + sync Prisma de base | ✅ **existant** | `veridian-hub/lib/stripe/`, `veridian-hub/utils/stripe/prisma-sync.ts` |
+| **Refill leads Prospection** (Checkout one-shot + dispatch HMAC `credit-leads`) | ✅ **livré prod** 2026-05-23 | merge `fd8158f` / `todo/done/2026-05-23-refill-leads-end-to-end.md`. Stripe Product LIVE `prod_UZKWEySXaX79H8` |
+| **Welcome leads** (provisioning + delta upgrade Prospection) | ✅ **livré prod** 2026-05-23 | idem. Idempotency key déterministe `(tenantId, welcome_plan)` |
 
 **Frontière nette à l'instant T** : le Hub a déjà la plomberie Stripe
 classique (Product, Price, Subscription synchronisés en Prisma), mais
