@@ -198,3 +198,31 @@ export const billingStatePollLimiter = new RateLimiter({
   windowMs: 60_000,
   name: 'billing-state-poll',
 });
+
+// Rate-limit sur GET /api/users/by-email (Discovery cross-app).
+// Brief ticket "30 req/min/secret" — un secret = une app downstream. Une
+// app downstream appelle au login user → quelques req/min en steady-state,
+// peak max ~10/min pendant un onboarding batch. 30/min/clé est généreux
+// pour le pattern, étouffant pour un bot qui scrute des emails.
+//
+// IMPORTANT : la clé d'enforcement est composite `${app}:${ip}` après
+// vérification HMAC. Avant HMAC, on rate-limit par IP seule pour ne pas
+// laisser un attaquant épuiser le quota d'une app légitime en variant le
+// header `x-veridian-app` (qui n'est pas authentifié avant HMAC valide).
+//
+// On utilise donc DEUX limiters distincts pour éviter le bypass :
+//   - `discoveryPreVerifyLimiter` : 60/min/IP, frein anti-flood avant
+//     d'engager le coût CPU/DB du HMAC + lookup.
+//   - `discoveryAppLimiter` : 30/min/app (clé = nom app HMAC-vérifié),
+//     plafond contractuel par secret comme demandé par le brief.
+export const discoveryPreVerifyLimiter = new RateLimiter({
+  capacity: 60,
+  windowMs: 60_000,
+  name: 'discovery-pre-verify',
+});
+
+export const discoveryAppLimiter = new RateLimiter({
+  capacity: 30,
+  windowMs: 60_000,
+  name: 'discovery-app',
+});
