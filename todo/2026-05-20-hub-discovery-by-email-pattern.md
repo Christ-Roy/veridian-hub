@@ -4,6 +4,24 @@
 > **Sévérité** : 🟡 P2 (débloque vision "fallback mi-service mi-SaaS")
 > **Owner** : agent Hub (spec) + tous les agents apps (impl côté chaque app)
 > **Créé** : 2026-05-20
+>
+> **Avancement 2026-05-23 (agent Hub discovery)** :
+> - ✅ **Endpoint Hub `GET /api/users/by-email` livré** sur staging
+>   (commits `7e2544c` + `7aefa0f` + `793558b`). Sens **app → Hub** :
+>   les apps downstream interrogent le Hub au login user pour découvrir
+>   ses apps actives et router. HMAC entrant (réutilise les secrets
+>   `<APP>_HUB_API_SECRET` symétriques), rate-limit 60/min/IP + 30/min/app,
+>   réponse minimaliste `{exists, tenants:[{app,role}]}`, no-store. 44 tests
+>   verts. Voir `lib/discovery/`, `app/api/users/by-email/route.ts`,
+>   `__tests__/api/users/by-email.test.ts`, `__tests__/lib/discovery/`.
+> - 🟢 Tickets côté apps déposés 2026-05-23 :
+>   - `notifuse-veridian/todo/2026-05-23-call-hub-discovery-by-email.md`
+>   - `veridian-prospection/todo/2026-05-23-call-hub-discovery-by-email.md`
+> - ⏳ Sens inverse (Hub → app pour découvrir users connus de chaque app)
+>   non livré — tickets historiques `veridian-cms/todo/2026-05-20-add-
+>   discovery-endpoint-by-email.md` et `veridian-analytics/todo/2026-05-20-
+>   add-discovery-endpoint-by-email.md` couvrent cette autre direction
+>   (pattern décrit ci-dessous §"Pattern cible"). Pas confondre.
 
 ## Vision business
 
