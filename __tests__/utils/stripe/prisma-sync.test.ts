@@ -247,3 +247,117 @@ describe('manageSubscriptionStatusChange — propagation bundle = 2 apps', () =>
     expect(notifuseApplied?.immune).toBe(true);
   });
 });
+
+describe('manageSubscriptionStatusChange — résolution LEGACY_STRIPE_PRICE_MAPPING', () => {
+  // Cf CONTRAT-BILLING.md §3.7 et ticket 2026-05-23-legacy-stripe-price-mapping.
+  // La sub Stripe LIVE sub_1TUtgWRgvfRggzUNC5OjqiuU (past_due, cus_UTrPVfNjDmFie5)
+  // référence des Prices v2 absents du catalogue v3. Sans mapping, le dispatcher
+  // logue `[stripe-sync] Unknown stripe_price_id …` à chaque event sur la sub.
+
+  it('avant mapping (Price ID jamais émis) : warning émis + planName=null', async () => {
+    // Sub sans metadata.plan_key (typique legacy), Price ID totalement
+    // inconnu (pas dans le catalogue v3 ni dans LEGACY_STRIPE_PRICE_MAPPING).
+    // → priorité 3 (catalogue) échoue → warning.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    subscriptionsRetrieveMock.mockResolvedValueOnce(
+      makeSub({
+        metadata: {},
+        priceId: 'price_jamais_emis_inconnu_xyz',
+        priceMetadata: {},
+      }),
+    );
+    const { manageSubscriptionStatusChange } = await import('@/utils/stripe/prisma-sync');
+    await manageSubscriptionStatusChange('sub_test_1', CUSTOMER, true);
+
+    // Le warning canonique du dispatcher doit avoir été émis.
+    const unknownWarnCalls = warnSpy.mock.calls.filter((c) =>
+      typeof c[0] === 'string' && c[0].includes('Unknown stripe_price_id'),
+    );
+    expect(unknownWarnCalls.length).toBeGreaterThan(0);
+
+    const upsertArgs = subscriptionUpsertMock.mock.calls[0][0];
+    expect(upsertArgs.create.planName).toBeNull();
+    warnSpy.mockRestore();
+  });
+
+  it('avec mapping legacy : price_1SvGFY... résolu vers veridian-pro SANS warning', async () => {
+    // Sub legacy v2 — pas de metadata.plan_key sur la sub ni sur le price
+    // (les subs v2 n'avaient pas ces metadata posées). La résolution doit
+    // tomber sur la priorité 3 (catalogue + LEGACY_STRIPE_PRICE_MAPPING)
+    // et trouver veridian-pro.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    subscriptionsRetrieveMock.mockResolvedValueOnce(
+      makeSub({
+        metadata: {},
+        priceId: 'price_1SvGFYRgvfRggzUNMoGboHCU',
+        priceMetadata: {},
+        status: 'past_due', // état réel de la sub legacy détectée
+      }),
+    );
+    const { manageSubscriptionStatusChange } = await import('@/utils/stripe/prisma-sync');
+    await manageSubscriptionStatusChange('sub_test_1', CUSTOMER, true);
+
+    // ⚠️ Invariant clé : AUCUN warning `Unknown stripe_price_id` ne doit
+    // sortir pour ce Price ID — c'est précisément le but du mapping.
+    const unknownWarnCalls = warnSpy.mock.calls.filter((c) =>
+      typeof c[0] === 'string' && c[0].includes('Unknown stripe_price_id'),
+    );
+    expect(unknownWarnCalls).toHaveLength(0);
+
+    const upsertArgs = subscriptionUpsertMock.mock.calls[0][0];
+    expect(upsertArgs.create.planName).toBe('veridian-pro');
+    warnSpy.mockRestore();
+  });
+
+  it('avec mapping legacy : price_1SyXiR... (workflow credits add-on) résolu sans warning', async () => {
+    // Le second item de la sub legacy — add-on metered. Même invariant :
+    // pas de warning si jamais le dispatcher est appelé avec ce Price ID
+    // comme item principal (cas defensive : Stripe peut réordonner les items
+    // après un changement de subscription).
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    subscriptionsRetrieveMock.mockResolvedValueOnce(
+      makeSub({
+        metadata: {},
+        priceId: 'price_1SyXiRRgvfRggzUNDEr7BkUj',
+        priceMetadata: {},
+        status: 'past_due',
+      }),
+    );
+    const { manageSubscriptionStatusChange } = await import('@/utils/stripe/prisma-sync');
+    await manageSubscriptionStatusChange('sub_test_1', CUSTOMER, true);
+
+    const unknownWarnCalls = warnSpy.mock.calls.filter((c) =>
+      typeof c[0] === 'string' && c[0].includes('Unknown stripe_price_id'),
+    );
+    expect(unknownWarnCalls).toHaveLength(0);
+
+    const upsertArgs = subscriptionUpsertMock.mock.calls[0][0];
+    expect(upsertArgs.create.planName).toBe('veridian-pro');
+    warnSpy.mockRestore();
+  });
+
+  it('metadata.plan_key prime sur le mapping legacy (priorité 1)', async () => {
+    // Si un jour la sub legacy reçoit un patch metadata.plan_key manuel,
+    // celui-ci doit primer sur le mapping legacy. Garde-fou que l'ordre
+    // de résolution reste sub.metadata → price.metadata → catalogue+legacy.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    subscriptionsRetrieveMock.mockResolvedValueOnce(
+      makeSub({
+        metadata: { plan_key: 'notifuse-pro' },
+        priceId: 'price_1SvGFYRgvfRggzUNMoGboHCU', // legacy → veridian-pro
+        priceMetadata: {},
+      }),
+    );
+    const { manageSubscriptionStatusChange } = await import('@/utils/stripe/prisma-sync');
+    await manageSubscriptionStatusChange('sub_test_1', CUSTOMER, true);
+
+    const upsertArgs = subscriptionUpsertMock.mock.calls[0][0];
+    // La metadata explicite gagne sur le fallback legacy.
+    expect(upsertArgs.create.planName).toBe('notifuse-pro');
+    warnSpy.mockRestore();
+  });
+});

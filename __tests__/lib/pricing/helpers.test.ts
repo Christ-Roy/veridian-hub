@@ -83,6 +83,57 @@ describe('getPlanByStripePriceId', () => {
       }
     }
   });
+
+  // ─── LEGACY_STRIPE_PRICE_MAPPING (cf plans.ts + CONTRAT-BILLING §3.7) ────
+  // Les subs Stripe LIVE souscrites avant le pivot catalogue v3 (2026-05-22)
+  // référencent des Price IDs qui n'existent plus au catalogue actuel. Le
+  // mapping legacy doit les résoudre en fallback pour ne pas warner ni
+  // perdre la propagation downstream.
+  it('LEGACY : résout price_1SvGFY... (Pro v2 29€) vers veridian-pro', () => {
+    // Sub legacy sub_1TUtgWRgvfRggzUNC5OjqiuU (past_due, cus_UTrPVfNjDmFie5)
+    // détectée au 2026-05-22 — composant principal "Pro" 29€/mois.
+    const resolved = getPlanByStripePriceId('price_1SvGFYRgvfRggzUNMoGboHCU');
+    expect(resolved).not.toBeNull();
+    expect(resolved!.key).toBe('veridian-pro');
+  });
+
+  it('LEGACY : résout price_1SyXiR... (workflow credits add-on) vers veridian-pro', () => {
+    // Second item de la même sub legacy — add-on metered usage-based
+    // (workflow credits) qui voyage avec le Pro. Mappé sur la même PlanKey
+    // que le composant principal pour ne pas warner.
+    const resolved = getPlanByStripePriceId('price_1SyXiRRgvfRggzUNDEr7BkUj');
+    expect(resolved).not.toBeNull();
+    expect(resolved!.key).toBe('veridian-pro');
+  });
+
+  it('LEGACY : un Price ID inconnu reste null (pas de fuite du mapping)', () => {
+    // Garde-fou contre une catch-all qui transformerait tout Price ID en
+    // veridian-pro. Le mapping doit rester strict : entrée explicite ou null.
+    expect(getPlanByStripePriceId('price_jamais_emis_par_veridian')).toBeNull();
+  });
+
+  it('LEGACY : le catalogue canonique prime sur le mapping legacy', () => {
+    // Si jamais un Price ID du catalogue actuel apparaît aussi dans le
+    // mapping legacy (cas pathologique d'oubli de nettoyage), la résolution
+    // doit pointer vers le plan canonique, pas vers l'entrée legacy.
+    // On vérifie l'ordre : le for-loop catalogue précède le lookup legacy
+    // dans getPlanByStripePriceId.
+    for (const plan of Object.values(PLANS)) {
+      const liveMonth = plan.stripePriceId.month;
+      if (!liveMonth) continue;
+      const resolved = getPlanByStripePriceId(liveMonth);
+      expect(resolved).not.toBeNull();
+      // Le résolu porte ce Price ID dans son champ canonique (Live ou Test)
+      const ids = [
+        resolved!.stripePriceId.month,
+        resolved!.stripePriceId.year,
+        resolved!.stripePriceIdTest.month,
+        resolved!.stripePriceIdTest.year,
+      ];
+      expect(ids).toContain(liveMonth);
+      break; // une itération suffit pour valider l'ordre
+    }
+  });
 });
 
 describe('comparePlanRank', () => {

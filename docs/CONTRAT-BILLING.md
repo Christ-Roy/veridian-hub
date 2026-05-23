@@ -308,6 +308,99 @@ Format d'erreur standard : `CONTRAT-HUB.md` §5.10.
 
 ---
 
+### 3.7 Mapping Stripe Price legacy — `LEGACY_STRIPE_PRICE_MAPPING`
+
+Concerne uniquement la résolution **côté Hub** d'un `stripe_price_id`
+porté par une subscription Stripe LIVE héritée d'un catalogue antérieur
+au pivot v3 du 2026-05-22. Les apps commerciales ne voient JAMAIS de
+Price ID — elles reçoivent un `plan` canonique via `update-plan` (§3.2).
+Cette section est ici parce que la résolution legacy est un cas de
+non-régression billing à part entière.
+
+#### 3.7.1 Le problème
+
+Le catalogue Stripe v3 (cf `shared/pricing/plans.ts`, provisionné par
+`scripts/admin/setup-stripe-prices.ts` le 2026-05-22) a créé de nouveaux
+Stripe Products + Prices. Les subscriptions souscrites avant cette date
+référencent toujours les anciens Price IDs v1/v2, qui n'apparaissent
+plus dans le catalogue actuel.
+
+Sans mapping :
+- `getPlanByStripePriceId(price_legacy)` retourne `null`
+- Le dispatcher Hub logue `[stripe-sync] Unknown stripe_price_id …` à
+  chaque event Stripe sur la sub legacy
+- La résolution canonique du plan tombe sur la 3ᵉ source seulement
+  (catalogue) ; si les 2 premières (`metadata.plan_key` sub, et
+  `metadata.veridian_plan` price/product) sont absentes — typique des
+  subs legacy — la propagation downstream perd l'information
+
+#### 3.7.2 La solution — mapping isolé
+
+Table `LEGACY_STRIPE_PRICE_MAPPING` exportée depuis
+`lib/pricing/plans.ts` :
+
+```ts
+export const LEGACY_STRIPE_PRICE_MAPPING: Record<string, PlanKey> = {
+  // 1 entrée par Stripe Price ID legacy → plan canonique v3 le plus proche
+  'price_1SvGFY…': 'veridian-pro',
+};
+```
+
+`getPlanByStripePriceId()` (lib/pricing/helpers.ts) consulte ce mapping
+en **fallback** après le catalogue canonique. L'ordre est :
+
+1. Recherche du Price ID dans les `stripePriceId` / `stripePriceIdTest`
+   des plans du catalogue actuel
+2. Recherche dans `LEGACY_STRIPE_PRICE_MAPPING` → résolution vers une
+   PlanKey existante du catalogue
+
+#### 3.7.3 Garde-fous
+
+- **Lecture seule du compte Stripe.** On NE TOUCHE PAS aux Prices /
+  Subscriptions Stripe pour résoudre ce problème. Pas d'archive de
+  Price, pas de migration de subscription forcée. Le client reste sur
+  sa subscription historique tant qu'il ne fait pas volontairement un
+  nouveau Checkout v3.
+- **Mapping isolé du catalogue principal.** Aucune entrée legacy ne
+  fuit dans `PLANS`, `PUBLIC_PLANS` ou `PAYABLE_PLANS`. La page
+  `/pricing` reste alignée v3.
+- **Pas de propagation custom.** Une fois le PlanKey résolu, le
+  dispatcher traite la sub legacy strictement comme une sub courante
+  du même plan canonique — pas de chemin de code spécial.
+
+#### 3.7.4 Cycle de vie d'une entrée
+
+1. **Ajout** : un Price legacy est détecté via le log
+   `Unknown stripe_price_id …` ou un audit `stripe subscriptions search`.
+   On vérifie le `nickname` / `product.name` via
+   `GET /v1/prices/<id>` pour identifier le PlanKey canonique
+   équivalent. On ajoute une ligne au mapping + un test unitaire de
+   résolution.
+2. **Vie** : tant que des subs LIVE référencent le Price ID. Le
+   warning du dispatcher disparaît, la propagation downstream est
+   nominale.
+3. **Suppression** : une fois que toutes les subs concernées sont
+   soit re-checkout sur v3, soit cancel propre. Audit Stripe :
+
+   ```bash
+   curl -G https://api.stripe.com/v1/subscriptions/search \
+     -u "$SK_LIVE:" \
+     --data-urlencode "query=items.price:'<price_legacy_id>'"
+   ```
+
+   Tant que ce search renvoie `data: []`, l'entrée peut être retirée.
+
+#### 3.7.5 Pourquoi pas migrer la subscription côté Stripe ?
+
+Option écartée car elle change le contrat client (TVA, taxes,
+proration, montant facturé) sans accord explicite, et ce pour économiser
+5 lignes de code de mapping. Pour les clients legacy actifs, la voie
+propre est de les recontacter et de leur faire refaire un Checkout v3
+(qui produit naturellement une nouvelle sub référencant un Price v3,
+puis on cancel la sub legacy).
+
+---
+
 ## 4. Fail-open — comportement App si Hub down
 
 > **Une app ne dégrade, ne paywalle, ne bloque JAMAIS un user parce
@@ -737,6 +830,21 @@ Ce que chaque app commerciale doit avoir pour être conforme à ce contrat.
 ---
 
 ## 10. Changements
+
+### v2.2 — 2026-05-23
+
+- **Section §3.7 ajoutée** : `LEGACY_STRIPE_PRICE_MAPPING` — résolution
+  des Stripe Price IDs de catalogues v1/v2 antérieurs au pivot v3 du
+  2026-05-22 vers une PlanKey canonique actuelle. Mapping isolé du
+  catalogue principal, lecture seule du compte Stripe (pas d'archive
+  Price, pas de migration sub forcée). Spec garde-fous + runbook
+  audit / nettoyage.
+- Première entrée mappée : sub LIVE
+  `sub_1TUtgWRgvfRggzUNC5OjqiuU` (past_due, customer
+  `cus_UTrPVfNjDmFie5`) → `veridian-pro` via
+  `price_1SvGFYRgvfRggzUNMoGboHCU` (29€ Pro v2) +
+  `price_1SyXiRRgvfRggzUNDEr7BkUj` (workflow credits metered add-on).
+  Ticket Hub `2026-05-23-legacy-stripe-price-mapping.md`.
 
 ### v2.0 — 2026-05-22
 

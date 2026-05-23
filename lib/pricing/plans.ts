@@ -307,8 +307,61 @@ export const PLANS: Record<PlanKey, Plan> = {
 // MAPPING LEGACY — pour ne pas casser les subscriptions Stripe actives en prod
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * Mapping des Stripe Price IDs LEGACY (catalogues v1 / v2, antérieurs au
+ * pivot v3 du 2026-05-22) vers une PlanKey du catalogue actuel.
+ *
+ * Pourquoi ce mapping existe :
+ *  - Le catalogue v3 (`shared/pricing/plans.ts`) a été provisionné le
+ *    2026-05-22 avec de NOUVEAUX Stripe Price IDs (cf
+ *    `scripts/admin/setup-stripe-prices.ts`).
+ *  - Les anciennes subscriptions LIVE souscrites avant cette date
+ *    référencent les Price IDs v1/v2 (Products "Pro", "Pro Workflow
+ *    Credits"…) qui n'existent plus dans le catalogue.
+ *  - Sans mapping, `getPlanByStripePriceId()` retourne null, le dispatcher
+ *    Hub logue `[stripe-sync] Unknown stripe_price_id …` à chaque event
+ *    `customer.subscription.updated` reçu et la propagation aux apps
+ *    downstream perd la résolution canonique (fallback metadata.plan_key
+ *    seulement, qui n'existe pas sur ces subs legacy).
+ *
+ * Garde-fou : on **mappe** côté code, on ne touche **JAMAIS** au compte
+ * Stripe (pas d'archive de Price, pas de migration de subscription forcée).
+ * Le client reste sur sa sub historique tant qu'elle n'est pas remplacée
+ * volontairement par un Checkout v3.
+ *
+ * Cycle de vie d'une entrée :
+ *  1. Ajoutée ici quand un Price legacy est détecté en prod (audit ou log)
+ *  2. Reste tant que des subscriptions Stripe LIVE référencent encore ce
+ *     Price ID (vérifiable via `stripe subscriptions search`)
+ *  3. Supprimée une fois que toutes les subs concernées sont soit
+ *     re-checkout sur le catalogue v3, soit cancel propre
+ *
+ * Voir `docs/CONTRAT-BILLING.md` §3.5 "Mapping legacy" pour le runbook
+ * d'audit / nettoyage.
+ */
 export const LEGACY_STRIPE_PRICE_MAPPING: Record<string, PlanKey> = {
-  // À remplir au prochain audit Stripe prod
+  // ─── Sub legacy v2 — sub_1TUtgWRgvfRggzUNC5OjqiuU (past_due au 2026-05-23) ───
+  // Customer cus_UTrPVfNjDmFie5, userUuid=49224170-7da2-411e-8d6b-8a5060e8486b.
+  // Détectée pendant la validation Stripe LIVE du 2026-05-22.
+  //
+  // Le product `prod_Tt20PvX8eWrQPT` ("Pro" — description : "Utilisateurs
+  // illimités, Twenty CRM avancé, Notifuse sans limite, Workflows
+  // automatisés") correspond au bundle multi-app v2 → équivalent
+  // canonique v3 = `veridian-pro` (bundle Notifuse Pro + Prospection Pro).
+  //
+  // Twenty est retiré de la stack 2026-05-18 mais la sub legacy garde sa
+  // sémantique "tout inclus Pro" — donc bundle, pas plan à la carte.
+
+  // Price 1 : 29€/mois licensed — composant "Pro" de la sub
+  'price_1SvGFYRgvfRggzUNMoGboHCU': 'veridian-pro',
+
+  // Price 2 : 0€ flat metered usage-based (10 000 workflow exec offerts/mois)
+  // Add-on technique du Pro v2, sans contrepartie côté catalogue v3 qui n'a
+  // pas de notion de workflow credits. On le mappe sur la même PlanKey que
+  // le Pro pour que le dispatcher ne loggue pas de warning et résolve
+  // proprement les events `customer.subscription.updated` portant ce
+  // sub-item. Aucun impact sur la facturation : metered avec unit_amount=0.
+  'price_1SyXiRRgvfRggzUNDEr7BkUj': 'veridian-pro',
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
