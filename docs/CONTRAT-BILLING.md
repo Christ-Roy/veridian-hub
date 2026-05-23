@@ -459,12 +459,30 @@ Auth : HMAC app → Hub (Pattern A, le même HMAC que les autres calls m2m)
 | `unauthorized` | 401 | HMAC invalide. |
 | `tenant_not_found` | 404 | `tenant_id` inconnu côté Hub. |
 
-> **Statut d'implémentation** : 🔵 à spec'er → à livrer. Cet endpoint
-> n'existe pas encore côté Hub au 2026-05-22. Il est **gravé ici comme
-> contrat**, son implémentation est un ticket Hub à part (hors périmètre
-> de l'extraction doc). Tant qu'il n'existe pas, le poll des apps n'a pas
-> de cible — ce n'est pas bloquant : le retry Stripe + l'idempotence
-> couvrent 99,9% des cas, le poll ne sert qu'au cas extrême §6.1.
+> **Statut d'implémentation** : ✅ **livré côté Hub 2026-05-23**
+> (`app/api/tenants/[tenantId]/billing-state/route.ts`, lib
+> `lib/billing/billing-state.ts` + HMAC `lib/billing/billing-state-hmac.ts`,
+> tests `__tests__/api/tenants/billing-state.test.ts` +
+> `__tests__/lib/billing/billing-state.test.ts`).
+>
+> Spécificités d'implé :
+> - **Headers HMAC** : `X-Veridian-Hub-Signature` + `X-Veridian-Timestamp` +
+>   `x-veridian-app` (Pattern A §6.1 canonique). Secret par app
+>   `<APP>_HUB_API_SECRET` (réutilisation du secret existant Hub↔app).
+> - **Pour un GET**, le `rawBody` signé est la string vide `""` — la
+>   signature couvre `${timestamp}.""`.
+> - **Privacy / isolation app** : un caller HMAC `notifuse` ne récupère
+>   QUE l'état billing notifuse du tenant ; idem prospection. L'app
+>   appelante est dérivée du header HMAC (secret-bound), pas d'un
+>   paramètre exposé — usurpation = 401 (secret désync).
+> - **Cache 10s TTL in-memory** (`Map` clé `(tenantId, app)`) — évite
+>   spam DB sur un cron app agressif. Header debug `X-Veridian-Cache:
+>   HIT|MISS` retourné.
+> - **Rate-limit** : 60 req/min/secret (clé HMAC, pas IP — un secret
+>   partage un bucket). 429 `Retry-After` si dépassé.
+> - **Réponse minimaliste** : exactement les 6 champs du contrat (tenant_id,
+>   plan, plan_source, stripe_subscription_id, effective_at, updated_at).
+>   Pas plus, pas moins — toute extension future = bump `contract_version`.
 
 ### 6.4 Le pattern poll côté app
 

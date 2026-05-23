@@ -186,3 +186,15 @@ export const invitationVerifyLimiter = new RateLimiter({
   windowMs: 60_000,
   name: 'invitation-verify',
 });
+
+// Poll endpoint GET /api/tenants/[tenantId]/billing-state — réconciliation
+// CONTRAT-BILLING §6.3. Une app downstream câble un cron lent (~1×/jour par
+// tenant), mais on tolère un poll plus fréquent (jusqu'à 60/min/secret) pour
+// permettre des batches de réconciliation initiale après reset cache ou
+// migration. Clé = app HMAC (pas IP) car le caller est une app server-side
+// trustée derrière le HMAC ; un même secret = un même rate bucket.
+export const billingStatePollLimiter = new RateLimiter({
+  capacity: 60,
+  windowMs: 60_000,
+  name: 'billing-state-poll',
+});
