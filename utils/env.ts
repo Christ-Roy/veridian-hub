@@ -107,3 +107,30 @@ export function getStripePublishableKey(): string {
 
   return key;
 }
+
+/**
+ * Retourne le Stripe Product ID utilisé pour le refill leads Prospection
+ * (Checkout one-shot, prix calculé dynamiquement via `price_data`).
+ *
+ * Provisionné par `scripts/admin/setup-stripe-refill.ts` séparément sur les
+ * comptes LIVE et TEST → 2 ENV distinctes (`STRIPE_REFILL_PRODUCT_ID_LIVE` vs
+ * `STRIPE_REFILL_PRODUCT_ID_TEST`). On résout selon `isProduction()` comme les
+ * Price IDs des subscriptions (cf `lib/pricing/helpers.ts:getStripePriceIdForCheckout`).
+ *
+ * Throw explicitement si manquant — la route Checkout retourne 503 plutôt
+ * que de créer une session Stripe sans Product référencé.
+ */
+export function getStripeRefillProductId(): string {
+  const prodId = process.env.STRIPE_REFILL_PRODUCT_ID_LIVE;
+  const testId = process.env.STRIPE_REFILL_PRODUCT_ID_TEST;
+  const id = isProduction() ? prodId : testId;
+  if (!id) {
+    const envLabel = isProduction() ? 'LIVE' : 'TEST';
+    throw new Error(
+      `STRIPE_REFILL_PRODUCT_ID_${envLabel} non configuré. ` +
+        `Lancer scripts/admin/setup-stripe-refill.ts --mode=${envLabel.toLowerCase()} ` +
+        `pour provisionner le Product Stripe refill, puis ajouter l'ID en ENV.`,
+    );
+  }
+  return id;
+}
