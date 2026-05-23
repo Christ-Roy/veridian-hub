@@ -121,6 +121,14 @@ jobs:
           # `lib/webhooks/receiver.ts` bloque dès le préambule auth.
           NOTIFUSE_WEBHOOK_TOKEN: ${{ secrets.NOTIFUSE_WEBHOOK_TOKEN }}
           PROSPECTION_WEBHOOK_TOKEN: ${{ secrets.PROSPECTION_WEBHOOK_TOKEN }}
+          # Stripe TEST (compte preprod, sans risque sur LIVE). Sans ces clés
+          # le compose tombe sur les fallbacks pk_test_fake/sk_test_fake et
+          # AUCUN flow Stripe ne peut être testé sur staging (checkout, refill,
+          # webhook). Cf incident 2026-05-23.
+          STRIPE_SECRET_KEY_TEST: ${{ secrets.STAGING_STRIPE_SECRET_KEY_TEST }}
+          STRIPE_PUBLISHABLE_KEY_TEST: ${{ secrets.STAGING_STRIPE_PUBLISHABLE_KEY_TEST }}
+          STRIPE_WEBHOOK_SECRET_TEST: ${{ secrets.STAGING_STRIPE_WEBHOOK_SECRET_TEST }}
+          STRIPE_REFILL_PRODUCT_ID_TEST: ${{ secrets.STAGING_STRIPE_REFILL_PRODUCT_ID_TEST }}
           # ⚠️ OAuth Sign-in (Google/Microsoft) PAS configuré côté staging
           # à cause de la privatisation Tailscale (hub.staging.veridian.site
           # → IP Tailscale 100.92.215.42 non résolvable publiquement). Si on
@@ -153,6 +161,10 @@ jobs:
             printf 'NOTIFUSE_HUB_WEBHOOK_SECRET_STAGING=%s\n' "$NOTIFUSE_HUB_WEBHOOK_SECRET_STAGING"
             printf 'NOTIFUSE_WEBHOOK_TOKEN=%s\n' "$NOTIFUSE_WEBHOOK_TOKEN"
             printf 'PROSPECTION_WEBHOOK_TOKEN=%s\n' "$PROSPECTION_WEBHOOK_TOKEN"
+            printf 'STRIPE_SECRET_KEY_TEST=%s\n' "$STRIPE_SECRET_KEY_TEST"
+            printf 'STRIPE_PUBLISHABLE_KEY_TEST=%s\n' "$STRIPE_PUBLISHABLE_KEY_TEST"
+            printf 'STRIPE_WEBHOOK_SECRET_TEST=%s\n' "$STRIPE_WEBHOOK_SECRET_TEST"
+            printf 'STRIPE_REFILL_PRODUCT_ID_TEST=%s\n' "$STRIPE_REFILL_PRODUCT_ID_TEST"
           } > "$ENVFILE"
           scp -i ~/.ssh/staging_key "$ENVFILE" "$DEV_USER@$DEV_HOST:${{ env.STAGING_DIR }}/.env"
           rm -f "$ENVFILE"
