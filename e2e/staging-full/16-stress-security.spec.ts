@@ -40,8 +40,12 @@ const NOTIFUSE_TOKEN =
   process.env.NOTIFUSE_WEBHOOK_TOKEN ||
   '6a68be1b9effd251386d0d25d04409cdda75575d79feee3de899c30dfa9b59f2';
 
-// Webhook secret Stripe staging — `whsec_fake` (cf. spec 09).
-const STAGING_WHSEC = 'whsec_fake';
+// Webhook secret Stripe staging — résolution dynamique (cf. spec 09).
+// Priorité : STRIPE_WEBHOOK_SECRET_TEST > STRIPE_WEBHOOK_SECRET > fallback.
+const STAGING_WHSEC =
+  process.env.STRIPE_WEBHOOK_SECRET_TEST ||
+  process.env.STRIPE_WEBHOOK_SECRET ||
+  'whsec_fake';
 const stripe = new Stripe('sk_test_fake');
 
 // HMAC secret invitation (staging — pareil que prod-staging-only, fixé par CI).

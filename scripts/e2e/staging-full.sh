@@ -25,6 +25,28 @@ STAGING_URL="${STAGING_URL:-https://hub.staging.veridian.site}"
 
 cd "$(dirname "$0")/../.."  # remonte à la racine du repo Hub
 
+# ─── 0. Auto-source des secrets E2E depuis ~/credentials/.all-creds.env ─────
+# Plusieurs specs (09, 14, 16) signent des payloads Stripe avec le webhook
+# secret réel injecté côté staging depuis 2026-05-23. Si l'agent / robert
+# n'exporte rien manuellement, on les récupère depuis le fichier creds
+# central. C'est safe (lecture seule, valeurs TEST uniquement).
+CREDS_FILE="$HOME/credentials/.all-creds.env"
+if [ -f "$CREDS_FILE" ]; then
+  for key in STRIPE_WEBHOOK_SECRET_TEST STRIPE_SECRET_KEY_TEST \
+             STRIPE_PUBLISHABLE_KEY_TEST STRIPE_REFILL_PRODUCT_ID_TEST \
+             HUB_ADMIN_SECRET NOTIFUSE_WEBHOOK_TOKEN \
+             HUB_INVITATION_SECRET_NOTIFUSE HUB_INVITATION_SECRET_PROSPECTION \
+             HUB_INVITATION_SECRET_ANALYTICS HUB_INVITATION_SECRET_CMS; do
+    # Si déjà exporté par l'env appelant : on respecte (override possible).
+    if [ -z "${!key:-}" ]; then
+      val=$(grep "^${key}=" "$CREDS_FILE" 2>/dev/null | head -1 | cut -d= -f2- || true)
+      if [ -n "$val" ]; then
+        export "$key=$val"
+      fi
+    fi
+  done
+fi
+
 RED=$'\033[0;31m'
 GREEN=$'\033[0;32m'
 YELLOW=$'\033[1;33m'

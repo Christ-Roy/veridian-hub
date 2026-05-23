@@ -32,8 +32,10 @@
  *   - Toutes les rows persistées contiennent event_type + payload non-null
  *     (forensics).
  *
- * **STAGING** : `STRIPE_WEBHOOK_SECRET=whsec_fake` (cf compose/staging.yml).
- * On utilise ce secret pour générer des signatures valides.
+ * **STAGING** : depuis 2026-05-23, le compose utilise la vraie valeur Stripe
+ * TEST `${STRIPE_WEBHOOK_SECRET_TEST:-whsec_fake}`. Les fixtures résolvent
+ * dynamiquement (env > fallback). Le runner `scripts/e2e/staging-full.sh`
+ * exporte automatiquement depuis `~/credentials/.all-creds.env`.
  */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 import Stripe from 'stripe';
@@ -41,7 +43,11 @@ import Stripe from 'stripe';
 import { STAGING_URL, freshIpHeader } from './_helpers';
 import { runSqlOnStaging, selectScalar, selectRow } from './_sql-helper';
 
-const STAGING_WHSEC = 'whsec_fake';
+// Cf. spec 09 pour la logique de résolution du secret (env > fallback).
+const STAGING_WHSEC =
+  process.env.STRIPE_WEBHOOK_SECRET_TEST ||
+  process.env.STRIPE_WEBHOOK_SECRET ||
+  'whsec_fake';
 const stripe = new Stripe('sk_test_fake');
 
 function signEvent(body: string, secret = STAGING_WHSEC): string {
@@ -239,22 +245,36 @@ test.describe('Journey 14 — S6 Event hors whitelist', () => {
 });
 
 // ─── S7 : Replay même event.id → idempotent ──────────────────────────────
+//
+// **NOTE DESIGN (2026-05-23)** : un event qui FAIL côté handler garde
+// `processed_at = NULL` côté `hub_app.stripe_events` — c'est intentionnel
+// (contrat-billing §2.2 : retry Stripe = retry Hub jusqu'à ce que le
+// dispatch réussisse ou que le cron de réconciliation passe). On NE peut
+// donc PAS tester l'idempotence avec un event mappé `subscription.created`
+// dont la data est fake — la 1ère tentative fail, donc la 2e re-tente
+// (comportement attendu).
+//
+// On utilise donc un event hors whitelist (`product.created`) dont le
+// dispatcher renvoie `ignored` succès → `processed_at` est set → replay
+// renvoie bien `idempotent: true`. C'est le scénario "Stripe retry sur
+// un 200 perdu en route" qu'on veut couvrir.
 
 test.describe('Journey 14 — S7 Replay idempotent', () => {
   test('2× même event.id → 2e=idempotent=true', async ({ request }) => {
-    const event = makeEvent('customer.subscription.created', {
-      id: `sub_replay_${Date.now()}`,
-      object: 'subscription',
-      customer: `cus_replay_${Date.now()}`,
-      status: 'active',
-      items: { data: [], has_more: false, object: 'list', url: '' },
-      metadata: {},
+    // Event ignored par le dispatcher (hors whitelist) → processedAt set →
+    // idempotence active. Cf. note design ci-dessus pour le détail.
+    const event = makeEvent('product.created', {
+      id: `prod_replay_${Date.now()}`,
+      object: 'product',
+      name: 'Replay test product',
+      active: true,
     } as unknown as Stripe.Event.Data.Object);
 
     const first = await postWebhook(request, event);
     expect(first.status()).toBe(200);
     const firstBody = readBody(await first.json());
     expect(firstBody.idempotent).not.toBe(true);
+    expect(firstBody.outcome).toBe('ignored');
 
     // 2e call — signature différente (timestamp neuf) mais MÊME event.id
     const second = await postWebhook(request, event);

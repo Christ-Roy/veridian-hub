@@ -9,9 +9,11 @@
  *      invoice.* / customer.deleted
  *   4. Alerte Telegram Robert sur fail dispatch
  *
- * **STAGING SPECIFIC** : `STRIPE_WEBHOOK_SECRET=whsec_fake` (cf. compose
- * staging.yml). On peut donc générer des signatures valides côté test en
- * passant `whsec_fake` à `stripe.webhooks.generateTestHeaderString`.
+ * **STAGING SPECIFIC** : depuis 2026-05-23, le compose staging utilise la
+ * vraie valeur Stripe TEST `${STRIPE_WEBHOOK_SECRET_TEST:-whsec_fake}`.
+ * Les fixtures résolvent dynamiquement le secret (env > fallback) — cf.
+ * `STAGING_WHSEC` plus bas. Le runner `scripts/e2e/staging-full.sh`
+ * exporte automatiquement la clé depuis `~/credentials/.all-creds.env`.
  *
  * **CE SPEC COUVRE** :
  *   1. Signature invalide → 400
@@ -33,7 +35,16 @@ import { test, expect } from '@playwright/test';
 import Stripe from 'stripe';
 
 const STAGING_URL = process.env.STAGING_URL || 'https://hub.staging.veridian.site';
-const STAGING_WHSEC = 'whsec_fake'; // Fixé staging cf. compose/staging.yml
+// Le secret webhook côté staging suit cette priorité :
+//   1. STRIPE_WEBHOOK_SECRET_TEST si exporté par le runner (valeur réelle Stripe
+//      TEST persistée dans /opt/staging/hub/.env depuis 2026-05-23).
+//   2. Fallback `whsec_fake` pour les setups historiques où le compose staging
+//      utilise encore la valeur de défaut (cas dev local sans .env injecté).
+// Cf. compose/staging.yml : `STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET_TEST:-whsec_fake}`.
+const STAGING_WHSEC =
+  process.env.STRIPE_WEBHOOK_SECRET_TEST ||
+  process.env.STRIPE_WEBHOOK_SECRET ||
+  'whsec_fake';
 
 // On utilise sk_test_fake comme clé fake. generateTestHeaderString n'appelle
 // pas l'API Stripe — juste un HMAC local sur le payload.

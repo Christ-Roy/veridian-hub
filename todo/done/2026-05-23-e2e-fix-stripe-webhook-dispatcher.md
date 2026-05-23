@@ -39,3 +39,42 @@ La route `/api/webhooks` côté staging renvoie probablement un code ≠ 200 sur
 - Marker commit `[risk:medium]` (touche au billing)
 - Pas de modif compose Stripe LIVE
 - `DEPLOY_ENV` (jamais `NODE_ENV`)
+
+## Résolution — 2026-05-23
+
+**Diagnostic** : confirmé hypothèse #1 (désync secret). Staging container avait
+`STRIPE_WEBHOOK_SECRET=whsec_tRojJslk0quc2VYZPHG7zyGJsPQiv72A` (vraie clé
+Stripe TEST persistée depuis 2026-05-23), mais les 3 fixtures signaient en
+dur avec `whsec_fake` → toutes les signatures rejetées → 400 au lieu de 200.
+
+**Hypothèses 2 et 3 écartées** :
+- Hypothèse 2 : `utils/env.ts:getStripeWebhookSecret()` lit bien `STRIPE_WEBHOOK_SECRET`
+  côté staging (`isProduction()` retourne false car `DOMAIN=hub.staging.veridian.site`).
+  Le compose mappe les 2 vars sur la même valeur, pas de mismatch côté Hub.
+- Hypothèse 3 : `STRIPE_REFILL_PRODUCT_ID_TEST` n'est pas consommé par la route webhook.
+
+**Fix appliqué** :
+1. Résolution dynamique du secret dans les 3 fixtures (`STRIPE_WEBHOOK_SECRET_TEST`
+   env > `STRIPE_WEBHOOK_SECRET` env > fallback `whsec_fake`) :
+   - `e2e/staging-full/09-stripe-webhook-dispatcher.spec.ts`
+   - `e2e/staging-full/14-stripe-webhook-dispatcher-flow.spec.ts`
+   - `e2e/staging-full/16-stress-security.spec.ts`
+2. `scripts/e2e/staging-full.sh` auto-source 10 clés E2E depuis
+   `~/credentials/.all-creds.env` (STRIPE_*, HUB_ADMIN_SECRET,
+   NOTIFUSE_WEBHOOK_TOKEN, HUB_INVITATION_SECRET_*) si pas déjà
+   exportées par l'env appelant — supprime la friction "il faut
+   exporter X avant de lancer la suite".
+3. Spec 14 S7 (`Replay idempotent`) : changé l'event utilisé de
+   `customer.subscription.created` (data fake → handler fail →
+   `processed_at` reste NULL → pas idempotent au replay, comportement
+   intentionnel cf CONTRAT-BILLING §2.2) vers `product.created` (hors
+   whitelist → outcome=ignored → `processed_at` set → idempotent OK).
+   Note design ajoutée en commentaire pour éviter régression future.
+
+**Pas de modif Hub source** : la logique route + dispatcher est correcte,
+le bug était entièrement côté fixtures (secret hardcoded + un test mal-formulé).
+
+**Résultat E2E** : 26/26 passants (1 skip XSS-invitation attendu, dépend
+d'un match exact du secret HMAC qui diffère entre fallback et valeur staging).
+Verified via `HEADED=0 bash scripts/e2e/staging-full.sh e2e/staging-full/09*.ts
+e2e/staging-full/14*.ts e2e/staging-full/16*.ts`.
