@@ -8,6 +8,9 @@
  *  - 400 sur payload invalide (email mal formé, name trop long)
  *  - Idempotence : appel 2 → already_existed=true
  *  - Audit log écrit
+ *  - **race condition** : upsertHubUser retourne raceConditionResolved=true
+ *    → route renvoie 200 + already_existed=true (jamais 500)
+ *  - upsertHubUser throw une erreur DB non-race → route propage l'erreur
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -190,6 +193,61 @@ describe('POST /api/admin/users/create', () => {
     const body = await res.json();
     expect(body.already_existed).toBe(true);
     expect(body.created).toBe(false);
+  });
+
+  it('race condition : upsertHubUser raceConditionResolved=true → 200 already_existed (jamais 500)', async () => {
+    // Simule le path d'une race P2002 résolue dans upsertHubUser : la
+    // route ne doit jamais voir l'erreur, juste retourner 200 +
+    // already_existed=true. C'est le coeur du fix spec 13 S5.
+    upsertHubUserMock.mockResolvedValueOnce({
+      userId: 'u-raced',
+      supabaseUserId: 'uuid-raced',
+      email: 'race@x.com',
+      created: false,
+      alreadyExisted: true,
+      raceConditionResolved: true,
+    });
+
+    const { POST } = await import('@/app/api/admin/users/create/route');
+    const res = await POST(
+      makeReq(
+        { email: 'race@x.com' },
+        { 'x-admin-secret': 'admin-test-secret' }
+      ) as never
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toMatchObject({
+      user_id: 'u-raced',
+      supabase_user_id: 'uuid-raced',
+      email: 'race@x.com',
+      created: false,
+      already_existed: true,
+    });
+    // Pas de fuite du flag interne dans la réponse publique
+    expect(body).not.toHaveProperty('raceConditionResolved');
+    expect(body).not.toHaveProperty('race_condition_resolved');
+  });
+
+  it('upsertHubUser throw (erreur DB non-race) → route propage l\'erreur', async () => {
+    // Si upsertHubUser re-throw une vraie erreur DB (P1001 timeout,
+    // pool exhausted, etc.), la route ne masque PAS — Next.js renvoie
+    // 500. Pas de retry, pas de "200 silencieux". Vrai bug = vrai 500.
+    upsertHubUserMock.mockRejectedValueOnce(
+      Object.assign(new Error('connection refused'), { code: 'P1001' })
+    );
+
+    const { POST } = await import('@/app/api/admin/users/create/route');
+    await expect(
+      POST(
+        makeReq(
+          { email: 'a@x.com' },
+          { 'x-admin-secret': 'admin-test-secret' }
+        ) as never
+      )
+    ).rejects.toThrow(/connection refused/);
+    // Pas d'audit log si la création a échoué : on n'a rien à logger
+    expect(writeAuditLogMock).not.toHaveBeenCalled();
   });
 });
 
