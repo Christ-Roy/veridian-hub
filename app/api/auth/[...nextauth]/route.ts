@@ -58,7 +58,10 @@ async function withRateLimit(
     return handler(req);
   }
   const ip = extractClientIp(req.headers);
-  const result = limiter.enforce(ip);
+  // enforceWithBypass : bypass E2E staging via header secret valide
+  // (cf. RateLimiter.enforceWithBypass). En prod le bypass est ignoré
+  // par `shouldBypassRateLimit` → comportement identique au legacy.
+  const result = limiter.enforceWithBypass(ip, req.headers);
   if (!result.ok) {
     console.warn(
       JSON.stringify({

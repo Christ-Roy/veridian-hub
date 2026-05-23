@@ -40,6 +40,7 @@ import {
   STAGING_URL,
   RUN_STAMP,
   uniqueEmail as makeEmail,
+  bypassRateLimitHeaders,
   freshIpHeader,
   withRateLimitRetry,
 } from './_helpers';
@@ -58,6 +59,8 @@ async function mockOauthLogin(
   const { csrfToken } = (await csrfRes.json()) as { csrfToken: string };
 
   const cb = await ctx.post('/api/auth/callback/mock-oauth', {
+    // Bypass oauthCallbackLimiter (30/min/IP) sur staging E2E.
+    headers: bypassRateLimitHeaders(),
     form: {
       csrfToken,
       email,

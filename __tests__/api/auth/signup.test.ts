@@ -89,6 +89,83 @@ describe('POST /api/auth/signup', () => {
     expect(blocked.headers.get('Retry-After')).toBeTruthy();
   });
 
+  // ─── Bypass E2E staging via header `x-veridian-e2e-bypass-ratelimit` ─────
+  // Cf. RateLimiter.enforceWithBypass + shouldBypassRateLimit dans
+  // lib/auth/rate-limit.ts. Trois assertions critiques :
+  //   1. En staging, le header secret valide skip le rate-limit (10+ signups
+  //      depuis la même IP passent sans 429).
+  //   2. GARDE-FOU PROD : le header est ignoré, 6e → 429 quand même.
+  //   3. Header bidon (même longueur) → bypass refusé, comportement normal.
+  describe('rate-limit bypass E2E header', () => {
+    const ORIG_DEPLOY_ENV = process.env.DEPLOY_ENV;
+    const ORIG_BYPASS_SECRET = process.env.E2E_RATELIMIT_BYPASS_SECRET;
+    const BYPASS_SECRET = 'a'.repeat(48); // ≥ 32 chars
+
+    beforeEach(() => {
+      process.env.DEPLOY_ENV = 'staging';
+      process.env.E2E_RATELIMIT_BYPASS_SECRET = BYPASS_SECRET;
+    });
+
+    // afterAll restaure les env vars du process (Vitest n'isole pas).
+    // Géré par afterAll du describe parent indirectement — on restaure ici aussi.
+    // (le top-level beforeEach reset déjà le signupLimiter.)
+
+    const sameIpReqWithBypass = (body: any, secret = BYPASS_SECRET) => ({
+      json: async () => body,
+      headers: new Headers({
+        'x-forwarded-for': '10.55.0.99',
+        'x-veridian-e2e-bypass-ratelimit': secret,
+      }),
+    } as any);
+
+    it('bypass valide en staging : 10+ signups depuis même IP passent sans 429', async () => {
+      const { POST } = await import('@/app/api/auth/signup/route');
+      for (let i = 0; i < 12; i++) {
+        const res = await POST(
+          sameIpReqWithBypass({ email: `bypass-${i}@x.io`, password: 'longenough' })
+        );
+        expect(
+          [200, 201, 409],
+          `signup #${i} should succeed via bypass (got ${res.status})`
+        ).toContain(res.status);
+      }
+    });
+
+    it('GARDE-FOU PROD : bypass header ignoré, 6e signup → 429 quand même', async () => {
+      process.env.DEPLOY_ENV = 'prod';
+      const { POST } = await import('@/app/api/auth/signup/route');
+      for (let i = 0; i < 5; i++) {
+        const res = await POST(
+          sameIpReqWithBypass({ email: `prod-${i}@x.io`, password: 'longenough' })
+        );
+        expect([200, 201, 409]).toContain(res.status);
+      }
+      const blocked = await POST(
+        sameIpReqWithBypass({ email: 'prod-6@x.io', password: 'longenough' })
+      );
+      expect(blocked.status, 'PROD MUST ignore bypass header').toBe(429);
+      // Restore
+      if (ORIG_DEPLOY_ENV === undefined) delete process.env.DEPLOY_ENV;
+      else process.env.DEPLOY_ENV = ORIG_DEPLOY_ENV;
+    });
+
+    it('bypass refusé si header wrong (même longueur) → 429 normal', async () => {
+      const wrong = 'b'.repeat(48);
+      const { POST } = await import('@/app/api/auth/signup/route');
+      for (let i = 0; i < 5; i++) {
+        const res = await POST(sameIpReqWithBypass({ email: `w-${i}@x.io`, password: 'longenough' }, wrong));
+        expect([200, 201, 409]).toContain(res.status);
+      }
+      const blocked = await POST(
+        sameIpReqWithBypass({ email: 'w-6@x.io', password: 'longenough' }, wrong)
+      );
+      expect(blocked.status).toBe(429);
+      // Cleanup env
+      if (ORIG_BYPASS_SECRET === undefined) delete process.env.E2E_RATELIMIT_BYPASS_SECRET;
+      else process.env.E2E_RATELIMIT_BYPASS_SECRET = ORIG_BYPASS_SECRET;
+    });
+  });
+
   it('rejects missing email/password', async () => {
     const { POST } = await import('@/app/api/auth/signup/route');
     const res = await POST(makeReq({ email: '' }));

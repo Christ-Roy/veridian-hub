@@ -57,8 +57,13 @@ const NO_STORE_HEADERS = { 'Cache-Control': 'no-store' } as const;
 export async function GET(request: NextRequest) {
   // 1) Pré-HMAC rate-limit (par IP) — freine un bot qui spam avant qu'on
   //    engage le coût CPU du HMAC + lookup DB.
+  //    enforceWithBypass : bypass E2E staging via header secret valide
+  //    (cf. lib/auth/rate-limit.ts). En prod le bypass est ignoré.
   const ip = extractClientIp(request.headers);
-  const preRate = discoveryPreVerifyLimiter.enforce(ip);
+  const preRate = discoveryPreVerifyLimiter.enforceWithBypass(
+    ip,
+    request.headers,
+  );
   if (!preRate.ok) {
     return NextResponse.json(
       { error: 'rate_limited' },
@@ -86,7 +91,12 @@ export async function GET(request: NextRequest) {
   // 3) Plafond contractuel par secret : 30/min/app (clé = nom app HMAC-
   //    vérifié). Si une app A est compromise et abuse, A est plafonnée
   //    sans pénaliser les autres apps.
-  const appRate = discoveryAppLimiter.enforce(hmac.app);
+  //    enforceWithBypass aussi sur le post-HMAC pour la cohérence E2E —
+  //    un client E2E qui pose le header bypass doit traverser les 2 couches.
+  const appRate = discoveryAppLimiter.enforceWithBypass(
+    hmac.app,
+    request.headers,
+  );
   if (!appRate.ok) {
     return NextResponse.json(
       { error: 'rate_limited' },

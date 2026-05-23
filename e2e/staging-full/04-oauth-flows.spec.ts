@@ -23,6 +23,8 @@
  */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 
+import { bypassRateLimitHeaders } from './_helpers';
+
 const STAGING_URL = process.env.STAGING_URL || 'https://hub.staging.veridian.site';
 
 // ─── Helpers ────────────────────────────────────────────────────────────
@@ -48,6 +50,9 @@ async function mockOauthSignIn(
 ): Promise<{ status: number; redirectLocation?: string }> {
   const csrf = await getCsrfToken(request);
   const res = await request.post(`${STAGING_URL}/api/auth/callback/mock-oauth`, {
+    // Bypass oauthCallbackLimiter (30/min/IP) — la suite enchaîne 7+
+    // scénarios OAuth sur la même IP Traefik.
+    headers: bypassRateLimitHeaders(),
     form: {
       csrfToken: csrf,
       email: opts.email,

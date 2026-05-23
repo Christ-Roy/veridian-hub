@@ -372,3 +372,130 @@ describe('shouldBypassRateLimit (E2E staging bypass)', () => {
     ).toBe(true);
   });
 });
+
+// ─── RateLimiter.enforceWithBypass : wrapper qui intègre bypass header ───
+//
+// Méthode introduite 2026-05-23 (ticket E2E fix signup) pour éviter de
+// dupliquer le check `shouldBypassRateLimit` + `enforce` dans 8+ callers
+// (signup, [...nextauth], invitations, discovery, billing-state, admin
+// authenticate). Chaque caller appelle maintenant `enforceWithBypass(ip, headers)`
+// et le check bypass est centralisé.
+//
+// Garde-fou critique : en prod (DEPLOY_ENV === 'prod'), le bypass DOIT être
+// court-circuité — même avec header secret valide, le comportement doit
+// rester strictement identique à `enforce(ip)` legacy. C'est testé pour
+// chaque limiter exporté ET pour la méthode générique.
+
+describe('RateLimiter.enforceWithBypass', () => {
+  const ORIG_DEPLOY_ENV = process.env.DEPLOY_ENV;
+  const ORIG_SECRET = process.env.E2E_RATELIMIT_BYPASS_SECRET;
+  const GOOD_SECRET = 'k'.repeat(48);
+
+  beforeEach(() => {
+    process.env.DEPLOY_ENV = 'staging';
+    process.env.E2E_RATELIMIT_BYPASS_SECRET = GOOD_SECRET;
+  });
+
+  afterAll(() => {
+    if (ORIG_DEPLOY_ENV === undefined) delete process.env.DEPLOY_ENV;
+    else process.env.DEPLOY_ENV = ORIG_DEPLOY_ENV;
+    if (ORIG_SECRET === undefined) delete process.env.E2E_RATELIMIT_BYPASS_SECRET;
+    else process.env.E2E_RATELIMIT_BYPASS_SECRET = ORIG_SECRET;
+  });
+
+  const make = (headers: Record<string, string>) => new Headers(headers);
+
+  it('bypass valide : 100 hits passent OK, jamais 429, bypassed=true', () => {
+    const rl = new RateLimiter({ capacity: 3, windowMs: 1000, name: 'test-bypass' });
+    const headers = make({ 'x-veridian-e2e-bypass-ratelimit': GOOD_SECRET });
+    for (let i = 0; i < 100; i++) {
+      const r = rl.enforceWithBypass('ip-flood', headers) as any;
+      expect(r.ok).toBe(true);
+      expect(r.bypassed).toBe(true);
+    }
+    // Le storage interne n'est PAS incrémenté quand bypass = aucune trace IP.
+    expect(rl.size()).toBe(0);
+  });
+
+  it('sans header bypass : comportement identique à enforce()', () => {
+    const rl = new RateLimiter({ capacity: 2, windowMs: 1000, name: 'test' });
+    const headers = make({});
+    expect(rl.enforceWithBypass('ip1', headers).ok).toBe(true);
+    expect(rl.enforceWithBypass('ip1', headers).ok).toBe(true);
+    expect(rl.enforceWithBypass('ip1', headers).ok).toBe(false);
+  });
+
+  it('GARDE-FOU PROD : bypass header ignoré, 429 au-delà du cap', () => {
+    process.env.DEPLOY_ENV = 'prod';
+    const rl = new RateLimiter({ capacity: 2, windowMs: 1000, name: 'prod-rl' });
+    const headers = make({ 'x-veridian-e2e-bypass-ratelimit': GOOD_SECRET });
+    expect(rl.enforceWithBypass('ip1', headers).ok).toBe(true);
+    expect(rl.enforceWithBypass('ip1', headers).ok).toBe(true);
+    const blocked = rl.enforceWithBypass('ip1', headers);
+    expect(blocked.ok, 'PROD MUST ignore bypass header').toBe(false);
+  });
+
+  it('header secret wrong : bypass refusé, comportement enforce() normal', () => {
+    const rl = new RateLimiter({ capacity: 2, windowMs: 1000, name: 'wrong-key' });
+    const wrong = 'x'.repeat(48); // même longueur mais mauvais
+    const headers = make({ 'x-veridian-e2e-bypass-ratelimit': wrong });
+    expect(rl.enforceWithBypass('ip1', headers).ok).toBe(true);
+    expect(rl.enforceWithBypass('ip1', headers).ok).toBe(true);
+    expect(rl.enforceWithBypass('ip1', headers).ok).toBe(false);
+  });
+
+  // Pour chaque limiter exporté qui est consommé en E2E, on assert
+  // explicitement que le bypass marche en staging ET échoue en prod.
+  // C'est la matrice de régression : si demain quelqu'un swap `enforceWithBypass`
+  // pour `enforce` sans bypass dans un caller, on perd cette anti-cascade.
+
+  describe('matrice bypass × prod-safety par limiter exporté', () => {
+    const limiters = [
+      'adminApiLimiter',
+      'signupLimiter',
+      'credentialsLoginLimiter',
+      'oauthStartLimiter',
+      'oauthCallbackLimiter',
+      'invitationCreateLimiter',
+      'invitationVerifyLimiter',
+      'discoveryPreVerifyLimiter',
+      'discoveryAppLimiter',
+      'billingStatePollLimiter',
+    ] as const;
+
+    for (const name of limiters) {
+      it(`${name} : bypass actif en staging → traverse au-delà du cap`, async () => {
+        const mod = await import('@/lib/auth/rate-limit');
+        const limiter = (mod as any)[name] as RateLimiter;
+        limiter.reset();
+        const headers = make({ 'x-veridian-e2e-bypass-ratelimit': GOOD_SECRET });
+        // Hits = cap * 3 — sans bypass, on serait à 429 depuis longtemps.
+        for (let i = 0; i < 200; i++) {
+          const r = limiter.enforceWithBypass(`key-${name}`, headers);
+          expect(r.ok, `${name} bypass hit #${i} failed`).toBe(true);
+        }
+        limiter.reset();
+      });
+
+      it(`${name} : GARDE-FOU PROD → bypass ignoré, 429 quand cap dépassé`, async () => {
+        process.env.DEPLOY_ENV = 'prod';
+        const mod = await import('@/lib/auth/rate-limit');
+        const limiter = (mod as any)[name] as RateLimiter;
+        limiter.reset();
+        const headers = make({ 'x-veridian-e2e-bypass-ratelimit': GOOD_SECRET });
+        // On dépasse le cap. Récupère la capacité depuis les options privées
+        // via une heuristique : on hit 200 fois et on attend ≥1 refus.
+        let refused = false;
+        for (let i = 0; i < 200; i++) {
+          const r = limiter.enforceWithBypass(`prod-key-${name}`, headers);
+          if (!r.ok) {
+            refused = true;
+            break;
+          }
+        }
+        expect(refused, `${name} PROD doit refuser au-delà du cap, bypass ignoré`).toBe(true);
+        limiter.reset();
+      });
+    }
+  });
+});

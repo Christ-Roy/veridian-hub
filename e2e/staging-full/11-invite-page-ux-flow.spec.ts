@@ -39,6 +39,7 @@ import {
   ADMIN_SECRET,
   RUN_STAMP,
   adminHeaders,
+  bypassRateLimitHeaders,
   freshIpHeader,
   uniqueEmail as makeEmail,
   withRateLimitRetry,
@@ -100,6 +101,8 @@ async function createInvitation(
         'x-veridian-timestamp': String(ts),
         'x-veridian-invitation-signature': sig,
         ...freshIpHeader(),
+        // Bypass invitationCreateLimiter (60/min/IP) sur staging E2E.
+        ...bypassRateLimitHeaders(),
       },
       data: body,
       failOnStatusCode: false,
@@ -119,6 +122,8 @@ async function mockOauthLogin(
   const { csrfToken } = (await csrfRes.json()) as { csrfToken: string };
 
   await ctx.post('/api/auth/callback/mock-oauth', {
+    // Bypass oauthCallbackLimiter (30/min/IP) sur staging E2E.
+    headers: bypassRateLimitHeaders(),
     form: {
       csrfToken,
       email,

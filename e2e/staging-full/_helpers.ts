@@ -57,15 +57,62 @@ export function freshIpHeader(): Record<string, string> {
 /**
  * Pose le header de bypass rate-limit si le secret est configuré.
  * No-op sinon (mode dégradé : on retombera sur withRateLimitRetry).
+ *
+ * Alias `bypassRateLimitHeaders()` exposé pour symétrie avec
+ * `adminHeaders()` / `signupHeaders()` — même implémentation.
  */
 export function rateLimitBypassHeader(): Record<string, string> {
   if (!E2E_RATELIMIT_BYPASS_SECRET) return {};
   return { 'x-veridian-e2e-bypass-ratelimit': E2E_RATELIMIT_BYPASS_SECRET };
 }
 
+export const bypassRateLimitHeaders = rateLimitBypassHeader;
+
 export function adminHeaders(): Record<string, string> {
   return {
     'x-admin-secret': ADMIN_SECRET,
+    ...freshIpHeader(),
+    ...rateLimitBypassHeader(),
+  };
+}
+
+/**
+ * Headers pour POST /api/auth/signup en E2E :
+ *  - IP fraîche (héritage avant bypass, garde une isolation per-call)
+ *  - header bypass rate-limit (skip signupLimiter 5/min/IP côté Hub)
+ *
+ * Sans le bypass, la suite tape 429 dès le 6e signup sur la même IP
+ * Traefik. Avec le bypass on enchaîne 60+ signups sans cap.
+ */
+export function signupHeaders(): Record<string, string> {
+  return {
+    'content-type': 'application/json',
+    ...freshIpHeader(),
+    ...rateLimitBypassHeader(),
+  };
+}
+
+/**
+ * Headers pour POST /api/auth/callback/credentials (login Auth.js).
+ *  - bypass credentialsLoginLimiter 5/min/IP côté Hub
+ *
+ * Utile en spec 03 et toutes celles qui font un login credentials avant
+ * un parcours session-aware.
+ */
+export function credentialsLoginHeaders(): Record<string, string> {
+  return {
+    ...freshIpHeader(),
+    ...rateLimitBypassHeader(),
+  };
+}
+
+/**
+ * Headers pour POST /api/invitations/create (HMAC + bypass).
+ * À mixer avec les headers HMAC signés calculés par le caller.
+ */
+export function invitationCreateHeaders(): Record<string, string> {
+  return {
+    'content-type': 'application/json',
     ...freshIpHeader(),
     ...rateLimitBypassHeader(),
   };

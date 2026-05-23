@@ -28,7 +28,8 @@ import {
   STAGING_URL,
   RUN_STAMP,
   adminHeaders,
-  freshIpHeader,
+  bypassRateLimitHeaders,
+  signupHeaders,
   uniqueEmail as makeEmail,
   withRateLimitRetry,
 } from './_helpers';
@@ -38,8 +39,12 @@ function uniqueEmail(slug: string): string {
 }
 
 /**
- * Wrapper signup credentials avec IP fraîche pour bypass signupLimiter
- * (5 req/min/IP côté Hub). Sans ça, la suite tape 429 dès le 6e signup.
+ * Wrapper signup credentials avec headers `signupHeaders()` :
+ *  - bypass rate-limit E2E (signupLimiter 5/min/IP) si secret configuré
+ *  - IP fraîche en fallback (mode dégradé local)
+ *
+ * Sans le bypass, la suite tape 429 dès le 6e signup sur la même IP
+ * Traefik. Avec le bypass on enchaîne 60+ signups sans cap.
  *
  * On utilise un fetch DIRECT (pas `ctx.post`) car APIRequestContext re-utilise
  * son propre baseURL + headers et ne supporte pas l'override par appel.
@@ -52,10 +57,7 @@ async function signupCredentials(
   const res = await withRateLimitRetry<Response>(() =>
     fetch(`${STAGING_URL}/api/auth/signup`, {
       method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        ...freshIpHeader(),
-      },
+      headers: signupHeaders(),
       body: JSON.stringify({ email, password }),
     }),
   );
@@ -290,6 +292,8 @@ test.describe('Journey 6 — Dashboard chargeable post-signup', () => {
     const { csrfToken } = (await csrfRes.json()) as { csrfToken: string };
 
     const cb = await ctx.post('/api/auth/callback/mock-oauth', {
+      // Bypass oauthCallbackLimiter (30/min/IP) sur staging E2E.
+      headers: bypassRateLimitHeaders(),
       form: {
         csrfToken,
         email,

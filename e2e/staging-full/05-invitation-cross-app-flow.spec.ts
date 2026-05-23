@@ -38,6 +38,7 @@ import {
   ADMIN_SECRET,
   RUN_STAMP,
   adminHeaders,
+  bypassRateLimitHeaders,
   freshIpHeader,
   uniqueEmail as makeEmail,
   withRateLimitRetry,
@@ -119,6 +120,10 @@ async function createInvitation(
         'x-veridian-timestamp': String(ts),
         'x-veridian-invitation-signature': sig,
         ...freshIpHeader(),
+        // Bypass invitationCreateLimiter (60/min/IP) sur staging E2E —
+        // sans ça la suite enchaîne 6+ invitations sur la même IP Traefik
+        // et le bucket de la run précédente fait tomber les premières.
+        ...bypassRateLimitHeaders(),
       },
       // Important : data RAW (pas un objet, sinon Playwright re-stringifie et
       // la signature ne correspond plus aux bytes envoyés).
@@ -141,6 +146,10 @@ async function mockOauthLogin(
   const { csrfToken } = (await csrfRes.json()) as { csrfToken: string };
 
   const cbRes = await ctx.post('/api/auth/callback/mock-oauth', {
+    // Bypass oauthCallbackLimiter (30/min/IP) sur staging E2E — un même
+    // bucket IP Traefik est partagé par toutes les spec qui font un login
+    // mock OAuth, et la suite enchaîne 10+ logins sur quelques minutes.
+    headers: bypassRateLimitHeaders(),
     form: {
       csrfToken,
       email,

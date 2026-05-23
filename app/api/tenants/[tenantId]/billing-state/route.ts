@@ -54,7 +54,12 @@ export async function GET(
 
   // Rate-limit clé par app HMAC (token-equivalent). Permet jusqu'à 60
   // req/min/app — adapté à un cron de réconciliation un peu agressif.
-  const rate = billingStatePollLimiter.enforce(`app:${hmac.app}`);
+  // enforceWithBypass : bypass E2E staging via header secret valide
+  // (cf. lib/auth/rate-limit.ts). En prod le bypass est ignoré.
+  const rate = billingStatePollLimiter.enforceWithBypass(
+    `app:${hmac.app}`,
+    request.headers,
+  );
   if (!rate.ok) {
     return NextResponse.json(
       { error: 'rate_limited' },

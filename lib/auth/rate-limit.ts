@@ -76,6 +76,54 @@ export class RateLimiter {
     };
   }
 
+  /**
+   * Variante avec bypass E2E intégré.
+   *
+   * Si les headers portent le header `x-veridian-e2e-bypass-ratelimit`
+   * valide ET qu'on est hors prod (DEPLOY_ENV !== 'prod'), on retourne
+   * `{ok:true, bypassed:true}` SANS incrémenter le compteur — la requête
+   * passe gratuitement.
+   *
+   * Sinon délègue à `enforce(key)` (comportement normal).
+   *
+   * Audit log : émet un unique warn `[ratelimit-bypass]` côté process
+   * pour chaque bypass utilisé (observabilité staging + détection prod
+   * hypothétique — même si déjà bloquée par le garde-fou DEPLOY_ENV).
+   * Pas de log spam : un seul warn par requête bypassée.
+   *
+   * Utilisation typique côté route :
+   * ```ts
+   * const rate = signupLimiter.enforceWithBypass(ip, request.headers);
+   * if (!rate.ok) return tooManyResponse(rate.retryAfterSeconds);
+   * ```
+   */
+  enforceWithBypass(
+    key: string,
+    headers: Headers,
+    now: number = Date.now(),
+  ): RateLimitResult & { bypassed?: boolean } {
+    if (shouldBypassRateLimit(headers)) {
+      // Audit observabilité — un seul warn par requête bypassée.
+      console.warn(
+        JSON.stringify({
+          tag: '[ratelimit-bypass]',
+          level: 'warn',
+          limiter: this.options.name,
+          key,
+          deploy_env: process.env.DEPLOY_ENV ?? 'unset',
+          ts: new Date(now).toISOString(),
+        }),
+      );
+      return {
+        ok: true,
+        remaining: this.options.capacity,
+        resetAt: now + this.options.windowMs,
+        bypassed: true,
+      };
+    }
+    return this.enforce(key, now);
+  }
+
   /** Utilitaire tests : vide le storage. */
   reset() {
     this.hits.clear();

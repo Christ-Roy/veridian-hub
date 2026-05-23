@@ -49,7 +49,12 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   const ip = extractClientIp(request.headers);
-  const rateResult = invitationVerifyLimiter.enforce(ip);
+  // enforceWithBypass : bypass E2E staging via header secret valide
+  // (cf. lib/auth/rate-limit.ts). En prod le bypass est ignoré.
+  const rateResult = invitationVerifyLimiter.enforceWithBypass(
+    ip,
+    request.headers,
+  );
   if (!rateResult.ok) {
     return NextResponse.json(
       { error: 'rate_limited' },

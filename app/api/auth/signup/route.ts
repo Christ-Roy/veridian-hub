@@ -33,8 +33,14 @@ const signupSchema = z.object({
 
 export async function POST(request: NextRequest) {
   // Anti-DoS : 5 signups/min/IP. Au-delà → 429 + Retry-After.
+  //
+  // `enforceWithBypass` : laisse passer si le header E2E
+  // `x-veridian-e2e-bypass-ratelimit` est valide ET DEPLOY_ENV !== 'prod'.
+  // En prod, le bypass est court-circuité par `shouldBypassRateLimit`
+  // (cf. lib/auth/rate-limit.ts) → comportement strictement identique
+  // au code legacy `enforce(ip)`.
   const ip = extractClientIp(request.headers);
-  const rate = signupLimiter.enforce(ip);
+  const rate = signupLimiter.enforceWithBypass(ip, request.headers);
   if (!rate.ok) {
     console.warn(
       JSON.stringify({
