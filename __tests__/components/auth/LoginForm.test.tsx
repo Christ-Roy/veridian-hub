@@ -105,6 +105,56 @@ describe('LoginForm', () => {
     render(<LoginForm />);
     expect(screen.queryByRole('alert')).toBeNull();
   });
+
+  // ─── Couche 4 — Bounce OAuth Hub (CONTRAT-HUB §6bis.8) ──────────────────
+  //
+  // Quand `bounceApp` est passé (cf. /login?next=... validé server-side qui
+  // pose le cookie + remonte l'app cible dans LoginForm), les boutons OAuth
+  // DOIVENT viser /api/auth/bounce/complete au lieu de /dashboard pour
+  // déclencher la chaîne magic_link downstream après OAuth Hub réussi.
+
+  it('bounceApp défini : signIn("google") avec callbackUrl=/api/auth/bounce/complete', () => {
+    render(<LoginForm bounceApp="notifuse" />);
+    fireEvent.click(screen.getByRole('button', { name: /Continuer avec Google/i }));
+    expect(signInMock).toHaveBeenCalledWith('google', {
+      callbackUrl: '/api/auth/bounce/complete',
+    });
+  });
+
+  it('bounceApp défini : signIn("microsoft-entra-id") avec callbackUrl=/api/auth/bounce/complete', () => {
+    render(<LoginForm bounceApp="prospection" />);
+    fireEvent.click(screen.getByRole('button', { name: /Continuer avec Microsoft/i }));
+    expect(signInMock).toHaveBeenCalledWith('microsoft-entra-id', {
+      callbackUrl: '/api/auth/bounce/complete',
+    });
+  });
+
+  it('bounceApp défini : copy adapté "Connectez-vous pour revenir sur <app>"', () => {
+    render(<LoginForm bounceApp="notifuse" />);
+    expect(screen.getByText(/Connectez-vous pour revenir sur notifuse/i)).toBeTruthy();
+  });
+
+  it('bounceApp null : copy par défaut "Accédez à votre espace Veridian"', () => {
+    render(<LoginForm bounceApp={null} />);
+    expect(screen.getByText(/Accédez à votre espace Veridian/i)).toBeTruthy();
+  });
+
+  it('bounceApp défini override le callbackUrl du searchParams (pas de détournement arbitraire)', async () => {
+    // Cas attaque théorique : `/login?callbackUrl=https://evil.com&next=...`
+    // — le bounceApp posé server-side DOIT primer pour ne pas laisser un
+    // callbackUrl arbitraire détourner le flow.
+    vi.resetModules();
+    vi.doMock('next/navigation', () => ({
+      useRouter: () => ({ push: routerPushMock, refresh: routerRefreshMock }),
+      useSearchParams: () => new URLSearchParams('callbackUrl=https://evil.com/x'),
+    }));
+    const { LoginForm: FreshLoginForm } = await import('@/components/auth/LoginForm');
+    render(<FreshLoginForm bounceApp="notifuse" />);
+    fireEvent.click(screen.getByRole('button', { name: /Continuer avec Google/i }));
+    expect(signInMock).toHaveBeenCalledWith('google', {
+      callbackUrl: '/api/auth/bounce/complete',
+    });
+  });
 });
 
 describe('LoginForm avec ?error= dans searchParams', () => {
