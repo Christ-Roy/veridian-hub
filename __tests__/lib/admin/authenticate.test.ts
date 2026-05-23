@@ -184,3 +184,194 @@ describe('authenticateAdmin — garde-fou anti-ré-impersonation', () => {
     if (res.ok) expect(res.sessionEmail).toBe('admin@x');
   });
 });
+
+describe('authenticateAdmin — bypass rate-limit E2E staging', () => {
+  // Couvre l'intégration dans authenticate.ts du shouldBypassRateLimit
+  // (cf. lib/auth/rate-limit.ts). Scénario réel : la suite staging-full
+  // enchaîne 60+ admin creates sur la même IP Traefik, le cap 30/min/IP
+  // saute, cascade 429 sur 5 specs (13/05/15/07/11). Le bypass header
+  // sécurisé skip le limiter UNIQUEMENT en non-prod avec secret valide.
+
+  const ORIG_DEPLOY_ENV = process.env.DEPLOY_ENV;
+  const ORIG_BYPASS_SECRET = process.env.E2E_RATELIMIT_BYPASS_SECRET;
+  const BYPASS_SECRET = 'z'.repeat(48); // ≥ 32 chars
+
+  beforeEach(() => {
+    process.env.DEPLOY_ENV = 'staging';
+    process.env.E2E_RATELIMIT_BYPASS_SECRET = BYPASS_SECRET;
+  });
+
+  afterAll(() => {
+    if (ORIG_DEPLOY_ENV === undefined) delete process.env.DEPLOY_ENV;
+    else process.env.DEPLOY_ENV = ORIG_DEPLOY_ENV;
+    if (ORIG_BYPASS_SECRET === undefined)
+      delete process.env.E2E_RATELIMIT_BYPASS_SECRET;
+    else process.env.E2E_RATELIMIT_BYPASS_SECRET = ORIG_BYPASS_SECRET;
+  });
+
+  it('bypass le rate-limit en staging quand header secret valide (>30 requêtes OK)', async () => {
+    // Saturer le rate-limit avec >30 req sur la même IP, toutes avec bon secret.
+    for (let i = 0; i < 35; i++) {
+      const res = await authenticateAdmin(
+        new Request('http://x/api/admin/foo', {
+          method: 'POST',
+          headers: {
+            'x-forwarded-for': '7.7.7.7',
+            'x-admin-secret': 'super-secret-for-tests',
+            'x-veridian-e2e-bypass-ratelimit': BYPASS_SECRET,
+          },
+        }) as never
+      );
+      // Tous doivent passer (200), jamais 429 grâce au bypass.
+      expect(res.ok).toBe(true);
+    }
+  });
+
+  it('GARDE-FOU PROD : bypass header ignoré en prod, 429 quand même au-delà du cap', async () => {
+    // Test sécu critique : en prod, le bypass est totalement court-circuité
+    // (gate DEPLOY_ENV === 'prod' dans shouldBypassRateLimit).
+    process.env.DEPLOY_ENV = 'prod';
+    for (let i = 0; i < 30; i++) {
+      authMock.mockResolvedValueOnce(null);
+      await authenticateAdmin(
+        new Request('http://x/api/admin/foo', {
+          method: 'POST',
+          headers: {
+            'x-forwarded-for': '8.8.8.8',
+            'x-admin-secret': `wrong-${i}`,
+            'x-veridian-e2e-bypass-ratelimit': BYPASS_SECRET,
+          },
+        }) as never
+      );
+    }
+    const res = await authenticateAdmin(
+      new Request('http://x/api/admin/foo', {
+        method: 'POST',
+        headers: {
+          'x-forwarded-for': '8.8.8.8',
+          'x-admin-secret': 'super-secret-for-tests',
+          'x-veridian-e2e-bypass-ratelimit': BYPASS_SECRET,
+        },
+      }) as never
+    );
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.response.status).toBe(429);
+  });
+
+  it('bypass refusé si header secret wrong (même longueur) → 429 cascade attendu', async () => {
+    const wrongSecret = 'y'.repeat(48); // même longueur que BYPASS_SECRET
+    for (let i = 0; i < 30; i++) {
+      authMock.mockResolvedValueOnce(null);
+      await authenticateAdmin(
+        new Request('http://x/api/admin/foo', {
+          method: 'POST',
+          headers: {
+            'x-forwarded-for': '9.9.9.9',
+            'x-admin-secret': `w-${i}`,
+            'x-veridian-e2e-bypass-ratelimit': wrongSecret,
+          },
+        }) as never
+      );
+    }
+    const res = await authenticateAdmin(
+      new Request('http://x/api/admin/foo', {
+        method: 'POST',
+        headers: {
+          'x-forwarded-for': '9.9.9.9',
+          'x-admin-secret': 'super-secret-for-tests',
+          'x-veridian-e2e-bypass-ratelimit': wrongSecret,
+        },
+      }) as never
+    );
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.response.status).toBe(429);
+  });
+
+  it("bypass refusé si E2E_RATELIMIT_BYPASS_SECRET pas configuré côté serveur", async () => {
+    delete process.env.E2E_RATELIMIT_BYPASS_SECRET;
+    for (let i = 0; i < 30; i++) {
+      authMock.mockResolvedValueOnce(null);
+      await authenticateAdmin(
+        new Request('http://x/api/admin/foo', {
+          method: 'POST',
+          headers: {
+            'x-forwarded-for': '10.10.10.10',
+            'x-admin-secret': `w-${i}`,
+            'x-veridian-e2e-bypass-ratelimit': BYPASS_SECRET,
+          },
+        }) as never
+      );
+    }
+    const res = await authenticateAdmin(
+      new Request('http://x/api/admin/foo', {
+        method: 'POST',
+        headers: {
+          'x-forwarded-for': '10.10.10.10',
+          'x-admin-secret': 'super-secret-for-tests',
+          'x-veridian-e2e-bypass-ratelimit': BYPASS_SECRET,
+        },
+      }) as never
+    );
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.response.status).toBe(429);
+  });
+
+  it('rate-limit normal continue de marcher quand pas de header bypass', async () => {
+    // Baseline : staging, secret configuré côté serveur, client n'envoie pas
+    // de header → comportement standard (30/min/IP).
+    for (let i = 0; i < 30; i++) {
+      authMock.mockResolvedValueOnce(null);
+      await authenticateAdmin(
+        new Request('http://x/api/admin/foo', {
+          method: 'POST',
+          headers: {
+            'x-forwarded-for': '11.11.11.11',
+            'x-admin-secret': `w-${i}`,
+          },
+        }) as never
+      );
+    }
+    const res = await authenticateAdmin(
+      new Request('http://x/api/admin/foo', {
+        method: 'POST',
+        headers: {
+          'x-forwarded-for': '11.11.11.11',
+          'x-admin-secret': 'super-secret-for-tests',
+        },
+      }) as never
+    );
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.response.status).toBe(429);
+  });
+
+  it('bypass actif : auth x-admin-secret continue de fonctionner (200 si secret OK)', async () => {
+    const res = await authenticateAdmin(
+      new Request('http://x/api/admin/foo', {
+        method: 'POST',
+        headers: {
+          'x-forwarded-for': '12.12.12.12',
+          'x-admin-secret': 'super-secret-for-tests',
+          'x-veridian-e2e-bypass-ratelimit': BYPASS_SECRET,
+        },
+      }) as never
+    );
+    expect(res.ok).toBe(true);
+    if (res.ok) expect(res.sessionEmail).toBeNull();
+  });
+
+  it('bypass actif : wrong x-admin-secret toujours rejeté en 401 (bypass ≠ skip auth)', async () => {
+    authMock.mockResolvedValueOnce(null);
+    const res = await authenticateAdmin(
+      new Request('http://x/api/admin/foo', {
+        method: 'POST',
+        headers: {
+          'x-forwarded-for': '13.13.13.13',
+          'x-admin-secret': 'wrong-secret-with-right-length-pad',
+          'x-veridian-e2e-bypass-ratelimit': BYPASS_SECRET,
+        },
+      }) as never
+    );
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.response.status).toBe(401);
+  });
+});

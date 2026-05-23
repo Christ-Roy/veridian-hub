@@ -17,6 +17,8 @@
  * Plusieurs instances cohabitent (signin: 10/min, callback: 30/min).
  */
 
+import { timingSafeEqual } from 'node:crypto';
+
 export type RateLimitResult =
   | { ok: true; remaining: number; resetAt: number }
   | { ok: false; remaining: 0; resetAt: number; retryAfterSeconds: number };
@@ -101,6 +103,63 @@ export function extractClientIp(headers: Headers): string {
   const realIp = headers.get('x-real-ip');
   if (realIp) return realIp.trim();
   return 'unknown';
+}
+
+/**
+ * Bypass rate-limit pour les tests E2E staging — STRICTEMENT staging.
+ *
+ * Contexte : derrière Traefik staging, `x-forwarded-for` est réécrit par
+ * le proxy, donc toutes les requêtes E2E partagent le même bucket IP côté
+ * Hub. La suite `e2e/staging-full` enchaîne 60+ appels admin sur quelques
+ * minutes → `adminApiLimiter` (30/min/IP) se cap silencieusement et les
+ * setups suivants tombent en 429 cascade.
+ *
+ * Solution : un header `x-veridian-e2e-bypass-ratelimit` portant un secret
+ * long (>= 32 chars), comparé timing-safe à `E2E_RATELIMIT_BYPASS_SECRET`,
+ * et accepté UNIQUEMENT quand `DEPLOY_ENV !== 'prod'`.
+ *
+ * Triple garde-fou anti-fuite prod :
+ *   1. Gate ENV stricte : `DEPLOY_ENV !== 'prod'` (DEPLOY_ENV, jamais
+ *      NODE_ENV — cf. memory feedback_node_env_vs_deploy_env). En prod
+ *      le bypass est totalement court-circuité, peu importe le header.
+ *   2. Secret obligatoire ET ≥ 32 chars (sinon configuration trop faible,
+ *      on refuse plutôt que de laisser un bypass-presque-vide passer).
+ *   3. Comparaison timing-safe (`crypto.timingSafeEqual`) — pas de `===`
+ *      naïf qui leak la longueur du secret via timing.
+ *
+ * Audit : retourne `true` si bypass valide. L'appelant logge l'usage.
+ */
+export function shouldBypassRateLimit(headers: Headers): boolean {
+  // Garde-fou 1 : DEPLOY_ENV. Variable fiable, pas NODE_ENV (qui vaut
+  // 'production' même sur le build staging Next.js).
+  if (process.env.DEPLOY_ENV === 'prod') return false;
+
+  const secret = process.env.E2E_RATELIMIT_BYPASS_SECRET;
+  // Garde-fou 2 : secret configuré ET assez long.
+  if (!secret || secret.length < 32) return false;
+
+  const provided = headers.get('x-veridian-e2e-bypass-ratelimit');
+  if (!provided) return false;
+
+  // Garde-fou 3 : comparaison timing-safe. timingSafeEqual exige des
+  // Buffers de même longueur — sinon throw. On normalise en alignant
+  // sur la longueur du secret stocké.
+  const a = Buffer.from(provided);
+  const b = Buffer.from(secret);
+  if (a.length !== b.length) {
+    // Normalise quand même le timing en faisant un compare dummy.
+    try {
+      timingSafeEqual(b, Buffer.alloc(b.length));
+    } catch {
+      /* noop */
+    }
+    return false;
+  }
+  try {
+    return timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
 }
 
 // ─── Instances partagées pour les routes Auth.js ────────────────────────────

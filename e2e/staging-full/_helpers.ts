@@ -8,13 +8,17 @@
  *   - invitationCreateLimiter : 60 req/min/IP
  *
  * Traefik réécrit `x-forwarded-for` (sécu : on ne peut pas spoof son IP
- * depuis Internet), donc le bypass par header ne marche pas tel quel.
- * La stratégie en place :
- *   1. On gardé un header `x-forwarded-for` "informatif" (utile en local-dev
- *      sans Traefik).
- *   2. Quand on tape 429, on read `Retry-After`, on `sleep`, puis on retry —
- *      cf. `withRateLimitRetry()` ci-dessous. Standard industriel pour
- *      consommer une API avec rate-limit.
+ * depuis Internet), donc le bypass par rotation IP ne marche pas tel quel.
+ * La stratégie en place (2026-05-23, ticket cascade rate-limit) :
+ *   1. **Bypass header secret pour l'admin API** (staging-only) :
+ *      `adminHeaders()` pose `x-veridian-e2e-bypass-ratelimit` avec le
+ *      secret `E2E_RATELIMIT_BYPASS_SECRET`. Côté Hub `authenticateAdmin`
+ *      skip le rate-limit quand ce header est valide ET `DEPLOY_ENV !== 'prod'`.
+ *      → coupe la cascade 429 sur 5 specs (13, 05, 15, 07, 11) à la source.
+ *   2. On garde aussi un header `x-forwarded-for` informatif (utile en
+ *      local-dev sans Traefik / sur les autres rate-limiters non-admin).
+ *   3. Fallback : si 429 quand même (limiter non-admin ou bypass non-configuré),
+ *      `withRateLimitRetry()` lit `Retry-After` et retry — standard industriel.
  *
  * Usage :
  *   import { withRateLimitRetry, adminHeaders, RUN_STAMP } from './_helpers';
@@ -27,6 +31,18 @@ export const STAGING_URL =
 export const ADMIN_SECRET =
   process.env.HUB_ADMIN_SECRET || 'staging-admin-secret-not-real-e2e';
 
+/**
+ * Secret bypass rate-limit admin pour les E2E staging.
+ * Lu depuis `E2E_RATELIMIT_BYPASS_SECRET` (auto-sourcé par
+ * `scripts/e2e/staging-full.sh` depuis `~/credentials/.all-creds.env`).
+ *
+ * Si absent → on n'ajoute pas le header, et la suite retombe sur le
+ * fallback `withRateLimitRetry` (lent mais fonctionnel). Ne pas throw —
+ * on veut que la suite tourne quand même en mode dégradé en local.
+ */
+export const E2E_RATELIMIT_BYPASS_SECRET =
+  process.env.E2E_RATELIMIT_BYPASS_SECRET || '';
+
 export const RUN_STAMP = `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
 let counter = 0;
@@ -38,10 +54,20 @@ export function freshIpHeader(): Record<string, string> {
   };
 }
 
+/**
+ * Pose le header de bypass rate-limit si le secret est configuré.
+ * No-op sinon (mode dégradé : on retombera sur withRateLimitRetry).
+ */
+export function rateLimitBypassHeader(): Record<string, string> {
+  if (!E2E_RATELIMIT_BYPASS_SECRET) return {};
+  return { 'x-veridian-e2e-bypass-ratelimit': E2E_RATELIMIT_BYPASS_SECRET };
+}
+
 export function adminHeaders(): Record<string, string> {
   return {
     'x-admin-secret': ADMIN_SECRET,
     ...freshIpHeader(),
+    ...rateLimitBypassHeader(),
   };
 }
 

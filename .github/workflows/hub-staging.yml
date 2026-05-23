@@ -129,6 +129,11 @@ jobs:
           STRIPE_PUBLISHABLE_KEY_TEST: ${{ secrets.STAGING_STRIPE_PUBLISHABLE_KEY_TEST }}
           STRIPE_WEBHOOK_SECRET_TEST: ${{ secrets.STAGING_STRIPE_WEBHOOK_SECRET_TEST }}
           STRIPE_REFILL_PRODUCT_ID_TEST: ${{ secrets.STAGING_STRIPE_REFILL_PRODUCT_ID_TEST }}
+          # Bypass rate-limit admin pour E2E staging (cf. lib/auth/rate-limit.ts
+          # → shouldBypassRateLimit). Côté Hub, le bypass est ignoré dès que
+          # DEPLOY_ENV='prod', donc aucun risque de fuite via ce secret en prod.
+          # Le secret est partagé avec le runner E2E via ~/credentials/.all-creds.env.
+          E2E_RATELIMIT_BYPASS_SECRET: ${{ secrets.STAGING_E2E_RATELIMIT_BYPASS_SECRET }}
           # ⚠️ OAuth Sign-in (Google/Microsoft) PAS configuré côté staging
           # à cause de la privatisation Tailscale (hub.staging.veridian.site
           # → IP Tailscale 100.92.215.42 non résolvable publiquement). Si on
@@ -165,6 +170,7 @@ jobs:
             printf 'STRIPE_PUBLISHABLE_KEY_TEST=%s\n' "$STRIPE_PUBLISHABLE_KEY_TEST"
             printf 'STRIPE_WEBHOOK_SECRET_TEST=%s\n' "$STRIPE_WEBHOOK_SECRET_TEST"
             printf 'STRIPE_REFILL_PRODUCT_ID_TEST=%s\n' "$STRIPE_REFILL_PRODUCT_ID_TEST"
+            printf 'E2E_RATELIMIT_BYPASS_SECRET=%s\n' "$E2E_RATELIMIT_BYPASS_SECRET"
           } > "$ENVFILE"
           scp -i ~/.ssh/staging_key "$ENVFILE" "$DEV_USER@$DEV_HOST:${{ env.STAGING_DIR }}/.env"
           rm -f "$ENVFILE"

@@ -16,7 +16,11 @@ import { timingSafeEqual } from 'node:crypto';
 import { auth } from '@/auth';
 import { isPlatformAdmin } from '@/lib/admin/check-admin';
 import { isImpersonatedSession } from '@/lib/auth/impersonation';
-import { adminApiLimiter, extractClientIp } from '@/lib/auth/rate-limit';
+import {
+  adminApiLimiter,
+  extractClientIp,
+  shouldBypassRateLimit,
+} from '@/lib/auth/rate-limit';
 
 export type AdminAuthSuccess = {
   ok: true;
@@ -49,28 +53,52 @@ export async function authenticateAdmin(
 ): Promise<AdminAuthSuccess | AdminAuthDenied> {
   // 1. Rate-limit IP (défense en profondeur — utile contre brute-force secret + spam)
   const ip = extractClientIp(request.headers);
-  const rate = adminApiLimiter.enforce(ip);
-  if (!rate.ok) {
+
+  // 1.bis Bypass E2E staging — STRICTEMENT staging, header secret timing-safe.
+  // Cf. shouldBypassRateLimit() pour les 3 garde-fous (DEPLOY_ENV != 'prod',
+  // secret ≥ 32 chars, timingSafeEqual). En prod le check renvoie toujours
+  // false, peu importe le header reçu.
+  const bypassRateLimit = shouldBypassRateLimit(request.headers);
+
+  if (bypassRateLimit) {
+    // Audit log : on garde une trace de chaque bypass utilisé pour pouvoir
+    // détecter un usage abusif sur staging ou un fuit hypothétique en prod
+    // (qui serait déjà bloqué par le guard DEPLOY_ENV mais on logge quand
+    // même par défense en profondeur observabilité).
     console.warn(
       JSON.stringify({
-        tag: '[admin-ratelimit]',
+        tag: '[admin-ratelimit-bypass]',
         level: 'warn',
         path: new URL(request.url).pathname,
         ip,
-        retry_after_s: rate.retryAfterSeconds,
+        deploy_env: process.env.DEPLOY_ENV ?? 'unset',
         ts: new Date().toISOString(),
       })
     );
-    return {
-      ok: false,
-      response: NextResponse.json(
-        { error: 'rate_limited', message: 'Trop de tentatives. Patientez avant de réessayer.' },
-        {
-          status: 429,
-          headers: { 'Retry-After': String(rate.retryAfterSeconds) },
-        }
-      ),
-    };
+  } else {
+    const rate = adminApiLimiter.enforce(ip);
+    if (!rate.ok) {
+      console.warn(
+        JSON.stringify({
+          tag: '[admin-ratelimit]',
+          level: 'warn',
+          path: new URL(request.url).pathname,
+          ip,
+          retry_after_s: rate.retryAfterSeconds,
+          ts: new Date().toISOString(),
+        })
+      );
+      return {
+        ok: false,
+        response: NextResponse.json(
+          { error: 'rate_limited', message: 'Trop de tentatives. Patientez avant de réessayer.' },
+          {
+            status: 429,
+            headers: { 'Retry-After': String(rate.retryAfterSeconds) },
+          }
+        ),
+      };
+    }
   }
 
   // 2. Check x-admin-secret en timing-safe

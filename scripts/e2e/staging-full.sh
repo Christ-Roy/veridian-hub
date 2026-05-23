@@ -36,7 +36,8 @@ if [ -f "$CREDS_FILE" ]; then
              STRIPE_PUBLISHABLE_KEY_TEST STRIPE_REFILL_PRODUCT_ID_TEST \
              HUB_ADMIN_SECRET NOTIFUSE_WEBHOOK_TOKEN \
              HUB_INVITATION_SECRET_NOTIFUSE HUB_INVITATION_SECRET_PROSPECTION \
-             HUB_INVITATION_SECRET_ANALYTICS HUB_INVITATION_SECRET_CMS; do
+             HUB_INVITATION_SECRET_ANALYTICS HUB_INVITATION_SECRET_CMS \
+             E2E_RATELIMIT_BYPASS_SECRET; do
     # Si déjà exporté par l'env appelant : on respecte (override possible).
     if [ -z "${!key:-}" ]; then
       val=$(grep "^${key}=" "$CREDS_FILE" 2>/dev/null | head -1 | cut -d= -f2- || true)

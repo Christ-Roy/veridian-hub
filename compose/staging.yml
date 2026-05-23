@@ -124,6 +124,16 @@ services:
       HUB_INVITATION_SECRET_PROSPECTION: ${HUB_INVITATION_SECRET_PROSPECTION_STAGING:-staging-invitation-secret-prospection-not-real-e2e}
       HUB_INVITATION_SECRET_ANALYTICS: ${HUB_INVITATION_SECRET_ANALYTICS_STAGING:-staging-invitation-secret-analytics-not-real-e2e}
       HUB_INVITATION_SECRET_CMS: ${HUB_INVITATION_SECRET_CMS_STAGING:-staging-invitation-secret-cms-not-real-e2e}
+
+      # ─── Bypass rate-limit admin (E2E staging only) ─────────────────────
+      # Activé côté Hub via lib/auth/rate-limit.ts → shouldBypassRateLimit().
+      # Triple garde-fou : DEPLOY_ENV !== 'prod' + secret ≥ 32 chars + timing-safe.
+      # Sans ce secret valide, la cascade rate-limit /api/admin/users/create
+      # fait tomber 5 specs E2E (13, 05, 15, 07, 11). Cf ticket
+      # 2026-05-23-e2e-fix-admin-rate-limit-cascade.md.
+      # Côté E2E runner : sourced auto depuis ~/credentials/.all-creds.env
+      # par scripts/e2e/staging-full.sh.
+      E2E_RATELIMIT_BYPASS_SECRET: ${E2E_RATELIMIT_BYPASS_SECRET:-}
     labels:
       - traefik.enable=true
       - traefik.docker.network=staging-edge
