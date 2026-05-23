@@ -39,6 +39,16 @@ beforeEach(() => {
   process.env.PROSPECTION_TENANT_API_SECRET = 'test-secret';
 });
 
+/**
+ * Filtre les calls fetch pour ne garder que celui ciblant l'endpoint provision
+ * Prospection. Depuis 2026-05-23, `provisionProspectionTenant` enchaîne un
+ * second appel `credit-leads` (welcome leads) qui pollue le compteur — on
+ * isole les calls pour ne tester ici que le provision.
+ */
+function provisionCalls() {
+  return fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/api/tenants/provision'));
+}
+
 describe('provisionProspectionTenant', () => {
   it('envoie user_id + metadata.hub_user_id + HMAC headers standard', async () => {
     fetchMock.mockResolvedValueOnce({
@@ -52,14 +62,21 @@ describe('provisionProspectionTenant', () => {
           created: true,
         }),
     });
+    // Mock pour le call credit-leads welcome qui suit
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ credited: 100, balance: 100 }),
+    });
 
     const { provisionProspectionTenant } = await import(
       '@/utils/tenants/provision'
     );
     await provisionProspectionTenant('alice@veridian.test', 'uuid-alice');
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0];
+    const calls = provisionCalls();
+    expect(calls).toHaveLength(1);
+    const [url, init] = calls[0];
     expect(url).toBe('https://prospection.test/api/tenants/provision');
 
     const body = JSON.parse(init.body);
@@ -90,13 +107,19 @@ describe('provisionProspectionTenant', () => {
           login_url: 'https://x/?t=y',
         }),
     });
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ credited: 100, balance: 100 }),
+    });
 
     const { provisionProspectionTenant } = await import(
       '@/utils/tenants/provision'
     );
     const result = await provisionProspectionTenant('b@c.d', 'uuid-2');
     expect(result.success).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // Filtre : seul l'appel provision compte ici (welcome leads = test séparé)
+    expect(provisionCalls()).toHaveLength(1);
   });
 
   it('retourne success false si PROSPECTION_API_URL absent', async () => {

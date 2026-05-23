@@ -38,6 +38,8 @@ services:
       STRIPE_SECRET_KEY_LIVE: ${STRIPE_SECRET_KEY_LIVE}
       STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET_LIVE}
       STRIPE_WEBHOOK_SECRET_LIVE: ${STRIPE_WEBHOOK_SECRET_LIVE}
+      # Product refill leads Prospection (Checkout one-shot — prix dynamique)
+      STRIPE_REFILL_PRODUCT_ID_LIVE: ${STRIPE_REFILL_PRODUCT_ID_LIVE}
 
       # ─── URLs prod ─────────────────────────────────────────────────────
       NEXT_PUBLIC_SITE_URL: https://app.veridian.site
