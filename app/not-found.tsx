@@ -20,7 +20,7 @@ export default function NotFound() {
         <div className="text-center space-y-6">
           {/* 404 Number */}
           <div className="relative">
-            <h1 className="text-[120px] font-bold text-primary leading-none">
+            <h1 className="text-9xl font-bold text-primary leading-none">
               404
             </h1>
             <div className="absolute inset-0 flex items-center justify-center">
