@@ -7,6 +7,7 @@ import { Users } from "lucide-react";
 import { DashboardPageHeader } from "@/components/dashboard/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Card } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -192,7 +193,7 @@ export default function AdminTenantsPage() {
         className="mb-6"
       />
 
-      <div className="bg-card rounded-lg border border-border overflow-x-auto">
+      <Card className="overflow-x-auto">
         <Table>
           <TableHeader className="bg-muted">
             <TableRow>
@@ -346,7 +347,7 @@ export default function AdminTenantsPage() {
               })}
           </TableBody>
         </Table>
-      </div>
+      </Card>
 
       <AlertDialog
         open={trialToClear !== null}

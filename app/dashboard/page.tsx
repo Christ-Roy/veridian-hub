@@ -10,6 +10,7 @@ import { LayoutDashboard } from 'lucide-react';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
 import { APPS } from '@/lib/pricing/plans';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 /**
  * DASHBOARD PAGE — Auth.js + Prisma
@@ -243,9 +244,11 @@ export default async function DashboardPage({
         </div>
       </section>
 
-      <div className="mt-12 p-6 bg-muted/50 rounded-lg border">
-        <h3 className="font-semibold mb-3">Comment ça marche</h3>
-        <div className="space-y-2 text-sm text-muted-foreground">
+      <Card className="mt-12 bg-muted/50 border-muted">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Comment ça marche</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-2 text-sm text-muted-foreground">
           <p>
             <strong>Démarrage à la demande :</strong> chaque app est
             provisionnée quand tu cliques &ldquo;Commencer l&apos;essai&rdquo;.
@@ -264,8 +267,8 @@ export default async function DashboardPage({
             ne stockent aucun mot de passe — l&apos;authentification se fait
             par lien magique.
           </p>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

@@ -122,13 +122,15 @@ export default async function BillingPage() {
         )}
 
         {/* Note de réassurance */}
-        <div className="rounded-lg border bg-muted/50 p-4">
-          <p className="text-sm text-muted-foreground">
-            La facturation est gérée de façon sécurisée par Stripe. Tu peux
-            modifier ton moyen de paiement, consulter tes factures et gérer ton
-            abonnement depuis le portail client.
-          </p>
-        </div>
+        <Card className="bg-muted/50 border-muted">
+          <CardContent className="p-4">
+            <p className="text-sm text-muted-foreground">
+              La facturation est gérée de façon sécurisée par Stripe. Tu peux
+              modifier ton moyen de paiement, consulter tes factures et gérer ton
+              abonnement depuis le portail client.
+            </p>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
