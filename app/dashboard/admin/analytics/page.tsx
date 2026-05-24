@@ -228,7 +228,7 @@ export default async function AdminAnalyticsPage() {
           </a>{' '}
           pour voir les data, et colle ce snippet sur le site client :
         </p>
-        <pre className="bg-card border border-border rounded p-2 mt-2 text-[11px] overflow-x-auto">
+        <pre className="bg-card border border-border rounded p-2 mt-2 text-xs overflow-x-auto">
           {`<script async src="ANALYTICS_URL/tracker.js"
   data-site-key="SITE_KEY"
   data-veridian-track="auto"></script>`}
