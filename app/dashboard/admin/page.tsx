@@ -12,6 +12,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { ReconcileAuditCard } from './ReconcileAuditCard';
 
 export default async function AdminOverviewPage() {
   // Récupérer tous les tenants (le layout admin a déjà gate sur isPlatformAdmin)
@@ -92,6 +93,10 @@ export default async function AdminOverviewPage() {
           )}
         </CardContent>
       </Card>
+
+      <div className="mt-6">
+        <ReconcileAuditCard />
+      </div>
     </div>
   );
 }
