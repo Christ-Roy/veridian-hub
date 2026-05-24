@@ -114,7 +114,8 @@ test.describe('Journey 4 — Scénario A : signup Google neuf → dashboard', ()
         headers: { 'x-admin-secret': process.env.HUB_ADMIN_SECRET },
       });
       if (userRes.status() === 200) {
-        const user = await userRes.json();
+        const body = await userRes.json();
+        const user = body.user;
         expect(
           user.supabase_user_id,
           'BUG 2026-05-21 : signup OAuth doit poser supabaseUserId UUID v4',
@@ -135,7 +136,8 @@ test.describe('Journey 4 — Scénario B : signup Microsoft neuf', () => {
         headers: { 'x-admin-secret': process.env.HUB_ADMIN_SECRET },
       });
       if (userRes.status() === 200) {
-        const user = await userRes.json();
+        const body = await userRes.json();
+        const user = body.user;
         expect(user.supabase_user_id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
       }
     }
@@ -158,7 +160,8 @@ test.describe('Journey 4 — Scénario E : re-login Google idempotent', () => {
         headers: { 'x-admin-secret': process.env.HUB_ADMIN_SECRET },
       });
       if (userRes.status() === 200) {
-        const user = await userRes.json();
+        const body = await userRes.json();
+        const user = body.user;
         // L'event createUser est idempotent → supabaseUserId reste celui posé au 1er login
         expect(user.supabase_user_id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
       }
