@@ -13,6 +13,7 @@ import {
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { DashboardPageHeader } from '@/components/dashboard/PageHeader';
+import { WorkspaceRenameForm } from "./WorkspaceRenameForm";
 import { Settings } from 'lucide-react';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
@@ -37,6 +38,16 @@ export default async function SettingsPage() {
       notifuseWorkspaceSlug: true,
       notifuseUserEmail: true,
     },
+  });
+
+  // Workspace (Hub-internal) du user — soit owner direct, soit member.
+  // On expose le rename form uniquement si user.id === workspace.ownerId.
+  const workspace = await prisma.workspace.findFirst({
+    where: {
+      deletedAt: null,
+      members: { some: { userId: user.id } },
+    },
+    select: { id: true, name: true, ownerId: true },
   });
 
   return (
@@ -89,6 +100,25 @@ export default async function SettingsPage() {
             <ConnectedProvidersList />
           </CardContent>
         </Card>
+
+        {/* Workspace rename */}
+        {workspace && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Workspace</CardTitle>
+              <CardDescription>
+                Renommez votre espace de travail Veridian.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <WorkspaceRenameForm
+                workspaceId={workspace.id}
+                currentName={workspace.name}
+                canRename={workspace.ownerId === user.id}
+              />
+            </CardContent>
+          </Card>
+        )}
 
         {/* Tenant Information */}
         {tenant && (
