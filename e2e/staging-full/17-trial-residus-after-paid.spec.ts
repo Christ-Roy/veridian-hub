@@ -188,10 +188,13 @@ test.describe('Journey 17 — Anti-régression résidus trial après paiement', 
         after!.state,
         'cron doit auto-corriger trial_active+sub-active → converted',
       ).toBe('converted');
+      // PG `boolean::text` → 'true' / 'false' (pas 't' / 'f' qui serait le
+      // formatage par défaut sans cast). Le cast est nécessaire car le mode
+      // -tA de psql sépare par `|` et on a besoin d'un type prévisible.
       expect(
         after!.notified,
         'ending_soon_notified ne doit JAMAIS passer à true pour un payeur — sinon ça veut dire qu\'un mail "expire dans 3j" est parti à un client qui paie déjà',
-      ).toBe('f');
+      ).toBe('false');
 
       // 6. Sanity : summary du cron a incrémenté `converted`, PAS `notified`
       //    (on tolère que d'autres rows aient été notified, on regarde juste
@@ -291,10 +294,11 @@ test.describe('Journey 17 — Anti-régression résidus trial après paiement', 
         ['state', 'notified'],
       );
       expect(after!.state).toBe('trial_active');
+      // PG `boolean::text` → 'true' / 'false' (cf S1 ci-dessus).
       expect(
         after!.notified,
         'sans sub, le cron DOIT passer ending_soon_notified à true (chemin nominal)',
-      ).toBe('t');
+      ).toBe('true');
     } finally {
       deleteTenantTrial(slug, 'notifuse');
       deleteTenantBySlug(slug);
