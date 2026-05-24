@@ -12,8 +12,11 @@ import { StripePortalButton } from './StripePortalButton';
 import { BillingStatusAlert } from './BillingStatusAlert';
 import { EmptyBillingState } from './EmptyBillingState';
 import { SubscriptionCard, type SubscriptionView } from './SubscriptionCard';
+import { RecentInvoicesCard } from './RecentInvoicesCard';
+import { RefillPromoCard } from './RefillPromoCard';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
+import { getRecentInvoices } from '@/lib/stripe/invoices';
 
 export default async function BillingPage() {
   const user = await getCurrentUser();
@@ -32,6 +35,25 @@ export default async function BillingPage() {
       },
     },
   });
+
+  // Tenant Prospection provisionne (cle pour afficher panel refill leads).
+  // Schema Hub n'embarque pas leadsBalance, donc on n'affiche pas de chiffre —
+  // juste la presence d'un tenant Prospection actif gate l'affichage du panel.
+  const prospectionTenant = await prisma.tenant.findFirst({
+    where: {
+      userId: userUuid(user),
+      deletedAt: null,
+      prospectionProvisionedAt: { not: null },
+    },
+    select: { id: true },
+  });
+
+  // Customer Stripe (pour lister factures). On lit le 1er id non-null dispose
+  // sur les subscriptions du user — meme Customer pour toutes les subs en
+  // pratique.
+  const stripeCustomerId =
+    subscriptions.find((s) => s.stripeCustomerId)?.stripeCustomerId ?? null;
+  const invoices = await getRecentInvoices(stripeCustomerId, 3);
 
   // Subscription "vivante" prioritaire ; à défaut la plus récente (utile pour
   // montrer un état `canceled` avec son CTA réactiver).
@@ -120,6 +142,12 @@ export default async function BillingPage() {
             </CardContent>
           </Card>
         )}
+
+        {/* Factures recentes (rend null si liste vide) */}
+        <RecentInvoicesCard invoices={invoices} />
+
+        {/* Acheter des leads — gated sur tenant Prospection */}
+        {prospectionTenant && <RefillPromoCard />}
 
         {/* Note de réassurance */}
         <Card className="bg-muted/50 border-muted">
