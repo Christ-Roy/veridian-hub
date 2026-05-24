@@ -52,6 +52,36 @@ describe('OAuthButtons', () => {
     expect(screen.queryByText(/Déjà un compte/i)).toBeNull();
     expect(screen.queryByText(/Pas encore de compte/i)).toBeNull();
   });
+
+  // Migration 2026-05-24 (commit OAuthButtons → provider-icons) :
+  // les SVG inline ont été remplacés par les composants `<GoogleIcon />`
+  // et `<MicrosoftIcon />`. Ces tests verrouillent qu'au moins UN <svg>
+  // par bouton est rendu (les icones du module partagé), ce qui prévient
+  // un futur "oubli d'icône" lors d'un refactor.
+  it('rend une icône SVG (Google) à gauche du label "Continuer avec Google"', () => {
+    const { container } = render(<OAuthButtons callbackUrl="/dashboard" />);
+    const googleBtn = screen.getByRole('button', { name: /Continuer avec Google/i });
+    const svgs = googleBtn.querySelectorAll('svg');
+    expect(svgs.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('rend une icône SVG (Microsoft) à gauche du label "Continuer avec Microsoft"', () => {
+    const { container } = render(<OAuthButtons callbackUrl="/dashboard" />);
+    const msBtn = screen.getByRole('button', { name: /Continuer avec Microsoft/i });
+    const svgs = msBtn.querySelectorAll('svg');
+    expect(svgs.length).toBeGreaterThanOrEqual(1);
+  });
+
+  // Garantit qu'on n'a pas régressé sur l'a11y : les icônes décoratives
+  // doivent être ignorées par les lecteurs d'écran (le label texte porte le sens).
+  it('les icônes provider sont aria-hidden (décoratives, le label texte porte le sens)', () => {
+    render(<OAuthButtons callbackUrl="/dashboard" />);
+    const allSvgs = document.querySelectorAll('button svg');
+    expect(allSvgs.length).toBeGreaterThanOrEqual(2);
+    allSvgs.forEach((svg) => {
+      expect(svg.getAttribute('aria-hidden')).toBe('true');
+    });
+  });
 });
 
 describe('SignupLink / LoginLink', () => {
