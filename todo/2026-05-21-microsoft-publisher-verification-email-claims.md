@@ -2,8 +2,73 @@
 
 > **Type** : Config Microsoft Entra Admin Center + audit code Auth.js
 > **Sévérité** : 🟡 P2 (UX/réputation OAuth Microsoft — pas bloquant fonctionnellement)
-> **Owner** : Robert (action manuelle Entra Admin Center) + agent Hub (audit code)
+> **Owner** : Robert (action manuelle Entra Admin Center + MPN signup) + agent Hub (audit code)
 > **Créé** : 2026-05-21
+> **Avancé** : 2026-05-24 — voir §"Progress 2026-05-24" en bas
+
+## Progress 2026-05-24 (agent Hub)
+
+### ✅ Faits via `az` CLI / Graph API (zero manual click)
+
+1. **Optional claims `email` + `xms_edov` configurés** sur l'app
+   `Veridian Hub Sign-in` (Client ID `44621507-2ab6-4cb4-8f90-2e6a9cc9e8d8`)
+   - `idToken` : `email` + `xms_edov`
+   - `accessToken` : `email`
+   - **Effet** : couvre 95 % des cas Work/School (Microsoft pousse désormais
+     systématiquement le claim email dans l'id_token Veridian, et le flag
+     `xms_edov` indique si le domaine email est vérifié côté tenant)
+2. **Branding URLs renseignées** (Graph API PATCH) :
+   - `homePageUrl` → `https://veridian.site`
+   - `marketingUrl` → `https://veridian.site/`
+   - `privacyStatementUrl` → `https://app.veridian.site/privacy`
+   - `termsOfServiceUrl` → `https://app.veridian.site/terms`
+   - `supportUrl` → `https://app.veridian.site/legal`
+   - **Effet** : consent screen Microsoft affiche désormais des liens
+     légaux propres au lieu de "no terms provided"
+3. **Fichier well-known déployé** sur `https://veridian.site/.well-known/microsoft-identity-association.json`
+   - Commit `1505e0d` sur repo `Christ-Roy/veridian` branche `master`
+   - Déployé via Cloudflare Pages auto-deploy (Next.js static export)
+   - Contenu : `{"associatedApplications":[{"applicationId":"44621507-2ab6-4cb4-8f90-2e6a9cc9e8d8"}]}`
+   - Vérifié HTTP 200 + body OK
+   - **Pré-requis nécessaire pour set `publisherDomain=veridian.site`**
+     dans le portail Azure (action humaine, voir 1.C ci-dessous)
+
+### ✅ Audit code Hub (Phase 2 du ticket) — RAS
+
+- `lib/auth/sign-in-callback.ts` (ligne 38-43) bloque déjà via `if (!user.email) return false` → si Microsoft ne retourne pas
+  d'email, l'user n'est pas créé. Safe.
+- Provider Auth.js v5 `microsoft-entra-id` (`@auth/core` v0.41.2) ligne 477 : `email: profile.email`.
+  Pas de fallback `preferred_username` — donc pas de risque de stocker un UPN à la place
+  d'un vrai email.
+- `allowDangerousEmailAccountLinking: true` reste cohérent : on link sur email
+  matché ET Microsoft certifie via `xms_edov` que le domaine est vérifié.
+- **Pas de modification code Hub nécessaire.** Le flow OAuth est résilient.
+
+### ⛔ Reste à faire — actions manuelles Robert (CLI bloqué)
+
+| # | Action | Pourquoi pas faisable via `az` | Effort |
+|---|---|---|---|
+| A | **Inscription MPN (Microsoft AI Cloud Partner Program)** sur https://partner.microsoft.com — récupérer **Partner ID** (7 chiffres) | Pas d'API publique, obligatoire pour Publisher Verification | 30 min |
+| B | **Vérification identité Veridian** côté Partner Center (Tax ID, adresse, tél) si pas déjà faite | Workflow async Microsoft, parfois 24-48h | 5-30 min |
+| C | **Set `publisherDomain = veridian.site`** sur l'App Registration dans https://entra.microsoft.com — onglet *Branding & properties*, champ *Publisher domain*, cliquer "Verify and save" (Microsoft fetch automatiquement le well-known déjà déployé) | Champ read-only via Graph API : `{"error":{"code":"Request_BadRequest","message":"Property 'publisherDomain' is read-only and cannot be set."}}` | 2 min |
+| D | **Soumission Publisher Verification** : même page Branding, section *Verified publisher* → "Add MPN ID" → entrer le MPN ID de A → "Verify and save" | Workflow Microsoft Partner Center, pas d'API | 5 min (puis 24-48 h async) |
+| E | Stocker `MICROSOFT_MPN_ID=<partner_id>` dans `~/credentials/.all-creds.env` | Géré post-A | 1 min |
+
+### Vérification post-action manuelle Robert
+
+```bash
+export PATH=$HOME/.local/bin:$PATH && APP_ID=44621507-2ab6-4cb4-8f90-2e6a9cc9e8d8
+# Doit retourner publisherDomain="veridian.site" + verifiedPublisher peuplé
+az ad app show --id "$APP_ID" --query '{publisherDomain:publisherDomain, verifiedPublisher:verifiedPublisher}'
+```
+
+Test consent screen : se logger sur `https://app.veridian.site/login` avec un compte Microsoft (perso ou Work) qui n'est jamais venu sur Veridian. Doit afficher :
+- Logo Veridian (si uploadé)
+- "Veridian" + badge bleu "Verified"
+- "by Veridian" (au lieu de "by an unverified publisher")
+- Liens Privacy/Terms cliquables
+
+---
 
 ## Contexte — réponses aux 3 questions Robert
 
