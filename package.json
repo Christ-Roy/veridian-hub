@@ -14,6 +14,10 @@
     "stripe:fixtures": "stripe fixtures fixtures/stripe-fixtures.json",
     "e2e": "playwright test",
     "e2e:staging:full": "bash scripts/e2e/staging-full.sh",
+    "e2e:mega": "bash scripts/e2e/mega.sh",
+    "e2e:mega:bucket": "bash scripts/e2e/mega.sh --grep",
+    "e2e:mega:precheck": "bash scripts/e2e/mega-precheck.sh",
+    "e2e:mega:purge": "bash scripts/e2e/mega-purge.sh",
     "postinstall": "prisma generate",
     "prepare": "husky",
     "setup-hooks": "husky"
