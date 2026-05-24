@@ -24,11 +24,18 @@ import { APPS } from '@/lib/pricing/plans';
  *    - Prospection : login token one-shot
  */
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ debug?: string }>;
+}) {
   const user = await getCurrentUser();
   if (!user) {
     redirect('/login');
   }
+
+  const params = await searchParams;
+  const showDebug = process.env.NODE_ENV === 'development' && params.debug === '1';
 
   const tenant = await prisma.tenant.findFirst({
     where: { userId: userUuid(user) },
@@ -129,7 +136,7 @@ export default async function DashboardPage() {
         className="mb-8"
       />
 
-      {process.env.NODE_ENV === 'development' && (
+      {showDebug && (
         <div className="mb-8 p-3 bg-muted rounded text-xs font-mono">
           <div className="font-semibold mb-1">Debug Info:</div>
           <div>User ID: {user.id}</div>
