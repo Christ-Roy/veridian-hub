@@ -166,7 +166,13 @@ export async function runTrialTick(deps: TickDeps = {}): Promise<TickSummary> {
     resolveOwnerEmailBatch,
     summary,
   );
-  await processEndingSoon(now, sendEmail, resolveOwnerEmailBatch, summary);
+  await processEndingSoon(
+    now,
+    hasActiveStripeSubBatch,
+    sendEmail,
+    resolveOwnerEmailBatch,
+    summary,
+  );
   await processFinalize(
     now,
     notifuseClient,
@@ -278,6 +284,9 @@ async function processActivations(
 
 async function processEndingSoon(
   now: Date,
+  hasActiveStripeSubBatch: (
+    tenantIds: string[],
+  ) => Promise<Map<string, boolean>>,
   sendEmail: NonNullable<TickDeps['sendEmail']>,
   resolveOwnerEmailBatch: (
     tenantIds: string[],
@@ -316,10 +325,37 @@ async function processEndingSoon(
   if (rows.length === 0) return;
 
   const tenantIds = rows.map((r) => r.tenant_id);
-  const emailMap = await resolveOwnerEmailBatch(tenantIds);
+
+  // Défense en profondeur (cf docs/AUDIT-TRIAL-RESIDUS-2026-05-24.md) :
+  //   Le webhook Stripe purge `tenant_trials → converted` quand sub active
+  //   (cf utils/stripe/prisma-sync.ts §1ter). Si pour une raison X la purge
+  //   a échoué (webhook KO, DB désync, etc.) et qu'une row reste à
+  //   `trial_active` alors que le user paie déjà, on NE veut PAS lui envoyer
+  //   "ton essai expire dans 3j". On batch-resolve les subs actives ici et
+  //   on skip + auto-corrige à `converted` les rows qui ont une sub.
+  const [emailMap, subMap] = await Promise.all([
+    resolveOwnerEmailBatch(tenantIds),
+    hasActiveStripeSubBatch(tenantIds),
+  ]);
 
   for (const row of rows) {
     try {
+      const hasSub = subMap.get(row.tenant_id) ?? false;
+      if (hasSub) {
+        // Le user paie déjà — on purge le résidu trial et on skip l'email.
+        await prisma.tenantTrial.update({
+          where: {
+            tenantId_app: { tenantId: row.tenant_id, app: row.app },
+          },
+          data: { state: 'converted', updatedAt: now },
+        });
+        console.log(
+          `[trial-tick] notify-ending-soon skipped (sub active) tenant=${row.tenant_id} app=${row.app} → purged to converted`,
+        );
+        summary.converted += 1;
+        continue;
+      }
+
       await prisma.tenantTrial.update({
         where: {
           tenantId_app: { tenantId: row.tenant_id, app: row.app },

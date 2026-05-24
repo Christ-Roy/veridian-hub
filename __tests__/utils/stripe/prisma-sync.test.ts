@@ -21,6 +21,7 @@ const subscriptionUpsertMock = vi.fn();
 const userUpdateManyMock = vi.fn();
 const tenantFindFirstMock = vi.fn();
 const tenantUpdateMock = vi.fn();
+const tenantTrialUpdateManyMock = vi.fn();
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -34,6 +35,9 @@ vi.mock('@/lib/prisma', () => ({
     tenant: {
       findFirst: (...a: unknown[]) => tenantFindFirstMock(...a),
       update: (...a: unknown[]) => tenantUpdateMock(...a),
+    },
+    tenantTrial: {
+      updateMany: (...a: unknown[]) => tenantTrialUpdateManyMock(...a),
     },
   },
 }));
@@ -105,6 +109,7 @@ beforeEach(() => {
   // la résolution du planKey via la subscription persistée.
   tenantFindFirstMock.mockResolvedValue(null);
   tenantUpdateMock.mockResolvedValue({});
+  tenantTrialUpdateManyMock.mockResolvedValue({ count: 0 });
 });
 
 describe('manageSubscriptionStatusChange — résolution du PlanKey', () => {
@@ -359,5 +364,106 @@ describe('manageSubscriptionStatusChange — résolution LEGACY_STRIPE_PRICE_MAP
     // La metadata explicite gagne sur le fallback legacy.
     expect(upsertArgs.create.planName).toBe('notifuse-pro');
     warnSpy.mockRestore();
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════════════
+// Purge tenant_trials → converted (anti-résidus trial après paiement)
+//
+// Cf docs/AUDIT-TRIAL-RESIDUS-2026-05-24.md + ticket
+// 2026-05-23-audit-trial-residus-apres-paiement.md.
+//
+// Garantit la promesse Robert : "client paie = plus aucune limite". Quand
+// une subscription Stripe devient active (`active`/`trialing`), TOUTES les
+// lignes tenant_trials non-terminales du tenant doivent être bascullées à
+// `converted` pour qu'aucun cron downstream n'envoie de mail "essai".
+// ════════════════════════════════════════════════════════════════════════════
+
+describe('manageSubscriptionStatusChange — purge tenant_trials (anti-résidus)', () => {
+  it('sub active → updateMany tenant_trials state IN (eligible, trial_active, trial_ending_soon) → converted', async () => {
+    subscriptionsRetrieveMock.mockResolvedValueOnce(
+      makeSub({ metadata: { plan_key: 'veridian-pro' }, status: 'active' }),
+    );
+    tenantFindFirstMock.mockResolvedValueOnce({
+      id: 'tenant-paid-up',
+      notifuseWorkspaceSlug: null,
+      notifusePlan: 'free',
+      prospectionPlan: 'freemium',
+      metadata: {},
+    });
+    tenantTrialUpdateManyMock.mockResolvedValueOnce({ count: 2 });
+
+    const { manageSubscriptionStatusChange } = await import('@/utils/stripe/prisma-sync');
+    await manageSubscriptionStatusChange('sub_test_1', CUSTOMER, true);
+
+    // La purge a été appelée une fois avec le bon filtre.
+    expect(tenantTrialUpdateManyMock).toHaveBeenCalledTimes(1);
+    const purgeCall = tenantTrialUpdateManyMock.mock.calls[0][0];
+    expect(purgeCall.where.tenantId).toBe('tenant-paid-up');
+    expect(purgeCall.where.state.in.sort()).toEqual(
+      ['eligible', 'trial_active', 'trial_ending_soon'].sort(),
+    );
+    expect(purgeCall.data.state).toBe('converted');
+  });
+
+  it('sub canceled → AUCUNE purge (sub inactive, on garde l’état trial historique)', async () => {
+    subscriptionsRetrieveMock.mockResolvedValueOnce(
+      makeSub({ metadata: { plan_key: 'veridian-pro' }, status: 'canceled' }),
+    );
+    tenantFindFirstMock.mockResolvedValueOnce({
+      id: 'tenant-canceled',
+      notifuseWorkspaceSlug: null,
+      notifusePlan: 'pro',
+      prospectionPlan: 'pro',
+      metadata: {},
+    });
+
+    const { manageSubscriptionStatusChange } = await import('@/utils/stripe/prisma-sync');
+    await manageSubscriptionStatusChange('sub_test_1', CUSTOMER, false);
+
+    // Pas de purge — la sub n'est pas active donc le tenant n'a rien "payé".
+    expect(tenantTrialUpdateManyMock).not.toHaveBeenCalled();
+  });
+
+  it('sub trialing → purge OK (Stripe natif trial = sub active aussi)', async () => {
+    subscriptionsRetrieveMock.mockResolvedValueOnce(
+      makeSub({ metadata: { plan_key: 'veridian-pro' }, status: 'trialing' }),
+    );
+    tenantFindFirstMock.mockResolvedValueOnce({
+      id: 'tenant-stripe-trialing',
+      notifuseWorkspaceSlug: null,
+      notifusePlan: 'free',
+      prospectionPlan: 'freemium',
+      metadata: {},
+    });
+
+    const { manageSubscriptionStatusChange } = await import('@/utils/stripe/prisma-sync');
+    await manageSubscriptionStatusChange('sub_test_1', CUSTOMER, true);
+
+    expect(tenantTrialUpdateManyMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('purge KO (DB temporairement down) → non-bloquant : la propagation downstream continue', async () => {
+    subscriptionsRetrieveMock.mockResolvedValueOnce(
+      makeSub({ metadata: { plan_key: 'veridian-pro' }, status: 'active' }),
+    );
+    tenantFindFirstMock.mockResolvedValueOnce({
+      id: 'tenant-db-down',
+      notifuseWorkspaceSlug: null,
+      notifusePlan: 'free',
+      prospectionPlan: 'freemium',
+      metadata: {},
+    });
+    tenantTrialUpdateManyMock.mockRejectedValueOnce(new Error('DB unavailable'));
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const { manageSubscriptionStatusChange } = await import('@/utils/stripe/prisma-sync');
+    const result = await manageSubscriptionStatusChange('sub_test_1', CUSTOMER, true);
+
+    // L'erreur a été loggée mais n'a pas fait throw — `applied` est bien rempli.
+    expect(errSpy).toHaveBeenCalled();
+    const apps = result.applied.map((a) => a.app).sort();
+    expect(apps).toEqual(['notifuse', 'prospection']);
+    errSpy.mockRestore();
   });
 });

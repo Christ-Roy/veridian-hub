@@ -298,6 +298,47 @@ export async function manageSubscriptionStatusChange(
       `(planKey=${planKey}, isActive=${isActive}, immune=${isImmuneNotifuse})`,
   );
 
+  // ─── 1ter. Purge tenant_trials → converted (anti-résidus trial) ───
+  // Cf docs/AUDIT-TRIAL-RESIDUS-2026-05-24.md + ticket
+  // 2026-05-23-audit-trial-residus-apres-paiement.md.
+  //
+  // Quand la subscription Stripe devient active, on bascule TOUTES les lignes
+  // tenant_trials non-terminales du tenant à `converted`. Sinon :
+  //   - le cron `processEndingSoon` enverrait quand même le mail "expire dans 3j"
+  //     au user qui paie déjà (faille majeure trouvée 2026-05-24)
+  //   - le bandeau FreemiumBanner est gated par `hasActiveSubscription` côté
+  //     layout donc OK en surface, mais la DB reste sale → drift detection
+  //     bruyante + risque de régression UI future si on retire le gate
+  //
+  // Idempotent : si la ligne est déjà `converted` ou `expired`, le WHERE
+  // exclut. Pas d'erreur si aucune ligne n'existe (cas user qui s'abonne
+  // avant d'avoir déclenché le trial threshold).
+  if (isActive) {
+    try {
+      const converted = await prisma.tenantTrial.updateMany({
+        where: {
+          tenantId: tenant.id,
+          state: { in: ['eligible', 'trial_active', 'trial_ending_soon'] },
+        },
+        data: { state: 'converted', updatedAt: new Date() },
+      });
+      if (converted.count > 0) {
+        console.log(
+          `[stripe-sync] Purged ${converted.count} trial row(s) → converted ` +
+            `for tenant=${tenant.id} (sub active)`,
+        );
+      }
+    } catch (trialErr) {
+      // Non-bloquant : la propagation downstream + welcome leads doit continuer.
+      // Cas le pire = le cron processFinalize finira par marquer converted
+      // quand trial_ends_at <= NOW (sub active détectée → state=converted).
+      console.error(
+        `[stripe-sync] tenant_trials purge → converted failed (non-blocking) for ${tenant.id}:`,
+        trialErr instanceof Error ? trialErr.message : trialErr,
+      );
+    }
+  }
+
   // ─── 1bis. Welcome leads sur UPGRADE Prospection ───
   // Si le palier Prospection augmente (free → pro → business), on crédite le
   // DELTA de welcome leads (cf PRICING-VERIDIAN.md §78 + §97). Downgrade =

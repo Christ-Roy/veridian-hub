@@ -346,6 +346,62 @@ describe('runTrialTick — phase notify ending soon', () => {
     });
     expect(summary.notified).toBe(0);
   });
+
+  // ──────────────────────────────────────────────────────────────────────
+  // Anti-régression — promesse Robert "client paie = plus aucune limite".
+  // Cf docs/AUDIT-TRIAL-RESIDUS-2026-05-24.md + ticket
+  // 2026-05-23-audit-trial-residus-apres-paiement.md.
+  //
+  // Si tenant_trials reste en trial_active alors que le user a une sub
+  // Stripe active (ex: webhook purge KO 2026-05-24), phase notify NE DOIT
+  // PAS envoyer "ton essai expire dans 3j" — et DOIT auto-corriger la row
+  // à converted pour ne plus jamais boucler dessus.
+  // ──────────────────────────────────────────────────────────────────────
+  it('skip email + purge row → converted si user a sub Stripe active (anti-résidu)', async () => {
+    queryRawMock
+      .mockResolvedValueOnce([]) // activate
+      .mockResolvedValueOnce([
+        {
+          tenant_id: 't_paid_still_trial',
+          app: 'notifuse',
+          trial_ends_at: new Date('2026-06-18T12:00:00Z'),
+        },
+      ]) // notify
+      .mockResolvedValueOnce([]); // finalize
+
+    tenantTrialUpdateMock.mockResolvedValue({});
+
+    const sendEmailMock = vi.fn().mockResolvedValue(undefined);
+
+    const { runTrialTick } = await import('@/lib/trial/run-tick');
+    const summary = await runTrialTick({
+      notifuseClient: { updatePlan: vi.fn() } as never,
+      sendEmail: sendEmailMock,
+      notifyTelegram: vi.fn().mockResolvedValue(true),
+      // ← la signature "hasSub=true" simule le scénario user qui paie déjà
+      hasActiveStripeSubForTenant: vi.fn().mockResolvedValue(true),
+      now: NOW,
+    });
+
+    // ZÉRO mail envoyé — la promesse "plus aucune notif trial" est tenue.
+    expect(sendEmailMock).not.toHaveBeenCalled();
+    expect(summary.notified).toBe(0);
+
+    // La row a été auto-corrigée → converted (compteur summary.converted).
+    expect(summary.converted).toBe(1);
+    expect(tenantTrialUpdateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          tenantId_app: { tenantId: 't_paid_still_trial', app: 'notifuse' },
+        },
+        data: expect.objectContaining({ state: 'converted' }),
+      }),
+    );
+    // Le data NE DOIT PAS contenir `endingSoonNotified: true` — sinon on a
+    // marqué le mail comme envoyé alors qu'on n'a rien envoyé.
+    const updateData = tenantTrialUpdateMock.mock.calls[0][0].data;
+    expect(updateData.endingSoonNotified).toBeUndefined();
+  });
 });
 
 // ============================================================================
