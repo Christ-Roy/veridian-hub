@@ -57,6 +57,7 @@ import { resolveStripeCustomerId } from '@/utils/stripe/server';
 import { getStripeRefillProductId } from '@/utils/env';
 import { RateLimiter } from '@/lib/auth/rate-limit';
 import { verifyBillingStateHmac } from '@/lib/billing/billing-state-hmac';
+import { isPublicHttpUrl } from '@/lib/security/safe-url';
 import { getURL } from '@/utils/helpers';
 import {
   priceRefillCents,
@@ -102,8 +103,26 @@ const bodySchema = z.object({
   quantity: z.number().int().min(1).max(100_000),
   plan: z.enum(ALLOWED_PROSPECTION_PLANS as unknown as [string, ...string[]]),
   filters_json: z.record(z.string(), z.unknown()).optional(),
-  success_url: z.string().url().max(2048).optional(),
-  cancel_url: z.string().url().max(2048).optional(),
+  // SSRF guard : Stripe Checkout fait un redirect navigateur ; un attaquant
+  // qui contrôle success_url/cancel_url peut envoyer le payeur vers du
+  // javascript:/data:/file:/IP-interne. Cf `lib/security/safe-url.ts` +
+  // ticket `todo/2026-05-25-ssrf-link-app-fallback-url-cloud-metadata.md`.
+  success_url: z
+    .string()
+    .max(2048)
+    .refine(isPublicHttpUrl, {
+      message:
+        'success_url must be a public http(s) URL (no private/loopback/metadata IPs, no internal hostnames, no file:/javascript:/data: schemes)',
+    })
+    .optional(),
+  cancel_url: z
+    .string()
+    .max(2048)
+    .refine(isPublicHttpUrl, {
+      message:
+        'cancel_url must be a public http(s) URL (no private/loopback/metadata IPs, no internal hostnames, no file:/javascript:/data: schemes)',
+    })
+    .optional(),
   contract_version: z.literal('2.1'),
 });
 

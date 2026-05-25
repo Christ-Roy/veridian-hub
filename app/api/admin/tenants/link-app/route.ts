@@ -19,6 +19,7 @@ import { prisma } from '@/lib/prisma';
 import { linkApp, type AppLinkApp } from '@/lib/admin/link-app';
 import { writeAuditLog, resolveActor } from '@/lib/admin/audit-log';
 import { authenticateAdmin } from '@/lib/admin/authenticate';
+import { isPublicHttpUrl } from '@/lib/security/safe-url';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -51,13 +52,17 @@ const bodySchema = z.object({
       message: 'tenant_name: no control characters or < >',
     }),
   plan: z.string().optional(),
-  // Whitelist http/https : z.string().url() accepte javascript:, data: et file:
-  // qui sont des XSS triviaux quand le user clique sur "Open" depuis le dashboard.
+  // SSRF guard : helper centralisé rejette schemes dangereux (file:,
+  // javascript:, gopher:…), IPs privées/loopback/lien-local (169.254.169.254
+  // cloud metadata, RFC1918) et hostnames Docker internes. Cf
+  // `lib/security/safe-url.ts` + ticket
+  // `todo/2026-05-25-ssrf-link-app-fallback-url-cloud-metadata.md`.
   fallback_url: z
     .string()
-    .url()
-    .refine((u) => u.startsWith('https://') || u.startsWith('http://'), {
-      message: 'fallback_url must use http or https scheme',
+    .max(2048)
+    .refine(isPublicHttpUrl, {
+      message:
+        'fallback_url must be a public http(s) URL (no private/loopback/metadata IPs, no internal hostnames, no file:/javascript:/data: schemes)',
     })
     .optional(),
   magic_link_capable: z.boolean().optional(),
