@@ -30,18 +30,17 @@ const DB_CONTAINER = process.env.E2E_DB_CONTAINER || 'hub-staging-db';
 const DB_USER = process.env.E2E_DB_USER || 'hub';
 const DB_NAME = process.env.E2E_DB_NAME || 'hub';
 
-/**
- * Exécute une requête SQL sur la DB staging Hub via SSH+docker exec.
- *
- * @param sql - une ou plusieurs instructions SQL. Échapper les single quotes
- *              en doublant (`''`). Échapper les `$` shell si le SQL contient
- *              des dollar-quoted strings.
- * @returns la sortie psql (vide pour DDL/DML, sinon les rows en mode -tA).
- */
+// Mode "direct psql" : utilisé quand le test tourne DANS un container Playwright
+// sur dev-pub (network hub-staging_hub-internal joint). Bypass SSH+docker exec
+// en se connectant via TCP directement au container Postgres.
+// Activer via E2E_DIRECT_PSQL=1 + E2E_DB_HOST + PGPASSWORD.
+const DIRECT_PSQL = process.env.E2E_DIRECT_PSQL === '1';
+const DB_HOST = process.env.E2E_DB_HOST || 'hub-staging-db';
+
 export function runSqlOnStaging(sql: string): string {
-  // Stratégie : on pipe le SQL via stdin pour éviter les pièges de shell
-  // quoting. SSH ouvre une session non-interactive, docker exec -i lit stdin.
-  const cmd = `ssh -o BatchMode=yes -o ConnectTimeout=10 ${SSH_HOST} 'docker exec -i ${DB_CONTAINER} psql -U ${DB_USER} -d ${DB_NAME} -tA -v ON_ERROR_STOP=1'`;
+  const cmd = DIRECT_PSQL
+    ? `psql -h ${DB_HOST} -U ${DB_USER} -d ${DB_NAME} -tA -v ON_ERROR_STOP=1`
+    : `ssh -o BatchMode=yes -o ConnectTimeout=10 ${SSH_HOST} 'docker exec -i ${DB_CONTAINER} psql -U ${DB_USER} -d ${DB_NAME} -tA -v ON_ERROR_STOP=1'`;
   try {
     const out = execSync(cmd, {
       input: sql,
