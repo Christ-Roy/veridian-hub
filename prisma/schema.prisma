@@ -94,6 +94,16 @@ model Account {
   // consent étendu Mail Sender.
   mailSendScope String? @map("mail_send_scope")
 
+  // Mail Gateway v2 (ticket 2026-05-25-mail-provider-status-endpoint.md) —
+  // marqueur "compte par défaut pour Mail Send". Un user peut avoir N
+  // Accounts OAuth (Gmail perso + Microsoft pro + autre Gmail). Quand une
+  // app downstream appelle `POST /api/mail/send-as-user` sans
+  // `mail_account_id`, on résout via cette colonne (1 seul Account
+  // par user peut être true grâce à l'index unique partiel). Si aucun
+  // Account du user n'est marqué `true`, fallback ordre = premier Account
+  // qui contient `gmail.send` dans `mailSendScope`.
+  isDefaultForMail Boolean @default(false) @map("is_default_for_mail")
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([provider, providerAccountId])
@@ -682,6 +692,59 @@ model MailEvent {
   @@index([userId, sentAt(sort: Desc)])
   @@index([appSource, sentAt(sort: Desc)])
   @@map("mail_events")
+  @@schema("hub_app")
+}
+
+// ============================================================================
+// Mail Gateway v2 — rate-limit per-recipient (ticket
+// 2026-05-25-mail-provider-status-endpoint.md)
+// ============================================================================
+//
+// Robert 2026-05-25 : "1 mail toutes les 20 minutes comme limite par email".
+// Protection anti-spam Lemlist-like — applique GLOBAL Hub-side (cross-app,
+// cross-user, cross-account). Si quelqu'un — n'importe quel user, via
+// n'importe quelle app — a déjà envoyé un mail à `spam@example.com` il y
+// a moins de 20 minutes, le prochain envoi à cette adresse est bloqué.
+//
+// Cible : `to[]` uniquement. cc/bcc NE sont PAS rate-limités (cc = copie
+// informative, bcc = invisible — pas de spam direct sur eux).
+
+model MailRecipientRateLimit {
+  // PK = email destinataire (lowercase normalisé côté code avant lookup).
+  recipientEmail String   @id @map("recipient_email")
+  // Horodatage du dernier envoi réussi. Si < NOW - 20min → on bloque.
+  lastSentAt     DateTime @default(now()) @map("last_sent_at") @db.Timestamptz(6)
+  // Audit léger pour forensics : qui a envoyé le dernier mail à ce
+  // destinataire (un user_id Hub) ET via quelle app (notifuse / prospection
+  // / cms / analytics / hub-test).
+  senderUserId   String   @map("sender_user_id")
+  appCaller      String   @map("app_caller")
+
+  @@index([lastSentAt(sort: Desc)])
+  @@map("mail_recipient_rate_limit")
+  @@schema("hub_app")
+}
+
+// ============================================================================
+// Mail Gateway v2 — audit forensics rate-limit (append-only)
+// ============================================================================
+//
+// 1 row par destinataire bloqué (chaque déclenchement 207 multi-status
+// ou 429 rate_limit_recipient). Consommé par
+// `GET /api/admin/mail-rate-limit/stats` pour le dashboard Robert.
+
+model MailRateLimitEvent {
+  id                 String   @id @default(cuid())
+  timestamp          DateTime @default(now()) @db.Timestamptz(6)
+  recipientEmail     String   @map("recipient_email")
+  senderUserId       String   @map("sender_user_id")
+  appCaller          String   @map("app_caller")
+  retryAfterSeconds  Int      @map("retry_after_seconds")
+
+  @@index([timestamp(sort: Desc)])
+  @@index([recipientEmail, timestamp(sort: Desc)])
+  @@index([senderUserId, timestamp(sort: Desc)])
+  @@map("mail_rate_limit_events")
   @@schema("hub_app")
 }
 
