@@ -34,7 +34,10 @@ import { MEGA_RUN_STAMP } from './run-stamp';
 // On utilise un bucket "smoke" dédié (jamais utilisé par Vague 2) pour
 // éviter toute collision avec les specs métier.
 const BUCKET = 'smoke';
-const SPEC = '_fixtures-validation';
+// Sanitize-friendly (alphanumeric + dash uniquement) — megaEmail() sanitize les
+// chars hors [a-z0-9-] en dash. Garder SPEC identique à ce que megaEmail produira
+// pour que purgeMegaByPrefix matche correctement les emails créés.
+const SPEC = 'fixtures-validation';
 
 // Le smoke spec doit tourner sériellement : le test signup teste la purge
 // par préfixe, ce qui suppose 1 seul user actif en DB matching le préfixe.
