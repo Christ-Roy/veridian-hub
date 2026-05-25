@@ -88,4 +88,20 @@ describe('GET /api/gmail/connect', () => {
     const json = await res.json();
     expect(json.error).toBe('mail_oauth_not_configured');
   });
+
+  // ─── ANTI-RÉGRESSION 2026-05-25 ──────────────────────────────────────
+  // Le router doit utiliser getHubBaseUrl(request.url) pour TOUS les
+  // redirects (login + consent) au lieu de new URL(path, request.url) brut
+  // qui produit 0.0.0.0:3000 derrière Traefik → browser ERR_ADDRESS_INVALID.
+  // Couvert directement par les tests getHubBaseUrl dans oauth-cookies.test.ts,
+  // ce smoke ici garantit juste que la route IMPORTE bien le helper.
+  it('importe getHubBaseUrl du module oauth-cookies (anti-régression Traefik)', async () => {
+    const moduleSource = await import('fs').then((fs) =>
+      fs.promises.readFile(
+        new URL('../../../app/api/gmail/connect/route.ts', import.meta.url),
+        'utf-8',
+      ),
+    );
+    expect(moduleSource).toContain('getHubBaseUrl');
+  });
 });

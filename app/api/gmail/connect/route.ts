@@ -24,15 +24,20 @@ import {
   RETURN_COOKIE,
   STATE_TTL_SECONDS,
   buildRedirectUri,
+  getHubBaseUrl,
 } from '@/lib/mail/oauth-cookies';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
+  // baseUrl : force NEXT_PUBLIC_SITE_URL pour éviter 0.0.0.0:3000 derrière
+  // Traefik (sinon NextResponse.redirect → ERR_ADDRESS_INVALID côté browser).
+  const baseUrl = getHubBaseUrl(request.url);
+
   const user = await getCurrentUser();
   if (!user) {
-    return NextResponse.redirect(new URL('/login', request.url));
+    return NextResponse.redirect(new URL('/login', baseUrl));
   }
 
   // ─── Optional `return` param : URL relative de retour côté app downstream
@@ -44,7 +49,9 @@ export async function GET(request: NextRequest) {
     rawReturn.startsWith('/') && !rawReturn.startsWith('//') ? rawReturn : '';
 
   const state = randomBytes(32).toString('hex');
-  const origin = `${url.protocol}//${url.host}`;
+  // origin pour cookies secure flag + fallback buildRedirectUri (qui lit
+  // NEXT_PUBLIC_SITE_URL en priorité, cf oauth-cookies.ts).
+  const origin = `${baseUrl.protocol}//${baseUrl.host}`;
   const redirectUri = buildRedirectUri(origin);
 
   let consentUrl: string;

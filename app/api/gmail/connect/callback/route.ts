@@ -34,6 +34,7 @@ import {
   STATE_COOKIE,
   RETURN_COOKIE,
   buildRedirectUri,
+  getHubBaseUrl,
 } from '@/lib/mail/oauth-cookies';
 
 export const runtime = 'nodejs';
@@ -55,11 +56,15 @@ function buildReturnRedirect(
 }
 
 export async function GET(request: NextRequest) {
+  // url : utilisé pour parser les searchParams (code, state, error)
   const url = new URL(request.url);
+  // baseUrl : utilisé pour construire tous les redirect vers le Hub
+  // (force NEXT_PUBLIC_SITE_URL pour éviter 0.0.0.0:3000 derrière Traefik).
+  const baseUrl = getHubBaseUrl(request.url);
 
   const user = await getCurrentUser();
   if (!user) {
-    return NextResponse.redirect(new URL('/login', url));
+    return NextResponse.redirect(new URL('/login', baseUrl));
   }
 
   const returnPath = request.cookies.get(RETURN_COOKIE)?.value;
@@ -69,7 +74,7 @@ export async function GET(request: NextRequest) {
   const googleError = url.searchParams.get('error');
   if (googleError) {
     const res = NextResponse.redirect(
-      buildReturnRedirect(url, 'denied', returnPath),
+      buildReturnRedirect(baseUrl, 'denied', returnPath),
     );
     res.cookies.delete(STATE_COOKIE);
     res.cookies.delete(RETURN_COOKIE);
@@ -88,15 +93,17 @@ export async function GET(request: NextRequest) {
 
   if (!cookieState || cookieState !== stateParam) {
     const res = NextResponse.redirect(
-      buildReturnRedirect(url, 'invalid_state', returnPath),
+      buildReturnRedirect(baseUrl, 'invalid_state', returnPath),
     );
     res.cookies.delete(STATE_COOKIE);
     res.cookies.delete(RETURN_COOKIE);
     return res;
   }
 
-  const origin = `${url.protocol}//${url.host}`;
-  const redirectUri = buildRedirectUri(origin);
+  // buildRedirectUri lit déjà NEXT_PUBLIC_SITE_URL en priorité (cf
+  // oauth-cookies.ts) — on passe le fallback origin par sécurité.
+  const fallbackOrigin = `${url.protocol}//${url.host}`;
+  const redirectUri = buildRedirectUri(fallbackOrigin);
 
   let tokens;
   try {
@@ -110,7 +117,7 @@ export async function GET(request: NextRequest) {
       }),
     );
     const res = NextResponse.redirect(
-      buildReturnRedirect(url, 'oauth_failed', returnPath),
+      buildReturnRedirect(baseUrl, 'oauth_failed', returnPath),
     );
     res.cookies.delete(STATE_COOKIE);
     res.cookies.delete(RETURN_COOKIE);
@@ -130,7 +137,7 @@ export async function GET(request: NextRequest) {
       }),
     );
     const res = NextResponse.redirect(
-      buildReturnRedirect(url, 'email_mismatch', returnPath),
+      buildReturnRedirect(baseUrl, 'email_mismatch', returnPath),
     );
     res.cookies.delete(STATE_COOKIE);
     res.cookies.delete(RETURN_COOKIE);
@@ -179,7 +186,7 @@ export async function GET(request: NextRequest) {
   });
 
   const res = NextResponse.redirect(
-    buildReturnRedirect(url, 'connected', returnPath),
+    buildReturnRedirect(baseUrl, 'connected', returnPath),
   );
   res.cookies.delete(STATE_COOKIE);
   res.cookies.delete(RETURN_COOKIE);

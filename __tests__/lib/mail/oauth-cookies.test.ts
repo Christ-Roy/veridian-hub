@@ -92,6 +92,39 @@ describe('buildRedirectUri', () => {
     }
   });
 
+  it('getHubBaseUrl force NEXT_PUBLIC_SITE_URL contre l\'origin 0.0.0.0 (anti-régression Traefik post-callback)', async () => {
+    // Bug réel staging 2026-05-25 : NextResponse.redirect(new URL('/path',
+    // request.url)) construisait 'https://0.0.0.0:3000/...' → ERR_ADDRESS_INVALID
+    // côté browser. getHubBaseUrl doit IGNORER l'argument requestUrl quand
+    // NEXT_PUBLIC_SITE_URL est set.
+    const { getHubBaseUrl } = await import('@/lib/mail/oauth-cookies');
+    const originalEnv = process.env.NEXT_PUBLIC_SITE_URL;
+    process.env.NEXT_PUBLIC_SITE_URL = 'https://hub.staging.veridian.site';
+    try {
+      const url = getHubBaseUrl('https://0.0.0.0:3000/api/gmail/connect/callback?code=xyz');
+      expect(url.host).toBe('hub.staging.veridian.site');
+      expect(url.host).not.toContain('0.0.0.0');
+    } finally {
+      if (originalEnv === undefined) {
+        delete process.env.NEXT_PUBLIC_SITE_URL;
+      } else {
+        process.env.NEXT_PUBLIC_SITE_URL = originalEnv;
+      }
+    }
+  });
+
+  it('getHubBaseUrl tombe sur l\'origin reçu en local-dev (sans NEXT_PUBLIC_SITE_URL)', async () => {
+    const { getHubBaseUrl } = await import('@/lib/mail/oauth-cookies');
+    const originalEnv = process.env.NEXT_PUBLIC_SITE_URL;
+    delete process.env.NEXT_PUBLIC_SITE_URL;
+    try {
+      const url = getHubBaseUrl('http://localhost:3000/api/gmail/connect');
+      expect(url.host).toBe('localhost:3000');
+    } finally {
+      if (originalEnv !== undefined) process.env.NEXT_PUBLIC_SITE_URL = originalEnv;
+    }
+  });
+
   it('normalize les trailing slashes de NEXT_PUBLIC_SITE_URL', () => {
     const originalEnv = process.env.NEXT_PUBLIC_SITE_URL;
     process.env.NEXT_PUBLIC_SITE_URL = 'https://app.veridian.site/';

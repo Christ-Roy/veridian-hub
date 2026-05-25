@@ -170,4 +170,25 @@ describe('GET /api/gmail/connect/callback', () => {
     );
     expect(res.headers.get('location')).toContain('status=oauth_failed');
   });
+
+  // ─── ANTI-RÉGRESSION 2026-05-25 ──────────────────────────────────────
+  // Le router doit utiliser getHubBaseUrl(request.url) pour TOUS les
+  // redirects post-callback (login + return + denied + invalid_state +
+  // oauth_failed + email_mismatch + connected) au lieu de
+  // NextResponse.redirect(new URL('/path', request.url)) brut qui produit
+  // 0.0.0.0:3000 derrière Traefik → browser ERR_ADDRESS_INVALID.
+  // Couvert par les tests getHubBaseUrl dans oauth-cookies.test.ts ;
+  // ici on vérifie juste que la route IMPORTE bien le helper.
+  it('importe getHubBaseUrl du module oauth-cookies (anti-régression Traefik post-callback)', async () => {
+    const moduleSource = await import('fs').then((fs) =>
+      fs.promises.readFile(
+        new URL(
+          '../../../../app/api/gmail/connect/callback/route.ts',
+          import.meta.url,
+        ),
+        'utf-8',
+      ),
+    );
+    expect(moduleSource).toContain('getHubBaseUrl');
+  });
 });
