@@ -116,15 +116,23 @@ test.describe('Mega A-02 — Signup OAuth Microsoft bout-en-bout', () => {
     }
 
     // ─── Workspace + member ──────────────────────────────────────────
-    const ws = runSqlOnStaging(
-      `SELECT
-         (SELECT count(*) FROM hub_app.workspaces
-            WHERE owner_id = '${userId}')::text AS ws,
-         (SELECT count(*) FROM hub_app.workspace_members wm
-            JOIN hub_app.workspaces w ON w.id = wm.workspace_id
-            WHERE w.owner_id = '${userId}')::text AS mems;`,
-    );
-    const [wsCnt, memCnt] = (ws.split('\n')[0] ?? '').split('|');
+    // provisionDefaultWorkspace tourne dans l'event createUser Auth.js v5 en
+    // best-effort async — polling court pour absorber la race.
+    let wsCnt = '0';
+    let memCnt = '0';
+    for (let i = 0; i < 5; i++) {
+      const ws = runSqlOnStaging(
+        `SELECT
+           (SELECT count(*) FROM hub_app.workspaces
+              WHERE owner_id = '${userId}')::text AS ws,
+           (SELECT count(*) FROM hub_app.workspace_members wm
+              JOIN hub_app.workspaces w ON w.id = wm.workspace_id
+              WHERE w.owner_id = '${userId}')::text AS mems;`,
+      );
+      [wsCnt, memCnt] = (ws.split('\n')[0] ?? '').split('|');
+      if (Number(wsCnt) >= 1 && Number(memCnt) >= 1) break;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
     expect(
       Number(wsCnt),
       'workspace par défaut doit avoir été créé pour le user Microsoft',
@@ -139,9 +147,9 @@ test.describe('Mega A-02 — Signup OAuth Microsoft bout-en-bout', () => {
       `SELECT
          count(*)::text,
          COALESCE(MAX(provider), '') AS provider,
-         COALESCE(MAX("providerAccountId"), '') AS pai
+         COALESCE(MAX(provider_account_id), '') AS pai
        FROM hub_app.accounts
-       WHERE "userId" = '${userId}';`,
+       WHERE user_id = '${userId}';`,
     );
     const [accCnt, provider, providerAccountId] = (acc.split('\n')[0] ?? '').split('|');
     expect(

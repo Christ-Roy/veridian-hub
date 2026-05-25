@@ -96,24 +96,35 @@ test.describe('Mega A-03 — Signup credentials bout-en-bout', () => {
     const bodyJson = JSON.stringify(res.body);
     expect(bodyJson.includes(password), 'password ne doit JAMAIS apparaître dans le body retour').toBe(false);
 
-    // ─── DB invariants (1 SSH roundtrip groupé) ──────────────────────
+    // ─── DB invariants (polling court pour absorber l'async workspace) ──
+    // provisionDefaultWorkspace tourne post-signup; on poll jusqu'à 5s pour
+    // capturer la création complète avant les asserts.
     const safeEmail = email.replace(/'/g, "''");
-    const row = runSqlOnStaging(
-      `SELECT
-         u.id,
-         u.supabase_user_id::text,
-         CASE WHEN u.mfa_enabled THEN 't' ELSE 'f' END AS mfa,
-         (SELECT count(*) FROM hub_app.workspaces WHERE owner_id = u.id)::text AS ws,
-         (SELECT count(*) FROM hub_app.workspace_members wm
-            JOIN hub_app.workspaces w ON w.id = wm.workspace_id
-            WHERE w.owner_id = u.id)::text AS mems,
-         COALESCE((SELECT access_token FROM hub_app.accounts
-            WHERE "userId" = u.id AND provider = 'credentials' LIMIT 1), '') AS hash
-       FROM hub_app.users u
-       WHERE u.email = '${safeEmail}';`,
-    );
-    const [userId, uuid, mfa, wsStr, memStr, hash] =
-      (row.split('\n')[0] ?? '').split('|');
+    let userId = '';
+    let uuid = '';
+    let mfa = '';
+    let wsStr = '0';
+    let memStr = '0';
+    let hash = '';
+    for (let i = 0; i < 5; i++) {
+      const row = runSqlOnStaging(
+        `SELECT
+           u.id,
+           u.supabase_user_id::text,
+           CASE WHEN u.mfa_enabled THEN 't' ELSE 'f' END AS mfa,
+           (SELECT count(*) FROM hub_app.workspaces WHERE owner_id = u.id)::text AS ws,
+           (SELECT count(*) FROM hub_app.workspace_members wm
+              JOIN hub_app.workspaces w ON w.id = wm.workspace_id
+              WHERE w.owner_id = u.id)::text AS mems,
+           COALESCE((SELECT access_token FROM hub_app.accounts
+              WHERE user_id = u.id AND provider = 'credentials' LIMIT 1), '') AS hash
+         FROM hub_app.users u
+         WHERE u.email = '${safeEmail}';`,
+      );
+      [userId, uuid, mfa, wsStr, memStr, hash] = (row.split('\n')[0] ?? '').split('|');
+      if (Number(wsStr) >= 1 && Number(memStr) >= 1) break;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
 
     expect(userId, 'users.id doit être posé').not.toBe('');
     expect(uuid, 'supabaseUserId doit être UUID v4').toMatch(UUID_V4_RX);

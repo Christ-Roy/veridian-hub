@@ -187,13 +187,30 @@ test.describe('Mega K-02 — 2 cron trial-tick parallèles (SELECT FOR UPDATE SK
     // ─── Assert 3 : aucun "row not found" / "lock contention" errors ───
     // L'invariant SKIP LOCKED : le 2e tick voit la row locked, SKIP, et
     // ne lève pas d'erreur "row not found mid-transaction".
+    //
+    // Note : ces tenants fixtures n'existent QUE côté Hub — l'appel Notifuse
+    // `updatePlan` retournera donc "tenant not found" car le workspace n'est
+    // pas provisionné downstream. On filtre ce mode d'échec attendu pour ne
+    // garder que les vraies erreurs (lock contention, transaction abort, etc.).
+    const ourTenants = new Set(tenants);
+    const filterErrors = (errs: unknown): unknown[] => {
+      if (!Array.isArray(errs)) return [];
+      return errs.filter((e) => {
+        const err = e as { tenantId?: string; error?: string };
+        const isOurTenant = err.tenantId && ourTenants.has(err.tenantId);
+        const isDownstreamNotFound = /tenant not found|workspace not found/i.test(
+          err.error ?? '',
+        );
+        return !(isOurTenant && isDownstreamNotFound);
+      });
+    };
     expect(
-      Array.isArray(b1.errors) ? b1.errors : [],
-      `tick 1 ne doit pas avoir d'errors: ${JSON.stringify(b1.errors)}`,
+      filterErrors(b1.errors),
+      `tick 1 ne doit pas avoir d'errors (hors "tenant not found" Notifuse attendu pour fixtures): ${JSON.stringify(b1.errors)}`,
     ).toEqual([]);
     expect(
-      Array.isArray(b2.errors) ? b2.errors : [],
-      `tick 2 ne doit pas avoir d'errors: ${JSON.stringify(b2.errors)}`,
+      filterErrors(b2.errors),
+      `tick 2 ne doit pas avoir d'errors (hors "tenant not found" Notifuse attendu pour fixtures): ${JSON.stringify(b2.errors)}`,
     ).toEqual([]);
 
     // ─── Assert 4 : durée raisonnable (pas de deadlock 30s+) ───────────

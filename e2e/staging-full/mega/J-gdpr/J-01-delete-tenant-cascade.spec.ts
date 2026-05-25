@@ -127,11 +127,19 @@ test.describe('Mega J-01 — GDPR delete-tenant cascade', () => {
 
   test('État initial : user a au moins 1 workspace', async () => {
     const safe = safeSqlEmail(setupEmail);
-    const wsCount = selectScalar(
-      `SELECT count(*) FROM hub_app.workspaces ws
-       JOIN hub_app.users u ON ws.owner_id = u.id
-       WHERE u.email = '${safe}';`,
-    );
+    // provisionDefaultWorkspace tourne dans l'event createUser Auth.js v5
+    // (best-effort, try/catch isolé). Polling court pour absorber la race
+    // entre fin du callback OAuth et fin de la création workspace.
+    let wsCount: string | null = '0';
+    for (let i = 0; i < 5; i++) {
+      wsCount = selectScalar(
+        `SELECT count(*) FROM hub_app.workspaces ws
+         JOIN hub_app.users u ON ws.owner_id = u.id
+         WHERE u.email = '${safe}';`,
+      );
+      if (Number(wsCount) >= 1) break;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
     expect(
       Number(wsCount),
       `User doit avoir au moins 1 workspace après signup`,

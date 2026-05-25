@@ -96,11 +96,13 @@ test.describe('Mega A-01 — Signup OAuth Google bout-en-bout', () => {
 
     // ─── 2. Row users existe en DB Hub avec invariants strictes ──────
     // Une seule query groupée pour limiter les SSH roundtrips (≈700ms each).
+    // Note : il n'existe pas de colonne mfa_secret en DB (le MFA est email-only,
+    // tracé via mfa_enabled boolean + table mfa_codes).
     const userRow = runSqlOnStaging(
       `SELECT
          count(*)::text AS cnt,
          COALESCE(MAX(supabase_user_id::text), '') AS uuid,
-         COALESCE(MAX(CASE WHEN mfa_secret IS NULL THEN 'null' ELSE 'set' END), '') AS mfa,
+         COALESCE(MAX(CASE WHEN mfa_enabled THEN 'set' ELSE 'unset' END), '') AS mfa,
          COALESCE(MAX(id), '') AS user_id
        FROM hub_app.users
        WHERE email = '${safeEmail}';`,
@@ -114,21 +116,30 @@ test.describe('Mega A-01 — Signup OAuth Google bout-en-bout', () => {
       uuid,
       `supabaseUserId doit être un UUID v4 RFC (bug 2026-05-21 dragnet) — got "${uuid}"`,
     ).toMatch(UUID_V4_RX);
-    expect(mfa, 'mfa_secret doit être NULL après signup OAuth fresh').toBe('null');
+    expect(mfa, 'mfa_enabled doit être false après signup OAuth fresh').toBe('unset');
     expect(userId, 'users.id doit être posé (cuid)').not.toBe('');
 
     // ─── 3. Workspace auto-créé + member OWNER ───────────────────────
-    const wsRow = runSqlOnStaging(
-      `SELECT
-         (SELECT count(*) FROM hub_app.workspaces w
-            WHERE w.owner_id = (SELECT id FROM hub_app.users WHERE email = '${safeEmail}')
-         )::text AS ws_count,
-         (SELECT count(*) FROM hub_app.workspace_members wm
-            JOIN hub_app.workspaces w2 ON w2.id = wm.workspace_id
-            WHERE w2.owner_id = (SELECT id FROM hub_app.users WHERE email = '${safeEmail}')
-         )::text AS member_count;`,
-    );
-    const [wsCntStr, memberCntStr] = (wsRow.split('\n')[0] ?? '').split('|');
+    // Le provisionDefaultWorkspace tourne dans l'event createUser Auth.js v5
+    // qui est best-effort (try/catch isolé). Petit polling pour absorber la
+    // race entre callback OAuth complet et fin de l'event async.
+    let wsCntStr = '0';
+    let memberCntStr = '0';
+    for (let i = 0; i < 5; i++) {
+      const wsRow = runSqlOnStaging(
+        `SELECT
+           (SELECT count(*) FROM hub_app.workspaces w
+              WHERE w.owner_id = (SELECT id FROM hub_app.users WHERE email = '${safeEmail}')
+           )::text AS ws_count,
+           (SELECT count(*) FROM hub_app.workspace_members wm
+              JOIN hub_app.workspaces w2 ON w2.id = wm.workspace_id
+              WHERE w2.owner_id = (SELECT id FROM hub_app.users WHERE email = '${safeEmail}')
+           )::text AS member_count;`,
+      );
+      [wsCntStr, memberCntStr] = (wsRow.split('\n')[0] ?? '').split('|');
+      if (Number(wsCntStr) >= 1 && Number(memberCntStr) >= 1) break;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
     expect(
       Number(wsCntStr),
       'workspace par défaut doit avoir été provisionné (provisionDefaultWorkspace)',
@@ -143,9 +154,9 @@ test.describe('Mega A-01 — Signup OAuth Google bout-en-bout', () => {
       `SELECT
          count(*)::text,
          COALESCE(MAX(provider), '') AS provider,
-         COALESCE(MAX("providerAccountId"), '') AS provider_account_id
+         COALESCE(MAX(provider_account_id), '') AS provider_account_id
        FROM hub_app.accounts
-       WHERE "userId" = (SELECT id FROM hub_app.users WHERE email = '${safeEmail}');`,
+       WHERE user_id = (SELECT id FROM hub_app.users WHERE email = '${safeEmail}');`,
     );
     const [accCntStr, provider, providerAccountId] =
       (accountRow.split('\n')[0] ?? '').split('|');

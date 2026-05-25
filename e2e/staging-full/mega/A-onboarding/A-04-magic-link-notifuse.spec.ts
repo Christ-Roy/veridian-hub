@@ -31,6 +31,7 @@
  * du provisioning preset. Spec cible le contrat Hub strict.
  */
 import { test, expect, type APIRequestContext } from '@playwright/test';
+import { randomUUID } from 'node:crypto';
 
 import { STAGING_URL } from '../../_helpers';
 import { runSqlOnStaging } from '../../_sql-helper';
@@ -110,8 +111,10 @@ test.describe('Mega A-04 — Magic link Hub → Notifuse', () => {
     );
     expect(session.callbackStatus).toBeLessThan(400);
 
+    // tenants.id est UUID strict — on envoie un UUID v4 random pour viser
+    // exactement la garde "Tenant not found" (route findUnique by id).
     const res = await postMagicLink(session.request, {
-      tenantId: `mega-${BUCKET}-${SPEC}-doesnotexist-${Date.now()}`,
+      tenantId: randomUUID(),
     });
     expect(
       res.status,
@@ -222,7 +225,7 @@ test.describe('Mega A-04 — Magic link Hub → Notifuse', () => {
          (id, user_id, name, slug, status)
        VALUES (
          gen_random_uuid(),
-         '${userUuid}',
+         '${userUuid}'::uuid,
          'Mega A-04 happy fixture (no notifuse)',
          '${tenantSlug}',
          'active'
