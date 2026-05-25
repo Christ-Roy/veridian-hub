@@ -28,6 +28,16 @@ services:
       MICROSOFT_OAUTH_CLIENT_ID: ${MICROSOFT_OAUTH_CLIENT_ID:-}
       MICROSOFT_OAUTH_CLIENT_SECRET: ${MICROSOFT_OAUTH_CLIENT_SECRET:-}
 
+      # ─── Mail Gateway v1 — OAuth Client 2 "Veridian Mail Sender" ──────
+      # Client OAuth Google séparé du sign-in (Client 1). Scope sensitive
+      # `gmail.send` isolé pour ne pas mélanger la brand verification.
+      # Redirect URI prod = https://app.veridian.site/api/gmail/connect/callback
+      # (déclarée en Console Google le 2026-05-25).
+      # ENV à poser dans Dokploy stack Hub prod (composeId
+      # _kxAHDCv1LhvsdwNRX3Vk) — valeurs dans ~/credentials/.all-creds.env.
+      GOOGLE_MAIL_CLIENT_ID: ${GOOGLE_MAIL_CLIENT_ID:-}
+      GOOGLE_MAIL_CLIENT_SECRET: ${GOOGLE_MAIL_CLIENT_SECRET:-}
+
       # ─── DB prod partagée ──────────────────────────────────────────────
       DATABASE_URL: postgresql://veridian:${VERIDIAN_CORE_DB_PASSWORD}@veridian-core-db:5432/veridian?schema=hub_app
 

@@ -54,6 +54,8 @@ model User {
   crossAppInvitationsSent     CrossAppInvitation[] @relation("CrossAppInvitationsSent")
   crossAppInvitationsAccepted CrossAppInvitation[] @relation("CrossAppInvitationsAccepted")
 
+  mailEvents MailEvent[]
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -74,6 +76,23 @@ model Account {
   scope             String?
   id_token          String?
   session_state     String?
+
+  // Mail Gateway v1 (ticket 2026-05-25-gmail-send-implementation-hub.md) —
+  // flag levé par le broker quand un refresh_token retourne `invalid_grant`
+  // côté Google/Microsoft (révocation user / mot de passe changé / consent
+  // retiré). L'UI /dashboard/settings/mail le lit pour afficher un warning
+  // rouge + bouton "Reconnecter mon Gmail". Reset à false après nouveau
+  // consent réussi (callback OAuth Client 2).
+  mailSendNeedsReauth Boolean @default(false) @map("mail_send_needs_reauth")
+
+  // Mail Gateway v1 — liste des scopes effectivement obtenus pour cet
+  // Account, sous forme CSV (ex : "openid email profile
+  // https://www.googleapis.com/auth/gmail.send"). Le broker ne sélectionne
+  // un Account pour l'envoi de mail que si ce champ contient `gmail.send`
+  // (ou `Mail.Send` côté Microsoft v2). Distinct du champ `scope` Auth.js
+  // qui est posé par le provider sign-in (basic) et ne reflète pas le
+  // consent étendu Mail Sender.
+  mailSendScope String? @map("mail_send_scope")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -619,6 +638,52 @@ model AuditLog {
 // 'success' | 'failure' aujourd'hui, mais garder un String évite une
 // migration d'enum si on ajoute un état intermédiaire plus tard.
 // Phase 2-3 du ticket todo/2026-05-20-oauth-rate-limiting-monitoring.md.
+
+// ============================================================================
+// MAIL EVENTS — audit log Mail Gateway v1 (Gmail, puis Microsoft v2)
+// ============================================================================
+// Append-only. Aucune route ne fait UPDATE ni DELETE sur cette table.
+// Source de vérité "qui a envoyé quoi via quelle app via quel provider".
+//
+// Câblé par :
+//   - `lib/mail/send-gmail.ts` : insère une row à chaque envoi (status='sent',
+//     'failed' ou 'needs_reauth')
+//   - `POST /api/mail/send-as-user` : vérifie idempotency_key avant d'appeler
+//     le broker pour permettre le replay safe (retours 200 idempotent).
+//
+// PII : `recipient` et `subject` peuvent contenir des données personnelles.
+// FK cascade sur users garantit RGPD basic (suppression user → mails purgés).
+// Rétention longue acceptable pour audit, mais purge ≥6 mois possible via
+// cron (P3+).
+
+model MailEvent {
+  id                String   @id @default(uuid())
+  userId            String   @map("user_id")
+  // App qui a appelé /api/mail/send-as-user (whitelist enforced côté HMAC) :
+  // 'notifuse' | 'prospection' | 'cms' | 'analytics' | 'hub-test'
+  // hub-test : utilisé par la route interne /api/gmail/test-send (UI settings)
+  appSource         String   @map("app_source")
+  // Provider du compte d'envoi : 'google' (v1) | 'microsoft' (v2)
+  provider          String
+  // Premier destinataire de la liste `to` (pour audit indexable — la liste
+  // complète vit dans la MIME envoyée, pas la peine de la dupliquer ici).
+  recipient         String
+  subject           String
+  providerMessageId String?  @map("provider_message_id")
+  // 'sent' | 'failed' | 'needs_reauth'
+  status            String
+  errorMessage      String?  @map("error_message")
+  // UUID v4 unique fourni par l'app appelante (anti double-envoi sur retry).
+  idempotencyKey    String   @unique @map("idempotency_key")
+  sentAt            DateTime @default(now()) @map("sent_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, sentAt(sort: Desc)])
+  @@index([appSource, sentAt(sort: Desc)])
+  @@map("mail_events")
+  @@schema("hub_app")
+}
 
 model OauthSigninEvent {
   id         String   @id @default(cuid())

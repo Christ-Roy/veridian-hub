@@ -139,6 +139,13 @@ jobs:
           # Sans alignement, tous les calls admin renvoient 401 alors que le
           # rate-limit bypass marche (cf incident 2026-05-23 post-fix bypass).
           ADMIN_SECRET_STAGING: ${{ secrets.STAGING_HUB_ADMIN_SECRET }}
+          # Mail Gateway v1 — OAuth Client 2 "Veridian Mail Sender" (cf.
+          # ticket 2026-05-25-gmail-send-implementation-hub.md). Mêmes
+          # valeurs que prod (1 Client OAuth, 3 redirect URIs déclarés
+          # côté Console : prod + staging + localhost). Sans ça la route
+          # /api/gmail/connect répond 503 mail_oauth_not_configured.
+          STAGING_GOOGLE_MAIL_CLIENT_ID: ${{ secrets.STAGING_GOOGLE_MAIL_CLIENT_ID }}
+          STAGING_GOOGLE_MAIL_CLIENT_SECRET: ${{ secrets.STAGING_GOOGLE_MAIL_CLIENT_SECRET }}
           # ⚠️ OAuth Sign-in (Google/Microsoft) PAS configuré côté staging
           # à cause de la privatisation Tailscale (hub.staging.veridian.site
           # → IP Tailscale 100.92.215.42 non résolvable publiquement). Si on
@@ -177,6 +184,8 @@ jobs:
             printf 'STRIPE_REFILL_PRODUCT_ID_TEST=%s\n' "$STRIPE_REFILL_PRODUCT_ID_TEST"
             printf 'E2E_RATELIMIT_BYPASS_SECRET=%s\n' "$E2E_RATELIMIT_BYPASS_SECRET"
             printf 'ADMIN_SECRET_STAGING=%s\n' "$ADMIN_SECRET_STAGING"
+            printf 'GOOGLE_MAIL_CLIENT_ID_STAGING=%s\n' "$STAGING_GOOGLE_MAIL_CLIENT_ID"
+            printf 'GOOGLE_MAIL_CLIENT_SECRET_STAGING=%s\n' "$STAGING_GOOGLE_MAIL_CLIENT_SECRET"
           } > "$ENVFILE"
           scp -i ~/.ssh/staging_key "$ENVFILE" "$DEV_USER@$DEV_HOST:${{ env.STAGING_DIR }}/.env"
           rm -f "$ENVFILE"

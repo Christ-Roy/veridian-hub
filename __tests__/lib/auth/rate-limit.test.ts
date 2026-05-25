@@ -242,6 +242,37 @@ describe('exported limiter instances', () => {
     expect(discoveryAppLimiter.enforce('prospection').ok).toBe(true);
     discoveryAppLimiter.reset();
   });
+
+  it('exports mailSendAsUserPreVerifyLimiter avec capacity 60/min (anti-flood IP avant HMAC)', async () => {
+    const { mailSendAsUserPreVerifyLimiter } = await import('@/lib/auth/rate-limit');
+    mailSendAsUserPreVerifyLimiter.reset();
+    // Clé = IP, plafond généreux pour ne pas bloquer un batch normal.
+    for (let i = 0; i < 60; i++) {
+      expect(mailSendAsUserPreVerifyLimiter.enforce('203.0.113.1').ok).toBe(true);
+    }
+    expect(mailSendAsUserPreVerifyLimiter.enforce('203.0.113.1').ok).toBe(false);
+    // Autre IP non affectée.
+    expect(mailSendAsUserPreVerifyLimiter.enforce('203.0.113.2').ok).toBe(true);
+    mailSendAsUserPreVerifyLimiter.reset();
+  });
+
+  it('exports mailSendAsUserLimiter avec capacity 5/min/(app:user) (préserve quota Gmail)', async () => {
+    const { mailSendAsUserLimiter } = await import('@/lib/auth/rate-limit');
+    mailSendAsUserLimiter.reset();
+    // Cap strict : Gmail standard = 250 mails/jour/user. 5/min permet
+    // ~300/heure si batch continu — l'app downstream doit étaler les bursts.
+    const key = 'prospection:cuid_user_alice';
+    for (let i = 0; i < 5; i++) {
+      expect(mailSendAsUserLimiter.enforce(key).ok).toBe(true);
+    }
+    expect(mailSendAsUserLimiter.enforce(key).ok).toBe(false);
+
+    // Isolation par (app, user) : un autre user de la même app n'est pas affecté.
+    expect(mailSendAsUserLimiter.enforce('prospection:cuid_other').ok).toBe(true);
+    // Même user, autre app : également isolé (clé composite).
+    expect(mailSendAsUserLimiter.enforce('notifuse:cuid_user_alice').ok).toBe(true);
+    mailSendAsUserLimiter.reset();
+  });
 });
 
 describe('shouldBypassRateLimit (E2E staging bypass)', () => {

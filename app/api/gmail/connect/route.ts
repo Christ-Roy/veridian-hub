@@ -1,0 +1,80 @@
+/**
+ * GET /api/gmail/connect
+ *
+ * Démarre le flow OAuth Mail Sender (Client OAuth Google #2 — distinct du
+ * sign-in Hub). L'user doit être loggué (session Auth.js). On :
+ *   1. Génère un state CSRF random (32 bytes hex).
+ *   2. Stocke le state dans un cookie signé HttpOnly + SameSite=Lax,
+ *      TTL 10 min — vérifié au retour sur /api/gmail/connect/callback.
+ *   3. Stocke aussi `return` (URL relative de retour) pour permettre à
+ *      l'app downstream d'initier le flow puis revenir à sa propre UI.
+ *   4. Redirige 302 vers l'URL de consent Google avec scopes gmail.send +
+ *      access_type=offline + prompt=consent.
+ *
+ * En cas de mauvaise config (ENV missing), répond 503 plutôt que 500.
+ */
+
+import { randomBytes } from 'node:crypto';
+import { NextRequest, NextResponse } from 'next/server';
+
+import { getCurrentUser } from '@/lib/auth/get-user';
+import { getMailAuthUrl } from '@/lib/mail/gmail-oauth';
+import {
+  STATE_COOKIE,
+  RETURN_COOKIE,
+  STATE_TTL_SECONDS,
+  buildRedirectUri,
+} from '@/lib/mail/oauth-cookies';
+
+export const runtime = 'nodejs';
+export const dynamic = 'force-dynamic';
+
+export async function GET(request: NextRequest) {
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.redirect(new URL('/login', request.url));
+  }
+
+  // ─── Optional `return` param : URL relative de retour côté app downstream
+  // (ex: ?return=/settings/mail-account). On valide qu'elle commence par /
+  // pour empêcher un open-redirect vers un domaine externe.
+  const url = new URL(request.url);
+  const rawReturn = url.searchParams.get('return') ?? '';
+  const safeReturn =
+    rawReturn.startsWith('/') && !rawReturn.startsWith('//') ? rawReturn : '';
+
+  const state = randomBytes(32).toString('hex');
+  const origin = `${url.protocol}//${url.host}`;
+  const redirectUri = buildRedirectUri(origin);
+
+  let consentUrl: string;
+  try {
+    consentUrl = getMailAuthUrl(state, redirectUri);
+  } catch (err) {
+    return NextResponse.json(
+      {
+        error: 'mail_oauth_not_configured',
+        message: err instanceof Error ? err.message : 'OAuth client not configured',
+      },
+      { status: 503 },
+    );
+  }
+
+  const res = NextResponse.redirect(consentUrl);
+  res.cookies.set(STATE_COOKIE, state, {
+    httpOnly: true,
+    secure: origin.startsWith('https://'),
+    sameSite: 'lax',
+    maxAge: STATE_TTL_SECONDS,
+    path: '/api/gmail/connect',
+  });
+  res.cookies.set(RETURN_COOKIE, safeReturn, {
+    httpOnly: true,
+    secure: origin.startsWith('https://'),
+    sameSite: 'lax',
+    maxAge: STATE_TTL_SECONDS,
+    path: '/api/gmail/connect',
+  });
+  return res;
+}
+

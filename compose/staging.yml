@@ -54,6 +54,15 @@ services:
       MICROSOFT_OAUTH_CLIENT_ID: ${MICROSOFT_OAUTH_CLIENT_ID_STAGING:-}
       MICROSOFT_OAUTH_CLIENT_SECRET: ${MICROSOFT_OAUTH_CLIENT_SECRET_STAGING:-}
 
+      # ─── Mail Gateway v1 — OAuth Client 2 "Veridian Mail Sender" ──────
+      # Client OAuth Google distinct du sign-in (Client 1). Scope sensitive
+      # `gmail.send` isolé pour ne pas mélanger la brand verification.
+      # Cf. todo/done/2026-05-25-oauth-google-gmail-client-2-setup-console.md.
+      # Mêmes valeurs que prod (1 seul Client OAuth couvre les 3 hosts via
+      # redirect URIs déclarées en Console).
+      GOOGLE_MAIL_CLIENT_ID: ${GOOGLE_MAIL_CLIENT_ID_STAGING:-}
+      GOOGLE_MAIL_CLIENT_SECRET: ${GOOGLE_MAIL_CLIENT_SECRET_STAGING:-}
+
       # ─── DB locale à la stack ──────────────────────────────────────────
       DATABASE_URL: postgresql://hub:${POSTGRES_PASSWORD:-staging-pwd}@hub-db:5432/hub?schema=hub_app
 

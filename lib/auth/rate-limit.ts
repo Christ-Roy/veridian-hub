@@ -333,3 +333,29 @@ export const discoveryAppLimiter = new RateLimiter({
   windowMs: 60_000,
   name: 'discovery-app',
 });
+
+// Rate-limit Mail Gateway v1 (`POST /api/mail/send-as-user`).
+// Gmail standard = 250 mails/jour/user, 2000 si Workspace. On veut empêcher
+// une app downstream compromise de griller le quota d'un user en quelques
+// minutes (= ban du user côté Google, pas juste un 429 court).
+//
+// Cap conservateur : 5 mails/min/(app + user) en steady-state. Pour
+// reprendre un batch (campagne outreach Prospection qui envoie 50 mails
+// en burst), l'app downstream doit étaler dans le temps OU implémenter
+// son propre throttling côté worker. Volontairement strict — la couche
+// Hub ne sait pas distinguer un envoi légitime d'un envoi anormal, donc
+// on cap court et on laisse l'app implémenter la logique métier.
+//
+// Clé d'enforcement = `${app}:${userId}` (post-HMAC). Avant HMAC on
+// rate-limit par IP via un limiter générique (anti-flood broker).
+export const mailSendAsUserPreVerifyLimiter = new RateLimiter({
+  capacity: 60,
+  windowMs: 60_000,
+  name: 'mail-send-pre-verify',
+});
+
+export const mailSendAsUserLimiter = new RateLimiter({
+  capacity: 5,
+  windowMs: 60_000,
+  name: 'mail-send-as-user',
+});
