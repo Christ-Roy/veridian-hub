@@ -56,11 +56,55 @@ describe('buildRedirectUri', () => {
     );
   });
 
-  it('does not normalize trailing slashes — caller must provide clean origin', () => {
-    // Pas de slash dans l'origin = pas de double slash dans l'output. Si le
-    // caller passe un origin avec trailing slash on aurait un double //
-    // dans l'URL. Documenté pour qu'on ne casse pas la convention.
-    const out = buildRedirectUri('https://app.veridian.site/');
-    expect(out).toContain('//api');
+  it('does not normalize trailing slashes — caller must provide clean origin (fallback path, sans env)', () => {
+    // Quand NEXT_PUBLIC_SITE_URL n'est PAS set, on retombe sur l'`origin`
+    // passé en argument sans normalization. Si le caller met un trailing
+    // slash → double // dans l'URL. C'est le comportement legacy
+    // (DocumentURI documenté pour qu'on ne casse pas la convention).
+    const originalEnv = process.env.NEXT_PUBLIC_SITE_URL;
+    delete process.env.NEXT_PUBLIC_SITE_URL;
+    try {
+      const out = buildRedirectUri('https://app.veridian.site/');
+      expect(out).toContain('//api');
+    } finally {
+      if (originalEnv !== undefined) process.env.NEXT_PUBLIC_SITE_URL = originalEnv;
+    }
+  });
+
+  it('prend NEXT_PUBLIC_SITE_URL en priorité quand il est set (fix Traefik 0.0.0.0)', () => {
+    // ANTI-RÉGRESSION : derrière Traefik / reverse proxy, Next.js bind
+    // sur 0.0.0.0:3000 → le `origin` calculé par la route serait
+    // "https://0.0.0.0:3000" → Google rejette "invalid_request". On doit
+    // toujours utiliser NEXT_PUBLIC_SITE_URL si dispo (env compose).
+    const originalEnv = process.env.NEXT_PUBLIC_SITE_URL;
+    process.env.NEXT_PUBLIC_SITE_URL = 'https://hub.staging.veridian.site';
+    try {
+      const out = buildRedirectUri('https://0.0.0.0:3000');
+      expect(out).toBe(
+        'https://hub.staging.veridian.site/api/gmail/connect/callback',
+      );
+    } finally {
+      if (originalEnv === undefined) {
+        delete process.env.NEXT_PUBLIC_SITE_URL;
+      } else {
+        process.env.NEXT_PUBLIC_SITE_URL = originalEnv;
+      }
+    }
+  });
+
+  it('normalize les trailing slashes de NEXT_PUBLIC_SITE_URL', () => {
+    const originalEnv = process.env.NEXT_PUBLIC_SITE_URL;
+    process.env.NEXT_PUBLIC_SITE_URL = 'https://app.veridian.site/';
+    try {
+      const out = buildRedirectUri('https://0.0.0.0:3000');
+      expect(out).toBe('https://app.veridian.site/api/gmail/connect/callback');
+      expect(out).not.toContain('//api');
+    } finally {
+      if (originalEnv === undefined) {
+        delete process.env.NEXT_PUBLIC_SITE_URL;
+      } else {
+        process.env.NEXT_PUBLIC_SITE_URL = originalEnv;
+      }
+    }
   });
 });
