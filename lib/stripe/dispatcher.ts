@@ -386,11 +386,41 @@ async function handleRefillLeadsCheckout(
     return { ok: false, error: 'client_not_configured', attempts: 0 };
   }
 
+  // ─── Parse optionnel filters_json (v2.1) ─────────────────────────────────
+  // Posé en metadata par la route HMAC `checkout-from-app` (ticket
+  // 2026-05-25-refill-checkout-from-app-hmac-route). Si présent → bump
+  // contract_version 2.0 → 2.1 + forward `filters` dans le body credit-leads.
+  // Si absent (checkout legacy sans ICP) → comportement inchangé v2.0.
+  //
+  // Le metadata Stripe est tronqué à 500 chars par la route source (cf
+  // STRIPE_METADATA_VALUE_MAX) — si parse échoue, on log et on continue SANS
+  // filters (mieux que perdre le crédit user qui a payé).
+  let filters: Record<string, unknown> | undefined;
+  const filtersRaw = meta.filters_json;
+  if (filtersRaw) {
+    try {
+      const parsed = JSON.parse(filtersRaw);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        filters = parsed as Record<string, unknown>;
+      } else {
+        console.warn(
+          `[refill-dispatch] session ${session.id} metadata.filters_json is not an object — skipping forward`,
+        );
+      }
+    } catch (parseErr) {
+      console.warn(
+        `[refill-dispatch] session ${session.id} metadata.filters_json invalid JSON (likely truncated > 500 chars) — skipping forward:`,
+        parseErr instanceof Error ? parseErr.message : String(parseErr),
+      );
+    }
+  }
+
   const result = await dispatchRefillPurchase(client, {
     tenantIdOrEmail,
     quantity,
     stripeEventId: eventId,
     stripePaymentId,
+    ...(filters !== undefined ? { filters } : {}),
   });
 
   if (result.ok) {

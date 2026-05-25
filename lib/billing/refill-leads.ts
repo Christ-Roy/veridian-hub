@@ -39,6 +39,15 @@ import { readProspectionSecret } from '@/lib/prospection/client';
 /** Version du contrat billing supportée (aligné CONTRAT-BILLING v2). */
 export const REFILL_CONTRACT_VERSION = '2.0';
 
+/**
+ * Version étendue v2.1 : ajoute le champ optionnel `filters` au body purchase
+ * (refill ICP — l'app downstream applique le filtre pour livrer uniquement
+ * les leads matchant). Backward compat : le webhook continue d'émettre v2.0
+ * tant qu'il n'y a pas de filters dans la metadata Stripe. v2.1 = surensemble
+ * strict de v2.0 (même contract major, donc pas de breaking change apps).
+ */
+export const REFILL_CONTRACT_VERSION_V21 = '2.1';
+
 /** Timeout HTTP réseau pour l'appel `credit-leads`. */
 const DEFAULT_TIMEOUT_MS = 10_000;
 /** Nombre de retries pour le dispatch post-paiement (3 tentatives, total ~14s). */
@@ -254,7 +263,21 @@ export interface CreditLeadsPurchaseBody {
   source: 'purchase';
   stripe_payment_id: string;
   idempotency_key: string;
-  contract_version: typeof REFILL_CONTRACT_VERSION;
+  /**
+   * Version du contrat. v2.0 = body legacy sans filters. v2.1 = body avec
+   * `filters` optionnel (refill ICP — l'app downstream applique le filtre
+   * pour livrer uniquement les leads matchant). Le major reste `2`, donc une
+   * app v2.0 qui reçoit un body v2.1 doit ignorer `filters` (forward compat).
+   */
+  contract_version:
+    | typeof REFILL_CONTRACT_VERSION
+    | typeof REFILL_CONTRACT_VERSION_V21;
+  /**
+   * Optionnel (v2.1 only) : payload de filtres ICP fournis par l'app appelante
+   * lors du Checkout. Le Hub forward tel quel sans valider — c'est l'app
+   * downstream qui détient le schéma métier.
+   */
+  filters?: Record<string, unknown>;
 }
 
 export interface CreditLeadsWelcomeBody {
@@ -414,16 +437,26 @@ export async function dispatchRefillPurchase(
     quantity: number;
     stripeEventId: string;
     stripePaymentId: string;
+    /**
+     * Optionnel : filtres ICP propagés par l'app via Stripe metadata. Si
+     * présent → on bump `contract_version` à v2.1 et on inclut `filters`
+     * dans le body. Si absent → comportement legacy v2.0 inchangé.
+     */
+    filters?: Record<string, unknown>;
   },
   opts: { sleep?: (ms: number) => Promise<void> } = {},
 ): Promise<DispatchResult> {
   const sleep = opts.sleep ?? defaultSleep;
+  const hasFilters = args.filters !== undefined;
   const body: CreditLeadsPurchaseBody = {
     quantity: args.quantity,
     source: 'purchase',
     stripe_payment_id: args.stripePaymentId,
     idempotency_key: purchaseIdempotencyKey(args.stripeEventId),
-    contract_version: REFILL_CONTRACT_VERSION,
+    contract_version: hasFilters
+      ? REFILL_CONTRACT_VERSION_V21
+      : REFILL_CONTRACT_VERSION,
+    ...(hasFilters ? { filters: args.filters } : {}),
   };
   return executeWithRetry(client, args.tenantIdOrEmail, body, sleep);
 }

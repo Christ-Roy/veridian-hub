@@ -26,6 +26,7 @@ import {
   dispatchRefillPurchase,
   dispatchRefillWelcome,
   REFILL_CONTRACT_VERSION,
+  REFILL_CONTRACT_VERSION_V21,
   REFILL_DISPATCH_MAX_RETRIES,
   type ProspectionLocalPlan,
 } from '@/lib/billing/refill-leads';
@@ -471,6 +472,104 @@ describe('dispatchRefillPurchase — retry policy', () => {
       { sleep: fakeSleep },
     );
     expect(result.ok).toBe(true);
+  });
+
+  // ─── v2.1 (refill ICP — ticket 2026-05-25-refill-checkout-from-app) ────────
+  // Backward compat strict + bump version dynamique selon présence filters.
+  it('v2.1: bump contract_version → "2.1" + forward filters quand args.filters fourni', async () => {
+    const captured: Record<string, unknown>[] = [];
+    const client = {
+      creditLeads: vi.fn(async (_id: string, body: Record<string, unknown>) => {
+        captured.push(body);
+        return { credited: 500, balance: 500 };
+      }),
+    } as unknown as CreditLeadsClient;
+
+    const filters = { industry: ['saas'], country: 'FR' };
+    const result = await dispatchRefillPurchase(
+      client,
+      {
+        tenantIdOrEmail: 'u@v.site',
+        quantity: 500,
+        stripeEventId: 'evt_v21',
+        stripePaymentId: 'pi_v21',
+        filters,
+      },
+      { sleep: fakeSleep },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(captured).toHaveLength(1);
+    expect(captured[0].contract_version).toBe(REFILL_CONTRACT_VERSION_V21);
+    expect(captured[0].contract_version).toBe('2.1');
+    expect(captured[0].filters).toEqual(filters);
+  });
+
+  it('v2.0 (backward compat): pas de filters → contract_version "2.0" SANS champ filters', async () => {
+    const captured: Record<string, unknown>[] = [];
+    const client = {
+      creditLeads: vi.fn(async (_id: string, body: Record<string, unknown>) => {
+        captured.push(body);
+        return { credited: 100, balance: 100 };
+      }),
+    } as unknown as CreditLeadsClient;
+
+    const result = await dispatchRefillPurchase(
+      client,
+      {
+        tenantIdOrEmail: 'legacy@v.site',
+        quantity: 100,
+        stripeEventId: 'evt_v20',
+        stripePaymentId: 'pi_v20',
+      },
+      { sleep: fakeSleep },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(captured[0].contract_version).toBe(REFILL_CONTRACT_VERSION);
+    expect(captured[0].contract_version).toBe('2.0');
+    // Backward compat critique : le champ filters NE DOIT PAS apparaître pour
+    // les apps v2.0 (présence d'un champ inconnu peut faire échouer un Zod
+    // strict côté app).
+    expect('filters' in captured[0]).toBe(false);
+  });
+
+  it('v2.1 retry: idempotency_key reste DÉTERMINISTE (event.id) — retry safe entre v2.0/v2.1', async () => {
+    const captured: Record<string, unknown>[] = [];
+    const client = {
+      creditLeads: vi.fn(async (_id: string, body: Record<string, unknown>) => {
+        captured.push(body);
+        return { credited: 10 };
+      }),
+    } as unknown as CreditLeadsClient;
+
+    // Run A : v2.1 avec filters
+    await dispatchRefillPurchase(
+      client,
+      {
+        tenantIdOrEmail: 't',
+        quantity: 10,
+        stripeEventId: 'evt_same',
+        stripePaymentId: 'pi_a',
+        filters: { x: 1 },
+      },
+      { sleep: fakeSleep },
+    );
+    // Run B : MÊME event.id mais filters absent (retry où metadata strippé)
+    await dispatchRefillPurchase(
+      client,
+      {
+        tenantIdOrEmail: 't',
+        quantity: 10,
+        stripeEventId: 'evt_same',
+        stripePaymentId: 'pi_b',
+      },
+      { sleep: fakeSleep },
+    );
+
+    expect(captured[0].idempotency_key).toBe(captured[1].idempotency_key);
+    // Et la dérivation matche le helper public
+    expect(captured[0].idempotency_key).toBe(purchaseIdempotencyKey('evt_same'));
   });
 });
 

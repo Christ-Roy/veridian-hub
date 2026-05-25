@@ -1,9 +1,13 @@
 # CONTRAT-BILLING.md — Contrat billing cross-app Veridian
 
-> **Version** : v2.0 (2026-05-22) — jalon billing extrait du monolithe
-> `CONTRAT-HUB.md`. Le `v2.0` marque le découpage : ce contrat démarre
+> **Version doc** : v2.3 (2026-05-25). **Refill sub-version** : v2.1
+> (route `checkout-from-app` + body `credit-leads` étendu avec `filters`
+> optionnel — backward compat strict avec v2.0).
+> **Lignée doc** : v2.0 (2026-05-22) jalon billing extrait du monolithe
+> `CONTRAT-HUB.md`. Le `v2.0` marquait le découpage : ce contrat démarre
 > directement à 2.0 pour aligner son numéro sur le `contract_version` du
-> payload `update-plan` (cf §3.3).
+> payload `update-plan` (cf §3.3). v2.2 (2026-05-23) ajout
+> §3.7 legacy Stripe Price mapping. v2.3 (2026-05-25) refill v2.1.
 > **Statut** : figé par Robert (2026-05-22).
 > **Scope** : pricing technique + Stripe + lifecycle billing, **scopé aux
 > apps commerciales self-serve** (cf §1).
@@ -752,6 +756,34 @@ Body purchase (refill payant) :
 }
 ```
 
+Body purchase v2.1 (refill ICP — depuis route `checkout-from-app`) :
+```
+{
+  "quantity": <int 1..100000>,
+  "source": "purchase",
+  "stripe_payment_id": "<pi_xxx | cs_xxx>",
+  "idempotency_key": "<uuid v4 DÉTERMINISTE, dérivé de stripe event.id>",
+  "contract_version": "2.1",
+  "filters": { ... }   // payload ICP forwardé par le Hub (opaque schéma app)
+}
+```
+
+Le `filters` est un objet JSON opaque pour le Hub — il est **fourni par
+l'app appelante** lors du Checkout via la route `POST /api/billing/refill-leads/checkout-from-app`
+(§8.4bis), persisté dans `metadata.filters_json` Stripe, puis re-forwardé
+au webhook vers cet endpoint. Le schéma métier (champs valides, validation)
+appartient à l'app downstream — elle valide en parsant, en cas de format
+invalide elle peut renvoyer `400`/`422` selon sa policy.
+
+**Backward compat strict** : un checkout sans filters (route session-gated
+`POST /api/billing/refill-leads/checkout` ou route v2.0 legacy) continue
+d'émettre `contract_version: "2.0"` SANS le champ `filters`. Une app
+implémentant v2.0 reçoit toujours son payload v2.0 inchangé.
+
+**Forward compat** : une app v2.0 qui reçoit un body v2.1 doit ignorer le
+champ `filters` inconnu (silence) — major version `2` reste compatible.
+Pour rejeter, il faudrait un bump `contract_version: "3.x"` (breaking change).
+
 Body welcome (provisioning ou upgrade) :
 ```
 {
@@ -794,9 +826,89 @@ Welcome leads — DELTA d'upgrade :
   cf `PRICING-VERIDIAN.md` §97)
 
 Implémentation Hub : `lib/billing/refill-leads.ts` (lib pure),
-`app/api/billing/refill-leads/checkout/route.ts` (Checkout one-shot),
+`app/api/billing/refill-leads/checkout/route.ts` (Checkout one-shot
+session-gated user Hub), `app/api/billing/refill-leads/checkout-from-app/route.ts`
+(Checkout one-shot HMAC entrant depuis app — §8.4bis),
 `lib/stripe/dispatcher.ts` (route les webhooks Stripe avec
 `metadata.kind=refill_leads`).
+
+### 8.4bis Route HMAC entrante `checkout-from-app` (v2.1)
+
+**Endpoint** : `POST <hub>/api/billing/refill-leads/checkout-from-app`
+
+**Pour quoi** : permettre à une app downstream (Prospection v1) qui héberge
+sa propre UI refill ICP de **demander au Hub** la création d'une Stripe
+Checkout session, sans que le user passe par une page Hub. Le Hub reste
+seul interlocuteur Stripe (cohérent §2) — l'app ne touche jamais Stripe.
+
+**Auth** : HMAC Pattern A §6.1 (`CONTRAT-HUB.md`). Headers obligatoires :
+- `x-veridian-app: prospection` (seule app whitelistée v1)
+- `X-Veridian-Timestamp: <ms epoch>`
+- `X-Veridian-Hub-Signature: <hex SHA-256(timestamp + "." + rawBody)>`
+- Secret : `PROSPECTION_HUB_API_SECRET` canonique (pas de secret dédié refill)
+
+**Body** (v2.1) :
+```
+{
+  "tenant_id": "<uuid Hub Tenant>",
+  "quantity": <int 1..100000>,
+  "plan": "freemium" | "pro" | "business",   // plan LOCAL Prospection
+  "filters_json": { ... },                    // optionnel — JSON ICP brut
+  "success_url": "https://...",               // optionnel — URL absolue
+  "cancel_url": "https://...",                // optionnel — URL absolue
+  "contract_version": "2.1"
+}
+```
+
+**Réponse 200** :
+```
+{
+  "url": "https://checkout.stripe.com/c/...",
+  "sessionId": "cs_test_xxx",
+  "amount_cents": 12500,
+  "quantity": 500,
+  "tier": "pro"
+}
+```
+
+**Codes erreur** :
+- `400` invalid headers shape / invalid JSON / invalid body (Zod)
+- `401` invalid HMAC signature / drift > 5 min
+- `403` `app_not_whitelisted` (x-veridian-app ≠ prospection)
+- `404` `tenant_not_found` (UUID inconnu en DB Hub ou soft-deleted)
+- `422` `stripe_session_failed` / `stripe_session_no_url`
+- `429` rate_limited (60 req/min/app)
+- `503` `stripe_not_configured` / `database_error`
+
+**Forward filters_json** : si `filters_json` est fourni, il est sérialisé
+en JSON et stocké dans `session.metadata.filters_json` Stripe (limite
+500 chars par valeur — au-delà, truncate + warning log). Le webhook
+`checkout.session.completed` parse cette metadata et forward `filters`
+dans le body `credit-leads` (cf §8.4 body v2.1 ci-dessus). Si la metadata
+est tronquée et le JSON parse échoue côté webhook → fallback v2.0 sans
+filters (log warning, on garde le crédit user).
+
+**Ownership** : pas de check user-tenant côté Hub — c'est l'app appelante
+(Prospection) qui garantit que SON user owne SON workspace local et que
+le `tenant_id` Hub référence ce workspace. Le Hub vérifie juste
+l'existence + soft-delete state.
+
+### 8.5 Routes HMAC entrantes Hub — récapitulatif
+
+Toutes les routes Hub appelables par une app downstream en HMAC Pattern A :
+
+| Route | Auth | Direction | Spec |
+|---|---|---|---|
+| `GET /api/tenants/{id}/billing-state` | HMAC Pattern A | app → Hub | §6.3 |
+| `POST /api/invitations/create` | HMAC `HUB_INVITATION_SECRET_<APP>` (legacy v1.4) | app → Hub | `CONTRAT-HUB.md` §X |
+| `GET /api/users/by-email` | HMAC Pattern A | app → Hub | Discovery cross-app |
+| `POST /api/billing/refill-leads/checkout-from-app` | HMAC Pattern A | app → Hub | §8.4bis (ce contrat) |
+
+**Convergence secret** : les routes nouvelles utilisent toutes le secret
+canonique `<APP>_HUB_API_SECRET` (Pattern A §6.1) — pas de secret dédié
+par scope. Une seule rotation 6 mois couvre toutes les directions
+Hub↔app. Seule la route invitation legacy (livrée v1.4 avant convergence)
+utilise encore `HUB_INVITATION_SECRET_<APP>` — migration ticketée.
 
 ---
 
@@ -830,6 +942,35 @@ Ce que chaque app commerciale doit avoir pour être conforme à ce contrat.
 ---
 
 ## 10. Changements
+
+### v2.3 (refill v2.1) — 2026-05-25
+
+- **§8.4bis ajoutée** : nouvelle route HMAC entrante
+  `POST /api/billing/refill-leads/checkout-from-app` — permet à une app
+  downstream (Prospection v1) qui héberge sa propre UI refill ICP de
+  demander au Hub la création d'un Stripe Checkout one-shot sans passer
+  par une session user Hub. Auth = HMAC Pattern A canonique
+  `PROSPECTION_HUB_API_SECRET` (pas de nouveau secret par scope).
+  Whitelist app = `prospection` seule pour v1.
+- **§8.4 body v2.1** : extension du body `credit-leads` avec champ
+  optionnel `filters` (refill ICP). Backward compat strict : un checkout
+  legacy sans filters continue d'émettre `contract_version: "2.0"` SANS
+  `filters`. Major version `2` inchangé donc apps v2.0 reçoivent toujours
+  leur payload v2.0. Forward compat : apps v2.0 ignorent `filters` inconnu.
+- **§8.5 ajoutée** : récap des routes HMAC entrantes Hub (billing-state,
+  invitations, discovery, refill checkout-from-app) — pour donner une
+  vue d'ensemble aux agents qui implémentent une nouvelle direction
+  app → Hub. Convergence sur le secret canonique `<APP>_HUB_API_SECRET`
+  pour les nouvelles routes.
+- Implémentation Hub :
+  - `app/api/billing/refill-leads/checkout-from-app/route.ts` (nouvelle)
+  - `lib/billing/refill-leads.ts` ajoute `REFILL_CONTRACT_VERSION_V21` +
+    champ optionnel `filters` sur `CreditLeadsPurchaseBody` +
+    `dispatchRefillPurchase` accepte `filters` et bump version en
+    conséquence
+  - `lib/stripe/dispatcher.ts` parse `session.metadata.filters_json`
+    et forward au `dispatchRefillPurchase` (fallback safe si truncate
+    + parse fail → continue sans filters, on ne perd pas le crédit)
 
 ### v2.2 — 2026-05-23
 
