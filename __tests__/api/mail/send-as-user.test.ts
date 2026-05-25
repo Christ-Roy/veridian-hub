@@ -34,9 +34,22 @@ vi.mock('@/lib/mail/send-gmail', async () => {
   };
 });
 
-// Stub prisma (route ne l'utilise pas directement, mais d'autres imports peuvent)
+// Stub prisma — la route v1.1 utilise prisma.mailRecipientRateLimit pour
+// le rate-limit per-recipient. Par défaut renvoie [] (= aucun destinataire
+// bloqué). Test override via mailRecipientRateLimitFindManyMock.
+const mailRecipientRateLimitFindManyMock = vi.fn();
+const mailRecipientRateLimitUpsertMock = vi.fn();
+const mailRateLimitEventCreateMock = vi.fn();
 vi.mock('@/lib/prisma', () => ({
-  prisma: {},
+  prisma: {
+    mailRecipientRateLimit: {
+      findMany: (...args: unknown[]) => mailRecipientRateLimitFindManyMock(...args),
+      upsert: (...args: unknown[]) => mailRecipientRateLimitUpsertMock(...args),
+    },
+    mailRateLimitEvent: {
+      create: (...args: unknown[]) => mailRateLimitEventCreateMock(...args),
+    },
+  },
 }));
 
 import {
@@ -111,6 +124,10 @@ beforeEach(() => {
   mailSendAsUserLimiter.reset();
   mailSendAsUserPreVerifyLimiter.reset();
   sendGmailMock.mockReset();
+  // Par défaut, aucun destinataire dans le bucket = tous OK.
+  mailRecipientRateLimitFindManyMock.mockReset().mockResolvedValue([]);
+  mailRecipientRateLimitUpsertMock.mockReset().mockResolvedValue({});
+  mailRateLimitEventCreateMock.mockReset().mockResolvedValue({});
 });
 
 afterEach(() => {
@@ -209,6 +226,7 @@ describe('POST /api/mail/send-as-user — broker delegation', () => {
     sendGmailMock.mockResolvedValueOnce({
       messageId: 'gmail_msg_42',
       sentAt: new Date('2026-05-25T12:00:00Z'),
+      mailAccountIdUsed: 'acc_clx_default',
     });
     const body = validBody();
     const req = makeRequest({ body });
@@ -219,6 +237,7 @@ describe('POST /api/mail/send-as-user — broker delegation', () => {
     expect(json.provider_used).toBe('google');
     expect(json.sent_at).toBe('2026-05-25T12:00:00.000Z');
     expect(json.idempotent_replay).toBe(false);
+    expect(json.mail_account_id_used).toBe('acc_clx_default');
   });
 
   it('passes idempotent_replay through', async () => {
@@ -226,6 +245,7 @@ describe('POST /api/mail/send-as-user — broker delegation', () => {
       messageId: 'gmail_msg_replay',
       sentAt: new Date(),
       idempotentReplay: true,
+      mailAccountIdUsed: 'acc_clx_default',
     });
     const body = validBody();
     const req = makeRequest({ body });
@@ -267,6 +287,7 @@ describe('POST /api/mail/send-as-user — rate-limit', () => {
     sendGmailMock.mockResolvedValue({
       messageId: 'gmail_msg',
       sentAt: new Date(),
+      mailAccountIdUsed: 'acc_clx_default',
     });
 
     const userId = 'cuid_user_burst';
@@ -287,5 +308,278 @@ describe('POST /api/mail/send-as-user — rate-limit', () => {
     const res6 = await callRoute(req6);
     expect(res6.status).toBe(429);
     expect((await res6.json()).error).toBe('rate_limit');
+  });
+});
+
+// ─── v1.1 — contract_version + mail_account_id ───────────────────────────────
+
+describe('POST /api/mail/send-as-user — v1.1 contract', () => {
+  it('accepts contract_version "1.1" with mail_account_id', async () => {
+    sendGmailMock.mockResolvedValueOnce({
+      messageId: 'gmail_msg_v11',
+      sentAt: new Date(),
+      mailAccountIdUsed: 'acc_clx_chosen',
+    });
+    const body = validBody({
+      contract_version: '1.1',
+      mail_account_id: 'acc_clx_chosen',
+    });
+    const req = makeRequest({ body });
+    const res = await callRoute(req);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.mail_account_id_used).toBe('acc_clx_chosen');
+    // Vérifie que le mail_account_id est bien passé au broker.
+    expect(sendGmailMock).toHaveBeenCalledWith(
+      'cuid_user_alice',
+      expect.objectContaining({ mailAccountId: 'acc_clx_chosen' }),
+    );
+  });
+
+  it('accepts contract_version "1.1" without mail_account_id (resolves default)', async () => {
+    sendGmailMock.mockResolvedValueOnce({
+      messageId: 'gmail_msg_auto',
+      sentAt: new Date(),
+      mailAccountIdUsed: 'acc_clx_resolved_default',
+    });
+    const body = validBody({ contract_version: '1.1' });
+    const req = makeRequest({ body });
+    const res = await callRoute(req);
+    expect(res.status).toBe(200);
+    expect((await res.json()).mail_account_id_used).toBe(
+      'acc_clx_resolved_default',
+    );
+  });
+
+  it('returns 400 when mail_account_id sent with v1.0 (caller bug)', async () => {
+    const body = validBody({
+      contract_version: '1.0',
+      mail_account_id: 'acc_clx_xxx',
+    });
+    const req = makeRequest({ body });
+    const res = await callRoute(req);
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('invalid_payload');
+    expect(json.message).toMatch(/contract_version >= 1\.1/);
+  });
+
+  it('returns 404 account_not_found when broker throws MailAccountNotFoundError', async () => {
+    const { MailAccountNotFoundError } = await import('@/lib/mail/send-gmail');
+    sendGmailMock.mockRejectedValueOnce(
+      new MailAccountNotFoundError('not found'),
+    );
+    const body = validBody({
+      contract_version: '1.1',
+      mail_account_id: 'acc_clx_does_not_exist',
+    });
+    const req = makeRequest({ body });
+    const res = await callRoute(req);
+    expect(res.status).toBe(404);
+    expect((await res.json()).error).toBe('account_not_found');
+  });
+
+  it('rejects contract_version "2.0" (unsupported)', async () => {
+    const body = validBody({ contract_version: '2.0' });
+    const req = makeRequest({ body });
+    const res = await callRoute(req);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('invalid_payload');
+  });
+});
+
+// ─── v1.1 — rate-limit per-recipient ─────────────────────────────────────────
+
+describe('POST /api/mail/send-as-user — rate-limit per-recipient', () => {
+  it('returns 429 rate_limit_recipient when sole recipient is throttled', async () => {
+    const now = Date.now();
+    // Simule : bob@example.com a reçu un mail il y a 5 minutes (300s).
+    // window = 20min (1200s). retry_after attendu ≈ 1200 - 300 = 900s.
+    mailRecipientRateLimitFindManyMock.mockResolvedValueOnce([
+      {
+        recipientEmail: 'bob@example.com',
+        lastSentAt: new Date(now - 5 * 60_000),
+      },
+    ]);
+    const body = validBody({ to: 'bob@example.com' });
+    const req = makeRequest({ body });
+    const res = await callRoute(req);
+    expect(res.status).toBe(429);
+    const json = await res.json();
+    expect(json.error).toBe('rate_limit_recipient');
+    expect(json.recipient).toBe('bob@example.com');
+    expect(json.retry_after_seconds).toBeGreaterThan(800);
+    expect(json.retry_after_seconds).toBeLessThanOrEqual(900);
+    // Vérifie que sendGmail n'a PAS été appelé.
+    expect(sendGmailMock).not.toHaveBeenCalled();
+  });
+
+  it('returns 207 multi-status when some recipients OK / some blocked', async () => {
+    const now = Date.now();
+    mailRecipientRateLimitFindManyMock.mockResolvedValueOnce([
+      // Seul 'spam@example.com' est dans le bucket.
+      {
+        recipientEmail: 'spam@example.com',
+        lastSentAt: new Date(now - 10_000),
+      },
+    ]);
+    sendGmailMock.mockResolvedValueOnce({
+      messageId: 'gmail_msg_partial',
+      sentAt: new Date(),
+      mailAccountIdUsed: 'acc_clx_default',
+    });
+    const body = validBody({
+      to: ['ok1@example.com', 'spam@example.com', 'ok2@example.com'],
+    });
+    const req = makeRequest({ body });
+    const res = await callRoute(req);
+    expect(res.status).toBe(207);
+    const json = await res.json();
+    expect(json.sent).toContain('ok1@example.com');
+    expect(json.sent).toContain('ok2@example.com');
+    expect(json.sent).not.toContain('spam@example.com');
+    expect(json.rate_limited).toHaveLength(1);
+    expect(json.rate_limited[0].email).toBe('spam@example.com');
+    // Le broker a été appelé avec seulement les destinataires OK.
+    expect(sendGmailMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        to: expect.arrayContaining(['ok1@example.com', 'ok2@example.com']),
+      }),
+    );
+  });
+
+  it('does NOT rate-limit cc/bcc (only to[])', async () => {
+    const now = Date.now();
+    // Le bucket a 'cc-spam@x.com' mais c'est dans cc — pas dans to.
+    mailRecipientRateLimitFindManyMock.mockResolvedValueOnce([]);
+    sendGmailMock.mockResolvedValueOnce({
+      messageId: 'gmail_msg_cc',
+      sentAt: new Date(),
+      mailAccountIdUsed: 'acc_clx_default',
+    });
+    const body = validBody({
+      to: 'fresh-recipient@example.com',
+      cc: ['cc-spam@example.com'],
+      bcc: ['bcc-spam@example.com'],
+    });
+    const req = makeRequest({ body });
+    const res = await callRoute(req);
+    expect(res.status).toBe(200);
+    // Le findMany ne doit avoir été appelé qu'avec les emails du to, pas cc/bcc.
+    expect(mailRecipientRateLimitFindManyMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { recipientEmail: { in: ['fresh-recipient@example.com'] } },
+      }),
+    );
+  });
+
+  it('normalizes email case in bucket lookup (anti-bypass)', async () => {
+    const now = Date.now();
+    // Bucket contient l'email lowercase.
+    mailRecipientRateLimitFindManyMock.mockResolvedValueOnce([
+      { recipientEmail: 'mixed@example.com', lastSentAt: new Date(now - 1000) },
+    ]);
+    // Le caller envoie en MIXED-CASE → doit être bloqué.
+    const body = validBody({ to: 'MIXED@Example.com' });
+    const req = makeRequest({ body });
+    const res = await callRoute(req);
+    expect(res.status).toBe(429);
+  });
+
+  it('records sent recipients after successful send (upsert called)', async () => {
+    sendGmailMock.mockResolvedValueOnce({
+      messageId: 'gmail_msg_record',
+      sentAt: new Date(),
+      mailAccountIdUsed: 'acc_clx_default',
+    });
+    const body = validBody({ to: ['a@example.com', 'b@example.com'] });
+    const req = makeRequest({ body });
+    const res = await callRoute(req);
+    expect(res.status).toBe(200);
+    // 2 destinataires → 2 upserts.
+    expect(mailRecipientRateLimitUpsertMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('logs block in mail_rate_limit_events for forensics', async () => {
+    const now = Date.now();
+    mailRecipientRateLimitFindManyMock.mockResolvedValueOnce([
+      { recipientEmail: 'spam@x.com', lastSentAt: new Date(now - 1000) },
+    ]);
+    const body = validBody({ to: 'spam@x.com' });
+    const req = makeRequest({ body });
+    await callRoute(req);
+    // Best-effort fire-and-forget; on attend 0ms.
+    await new Promise((r) => setTimeout(r, 0));
+    expect(mailRateLimitEventCreateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          recipientEmail: 'spam@x.com',
+          appCaller: 'prospection',
+        }),
+      }),
+    );
+  });
+
+  it('bypass header skips rate-limit per-recipient when secret valid + non-prod', async () => {
+    const BYPASS_SECRET = 'mail-rate-bypass-secret-at-least-32-characters-long-ok';
+    process.env.MAIL_RATE_LIMIT_BYPASS_SECRET = BYPASS_SECRET;
+    process.env.DEPLOY_ENV = 'staging';
+    sendGmailMock.mockResolvedValueOnce({
+      messageId: 'gmail_msg_bypass',
+      sentAt: new Date(),
+      mailAccountIdUsed: 'acc_clx_default',
+    });
+
+    // Même si le bucket dit "bloqué", le bypass passe.
+    mailRecipientRateLimitFindManyMock.mockResolvedValueOnce([
+      { recipientEmail: 'spam@x.com', lastSentAt: new Date() },
+    ]);
+
+    const body = validBody({ to: 'spam@x.com' });
+    const ts = String(Date.now());
+    const sig = sign(SECRET, ts, body);
+    const req = new Request('http://localhost/api/mail/send-as-user', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-veridian-app': 'prospection',
+        'x-veridian-timestamp': ts,
+        'x-veridian-hub-signature': sig,
+        'x-veridian-bypass-rate-limit': BYPASS_SECRET,
+        'x-forwarded-for': freshIp(),
+      },
+      body,
+    });
+    const res = await callRoute(req);
+    expect(res.status).toBe(200);
+  });
+
+  it('bypass header DOES NOT work in prod (sec defense)', async () => {
+    const BYPASS_SECRET = 'mail-rate-bypass-secret-at-least-32-characters-long-ok';
+    process.env.MAIL_RATE_LIMIT_BYPASS_SECRET = BYPASS_SECRET;
+    process.env.DEPLOY_ENV = 'prod';
+
+    mailRecipientRateLimitFindManyMock.mockResolvedValueOnce([
+      { recipientEmail: 'spam@x.com', lastSentAt: new Date() },
+    ]);
+
+    const body = validBody({ to: 'spam@x.com' });
+    const ts = String(Date.now());
+    const sig = sign(SECRET, ts, body);
+    const req = new Request('http://localhost/api/mail/send-as-user', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-veridian-app': 'prospection',
+        'x-veridian-timestamp': ts,
+        'x-veridian-hub-signature': sig,
+        'x-veridian-bypass-rate-limit': BYPASS_SECRET,
+        'x-forwarded-for': freshIp(),
+      },
+      body,
+    });
+    const res = await callRoute(req);
+    expect(res.status).toBe(429); // pas de bypass en prod
   });
 });

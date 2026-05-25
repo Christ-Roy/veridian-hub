@@ -41,7 +41,13 @@ import type { gmail_v1 } from 'googleapis';
 import type { PrismaClient } from '@prisma/client';
 
 import { prisma as defaultPrisma } from '@/lib/prisma';
-import { getMailOAuthClient, scopeIncludesGmailSend } from './gmail-oauth';
+import { getMailOAuthClient } from './gmail-oauth';
+import {
+  selectMailAccount,
+  MailAccountNotFoundError,
+} from './select-account';
+
+export { MailAccountNotFoundError };
 
 // ─── Erreurs typées ────────────────────────────────────────────────────────
 
@@ -95,6 +101,12 @@ export type SendGmailParams = {
   appSource: MailAppSource;
   /** UUID v4 obligatoire pour la dédup côté DB. */
   idempotencyKey: string;
+  /**
+   * Mail Gateway v1.1 — caller explicit choice du compte OAuth user-side.
+   * Si fourni, doit appartenir au userId (sinon `MailAccountNotFoundError`).
+   * Si omis, on résout via isDefaultForMail=true puis fallback gmail.send.
+   */
+  mailAccountId?: string;
 };
 
 export type SendGmailResult = {
@@ -102,6 +114,8 @@ export type SendGmailResult = {
   sentAt: Date;
   /** True si on a re-servi le résultat d'un envoi précédent (idempotent replay). */
   idempotentReplay?: boolean;
+  /** Mail Gateway v1.1 — ID du compte qui a effectivement servi l'envoi. */
+  mailAccountIdUsed: string;
 };
 
 // ─── Injection — permet aux tests de mock ──────────────────────────────────
@@ -314,6 +328,11 @@ export async function sendGmailAsUser(
         messageId: existing.providerMessageId,
         sentAt: existing.sentAt,
         idempotentReplay: true,
+        // v1.1 : on retourne le compte utilisé lors du premier envoi.
+        // Stocké via `mail_account_id_used` future column ? Pour l'instant
+        // le compte n'est pas persisté dans mail_events — on retourne le
+        // compte fourni en input ou empty (caller v1.0 n'attend pas ce champ).
+        mailAccountIdUsed: params.mailAccountId ?? '',
       };
     }
     // Un échec précédent (failed / needs_reauth) ne doit PAS bloquer un retry
@@ -324,40 +343,29 @@ export async function sendGmailAsUser(
     );
   }
 
-  // ─── 2. Lookup Account ──────────────────────────────────────────────────
-  // On charge le user pour vérifier qu'il existe ET pour récupérer son email
-  // (utilisé comme From header). Throw avant de toucher Google.
+  // ─── 2. Lookup Account via selectMailAccount (v1.1 multi-comptes) ───────
+  // Sélectionne soit le Account explicitement demandé (mailAccountId), soit
+  // résout via isDefaultForMail=true → fallback gmail.send.
+  // Throw `MailAccountNotFoundError` (404) si mailAccountId fourni mais
+  // inexistant pour ce user. Throw `MailProviderNotLinkedError` si aucun
+  // compte éligible. Throw `MailUserNotFoundError` si user inconnu.
+  const account = await selectMailAccount(userId, params.mailAccountId, {
+    prisma,
+  });
+
+  // On a quand même besoin de l'email du user pour le From header MIME.
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { id: true, email: true },
   });
   if (!user) {
+    // Garde-fou redondant : selectMailAccount aurait déjà throw.
     throw new MailUserNotFoundError(`User ${userId} not found`);
   }
 
-  // Cherche un Account Google avec scope gmail.send et pas en needs_reauth.
-  // On filtre côté code car `mailSendScope` est un CSV — pas d'op LIKE ici
-  // pour rester portable.
-  const candidates = await prisma.account.findMany({
-    where: {
-      userId,
-      provider: 'google',
-      mailSendNeedsReauth: false,
-    },
-    select: {
-      id: true,
-      refresh_token: true,
-      access_token: true,
-      expires_at: true,
-      mailSendScope: true,
-      mailSendNeedsReauth: true,
-    },
-  });
-
-  const account = candidates.find((a) => scopeIncludesGmailSend(a.mailSendScope));
-  if (!account || !account.refresh_token) {
+  if (!account.refresh_token) {
     throw new MailProviderNotLinkedError(
-      `User ${userId} has no Google Account with gmail.send scope linked`,
+      `User ${userId} Account ${account.id} has no refresh_token`,
     );
   }
 
@@ -505,7 +513,11 @@ export async function sendGmailAsUser(
     },
   });
 
-  return { messageId: providerMessageId, sentAt: row.sentAt };
+  return {
+    messageId: providerMessageId,
+    sentAt: row.sentAt,
+    mailAccountIdUsed: account.id,
+  };
 }
 
 // ─── Default impls (réseau réel) ───────────────────────────────────────────
