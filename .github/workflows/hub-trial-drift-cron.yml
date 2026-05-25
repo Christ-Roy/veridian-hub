@@ -1,0 +1,102 @@
+name: Hub — Trial drift detection (daily)
+
+# Cron quotidien qui cross-check tenant_trials.state vs subscriptions Stripe
+# pour détecter les désync laissées par un webhook raté, une row trial arrivée
+# post-checkout, ou une bascule status Stripe non répercutée.
+#
+# Mode REPORT-ONLY ONLY (v1, P0 lock côté code). Pas d'auto-fix, pas de
+# Telegram/Slack — juste log + exit code rouge si drifts détectés, ce qui suffit
+# à faire apparaître le run en échec dans l'onglet Actions GitHub (Robert
+# surveille déjà cet onglet en daily).
+#
+# Fréquence quotidienne = ratio observabilité/coût optimal :
+#   - drift de webhook ratés remontés en < 24h
+#   - 1 run/jour × ~2 min CI = négligeable
+#   - charge Stripe API = N tenants × 1 call .list = très en-dessous du rate
+#     limit live (100 read/s)
+#
+# Plage 07:00 UTC = 1h après le cron reconcile-tenants (06:00 UTC implicite
+# via hub-reconcile-cron.yml `17 * * * *` côté minute, mais le slot 07:00
+# n'entre pas en conflit) — étalement pour éviter co-saturation prod.
+#
+# Secret `CRON_SECRET` : déjà provisionné côté `hub-trial-tick-cron.yml`.
+# Pas de nouveau secret à créer.
+
+on:
+  schedule:
+    - cron: '0 7 * * *' # daily 07:00 UTC
+  workflow_dispatch:
+    inputs:
+      chunkSize:
+        description: 'Taille des chunks DB/Stripe (1..500)'
+        required: false
+        default: '100'
+      limit:
+        description: 'Limite globale de rows à scanner (vide = illimité)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  detect:
+    name: Detect trial vs sub drifts
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Call /api/cron/trial-drift-detection on prod
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          CHUNK_SIZE: ${{ github.event.inputs.chunkSize || '100' }}
+          LIMIT: ${{ github.event.inputs.limit || '' }}
+        run: |
+          set -uo pipefail
+
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET secret manquant dans GH Secrets"
+            exit 1
+          fi
+
+          QS="chunkSize=${CHUNK_SIZE}"
+          if [ -n "$LIMIT" ]; then
+            QS="${QS}&limit=${LIMIT}"
+          fi
+          URL="https://app.veridian.site/api/cron/trial-drift-detection?${QS}"
+
+          HTTP_CODE=$(curl -s -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "$URL" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            --max-time 540 \
+            --retry 2 --retry-delay 10)
+
+          echo "HTTP $HTTP_CODE"
+          cat /tmp/resp.json || true
+          echo
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Drift detection failed (HTTP $HTTP_CODE)"
+            exit 1
+          fi
+
+          # Parse summary JSON pour log lisible + exit code rouge si drifts > 0.
+          # On utilise jq (pré-installé sur ubuntu-latest).
+          TOTAL=$(jq -r '.summary.totalScanned // 0' /tmp/resp.json)
+          DRIFTS=$(jq -r '.summary.driftsDetected // 0' /tmp/resp.json)
+          SKIPPED=$(jq -r '.summary.skippedNoStripeCustomer // 0' /tmp/resp.json)
+          STRIPE_ERRORS=$(jq -r '.summary.stripeErrors // 0' /tmp/resp.json)
+
+          echo "::notice::Scanned $TOTAL tenant_trials rows"
+          echo "::notice::Skipped (no stripe_customer_id): $SKIPPED"
+          echo "::notice::Stripe API errors: $STRIPE_ERRORS"
+          echo "::notice::Drifts detected: $DRIFTS"
+
+          if [ "$DRIFTS" != "0" ]; then
+            echo "::warning::$DRIFTS drift(s) détecté(s) — voir réponse JSON pour le détail"
+            echo "## Drifts détectés :"
+            jq -r '.drifts[] | "- tenant=\(.tenantId) app=\(.app) trial=\(.trialState) stripe=\(.stripeStatus) severity=\(.severity)"' /tmp/resp.json
+            # Exit rouge → GH Actions notifie en rouge dans l'onglet Actions.
+            exit 1
+          fi
+
+          echo "::notice::No drift — all good."

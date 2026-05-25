@@ -167,13 +167,29 @@ Le Hub a déjà tout ce qu'il faut côté webhook Stripe :
   upgrade Prospection) — à confirmer côté Prospection que `credit-leads`
   accepte bien la requête sur tenant en upgrade
 
-### 3.3 Drift detection (ticket §D)
+### 3.3 Drift detection (ticket §D) — ✅ livré 2026-05-25
 
-Cron qui scan quotidiennement et alerte Telegram si :
-- `subscriptions.status IN (active, trialing)` ET
-- `tenant_trials.state IN (trial_active, trial_ending_soon)`
+Cron quotidien `hub-trial-drift-cron.yml` (07:00 UTC) qui cross-check
+`tenant_trials.state` vs Stripe subscriptions et catégorise les drifts :
 
-→ ticket pending `todo/2026-05-24-drift-detection-trial-vs-sub.md`.
+- **medium** : `trial_active` + Stripe `active` (purge ratée — user paie mais
+  Hub le considère encore en essai)
+- **high**   : `expired` + Stripe `active` (downgrade auto fait alors que user
+  paie → impact business immédiat)
+- **low**    : `converted` + Stripe `canceled`/`incomplete`/`none` (Hub croit
+  que le user paie mais Stripe dit non)
+
+Mode **report-only** v1 (P0 lock côté code, miroir de `runReconcile`). Pas
+d'auto-fix tant qu'on n'a pas observé en réel + validé que les drifts
+détectés sont bien des bugs. Pas de Telegram non plus — le workflow
+GH Actions exit 1 si drifts > 0, ce qui suffit à faire apparaître le run en
+rouge dans l'onglet Actions (Robert surveille déjà).
+
+Implémentation :
+- `lib/trial/drift-detection.ts` — runner testable
+- `app/api/cron/trial-drift-detection/route.ts` — thin wrapper auth Bearer
+- `.github/workflows/hub-trial-drift-cron.yml` — cron daily 07:00 UTC
+- `__tests__/lib/trial/drift-detection.test.ts` + route test (Nuclear)
 
 ---
 
