@@ -28,6 +28,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'tenantId required' }, { status: 400 });
   }
 
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_RE.test(tenantId)) {
+    return NextResponse.json({ error: 'Tenant not found' }, { status: 404 });
+  }
+
   const tenant = await prisma.tenant.findUnique({
     where: { id: tenantId },
     select: {

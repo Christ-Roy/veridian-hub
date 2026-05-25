@@ -35,6 +35,7 @@
  */
 import { test, expect, type APIRequestContext } from '@playwright/test';
 
+import { bypassRateLimitHeaders } from '../../_helpers';
 import { MEGA_RUN_STAMP } from '../_fixtures/run-stamp';
 
 const STAGING_URL =
@@ -90,6 +91,7 @@ async function setupUserForLinkApp(
     headers: {
       'content-type': 'application/json',
       'x-admin-secret': ADMIN_SECRET,
+      ...bypassRateLimitHeaders(),
     },
     data: { email, name: 'SSRF Setup' },
     failOnStatusCode: false,
@@ -122,6 +124,7 @@ test.describe('Mega I-03 — SSRF sur POST /api/admin/tenants/link-app fallback_
         headers: {
           'content-type': 'application/json',
           'x-admin-secret': ADMIN_SECRET,
+          ...bypassRateLimitHeaders(),
         },
         data: {
           user_email: email,

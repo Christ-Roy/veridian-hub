@@ -119,7 +119,7 @@ test.describe('Mega L-02 — Performance budget POST /api/billing/checkout', () 
     expect(session.callbackStatus).toBeLessThan(400);
     stripeCustomerEmail = session.email;
 
-    const req = session.request;
+    let req = session.request;
     const statuses: number[] = [];
     const bodies: Array<{ url?: string; session_id?: string }> = [];
 
@@ -150,16 +150,44 @@ test.describe('Mega L-02 — Performance budget POST /api/billing/checkout', () 
     }
 
     // ─── 3. Mesure : 30 POSTs sériels ───────────────────────────────────
+    // Robustesse session : si on rencontre un 401 en plein milieu de la
+    // mesure (cookie Auth.js perdu, agent parallèle qui a purgé l'user,
+    // race condition session refresh), on tente UNE re-connexion via
+    // megaSignIn sur le MÊME emailOverride (idempotent côté Auth.js v5 :
+    // allowDangerousEmailAccountLinking link au user existant). Si le
+    // 401 persiste après re-login, on laisse le sample compter — l'assert
+    // final remontera l'incident.
+    let reLoginAttempted = false;
     const stats = await measure({
       iterations: ITERATIONS,
       warmup: WARMUP,
       delayMs: 200, // anti-rate-limit Stripe + Hub
       fn: async () => {
-        const res = await req.post('/api/billing/checkout', {
+        let res = await req.post('/api/billing/checkout', {
           headers: { 'content-type': 'application/json', ...bypassRateLimitHeaders() },
           data: { plan: 'notifuse-pro', interval: 'month' },
           failOnStatusCode: false,
         });
+        if (res.status() === 401 && !reLoginAttempted) {
+          reLoginAttempted = true;
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[L-02] 401 détecté sample — tentative re-login mock-oauth (one-shot).`,
+          );
+          await disposeSession(session!);
+          session = await megaSignIn(
+            playwright as unknown as typeof import('@playwright/test'),
+            { bucket: BUCKET, spec: SPEC, provider: 'google', variant: 'co',
+              emailOverride: stripeCustomerEmail! },
+          );
+          req = session.request;
+          await res.body().catch(() => undefined);
+          res = await req.post('/api/billing/checkout', {
+            headers: { 'content-type': 'application/json', ...bypassRateLimitHeaders() },
+            data: { plan: 'notifuse-pro', interval: 'month' },
+            failOnStatusCode: false,
+          });
+        }
         statuses.push(res.status());
         if (res.status() === 200) {
           const json = await res.json().catch(() => null);
