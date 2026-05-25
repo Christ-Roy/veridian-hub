@@ -397,4 +397,86 @@ describe('POST /api/billing/refill-leads/checkout-from-app', () => {
       'https://prospection.veridian.site/refill/cancel',
     );
   });
+
+  // ─── SSRF guard — success_url / cancel_url ───────────────────────────────
+  // Refs : todo/2026-05-25-ssrf-link-app-fallback-url-cloud-metadata.md §"Cross-app"
+  // + spec MEGA I-03. Une app downstream compromise (ou un secret HMAC qui
+  // fuite) ne doit pas pouvoir piloter le Hub vers un endpoint interne ou un
+  // scheme dangereux. Le helper `lib/security/safe-url.ts` rejette en amont.
+  describe('SSRF defence on success_url / cancel_url', () => {
+    it('400 if success_url targets cloud metadata 169.254.169.254', async () => {
+      const { POST } = await import(
+        '@/app/api/billing/refill-leads/checkout-from-app/route'
+      );
+      const res = await POST(
+        makeRequest(
+          validBody({
+            success_url: 'http://169.254.169.254/latest/meta-data/',
+            cancel_url: 'https://prospection.veridian.site/cancel',
+          }),
+        ),
+      );
+      expect(res.status).toBe(400);
+      expect(sessionsCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('400 if cancel_url uses javascript: scheme', async () => {
+      const { POST } = await import(
+        '@/app/api/billing/refill-leads/checkout-from-app/route'
+      );
+      const res = await POST(
+        makeRequest(
+          validBody({
+            success_url: 'https://prospection.veridian.site/ok',
+            cancel_url: 'javascript:alert(1)',
+          }),
+        ),
+      );
+      expect(res.status).toBe(400);
+      expect(sessionsCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('400 if success_url targets an internal docker hostname', async () => {
+      const { POST } = await import(
+        '@/app/api/billing/refill-leads/checkout-from-app/route'
+      );
+      const res = await POST(
+        makeRequest(
+          validBody({
+            success_url: 'http://hub-staging-db:5432/',
+          }),
+        ),
+      );
+      expect(res.status).toBe(400);
+    });
+
+    it('400 if success_url bypasses via IPv4 decimal (http://2852039166/)', async () => {
+      const { POST } = await import(
+        '@/app/api/billing/refill-leads/checkout-from-app/route'
+      );
+      const res = await POST(
+        makeRequest(
+          validBody({
+            success_url: 'http://2852039166/',
+          }),
+        ),
+      );
+      expect(res.status).toBe(400);
+    });
+
+    it('400 if cancel_url uses file:/// scheme', async () => {
+      const { POST } = await import(
+        '@/app/api/billing/refill-leads/checkout-from-app/route'
+      );
+      const res = await POST(
+        makeRequest(
+          validBody({
+            success_url: 'https://prospection.veridian.site/ok',
+            cancel_url: 'file:///etc/passwd',
+          }),
+        ),
+      );
+      expect(res.status).toBe(400);
+    });
+  });
 });

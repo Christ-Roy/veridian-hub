@@ -115,6 +115,69 @@ describe('POST /api/admin/tenants/link-app', () => {
     expect(res.status).toBe(400);
   });
 
+  // ─── SSRF guard — anti-cloud-metadata + loopback + private nets ───
+  // (Refs : todo/2026-05-25-ssrf-link-app-fallback-url-cloud-metadata.md
+  //  + spec MEGA I-03. Helper centralisé `lib/security/safe-url.ts`.)
+  it('400 si fallback_url cible AWS/GCP cloud metadata 169.254.169.254', async () => {
+    const { POST } = await import('@/app/api/admin/tenants/link-app/route');
+    const res = await POST(
+      makeReq({ ...validPayload, fallback_url: 'http://169.254.169.254/' }, auth) as never
+    );
+    expect(res.status).toBe(400);
+    expect(linkAppMock).not.toHaveBeenCalled();
+  });
+
+  it('400 si fallback_url cible loopback 127.0.0.1', async () => {
+    const { POST } = await import('@/app/api/admin/tenants/link-app/route');
+    const res = await POST(
+      makeReq({ ...validPayload, fallback_url: 'http://127.0.0.1:6379/' }, auth) as never
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('400 si fallback_url cible IPv6 loopback ::1', async () => {
+    const { POST } = await import('@/app/api/admin/tenants/link-app/route');
+    const res = await POST(
+      makeReq({ ...validPayload, fallback_url: 'http://[::1]/' }, auth) as never
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('400 si fallback_url cible un container Docker interne (hub-staging-db)', async () => {
+    const { POST } = await import('@/app/api/admin/tenants/link-app/route');
+    const res = await POST(
+      makeReq(
+        { ...validPayload, fallback_url: 'http://hub-staging-db:5432/' },
+        auth
+      ) as never
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('400 si fallback_url contourne le check via IPv4 décimal (http://2852039166/)', async () => {
+    const { POST } = await import('@/app/api/admin/tenants/link-app/route');
+    const res = await POST(
+      makeReq({ ...validPayload, fallback_url: 'http://2852039166/' }, auth) as never
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('400 si fallback_url cible RFC1918 (192.168.1.1)', async () => {
+    const { POST } = await import('@/app/api/admin/tenants/link-app/route');
+    const res = await POST(
+      makeReq({ ...validPayload, fallback_url: 'http://192.168.1.1/' }, auth) as never
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it('400 si fallback_url est file:///etc/passwd', async () => {
+    const { POST } = await import('@/app/api/admin/tenants/link-app/route');
+    const res = await POST(
+      makeReq({ ...validPayload, fallback_url: 'file:///etc/passwd' }, auth) as never
+    );
+    expect(res.status).toBe(400);
+  });
+
   it('400 si external_tenant_slug contient < > / etc (anti-XSS/path traversal)', async () => {
     const { POST } = await import('@/app/api/admin/tenants/link-app/route');
     const tests = [
