@@ -99,9 +99,29 @@ Tests nuclear obligatoires :
 
 ## DoD
 
-- [ ] Endpoint `/api/cron/drift-trial-vs-sub` créé + auth Bearer
-- [ ] `lib/trial/drift-detection.ts` + tests Nuclear
-- [ ] Workflow GH Actions cron quotidien 4h UTC
-- [ ] Alerte Telegram câblée (réutiliser `sendTelegramAlert`)
-- [ ] Doc dans `docs/AUDIT-TRIAL-RESIDUS-2026-05-24.md` §3.3 → cochée
-- [ ] Push staging puis main (tier 🟡)
+- [x] Endpoint `/api/cron/trial-drift-detection` créé + auth Bearer
+      (route renommée vs spec d'origine `drift-trial-vs-sub` pour
+      cohérence avec la convention `trial-tick`, `reconcile-tenants`)
+- [x] `lib/trial/drift-detection.ts` + tests Nuclear (19/19 verts)
+- [x] Workflow GH Actions cron quotidien **07:00 UTC** (déplacé de 04:00
+      à 07:00 pour étalement vs `hub-reconcile-cron` h+17 et
+      `hub-trial-tick-cron`)
+- [ ] ~~Alerte Telegram câblée~~ → **scope ajusté** : mode report-only
+      v1, pas de Telegram. Workflow GH Actions `exit 1` si drifts > 0,
+      ce qui suffit à faire apparaître le run en rouge dans l'onglet
+      Actions (Robert surveille déjà). Telegram peut être ajouté en v2
+      si volumétrie de drifts justifie.
+- [x] Doc dans `docs/AUDIT-TRIAL-RESIDUS-2026-05-24.md` §3.3 → cochée
+- [x] Push staging puis main (tier 🟡, marker `[risk:medium]`)
+
+## Implémentation finale
+
+- Mode REPORT-ONLY v1 hardcoded (P0 lock côté code, miroir de
+  `runReconcile`). Auto-fix bloqué tant qu'on n'a pas observé en réel.
+- Classification drift en 3 sévérités (`low`/`medium`/`high`) plutôt
+  qu'une simple auto-correction binaire — permet de prioriser les
+  interventions humaines en attendant l'auto-fix v2.
+- Cross-check vs **Stripe API directement** (`subscriptions.list({customer})`)
+  plutôt que vs la table locale `Subscription` — c'est précisément
+  l'objet du ticket : détecter les désync entre Hub local et Stripe
+  réel (webhook raté, etc.).
