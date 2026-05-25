@@ -180,15 +180,13 @@ describe('GET /api/gmail/connect/callback', () => {
   // Couvert par les tests getHubBaseUrl dans oauth-cookies.test.ts ;
   // ici on vérifie juste que la route IMPORTE bien le helper.
   it('importe getHubBaseUrl du module oauth-cookies (anti-régression Traefik post-callback)', async () => {
-    const moduleSource = await import('fs').then((fs) =>
-      fs.promises.readFile(
-        new URL(
-          '../../../../app/api/gmail/connect/callback/route.ts',
-          import.meta.url,
-        ),
-        'utf-8',
-      ),
+    const path = await import('node:path');
+    const fs = await import('node:fs/promises');
+    const filePath = path.resolve(
+      process.cwd(),
+      'app/api/gmail/connect/callback/route.ts',
     );
+    const moduleSource = await fs.readFile(filePath, 'utf-8');
     expect(moduleSource).toContain('getHubBaseUrl');
   });
 });
