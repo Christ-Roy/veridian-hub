@@ -132,8 +132,8 @@ test.describe('Mega K-02 — 2 cron trial-tick parallèles (SELECT FOR UPDATE SK
     // Filet : purgeMegaByPrefix attrape les éventuels résidus (audit_log etc.)
     try {
       await purgeMegaByPrefix({
-        emailPrefix: `e2e-mega-${BUCKET}`,
-        tenantPrefix: `mega-${BUCKET}`,
+        emailPrefix: `e2e-mega-${BUCKET}-${SPEC}`,
+        tenantPrefix: `mega-${BUCKET}-${MEGA_RUN_STAMP}`,
       });
     } catch {
       /* afterAll ne throw jamais */

@@ -65,9 +65,13 @@ test.describe('Mega C-04 — Bundle Veridian Business 149€', () => {
 
   test.afterAll(async () => {
     try {
+      // Préfixe étroit `${BUCKET}-${SPEC}` + tenant scope par run-stamp —
+      // sinon en mode fullyParallel + workers>1, l'afterAll d'un spec C-XX
+      // purge les users d'un autre C-YY encore en cours → 401 cookie invalide.
+      // Le globalTeardown reste large `e2e-mega-` pour le filet final.
       await purgeMegaByPrefix({
-        emailPrefix: `e2e-mega-${BUCKET}`,
-        tenantPrefix: `mega-${BUCKET}`,
+        emailPrefix: `e2e-mega-${BUCKET}-${SPEC}`,
+        tenantPrefix: `mega-${BUCKET}-${MEGA_RUN_STAMP}`,
       });
     } catch {
       /* swallow */

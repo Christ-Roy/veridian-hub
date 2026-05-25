@@ -248,4 +248,77 @@ describe('POST /api/billing/refill-leads/checkout', () => {
     const body = await res6.json();
     expect(body.error).toBe('rate_limited');
   });
+
+  it('rate-limit bypass : header E2E + DEPLOY_ENV staging → pas de 429 même au-delà du cap', async () => {
+    // Garde-fou anti-fuite prod : le bypass exige DEPLOY_ENV !== 'prod' ET
+    // un secret >= 32 chars. Sans ces 2 conditions, le bypass n'est pas honoré.
+    const prevDeployEnv = process.env.DEPLOY_ENV;
+    const prevSecret = process.env.E2E_RATELIMIT_BYPASS_SECRET;
+    const bypassSecret = 'x'.repeat(32) + '-bypass-secret-32chars-min';
+    process.env.DEPLOY_ENV = 'staging';
+    process.env.E2E_RATELIMIT_BYPASS_SECRET = bypassSecret;
+
+    try {
+      sessionsCreateMock.mockResolvedValue({
+        id: 'cs_bypass',
+        url: 'https://checkout.stripe.com/c/bypass',
+      });
+      tenantFindFirstMock.mockResolvedValue({ id: TENANT_ID, prospectionPlan: 'freemium' });
+
+      const { POST } = await import('@/app/api/billing/refill-leads/checkout/route');
+      const ip = '10.10.10.10';
+      const headers = {
+        'x-forwarded-for': ip,
+        'x-veridian-e2e-bypass-ratelimit': bypassSecret,
+      };
+
+      // 10 requêtes successives doivent toutes passer (au-delà du cap 5/min).
+      for (let i = 0; i < 10; i++) {
+        const res = await POST(makeReq({ tenantId: TENANT_ID, quantity: 10 }, headers));
+        expect(res.status, `req #${i + 1} doit bypass et retourner 200`).toBe(200);
+      }
+    } finally {
+      process.env.DEPLOY_ENV = prevDeployEnv;
+      process.env.E2E_RATELIMIT_BYPASS_SECRET = prevSecret;
+    }
+  });
+
+  it('rate-limit bypass IGNORÉ en prod : DEPLOY_ENV=prod → 429 au 6e même avec header bypass', async () => {
+    // Triple garde-fou anti-fuite prod : même avec le secret valide, si
+    // DEPLOY_ENV='prod' le bypass est court-circuité (rate-limit applique).
+    const prevDeployEnv = process.env.DEPLOY_ENV;
+    const prevSecret = process.env.E2E_RATELIMIT_BYPASS_SECRET;
+    const bypassSecret = 'y'.repeat(32) + '-bypass-secret-32chars-min';
+    process.env.DEPLOY_ENV = 'prod';
+    process.env.E2E_RATELIMIT_BYPASS_SECRET = bypassSecret;
+
+    try {
+      sessionsCreateMock.mockResolvedValue({
+        id: 'cs_prod_blocked',
+        url: 'https://checkout.stripe.com/c/blocked',
+      });
+      tenantFindFirstMock.mockResolvedValue({ id: TENANT_ID, prospectionPlan: 'freemium' });
+
+      const { POST } = await import('@/app/api/billing/refill-leads/checkout/route');
+      const ip = '11.11.11.11';
+      const headers = {
+        'x-forwarded-for': ip,
+        'x-veridian-e2e-bypass-ratelimit': bypassSecret,
+      };
+
+      // 5 reqs OK puis 6e bloquée même avec header bypass (DEPLOY_ENV=prod gate)
+      for (let i = 0; i < 5; i++) {
+        const res = await POST(makeReq({ tenantId: TENANT_ID, quantity: 10 }, headers));
+        expect(res.status).toBe(200);
+      }
+      const res6 = await POST(makeReq({ tenantId: TENANT_ID, quantity: 10 }, headers));
+      expect(
+        res6.status,
+        'En prod le bypass est court-circuité — 6e req doit toujours 429',
+      ).toBe(429);
+    } finally {
+      process.env.DEPLOY_ENV = prevDeployEnv;
+      process.env.E2E_RATELIMIT_BYPASS_SECRET = prevSecret;
+    }
+  });
 });

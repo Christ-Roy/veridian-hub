@@ -159,8 +159,8 @@ test.describe('Mega E-02 — Refill replay idempotent + cap', () => {
         );
       }
       await purgeMegaByPrefix({
-        emailPrefix: `e2e-mega-${BUCKET}`,
-        tenantPrefix: `mega-${BUCKET}`,
+        emailPrefix: `e2e-mega-${BUCKET}-${SPEC}`,
+        tenantPrefix: `mega-${BUCKET}-${MEGA_RUN_STAMP}`,
       });
     } catch {
       /* never throw in afterAll */

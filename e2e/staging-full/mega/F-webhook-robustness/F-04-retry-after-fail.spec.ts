@@ -307,13 +307,16 @@ test.describe('Mega F-04 — Retry after fail / processed_at NULL', () => {
     );
     expect(rowCount, '3 fails du même event → 1 seule row (PK)').toBe('1');
 
-    // processed_at reste NULL
+    // processed_at reste NULL.
+    // On utilise une sentinel `NULL_VALUE` car selectScalar() retourne `null`
+    // pour une string vide (limitation du helper psql -tA + trim().
+    // Cf. _sql-helper.ts:98 — `if (!out) return null` traite '' comme absent).
     const processedAt = selectScalar(
-      `SELECT COALESCE(processed_at::text, '') FROM hub_app.stripe_events WHERE event_id = '${eventId}';`,
+      `SELECT COALESCE(processed_at::text, 'NULL_VALUE') FROM hub_app.stripe_events WHERE event_id = '${eventId}';`,
     );
     expect(
       processedAt,
       '3 fails consécutifs → processed_at reste NULL (jamais set par fail)',
-    ).toBe('');
+    ).toBe('NULL_VALUE');
   });
 });

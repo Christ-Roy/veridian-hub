@@ -174,8 +174,8 @@ test.describe('Mega E-01 — Refill leads Pro 500', () => {
   test.afterAll(async () => {
     try {
       await purgeMegaByPrefix({
-        emailPrefix: `e2e-mega-${BUCKET}`,
-        tenantPrefix: `mega-${BUCKET}`,
+        emailPrefix: `e2e-mega-${BUCKET}-${SPEC}`,
+        tenantPrefix: `mega-${BUCKET}-${MEGA_RUN_STAMP}`,
       });
     } catch {
       /* never throw in afterAll */

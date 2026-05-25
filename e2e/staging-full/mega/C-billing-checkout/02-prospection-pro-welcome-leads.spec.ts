@@ -69,8 +69,8 @@ test.describe('Mega C-02 — Prospection Pro checkout + welcome leads routing', 
   test.afterAll(async () => {
     try {
       await purgeMegaByPrefix({
-        emailPrefix: `e2e-mega-${BUCKET}`,
-        tenantPrefix: `mega-${BUCKET}`,
+        emailPrefix: `e2e-mega-${BUCKET}-${SPEC}`,
+        tenantPrefix: `mega-${BUCKET}-${MEGA_RUN_STAMP}`,
       });
     } catch {
       /* swallow */

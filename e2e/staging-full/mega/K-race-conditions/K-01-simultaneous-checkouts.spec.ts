@@ -48,6 +48,7 @@ import {
   StripeConfigError,
 } from '../_fixtures/stripe-api';
 import { bypassRateLimitHeaders } from '../../_helpers';
+import { MEGA_RUN_STAMP } from '../_fixtures/run-stamp';
 
 const BUCKET = 'k';
 const SPEC = '01-simultaneous-checkouts';
@@ -87,8 +88,8 @@ test.describe('Mega K-01 — 2 checkouts simultanés même user (race)', () => {
     }
     try {
       await purgeMegaByPrefix({
-        emailPrefix: `e2e-mega-${BUCKET}`,
-        tenantPrefix: `mega-${BUCKET}`,
+        emailPrefix: `e2e-mega-${BUCKET}-${SPEC}`,
+        tenantPrefix: `mega-${BUCKET}-${MEGA_RUN_STAMP}`,
       });
     } catch {
       /* afterAll ne throw jamais */

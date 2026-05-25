@@ -34,6 +34,7 @@ import { StripeConfigError } from '../_fixtures/stripe-api';
 import { MEGA_RUN_STAMP } from '../_fixtures/run-stamp';
 
 const BUCKET = 'd';
+const SPEC = '04-grant-manual-immune';
 
 const STAGING_WHSEC =
   process.env.STRIPE_WEBHOOK_SECRET_TEST ||
@@ -73,8 +74,8 @@ test.describe('Mega D-04 — Plan offert immune au downgrade Stripe', () => {
     }
     try {
       await purgeMegaByPrefix({
-        emailPrefix: `e2e-mega-${BUCKET}`,
-        tenantPrefix: `mega-${BUCKET}`,
+        emailPrefix: `e2e-mega-${BUCKET}-${SPEC}`,
+        tenantPrefix: `mega-${BUCKET}-${MEGA_RUN_STAMP}`,
       });
     } catch {
       /* swallow */

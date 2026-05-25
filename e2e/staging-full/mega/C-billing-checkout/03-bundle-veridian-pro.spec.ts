@@ -73,8 +73,8 @@ test.describe('Mega C-03 — Bundle Veridian Pro = 1 sub, 2 apps', () => {
   test.afterAll(async () => {
     try {
       await purgeMegaByPrefix({
-        emailPrefix: `e2e-mega-${BUCKET}`,
-        tenantPrefix: `mega-${BUCKET}`,
+        emailPrefix: `e2e-mega-${BUCKET}-${SPEC}`,
+        tenantPrefix: `mega-${BUCKET}-${MEGA_RUN_STAMP}`,
       });
     } catch {
       /* swallow */

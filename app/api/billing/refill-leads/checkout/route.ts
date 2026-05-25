@@ -73,8 +73,11 @@ const bodySchema = z.object({
 
 export async function POST(request: NextRequest) {
   // ─── Rate-limit (anti-spam Checkout creation) ───
+  // `enforceWithBypass` accepte le header `x-veridian-e2e-bypass-ratelimit`
+  // hors prod (DEPLOY_ENV !== 'prod') — la suite MEGA E2E enchaîne 6+ refill
+  // checkouts en série sur la même IP Traefik, sinon 429 cascade après le 5e.
   const ip = extractClientIp(request.headers);
-  const rate = refillCheckoutLimiter.enforce(ip);
+  const rate = refillCheckoutLimiter.enforceWithBypass(ip, request.headers);
   if (!rate.ok) {
     return NextResponse.json(
       { error: 'rate_limited', retry_after_seconds: rate.retryAfterSeconds },

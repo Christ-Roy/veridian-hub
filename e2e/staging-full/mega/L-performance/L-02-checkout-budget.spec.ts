@@ -52,6 +52,7 @@ import {
   StripeConfigError,
 } from '../_fixtures/stripe-api';
 import { bypassRateLimitHeaders } from '../../_helpers';
+import { MEGA_RUN_STAMP } from '../_fixtures/run-stamp';
 
 const BUCKET = 'l';
 const SPEC = '02-checkout-budget';
@@ -98,8 +99,8 @@ test.describe('Mega L-02 — Performance budget POST /api/billing/checkout', () 
     // 2. Cleanup DB Hub
     try {
       await purgeMegaByPrefix({
-        emailPrefix: `e2e-mega-${BUCKET}`,
-        tenantPrefix: `mega-${BUCKET}`,
+        emailPrefix: `e2e-mega-${BUCKET}-${SPEC}`,
+        tenantPrefix: `mega-${BUCKET}-${MEGA_RUN_STAMP}`,
       });
     } catch {
       /* afterAll ne throw jamais */
