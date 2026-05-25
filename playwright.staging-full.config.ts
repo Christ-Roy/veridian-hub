@@ -31,6 +31,11 @@ export default defineConfig({
   forbidOnly: !!process.env.CI,
   retries: 1,
   workers: 1,
+  // Filet de sécurité anti-fuite chromium : tue les processus orphelins
+  // laissés par les specs qui font `playwright.chromium.launch()` à la
+  // main et qui crashent avant `browser.close()`. Cf. ticket
+  // `todo/2026-05-23-e2e-cleanup-browser-resources.md`.
+  globalTeardown: require.resolve('./e2e/staging-full/_global-teardown.ts'),
   reporter: [
     ['list'],
     ['json', { outputFile: 'e2e-headfull-staging.json' }],

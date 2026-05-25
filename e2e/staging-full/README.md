@@ -114,3 +114,81 @@ tolérance 503.
 3. Utiliser les helpers de `_helpers.ts` (`uniqueEmail`, `freshIpHeader`,
    `withRateLimitRetry`, `adminHeaders`).
 4. Pas de `expect([200, 5xx]).toContain(...)` — relire ce README.
+5. Si tu lances un browser à la main (`playwright.chromium.launch()`),
+   utiliser `withCleanBrowser` / `withCleanContext` de `_cleanup-helper.ts`
+   ou wrapper dans un `try { ... } finally { browser.close() }`. Sinon →
+   leak chromium en cas d'assert qui pète. Cf. section "Cleanup ressources"
+   ci-dessous.
+
+## Cleanup ressources (anti-fuite chromium)
+
+### Lancer les E2E proprement
+
+```bash
+HEADED=0 STAGING_URL=https://hub.staging.veridian.site pnpm e2e:staging:full
+```
+
+Le `HEADED=0` désactive le slowMo + lance en headless (plus rapide, pas
+de fenêtre qui reste ouverte).
+
+### Vérifier qu'aucun chromium n'a leak après le run
+
+```bash
+pgrep -c chromium
+# → doit retourner 0 (ou ton compte de Chrome quotidien si tu l'utilises)
+```
+
+Le `globalTeardown` de `playwright.staging-full.config.ts` pkill les
+chromiums avec `--remote-debugging-pipe` (signature Playwright) en fin de
+run. Le Chrome quotidien de l'utilisateur (`--remote-debugging-port`) est
+épargné.
+
+### Cleanup manuel si fuite (incident)
+
+```bash
+# Tuer uniquement les chromiums Playwright (safe, n'affecte pas Chrome quotidien)
+pkill -9 -f "chromium.*--remote-debugging-pipe"
+
+# Nuclear : tuer TOUS les chromiums (ferme Chrome utilisateur aussi)
+pkill -9 -f chromium
+```
+
+### Pattern correct quand on lance un browser à la main
+
+Préférer le helper réutilisable :
+
+```ts
+import { withCleanBrowser, withCleanContext } from './_cleanup-helper';
+
+test('mon flow', async ({ playwright }) => {
+  await withCleanBrowser(playwright, async (browser) => {
+    await withCleanContext(browser, { baseURL: STAGING_URL, storageState }, async (context) => {
+      const page = await context.newPage();
+      await page.goto('/dashboard');
+      // ... assertions
+      // browser + context fermés même si une assert pète
+    });
+  });
+});
+```
+
+Ou à défaut, un try/finally manuel :
+
+```ts
+const browser = await playwright.chromium.launch();
+try {
+  // ...
+} finally {
+  await browser.close().catch(() => {});
+}
+```
+
+**Anti-pattern** (vu en prod 2026-05-23, a causé 49 chromium leftover) :
+
+```ts
+const browser = await playwright.chromium.launch();
+const page = await browser.newPage();
+await page.goto('...');
+expect(...);          // ← si ça pète ici, browser jamais fermé
+await browser.close(); // ← jamais atteint
+```

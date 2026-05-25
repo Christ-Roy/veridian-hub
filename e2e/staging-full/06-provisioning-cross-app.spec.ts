@@ -309,25 +309,36 @@ test.describe('Journey 6 — Dashboard chargeable post-signup', () => {
 
     const cookies = await ctx.storageState();
     const browser = await playwright.chromium.launch();
-    const context = await browser.newContext({
-      baseURL: STAGING_URL,
-      storageState: cookies,
-    });
-    const page = await context.newPage();
+    try {
+      const context = await browser.newContext({
+        baseURL: STAGING_URL,
+        storageState: cookies,
+      });
+      try {
+        const page = await context.newPage();
 
-    const resp = await page.goto('/dashboard', { waitUntil: 'domcontentloaded' });
-    expect(
-      resp?.status(),
-      'BUG-2026-05-21 : dashboard ne doit JAMAIS crash en 500 sur userUuid()',
-    ).toBeLessThan(500);
-    expect(
-      page.url(),
-      'dashboard accessible (pas de redirect vers /login)',
-    ).not.toContain('/login');
-
-    await context.close();
-    await browser.close();
-    await ctx.dispose();
+        const resp = await page.goto('/dashboard', { waitUntil: 'domcontentloaded' });
+        expect(
+          resp?.status(),
+          'BUG-2026-05-21 : dashboard ne doit JAMAIS crash en 500 sur userUuid()',
+        ).toBeLessThan(500);
+        expect(
+          page.url(),
+          'dashboard accessible (pas de redirect vers /login)',
+        ).not.toContain('/login');
+      } finally {
+        await context.close().catch(() => {
+          /* best-effort cleanup */
+        });
+      }
+    } finally {
+      await browser.close().catch(() => {
+        /* best-effort cleanup */
+      });
+      await ctx.dispose().catch(() => {
+        /* best-effort cleanup */
+      });
+    }
     },
   );
 });
