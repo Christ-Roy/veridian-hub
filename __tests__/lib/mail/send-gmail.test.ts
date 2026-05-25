@@ -79,6 +79,8 @@ function makeFakePrisma(seed: {
         users.find((u) => u.id === where.id) ?? null,
     },
     account: {
+      findUnique: async ({ where }: any) =>
+        accounts.find((a) => a.id === where.id) ?? null,
       findMany: async ({ where }: any) => {
         return accounts.filter(
           (a) =>
@@ -479,5 +481,84 @@ describe('base64UrlEncode', () => {
     const out = base64UrlEncode('subject:hello\r\nbody');
     const back = Buffer.from(out, 'base64url').toString('utf-8');
     expect(back).toBe('subject:hello\r\nbody');
+  });
+});
+
+// ─── v1.1 — multi-comptes (mailAccountId) ──────────────────────────────────
+
+describe('sendGmailAsUser — v1.1 mailAccountId resolution', () => {
+  const USER_ID_V11 = 'user_v11';
+  const SCOPE_OK_V11 = 'openid email profile https://www.googleapis.com/auth/gmail.send';
+
+  it('returns mailAccountIdUsed = resolved Account.id (no mailAccountId)', async () => {
+    const fake = makeFakePrisma({
+      users: [{ id: USER_ID_V11, email: 'v11@example.com' }],
+      accounts: [
+        {
+          id: 'acc_default_v11',
+          userId: USER_ID_V11,
+          provider: 'google',
+          refresh_token: 'rt',
+          access_token: 'at',
+          expires_at: Math.floor(Date.now() / 1000) + 3600,
+          mailSendScope: SCOPE_OK_V11,
+          mailSendNeedsReauth: false,
+        },
+      ],
+    });
+    const result = await sendGmailAsUser(
+      USER_ID_V11,
+      {
+        to: 'recip@example.com',
+        subject: 'v1.1 default',
+        body_text: 'hello',
+        appSource: 'hub-test',
+        idempotencyKey: 'idem-v11-1',
+      },
+      { prisma: fake as any, buildGmailClient: () => makeGmailClientOk('msg_v11') },
+    );
+    expect(result.messageId).toBe('msg_v11');
+    expect(result.mailAccountIdUsed).toBe('acc_default_v11');
+  });
+
+  it('uses explicit mailAccountId when provided + valid for user', async () => {
+    const fake = makeFakePrisma({
+      users: [{ id: USER_ID_V11, email: 'v11@example.com' }],
+      accounts: [
+        {
+          id: 'acc_perso',
+          userId: USER_ID_V11,
+          provider: 'google',
+          refresh_token: 'rt',
+          access_token: 'at',
+          expires_at: Math.floor(Date.now() / 1000) + 3600,
+          mailSendScope: SCOPE_OK_V11,
+          mailSendNeedsReauth: false,
+        },
+        {
+          id: 'acc_pro',
+          userId: USER_ID_V11,
+          provider: 'google',
+          refresh_token: 'rt2',
+          access_token: 'at2',
+          expires_at: Math.floor(Date.now() / 1000) + 3600,
+          mailSendScope: SCOPE_OK_V11,
+          mailSendNeedsReauth: false,
+        },
+      ],
+    });
+    const result = await sendGmailAsUser(
+      USER_ID_V11,
+      {
+        to: 'recip@example.com',
+        subject: 'v1.1 explicit',
+        body_text: 'hello',
+        appSource: 'hub-test',
+        idempotencyKey: 'idem-v11-2',
+        mailAccountId: 'acc_pro',
+      },
+      { prisma: fake as any, buildGmailClient: () => makeGmailClientOk('msg_pro') },
+    );
+    expect(result.mailAccountIdUsed).toBe('acc_pro');
   });
 });
