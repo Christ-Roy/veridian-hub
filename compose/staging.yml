@@ -115,6 +115,18 @@ services:
       # HUB_HMAC_SECRET et porte la même valeur.
       ANALYTICS_HUB_API_SECRET: ${ANALYTICS_HUB_API_SECRET_STAGING:-staging-analytics-hub-secret-not-real-e2e}
 
+      # ─── CRM Veridian (fork Twenty AGPLv3) ─────────────────────────────
+      # Déployé staging 2026-05-27 sur crm.staging.veridian.site (4 containers
+      # docker : crm-server + crm-worker + crm-redis + crm-postgres).
+      # Pattern API consumption pure (cf todo/2026-05-27-route-admin-create-crm-tenant.md) :
+      # - PAS de HMAC bidirectionnel (Hub appelle Twenty REST/GraphQL public)
+      # - PAS de webhook Twenty→Hub (lifecycle géré Hub-side)
+      # - PAS d'endpoint obligatoire côté Twenty (zero modif code AGPL)
+      # - Auth Hub→Twenty = Bearer API key stockée chiffrée par tenant
+      CRM_METADATA_URL: ${CRM_METADATA_URL_STAGING:-https://crm.staging.veridian.site/metadata}
+      CRM_REST_URL: ${CRM_REST_URL_STAGING:-https://crm.staging.veridian.site/rest}
+      CRM_FRONTEND_URL: ${CRM_FRONTEND_URL_STAGING:-https://crm.staging.veridian.site}
+
       # ─── Services tiers staging ────────────────────────────────────────
       BREVO_API_KEY: ${BREVO_API_KEY_STAGING:-}
       CRON_SECRET: staging-cron-secret

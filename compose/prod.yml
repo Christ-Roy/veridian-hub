@@ -90,6 +90,15 @@ services:
       # `2026-05-20-hub-integration-when-saas-launched.md`).
       ANALYTICS_HUB_API_SECRET: ${ANALYTICS_HUB_API_SECRET:-}
 
+      # ─── CRM Veridian (fork Twenty AGPLv3) ─────────────────────────────
+      # Prod URL à fixer quand crm.veridian.site sera déployé (en attente).
+      # Pattern API consumption pure : Bearer token Twenty stocké chiffré
+      # par tenant, pas de HMAC bidirectionnel. Cf todo
+      # 2026-05-27-route-admin-create-crm-tenant.md pour le flow complet.
+      CRM_METADATA_URL: ${CRM_METADATA_URL:-https://crm.veridian.site/metadata}
+      CRM_REST_URL: ${CRM_REST_URL:-https://crm.veridian.site/rest}
+      CRM_FRONTEND_URL: ${CRM_FRONTEND_URL:-https://crm.veridian.site}
+
       # ─── Services tiers prod ───────────────────────────────────────────
       BREVO_API_KEY: ${BREVO_API_KEY}
       CRON_SECRET: ${CRON_SECRET}
