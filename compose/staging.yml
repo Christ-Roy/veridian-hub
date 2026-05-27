@@ -126,6 +126,14 @@ services:
       CRM_METADATA_URL: ${CRM_METADATA_URL_STAGING:-https://crm.staging.veridian.site/metadata}
       CRM_REST_URL: ${CRM_REST_URL_STAGING:-https://crm.staging.veridian.site/rest}
       CRM_FRONTEND_URL: ${CRM_FRONTEND_URL_STAGING:-https://crm.staging.veridian.site}
+      # Vault AES-256-GCM dédié au CRM (Bearer Twenty + password régen).
+      # Clé séparée de VAULT_ENC_KEY pour isoler le blast radius (rotation
+      # indépendante, clés long-lived 1 an stockées). Génération :
+      # `openssl rand -base64 32`. Le fallback ci-dessous (32 'b') ne sert
+      # qu'à laisser le container démarrer en local — les routes
+      # /api/admin/crm/* échoueront 500 vault_unavailable tant que la vraie
+      # clé n'est pas posée (cf. CRM_VAULT_KEY_STAGING dans .env staging).
+      CRM_VAULT_KEY: ${CRM_VAULT_KEY_STAGING:-YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmI=}
 
       # ─── Services tiers staging ────────────────────────────────────────
       BREVO_API_KEY: ${BREVO_API_KEY_STAGING:-}

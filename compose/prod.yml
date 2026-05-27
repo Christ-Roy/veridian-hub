@@ -98,6 +98,12 @@ services:
       CRM_METADATA_URL: ${CRM_METADATA_URL:-https://crm.veridian.site/metadata}
       CRM_REST_URL: ${CRM_REST_URL:-https://crm.veridian.site/rest}
       CRM_FRONTEND_URL: ${CRM_FRONTEND_URL:-https://crm.veridian.site}
+      # Vault AES-256-GCM dédié au CRM (Bearer Twenty + password régen).
+      # Clé séparée de VAULT_ENC_KEY pour isoler le blast radius. Génération :
+      # `openssl rand -base64 32`. AUCUN fallback en prod : si absente, les
+      # routes /api/admin/crm/* échouent dur (500 vault_unavailable). Voulu —
+      # on ne chiffre PAS en prod avec une clé devinée.
+      CRM_VAULT_KEY: ${CRM_VAULT_KEY}
 
       # ─── Services tiers prod ───────────────────────────────────────────
       BREVO_API_KEY: ${BREVO_API_KEY}
