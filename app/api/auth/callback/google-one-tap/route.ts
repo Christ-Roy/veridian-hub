@@ -58,6 +58,7 @@ import {
   resolveSessionCookieName,
   setSessionCookieOnResponse,
 } from '@/lib/auth/cookie-scope';
+import { setSessionHintCookie } from '@/lib/auth/session-hint-cookie';
 import { extractClientIp, oauthCallbackLimiter } from '@/lib/auth/rate-limit';
 
 export const dynamic = 'force-dynamic';
@@ -259,6 +260,28 @@ export async function POST(request: NextRequest) {
     { status: 200, headers: corsHeaders },
   );
   setSessionCookieOnResponse(response, sessionJwt, { maxAge: ONE_TAP_SESSION_TTL_S });
+
+  // Pose en parallèle le cookie hint cross-subdomain — c'est ce qui permet
+  // à la landing veridian.site de détecter la session sans round-trip API.
+  // Best-effort : si SESSION_HINT_SECRET n'est pas configuré, on ne casse
+  // pas le flow One Tap (la session principale reste valide).
+  try {
+    await setSessionHintCookie(response, {
+      email: user.email,
+      name: user.name ?? null,
+      image: user.image ?? null,
+    });
+  } catch (err) {
+    console.warn(
+      JSON.stringify({
+        tag: '[one-tap-callback]',
+        level: 'warn',
+        message: 'failed to set session hint cookie (non-blocking)',
+        reason: err instanceof Error ? err.message : String(err),
+        ts: new Date().toISOString(),
+      }),
+    );
+  }
 
   console.info(
     JSON.stringify({

@@ -32,6 +32,10 @@ import {
   landingCorsPreflightResponse,
 } from '@/lib/cors/landing-cors';
 import { RateLimiter, extractClientIp } from '@/lib/auth/rate-limit';
+import {
+  readSessionHintFromRequest,
+  setSessionHintCookie,
+} from '@/lib/auth/session-hint-cookie';
 
 // Limiter dédié — instance module-level partagée entre tous les calls.
 // 100/min/IP : généreux pour la landing (1 call/page) tout en étouffant un
@@ -68,6 +72,36 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  // Fast path : si le cookie hint `veridian-session-hint` est présent et
+  // valide (signature HS256 OK, exp non dépassée), on répond direct sans
+  // toucher à Auth.js / Prisma. Bénéfices :
+  //  - latence : pas de JWE decode + pas de session table lookup
+  //  - résilience : marche même si Auth.js temporairement KO
+  //  - cross-subdomain : le hint cookie a scope .veridian.site donc il
+  //    arrive bien sur les requêtes cross-origin depuis la landing
+  try {
+    const hint = await readSessionHintFromRequest(request);
+    if (hint) {
+      return NextResponse.json(
+        {
+          authenticated: true,
+          email: hint.email,
+          name: hint.name ?? null,
+          image: hint.image ?? null,
+          source: 'hint',
+        },
+        { status: 200, headers: corsHeaders },
+      );
+    }
+  } catch {
+    // Lecture hint silencieuse — on retombe en fallback Auth.js.
+  }
+
+  // Fallback : session Auth.js standard (cookie session principal). Plus
+  // coûteux mais authority de vérité. Si auth() retourne un user mais le
+  // hint cookie n'existait pas, on en profite pour le poser au passage —
+  // bootstrap idempotent pour les users existants qui n'ont pas encore
+  // visité la landing depuis le déploiement de cette feature.
   const session = await auth();
   if (!session?.user?.email) {
     return NextResponse.json(
@@ -76,13 +110,26 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  return NextResponse.json(
+  const response = NextResponse.json(
     {
       authenticated: true,
       email: session.user.email,
       name: session.user.name ?? null,
       image: session.user.image ?? null,
+      source: 'session',
     },
     { status: 200, headers: corsHeaders },
   );
+  // Best-effort : pose le hint pour la prochaine visite. Échec silencieux
+  // (SESSION_HINT_SECRET pas configuré → on ne casse pas /api/me/lite).
+  try {
+    await setSessionHintCookie(response, {
+      email: session.user.email,
+      name: session.user.name ?? null,
+      image: session.user.image ?? null,
+    });
+  } catch {
+    /* noop — hint best-effort */
+  }
+  return response;
 }
