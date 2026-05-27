@@ -76,14 +76,4 @@ describe('AppSidebar', () => {
     expect(screen.getByText('Bientôt')).toBeInTheDocument();
   });
 
-  it('l\'item CRM est présent, navigable vers /dashboard/crm et porte le badge "Nouveau"', () => {
-    // Ajout sprint CRM v1 — la sidebar expose l'entrée CRM entre Membres et
-    // Facturation. Si le badge "Nouveau" disparaît ou que l'URL change, ce
-    // test casse → on évite une régression silencieuse sur l'onboarding CRM.
-    renderSidebar();
-    expect(screen.getByText('CRM')).toBeInTheDocument();
-    const crmLink = screen.getByText('CRM').closest('a');
-    expect(crmLink?.getAttribute('href')).toBe('/dashboard/crm');
-    expect(screen.getByText('Nouveau')).toBeInTheDocument();
-  });
 });

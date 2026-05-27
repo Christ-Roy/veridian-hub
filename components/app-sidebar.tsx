@@ -3,7 +3,6 @@
 import * as React from "react"
 import Link from "next/link"
 import {
-  DatabaseIcon,
   FileIcon,
   HelpCircleIcon,
   LayoutDashboardIcon,
@@ -43,12 +42,6 @@ const navMain = [
     title: "Membres",
     url: "/dashboard/workspace/members",
     icon: Users2Icon,
-  },
-  {
-    title: "CRM",
-    url: "/dashboard/crm",
-    icon: DatabaseIcon,
-    badge: "Nouveau",
   },
   {
     title: "Facturation",

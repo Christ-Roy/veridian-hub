@@ -16,14 +16,14 @@
 import React from 'react';
 import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import { LayoutDashboardIcon, ZapIcon, FileIcon, DatabaseIcon } from 'lucide-react';
+import { LayoutDashboardIcon, ZapIcon, FileIcon, SparklesIcon } from 'lucide-react';
 import { NavMain } from '@/components/nav-main';
 import { SidebarProvider } from '@/components/ui/sidebar';
 
 const ITEMS = [
   { title: 'Tableau de bord', url: '/dashboard', icon: LayoutDashboardIcon },
   { title: 'Intégration', url: '/dashboard/integration', icon: ZapIcon, disabled: true },
-  { title: 'CRM', url: '/dashboard/crm', icon: DatabaseIcon, badge: 'Nouveau' },
+  { title: 'Nouveauté', url: '/dashboard/nouveaute', icon: SparklesIcon, badge: 'Nouveau' },
   { title: 'Facturation', url: '/dashboard/billing', icon: FileIcon },
 ];
 
@@ -76,13 +76,12 @@ describe('NavMain', () => {
 
   it('un item actif avec badge ("Nouveau") rend le badge à droite + reste cliquable', () => {
     renderNav();
-    // L'item CRM porte un badge "Nouveau" — il doit être rendu visuellement,
-    // sans casser la navigabilité (régression à surveiller : si on rend le
-    // badge comme un sibling du Link au lieu d'un enfant, le href disparaît).
+    // Régression à surveiller : si on rend le badge comme un sibling du Link
+    // au lieu d'un enfant, le href disparaît.
     expect(screen.getByText('Nouveau')).toBeInTheDocument();
-    const crmLink = screen.getByText('CRM').closest('a');
-    expect(crmLink).not.toBeNull();
-    expect(crmLink?.getAttribute('href')).toBe('/dashboard/crm');
+    const link = screen.getByText('Nouveauté').closest('a');
+    expect(link).not.toBeNull();
+    expect(link?.getAttribute('href')).toBe('/dashboard/nouveaute');
   });
 
   it('un item sans badge ne fait pas apparaître de span "Nouveau" fantôme', () => {

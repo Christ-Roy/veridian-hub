@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { TenantCard } from './components/TenantCard';
 import { ProspectionCard } from './components/ProspectionCard';
+import { CrmCard } from './components/CrmCard';
 import { ServiceCard } from './components/ServiceCard';
 import { ShadowAppCard } from './components/ShadowAppCard';
 import { RefreshButton } from './components/RefreshButton';
@@ -37,6 +38,17 @@ export default async function DashboardPage({
 
   const params = await searchParams;
   const showDebug = process.env.NODE_ENV === 'development' && params.debug === '1';
+
+  // CRM tenant lookup — best-effort, n'empêche pas le dashboard si fail.
+  const crmTenant = await prisma.crmTenant
+    .findFirst({
+      where: { userId: user.id, status: 'active' },
+      select: { id: true },
+    })
+    .catch((err) => {
+      console.error('[Dashboard] Failed to fetch CRM tenant:', err);
+      return null;
+    });
 
   const tenant = await prisma.tenant.findFirst({
     where: { userId: userUuid(user) },
@@ -184,6 +196,8 @@ export default async function DashboardPage({
             tenantId={tenant?.id}
             userEmail={user.email || undefined}
           />
+
+          <CrmCard configured={!!crmTenant} />
         </div>
       </section>
 
