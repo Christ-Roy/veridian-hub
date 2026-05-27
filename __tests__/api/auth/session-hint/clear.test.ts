@@ -9,6 +9,8 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import { NextRequest } from 'next/server';
+import fs from 'fs';
+import path from 'path';
 
 import { POST } from '@/app/api/auth/session-hint/clear/route';
 
@@ -37,5 +39,24 @@ describe('POST /api/auth/session-hint/clear', () => {
   it('200 même si pas de cookie en entrée (idempotent)', async () => {
     const res = await POST(makeReq());
     expect(res.status).toBe(200);
+  });
+});
+
+describe('runtime config — clear/route.ts', () => {
+  // Verrouille les exports config (dynamic + runtime) : la route DOIT être
+  // marquée `force-dynamic` + `nodejs` runtime, sinon Next.js peut la mettre
+  // en cache (= cookie clear inopérant côté CDN) ou la basculer en Edge
+  // (= incompatible avec libs Node-only utilisées en aval).
+  const source = fs.readFileSync(
+    path.join(process.cwd(), 'app/api/auth/session-hint/clear/route.ts'),
+    'utf8',
+  );
+
+  it('export dynamic = "force-dynamic" (anti cache CDN)', () => {
+    expect(source).toMatch(/export\s+const\s+dynamic\s*=\s*['"]force-dynamic['"]/);
+  });
+
+  it('export runtime = "nodejs" (la lib cookie utilise des APIs Node)', () => {
+    expect(source).toMatch(/export\s+const\s+runtime\s*=\s*['"]nodejs['"]/);
   });
 });
