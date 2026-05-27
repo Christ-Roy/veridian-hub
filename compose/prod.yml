@@ -110,6 +110,11 @@ services:
       CRON_SECRET: ${CRON_SECRET}
       VAULT_ENC_KEY: ${VAULT_ENC_KEY}
       NEXT_PUBLIC_GTM_ID: ${GTM_ID_APP_VERIDIAN}
+
+      # ─── CORS landing cross-subdomain (cf. docs/CROSS-SUBDOMAIN-LANDING.md) ─
+      # Origins acceptées sur /api/me/lite + /api/auth/callback/google-one-tap.
+      # Défaut whitelistée hardcoded : veridian.site + www.veridian.site.
+      LANDING_ORIGIN: ${LANDING_ORIGIN:-https://veridian.site}
     labels:
       - traefik.enable=true
       - traefik.docker.network=dokploy-network

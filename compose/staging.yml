@@ -163,6 +163,15 @@ services:
       # Côté E2E runner : sourced auto depuis ~/credentials/.all-creds.env
       # par scripts/e2e/staging-full.sh.
       E2E_RATELIMIT_BYPASS_SECRET: ${E2E_RATELIMIT_BYPASS_SECRET:-}
+
+      # ─── CORS landing cross-subdomain (cf. docs/CROSS-SUBDOMAIN-LANDING.md) ─
+      # Whitelist additionnelle pour /api/me/lite + /api/auth/callback/
+      # google-one-tap. Défauts hardcoded (veridian.site + www) déjà inclus
+      # côté code. Sur staging on autorise aussi un futur veridian.staging.site
+      # quand la landing aura un staging dédié (aujourd'hui pas câblé →
+      # variable vide acceptée).
+      LANDING_ORIGIN: ${LANDING_ORIGIN:-https://veridian.site}
+      LANDING_ORIGIN_STAGING: ${LANDING_ORIGIN_STAGING:-}
     labels:
       - traefik.enable=true
       - traefik.docker.network=staging-edge
