@@ -118,4 +118,23 @@ test.describe('Journey 18 — Landing cross-subdomain', () => {
     expect(res.headers()['access-control-allow-origin']).toBe('https://veridian.site');
     expect(res.headers()['access-control-allow-methods']).toContain('POST');
   });
+
+  test('POST /api/auth/session-hint/refresh sans session → 401', async ({ request }) => {
+    const res = await request.post('/api/auth/session-hint/refresh');
+    expect(res.status()).toBe(401);
+    const body = await res.json();
+    expect(body).toEqual({ ok: false, error: 'unauthorized' });
+  });
+
+  test('POST /api/auth/session-hint/clear → 200 + Set-Cookie Max-Age=0 (idempotent)', async ({
+    request,
+  }) => {
+    const res = await request.post('/api/auth/session-hint/clear');
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ ok: true });
+    const setCookie = res.headers()['set-cookie'];
+    expect(setCookie).toContain('veridian-session-hint=;');
+    expect(setCookie).toMatch(/Max-Age=0/i);
+  });
 });

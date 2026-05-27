@@ -2,23 +2,24 @@
 
 > Statut : **côté Hub livré 2026-05-27**. Landing CF Pages à créer côté repo
 > séparé (action Robert).
-> Tier risque : 🔴 HAUT (touche au scope cookie session — invalide les sessions
-> actives au déploiement).
+> Pattern : **2-cookies** (zéro downtime sessions, décision Robert 2026-05-27).
 
-## Pourquoi
+## Pourquoi 2 cookies
 
-Robert veut séparer la landing marketing (statique, ultra-rapide, SEO-friendly)
-du Hub applicatif (Next.js + DB + auth). Le compromis cible :
+Premier essai 2026-05-27 (commit reverted) : scope cookie session sur
+`.veridian.site`. Décision Robert : refus, car ça **invalide toutes les
+sessions actives prod** au déploiement (le browser ne match plus l'ancien
+cookie `app.veridian.site` avec le nouveau `.veridian.site`).
 
-| Surface | Aujourd'hui | Cible |
-|---|---|---|
-| Landing marketing | `app.veridian.site/` (rendue par le Hub) | `veridian.site/` (CF Pages statique) |
-| Dashboard + auth | `app.veridian.site/dashboard` + `/login` | inchangé |
+Solution retenue : **2 cookies séparés**.
 
-Pendant la transition les **2 domaines doivent fonctionner**. Le commit qui
-introduit ce setup côté Hub ne supprime PAS la landing actuelle sur
-`app.veridian.site/` — il ouvre juste la porte CORS + cookie scope pour que
-veridian.site puisse plug-and-play quand le repo landing sera prêt.
+| Cookie | Scope | HttpOnly | Rôle |
+|---|---|---|---|
+| `__Secure-authjs.session-token` | `app.veridian.site` (host) | ✅ oui | Authority — vraie session Auth.js. Inchangé, jamais touché. |
+| `veridian-session-hint` | `.veridian.site` (apex + sous-dom.) | ❌ non | Hint UX cross-subdomain. JWT HS256 signé. Claims légers `{email, name?, image?}`. |
+
+Le cookie session principal reste **sacré et inchangé**. Le cookie hint est
+un indice UX pour la landing — pas une autorité de session.
 
 ## Architecture
 
@@ -26,82 +27,106 @@ veridian.site puisse plug-and-play quand le repo landing sera prêt.
                   ┌─────────────────────────────┐
                   │ veridian.site (CF Pages)    │
                   │  - HTML statique            │
-                  │  - JS : fetch /api/me/lite  │
+                  │  - JS : lit cookie hint     │
                   │  - JS : Google One Tap GSI  │
+                  │  - JS : fetch /api/me/lite  │
                   └────────┬────────────────────┘
                            │ fetch credentials:include
                            │  + Origin: https://veridian.site
                            ▼
                   ┌─────────────────────────────┐
                   │ app.veridian.site (Hub)     │
-                  │  - GET /api/me/lite (CORS)  │
+                  │  - GET /api/me/lite (CORS,  │
+                  │      fast path hint cookie) │
                   │  - POST /api/auth/callback/ │
                   │      google-one-tap (CORS)  │
-                  │  - cookie session scopé     │
+                  │  - POST /api/auth/          │
+                  │      session-hint/refresh   │
+                  │  - POST /api/auth/          │
+                  │      session-hint/clear     │
+                  │  - cookie session : scope   │
+                  │      app.veridian.site      │
+                  │  - cookie hint   : scope    │
                   │      .veridian.site         │
                   └─────────────────────────────┘
 ```
 
-Le cookie session Auth.js est posé avec `Domain=.veridian.site` (cf.
-`lib/auth/cookie-scope.ts`) donc visible depuis l'apex ET tout sous-domaine.
+Le cookie hint est posé automatiquement :
+- au **login OAuth standard** (Google/Microsoft) via un call client à
+  `/api/auth/session-hint/refresh` après le retour callback (hook React)
+- au **signup credentials** via le même call
+- au **One Tap signup** depuis la landing (le callback `/api/auth/callback/
+  google-one-tap` pose les 2 cookies en parallèle)
+- en **bootstrap** sur `/api/me/lite` (si fallback Auth.js réussit, le hint
+  est posé pour la prochaine visite)
+
+Et clear automatiquement :
+- avant le **signOut** Auth.js (call client à `/api/auth/session-hint/clear`)
 
 ## Composants côté Hub
 
-### 1. Cookie scope `.veridian.site`
+### 1. `lib/auth/session-hint-cookie.ts` — helpers JWT signés
 
-Configuré dans `auth.ts` via `resolveSessionCookieConfig()`. Règle :
+| Helper | Rôle |
+|---|---|
+| `encodeSessionHintJwt(claims, env?)` | Signe un JWT HS256 avec `SESSION_HINT_SECRET` |
+| `decodeSessionHintJwt(token, env?)` | Vérifie sig + exp + issuer, retourne claims ou `null` (jamais throw) |
+| `setSessionHintCookie(res, claims, env?)` | Pose le Set-Cookie cross-subdomain |
+| `clearSessionHintCookie(res, env?)` | Set Max-Age=0 |
+| `readSessionHintFromRequest(req, env?)` | Lit + valide le cookie depuis NextRequest |
 
-| `DEPLOY_ENV` | `Domain` | Cookie visible depuis |
-|---|---|---|
-| `prod` | `.veridian.site` | veridian.site, www.veridian.site, app.veridian.site, *.veridian.site |
-| `staging` | `.staging.veridian.site` | hub.staging.veridian.site, futur veridian.staging.site |
-| (dev/local) | (non posé) | host courant (localhost) |
+Constantes exportées :
+- `SESSION_HINT_COOKIE_NAME = 'veridian-session-hint'`
+- `SESSION_HINT_TTL_S = 60 * 60 * 24 * 30` (30j)
 
-**Impact déploiement** : le passage de scope `app.veridian.site` → `.veridian.site`
-invalide les sessions actives au moment du déploiement (le browser ne
-matche plus l'ancien cookie). Les utilisateurs devront re-login. Notification
-côté UI conseillée (banner sur /login pendant 24h post-deploy).
+Sécurité :
+- HS256 signé via `SESSION_HINT_SECRET` (≥ 32 chars exigés)
+- Issuer figé `'veridian-hub'` (anti-token recyclé d'un autre service)
+- Pas de claims sensibles (pas userId, pas role) — vol cookie = pas takeover
 
-### 2. `GET /api/me/lite` (CORS-enabled)
+### 2. `GET /api/me/lite` (CORS-enabled, fast path hint)
 
-Endpoint **lite** que la landing call en début de page pour détecter une
-session existante.
+Endpoint principal pour la landing. Deux paths :
 
-**Request** (depuis la landing) :
-```js
-const res = await fetch('https://app.veridian.site/api/me/lite', {
-  credentials: 'include',
-});
-const { authenticated, email, name, image } = await res.json();
-```
-
-**Response** :
-```json
-{ "authenticated": false }
-```
-ou :
+**Fast path** (la landing a déjà le hint cookie) :
 ```json
 {
   "authenticated": true,
   "email": "robert@veridian.site",
   "name": "Robert",
-  "image": "https://..."
+  "image": "https://...",
+  "source": "hint"
 }
 ```
+Pas de DB hit, pas de JWE decode. Latence ~1 ms.
 
-Toujours 200 — la landing n'a pas à gérer un 401. Volontairement **lite** :
-pas de userId, pas de role, pas de plan (la landing ne pilote pas le SaaS).
+**Fallback Auth.js** (pas de hint mais session valide) :
+```json
+{
+  "authenticated": true,
+  "email": "robert@veridian.site",
+  "name": "Robert",
+  "image": "https://...",
+  "source": "session"
+}
+```
+Best-effort : pose le hint cookie en passant pour la prochaine visite
+(bootstrap idempotent).
 
-**CORS** : Origin doit être dans la whitelist (`lib/cors/landing-cors.ts`).
-Origin non whitelistée → la réponse sort sans `Access-Control-Allow-Origin`,
-le browser bloque côté landing (le fetch rejette).
+**Pas de session** :
+```json
+{ "authenticated": false }
+```
 
-**Rate-limit** : 100 req/min/IP.
+Toujours 200 — la landing n'a pas à gérer un 401.
+
+**CORS** : Origin doit être whitelistée (`lib/cors/landing-cors.ts`).
+Rate-limit 100 req/min/IP.
 
 ### 3. `POST /api/auth/callback/google-one-tap` (CORS-enabled)
 
-Endpoint que la landing call avec le `id_token` JWT renvoyé par le widget
-Google One Tap.
+Endpoint One Tap appelé depuis la landing. Valide le JWT Google, bootstrap
+user, pose le cookie session principal **ET** le cookie hint en parallèle.
 
 **Request** (depuis la landing) :
 ```js
@@ -119,7 +144,6 @@ google.accounts.id.initialize({
     );
     const data = await res.json();
     if (data.ok) {
-      // Cookie session posé — redirige vers le dashboard
       window.location.href = 'https://app.veridian.site' + data.redirect;
     }
   },
@@ -140,16 +164,38 @@ google.accounts.id.prompt();
 }
 ```
 
-**Response erreurs** :
-- `400 invalid_body` — credential absent ou JSON cassé
-- `401 invalid_token` — JWT rejeté (signature, exp, aud, email non vérifié)
-- `429 rate_limited` — 30+ tentatives/min/IP
-- `500 misconfigured` — `AUTH_SECRET` absent
-- `503 disabled` — `GOOGLE_OAUTH_CLIENT_ID` absent OU `DEPLOY_ENV=staging`
+Rate-limit 30/min/IP. 503 en staging (One Tap désactivé Tailscale-only).
 
-**Rate-limit** : 30 req/min/IP (via `oauthCallbackLimiter` existant).
+### 4. `POST /api/auth/session-hint/refresh` (auth required)
 
-### 4. Microsoft (PAS de One Tap natif)
+Permet à un user déjà loggué côté Hub (via OAuth/credentials/magic link)
+de **bootstrap** son cookie hint pour la landing. À câbler dans un hook
+React côté dashboard layout :
+
+```tsx
+useEffect(() => {
+  if (status === 'authenticated') {
+    fetch('/api/auth/session-hint/refresh', { method: 'POST' }).catch(() => {});
+  }
+}, [status]);
+```
+
+**Sans auth** → 401. **Sans SESSION_HINT_SECRET** → 500 misconfigured.
+
+### 5. `POST /api/auth/session-hint/clear` (public)
+
+Clear le cookie hint. À câbler avant le `signOut()` Auth.js :
+
+```tsx
+async function handleSignOut() {
+  await fetch('/api/auth/session-hint/clear', { method: 'POST' }).catch(() => {});
+  await signOut();
+}
+```
+
+Public et idempotent (200 toujours).
+
+### 6. Microsoft (PAS de One Tap natif)
 
 Microsoft Entra n'a pas d'équivalent One Tap. Côté landing → bouton classique :
 
@@ -160,13 +206,13 @@ Microsoft Entra n'a pas d'équivalent One Tap. Côté landing → bouton classiq
 ```
 
 Le flow OAuth standard redirige vers Microsoft puis revient sur app.veridian.site.
-Le cookie session est posé avec scope `.veridian.site` → au prochain visit de
-veridian.site, `/api/me/lite` renverra `authenticated: true`.
+Le cookie session est posé scope `app.veridian.site`. Le hint sera bootstrap
+au prochain hit de `/api/me/lite` depuis la landing OU au prochain visit
+dashboard via le hook React.
 
-### 5. Email / Signup (PAS de One Tap)
+### 7. Email / Signup (PAS de One Tap)
 
-Mêmes URLs que les flows existants — la landing redirige vers app.veridian.site
-qui gère le form complet :
+Mêmes URLs que les flows existants :
 
 ```html
 <a href="https://app.veridian.site/signup">Créer un compte</a>
@@ -181,34 +227,38 @@ Origins acceptées sur les routes cross-subdomain (cf. `lib/cors/landing-cors.ts
 - `https://veridian.site`
 - `https://www.veridian.site`
 
-**Ajoutés via ENV `LANDING_ORIGIN`** (prod) :
-- Ex : `https://veridian.io` si rebrand domaine
-
-**Ajoutés via ENV `LANDING_ORIGIN_STAGING`** (staging only) :
-- Futur : `https://veridian.staging.site` quand landing aura un staging dédié
-
-**En local-dev** (`DEPLOY_ENV` absent) :
-- `http://localhost:3000`, `http://localhost:4321`, `http://localhost:5173`
-  (facilite le dev cross-port d'une landing Astro/Vite/etc.)
+**Ajoutés via ENV `LANDING_ORIGIN`** (prod) — ex `https://veridian.io`
+**Ajoutés via ENV `LANDING_ORIGIN_STAGING`** (staging only)
+**En local-dev** : `http://localhost:3000`, `http://localhost:4321`, `http://localhost:5173`
 
 ## Snippets prêts à coller côté landing
 
-### Détection session (start of page)
+### Détection session — lecture cookie hint (sync, sans réseau)
 
 ```html
 <script>
-  fetch('https://app.veridian.site/api/me/lite', { credentials: 'include' })
-    .then(r => r.json())
-    .then(data => {
-      if (data.authenticated) {
-        document.body.dataset.user = data.email;
-        document.querySelectorAll('[data-show-when-logged-in]')
-          .forEach(el => el.style.display = '');
-        document.querySelectorAll('[data-show-when-logged-out]')
-          .forEach(el => el.style.display = 'none');
-      }
-    })
-    .catch(() => { /* offline / CORS / pas grave, fallback logged-out UI */ });
+  function readHintCookie() {
+    const match = document.cookie.match(/(?:^|;\s*)veridian-session-hint=([^;]+)/);
+    if (!match) return null;
+    try {
+      const parts = match[1].split('.');
+      if (parts.length !== 3) return null;
+      const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')));
+      if (payload.exp && payload.exp * 1000 < Date.now()) return null;
+      return { email: payload.email, name: payload.name, image: payload.image };
+    } catch { return null; }
+  }
+
+  const hint = readHintCookie();
+  if (hint) {
+    document.body.dataset.user = hint.email;
+    document.querySelectorAll('[data-show-when-logged-in]')
+      .forEach(el => el.style.display = '');
+    document.querySelectorAll('[data-show-when-logged-out]')
+      .forEach(el => el.style.display = 'none');
+    document.querySelectorAll('[data-user-email]')
+      .forEach(el => el.textContent = hint.email);
+  }
 </script>
 
 <a href="https://app.veridian.site/dashboard"
@@ -217,10 +267,29 @@ Origins acceptées sur les routes cross-subdomain (cf. `lib/cors/landing-cors.ts
   Accéder au dashboard
 </a>
 
-<button data-show-when-logged-out
-        onclick="loginWithOneTap()">
+<button data-show-when-logged-out onclick="loginWithOneTap()">
   Se connecter
 </button>
+```
+
+⚠️ La lecture cookie côté JS **ne vérifie pas la signature** — un user
+malveillant peut éditer son propre cookie pour faire croire à sa propre
+landing "je suis admin@". Mais la signature est vérifiée côté Hub à
+chaque appel d'API protégée → aucun risque d'élévation de privilège. Le
+JS n'utilise le hint que pour l'UX (afficher email/avatar).
+
+### Détection session — via API (signature vérifiée serveur)
+
+Pour une UX qui dépend de la signature, passer par `/api/me/lite` :
+
+```js
+fetch('https://app.veridian.site/api/me/lite', { credentials: 'include' })
+  .then(r => r.json())
+  .then(data => {
+    if (data.authenticated) {
+      console.log(data.source); // 'hint' ou 'session'
+    }
+  });
 ```
 
 ### Google One Tap
@@ -230,7 +299,7 @@ Origins acceptées sur les routes cross-subdomain (cf. `lib/cors/landing-cors.ts
 <script>
   async function loginWithOneTap() {
     window.google.accounts.id.initialize({
-      client_id: 'YOUR_GOOGLE_OAUTH_CLIENT_ID', // == Hub GOOGLE_OAUTH_CLIENT_ID
+      client_id: 'YOUR_GOOGLE_OAUTH_CLIENT_ID',
       callback: async ({ credential }) => {
         const res = await fetch(
           'https://app.veridian.site/api/auth/callback/google-one-tap',
@@ -254,57 +323,73 @@ Origins acceptées sur les routes cross-subdomain (cf. `lib/cors/landing-cors.ts
 
 ## Checklist déploiement landing (futur)
 
-Quand le repo landing CF Pages sera prêt :
-
-1. **DNS** : ajouter `veridian.site` → CF Pages (CNAME ou flat).
-2. **Cloudflare Pages** : déployer le repo landing, brancher domaine custom.
-3. **Côté Hub** : poser `LANDING_ORIGIN=https://veridian.site` dans Dokploy
-   ENV prod (déjà whitelist hardcoded mais explicite = mieux).
+1. **Générer le secret hint** : `openssl rand -base64 48` → poser
+   `SESSION_HINT_SECRET` dans Dokploy ENV prod + `~/credentials/.all-creds.env`
+2. **DNS** : ajouter `veridian.site` → CF Pages
+3. **CF Pages** : déployer le repo landing
 4. **OAuth Google Cloud Console** : ajouter `https://veridian.site` dans les
-   **Authorized JavaScript origins** du Client ID OAuth (le widget GSI le
-   vérifie). PAS besoin d'ajouter à Authorized redirect URIs (One Tap ne
-   redirect pas).
-5. **Tester côté landing** :
-   - `/api/me/lite` sans cookie → `{authenticated:false}` (200 + CORS header)
-   - `/api/me/lite` avec cookie (logué sur app.veridian.site) → claims
-   - One Tap signup → cookie posé, dashboard accessible.
-6. **Migrer le contenu marketing** progressivement de
-   `app.veridian.site/(marketing)/*` vers `veridian.site/*`. Tant que
-   `app.veridian.site/` continue à servir la landing legacy, pas de
-   discontinuité utilisateur.
-7. **Quand veridian.site est stable** : supprimer la landing
-   `app.veridian.site/(marketing)/*` (commit séparé, tier 🔴 HAUT — purge
-   SEO).
+   **Authorized JavaScript origins** du Client OAuth (PAS dans Authorized
+   redirect URIs — One Tap ne redirect pas)
+5. **Câbler le hook React côté dashboard layout** :
+   ```tsx
+   import { useEffect } from 'react';
+   import { useSession } from 'next-auth/react';
+   export function useSessionHintRefresh() {
+     const { status } = useSession();
+     useEffect(() => {
+       if (status === 'authenticated') {
+         fetch('/api/auth/session-hint/refresh', { method: 'POST' }).catch(() => {});
+       }
+     }, [status]);
+   }
+   ```
+6. **Câbler `clear` avant signOut** :
+   ```tsx
+   async function signOutWithHintClear() {
+     await fetch('/api/auth/session-hint/clear', { method: 'POST' }).catch(() => {});
+     await signOut();
+   }
+   ```
+7. **Tester depuis la landing** :
+   - sans cookie hint → `/api/me/lite` 200 `{authenticated:false}`
+   - après login côté app → cookie hint visible dans devtools
+   - depuis veridian.site → lecture cookie hint JS OK + `/api/me/lite` 200 `{source:'hint'}`
+   - One Tap → cookie hint posé + redirect dashboard
 
 ## Sécurité — points d'attention
 
-- **Cookie scope `.veridian.site`** : tout sous-domaine *.veridian.site lit
-  le cookie. Si on délègue un sous-domaine à un service tiers (Vercel,
-  Netlify, etc.), ce service pourrait lire le cookie. **Ne jamais déléguer
-  *.veridian.site à un tiers** sans audit.
+- **2 cookies séparés** : le hint est public-ish (lisible JS), le session
+  reste httpOnly (résistant XSS). Pas de claims sensibles dans le hint.
+- **Signature HS256** : empêche un attaquant d'éditer le hint pour faire
+  croire à la landing "je suis X". Côté JS la lecture n'est qu'UX — toute
+  action protégée appelle le Hub qui re-vérifie la signature.
+- **Secrets distincts** : `SESSION_HINT_SECRET` ≠ `AUTH_SECRET`. Rotation
+  indépendante, blast radius isolé.
 - **CORS avec credentials** : on echo l'origin (jamais `*`) parce que
-  `Access-Control-Allow-Credentials: true` interdit le wildcard. La
-  whitelist est stricte (string exact match) — pas de regex laxiste.
+  `Access-Control-Allow-Credentials: true` interdit le wildcard. Whitelist
+  stricte (string exact match).
 - **One Tap GSI** : Google valide aussi l'origin côté client (GSI refuse
-  d'afficher la popup si l'origin n'est pas dans les Authorized JavaScript
+  d'afficher la popup si l'origin n'est pas dans Authorized JavaScript
   origins du Client OAuth). Double défense.
-- **Désactivé en staging** : la route `/api/auth/callback/google-one-tap`
-  retourne 503 quand `DEPLOY_ENV=staging` (cohérent avec le provider
-  Auth.js, cf. `isGoogleOneTapEnabled()`). Staging est Tailscale-only,
-  pas de redirect URI / origin déclaré chez Google.
+- **Désactivé en staging** : `/api/auth/callback/google-one-tap` retourne
+  503 quand `DEPLOY_ENV=staging` (cohérent avec `isGoogleOneTapEnabled()`).
 
 ## Tests
 
-- **Unit Vitest** :
-  - `__tests__/lib/auth/cookie-scope.test.ts` — 12 tests (scope par env,
-    nom préfixé `__Secure-`)
-  - `__tests__/lib/cors/landing-cors.test.ts` — 16 tests (whitelist,
-    ENV invalides, Vary, preflight)
-  - `__tests__/api/me/lite.test.ts` — 12 tests (auth on/off, leak-proof,
-    CORS, rate-limit)
-  - `__tests__/api/auth/callback/google-one-tap.test.ts` — 16 tests
-    (garde-fous, JWT, signup/login, cookie scope, CORS, rate-limit)
+- **Unit Vitest (~95 tests neufs)** :
+  - `__tests__/lib/auth/cookie-scope.test.ts` (10 tests — refonte post-pivot)
+  - `__tests__/lib/auth/session-hint-cookie.test.ts` (~20 tests — encode/decode,
+    defenses, set/clear, read)
+  - `__tests__/lib/cors/landing-cors.test.ts` (16 tests)
+  - `__tests__/api/me/lite.test.ts` (~14 tests — fast path hint + fallback
+    Auth.js + bootstrap + leak-proof + CORS + 429)
+  - `__tests__/api/auth/session-hint/refresh.test.ts` (4 tests)
+  - `__tests__/api/auth/session-hint/clear.test.ts` (2 tests)
+  - `__tests__/api/auth/callback/google-one-tap.test.ts` (16 tests)
+  - `__tests__/config/auth.test.ts` : test structural inversé qui
+    REFUSE désormais tout `cookies: { sessionToken: ... domain: ... }`
 
 - **E2E Playwright** :
-  - `e2e/staging-full/cross-subdomain-landing.spec.ts` — preflight CORS,
-    `/api/me/lite` non-auth, rejet origin non whitelistée.
+  - `e2e/staging-full/18-cross-subdomain-landing.spec.ts` — preflight CORS,
+    `/api/me/lite` non-auth, rejet origin non whitelistée, 503 staging
+    one-tap.

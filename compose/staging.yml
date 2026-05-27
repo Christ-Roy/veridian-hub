@@ -172,6 +172,11 @@ services:
       # variable vide acceptée).
       LANDING_ORIGIN: ${LANDING_ORIGIN:-https://veridian.site}
       LANDING_ORIGIN_STAGING: ${LANDING_ORIGIN_STAGING:-}
+
+      # Secret HS256 du cookie hint cross-subdomain.
+      # En staging : valeur factice acceptée (≥ 32 chars) → tests E2E
+      # passent même sans valeur réelle sourced depuis ~/credentials/.
+      SESSION_HINT_SECRET: ${SESSION_HINT_SECRET:-staging-session-hint-secret-not-real-e2e-padding}
     labels:
       - traefik.enable=true
       - traefik.docker.network=staging-edge

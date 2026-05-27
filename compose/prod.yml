@@ -115,6 +115,12 @@ services:
       # Origins acceptées sur /api/me/lite + /api/auth/callback/google-one-tap.
       # Défaut whitelistée hardcoded : veridian.site + www.veridian.site.
       LANDING_ORIGIN: ${LANDING_ORIGIN:-https://veridian.site}
+
+      # Secret HS256 pour signer le cookie hint `veridian-session-hint`
+      # (cross-subdomain, scope .veridian.site, lisible JS côté landing).
+      # ≥ 32 chars. Sans valeur → /api/me/lite fallback Auth.js et le
+      # one-tap callback warn non-bloquant. Cf. lib/auth/session-hint-cookie.ts.
+      SESSION_HINT_SECRET: ${SESSION_HINT_SECRET}
     labels:
       - traefik.enable=true
       - traefik.docker.network=dokploy-network
