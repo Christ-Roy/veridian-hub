@@ -8,7 +8,7 @@ import {
   Send,
   Filter,
   Sparkles,
-  Download,
+  Plug,
   ArrowRight,
 } from "lucide-react"
 import {
@@ -53,78 +53,80 @@ export function FeaturesSection() {
           </p>
         </div>
 
-        {/* Bloc 2: CRM Features - Inclus dans Pro & Business (livré en staging, prod imminent) */}
+        {/* Bloc 2: Veridian CRM - bientôt disponible (mode plan-agnostic).
+            Copy volontairement sobre, sans claim ferme sur features ni rattachement
+            à un tier pricing (offre pas encore tranchée — cf todo/2026-05-27-review-offre-crm-veridian.md). */}
         <div className="mb-20">
           <div className="mb-6 flex flex-wrap items-center gap-3">
             <h3 className="flex items-center gap-2 text-2xl font-semibold text-foreground">
               <Database className="size-6" />
-              CRM Intelligent
+              Veridian CRM
             </h3>
             <Badge variant="secondary" className="text-xs">
-              Inclus dans Veridian Pro &amp; Business
+              Bientôt disponible
             </Badge>
             <Badge variant="outline" className="text-xs text-muted-foreground">
-              Disponible sur staging — lancement prod imminent
+              En cours de déploiement
             </Badge>
           </div>
           <p className="mb-6 max-w-3xl text-muted-foreground">
-            Pipeline Kanban, contacts unifiés, assistant IA et import direct depuis Veridian Prospection — un CRM pensé pour transformer vos leads en clients sans changer d'outil.
+            Pipeline contacts, intégrations natives, AI assistant — un CRM pensé pour s&apos;intégrer nativement avec les autres apps Veridian.
           </p>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3 md:gap-6">
-            {/* Feature CRM 1: Pipeline Kanban */}
+            {/* Feature CRM 1: Pipeline contacts */}
             <Card className="bg-gradient-to-t from-primary/5 to-card">
               <CardHeader className="relative">
                 <div className="absolute right-4 top-4">
                   <Target className="size-8 text-muted-foreground/20" />
                 </div>
-                <CardTitle className="text-xl text-foreground">Pipeline Kanban</CardTitle>
+                <CardTitle className="text-xl text-foreground">Pipeline contacts</CardTitle>
                 <CardDescription className="mt-2">
-                  Visualisez vos deals en colonnes drag &amp; drop. Étapes personnalisables, prévisions et relances automatisées.
+                  Suivez vos contacts et vos deals dans un pipeline visuel pensé pour les équipes commerciales.
                 </CardDescription>
               </CardHeader>
               <CardFooter className="text-sm text-muted-foreground">
-                Vue Kanban illimitée
+                Aperçu à venir
               </CardFooter>
             </Card>
 
-            {/* Feature CRM 2: Contacts + AI assistant */}
+            {/* Feature CRM 2: Intégrations natives */}
+            <Card className="bg-gradient-to-t from-primary/5 to-card">
+              <CardHeader className="relative">
+                <div className="absolute right-4 top-4">
+                  <Plug className="size-8 text-muted-foreground/20" />
+                </div>
+                <CardTitle className="text-xl text-foreground">Intégrations natives</CardTitle>
+                <CardDescription className="mt-2">
+                  Connecté nativement aux autres apps Veridian pour éviter le copier-coller entre outils.
+                </CardDescription>
+              </CardHeader>
+              <CardFooter className="text-sm text-muted-foreground">
+                Aperçu à venir
+              </CardFooter>
+            </Card>
+
+            {/* Feature CRM 3: AI assistant */}
             <Card className="bg-gradient-to-t from-primary/5 to-card">
               <CardHeader className="relative">
                 <div className="absolute right-4 top-4">
                   <Sparkles className="size-8 text-muted-foreground/20" />
                 </div>
-                <CardTitle className="text-xl text-foreground">Contacts &amp; assistant IA</CardTitle>
+                <CardTitle className="text-xl text-foreground">AI assistant</CardTitle>
                 <CardDescription className="mt-2">
-                  Centralisez vos contacts, historique et notes. L'assistant IA résume vos échanges et suggère les prochaines actions.
+                  Un assistant pour résumer vos échanges, qualifier vos contacts et suggérer les prochaines actions.
                 </CardDescription>
               </CardHeader>
               <CardFooter className="text-sm text-muted-foreground">
-                Contacts illimités
-              </CardFooter>
-            </Card>
-
-            {/* Feature CRM 3: Import depuis Prospection */}
-            <Card className="bg-gradient-to-t from-primary/5 to-card">
-              <CardHeader className="relative">
-                <div className="absolute right-4 top-4">
-                  <Download className="size-8 text-muted-foreground/20" />
-                </div>
-                <CardTitle className="text-xl text-foreground">Import depuis Prospection</CardTitle>
-                <CardDescription className="mt-2">
-                  Vos leads qualifiés depuis Veridian Prospection arrivent directement dans le pipeline. Zéro copier-coller.
-                </CardDescription>
-              </CardHeader>
-              <CardFooter className="text-sm text-muted-foreground">
-                Sync native cross-app
+                Aperçu à venir
               </CardFooter>
             </Card>
           </div>
 
-          {/* CTA CRM — pointe vers l'offre payante (Pro & Business) */}
+          {/* CTA — pointe vers /pricing (pas d'ancre, offre pas encore figée) */}
           <div className="mt-8 flex justify-center">
             <Button asChild size="lg" variant="outline">
-              <Link href="/pricing#crm">
-                Découvrir l&apos;offre CRM
+              <Link href="/pricing">
+                Découvrir l&apos;offre
                 <ArrowRight className="ml-2 size-4" />
               </Link>
             </Button>
@@ -135,7 +137,7 @@ export function FeaturesSection() {
             <div className="relative overflow-hidden rounded-xl border bg-card shadow-2xl dark:shadow-[0_0_50px_0px_var(--primary)] ring-1 ring-black/5 dark:ring-primary/50">
               <Image
                 src="/landing/crm-interface.webp"
-                alt="Interface CRM Veridian — pipeline Kanban et gestion des contacts"
+                alt="Aperçu Veridian CRM"
                 width={1600}
                 height={900}
                 className="w-full"
