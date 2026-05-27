@@ -634,6 +634,46 @@ model AuditLog {
 }
 
 // ============================================================================
+// VERIDIAN CRM — tenants Twenty fork (créé 2026-05-27)
+// ============================================================================
+//
+// Table dédiée pour les workspaces Twenty (fork AGPL crm.staging.veridian.site)
+// provisionnés via POST /api/admin/crm/create-tenant.
+//
+// SÉPARÉE de `tenants` (scope Notifuse + Prospection) :
+//   - Le CRM Twenty a son propre cycle de vie (workspace fork avec storage
+//     custom, pas de plan billing Hub-side pour l'instant)
+//   - Les colonnes Bearer/password sont chiffrées AES-256-GCM avec
+//     CRM_VAULT_KEY (cf `lib/crm/vault.ts`)
+//   - L'idempotence est par email (UNIQUE partiel WHERE status != 'deleted')
+//
+// `userId` référence `users.supabase_user_id` (UUID v4 bridge), même pattern
+// que Tenant.userId. Pas de FK physique car la colonne cible est nullable.
+
+model CrmTenant {
+  id                        String    @id @default(uuid()) @db.Uuid
+  userId                    String    @map("user_id") @db.Uuid
+  email                     String
+  workspaceDisplayName      String    @map("workspace_display_name")
+  twentyWorkspaceId         String    @unique @map("twenty_workspace_id") @db.Uuid
+  twentyWorkspaceUrl        String    @map("twenty_workspace_url")
+  twentyApiKeyId            String    @map("twenty_api_key_id") @db.Uuid
+  twentyApiKeyEncrypted     String    @map("twenty_api_key_encrypted")
+  twentyApiKeyExpiresAt     DateTime  @map("twenty_api_key_expires_at") @db.Timestamptz(6)
+  twentyPasswordEncrypted   String    @map("twenty_password_encrypted")
+  status                    String    @default("active") // active | suspended | deleted
+  metadata                  Json?
+  provisionedAt             DateTime? @map("provisioned_at") @db.Timestamptz(6)
+  createdAt                 DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([userId])
+  @@index([status])
+  @@map("crm_tenants")
+  @@schema("hub_app")
+}
+
+// ============================================================================
 // OAUTH SIGN-IN EVENTS — audit log des connexions OAuth (succès + échecs)
 // ============================================================================
 // Append-only. Aucune route ne fait UPDATE ni DELETE sur cette table.
