@@ -90,7 +90,7 @@ export async function POST(request: NextRequest) {
 
   // 2. Idempotence — si un crm_tenant actif existe déjà pour cet email,
   //    on régénère juste un magic link.
-  const existing = await getCrmTenantByEmail(prisma, email);
+  const existing = await getCrmTenantByEmail(email);
   if (existing) {
     const existingRow = await prisma.crmTenant.findUnique({ where: { id: existing.id } });
     if (!existingRow) {

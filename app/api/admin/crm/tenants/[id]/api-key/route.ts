@@ -35,7 +35,7 @@ export async function GET(
     return NextResponse.json({ error: 'missing_id' }, { status: 400 });
   }
 
-  const tenant = await getCrmTenantById(prisma, id);
+  const tenant = await getCrmTenantById(id);
   if (!tenant) {
     return NextResponse.json({ error: 'tenant_not_found' }, { status: 404 });
   }

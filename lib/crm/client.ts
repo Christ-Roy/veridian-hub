@@ -500,3 +500,43 @@ export function createCrmClientFromEnv(opts?: Partial<CrmClientOptions>): CrmCli
     ...opts,
   });
 }
+
+/**
+ * Helper haut-niveau consommé par la route user dashboard
+ * `/api/dashboard/crm/regenerate-magic-link` : prend juste l'identifiant
+ * du CrmTenant Hub, fait l'orchestration complète (lookup → decrypt →
+ * appel GraphQL Twenty étape 7).
+ *
+ * Distinct de `CrmClient.regenerateMagicLink` qui est l'appel de bas niveau
+ * (signature riche email/password/workspaceUrl) — celle-ci s'occupe de
+ * tout, donc 1 seul argument côté caller.
+ *
+ * @throws Error si tenant introuvable / deleted / pas actif.
+ * @throws CrmClientError si l'appel CRM échoue.
+ */
+export async function regenerateMagicLink(
+  crmTenantId: string,
+): Promise<{ magicLinkUrl: string; expiresAt: Date }> {
+  // Imports paresseux pour éviter le cycle d'import + permettre mock
+  // facile (vi.mock du module au top-level reste fonctionnel).
+  const { getCrmTenantById } = await import('./select-tenant');
+  const { decryptSecret } = await import('./vault');
+
+  const tenant = await getCrmTenantById(crmTenantId);
+  if (!tenant) {
+    throw new Error(`CrmTenant ${crmTenantId} not found`);
+  }
+  if (tenant.status === 'deleted') {
+    throw new Error(`CrmTenant ${crmTenantId} is deleted`);
+  }
+  if (tenant.status !== 'active') {
+    throw new Error(`CrmTenant ${crmTenantId} is not active (status=${tenant.status})`);
+  }
+  const password = decryptSecret(tenant.twentyPasswordEncrypted);
+  const client = createCrmClientFromEnv();
+  return client.regenerateMagicLink({
+    email: tenant.email,
+    passwordDecrypted: password,
+    workspaceUrl: tenant.twentyWorkspaceUrl,
+  });
+}
