@@ -99,6 +99,17 @@ describe('auth.ts — invariants de config critiques', () => {
     );
   });
 
+  it('cookie session scopé via resolveSessionCookieConfig (cross-subdomain landing)', () => {
+    // Le cookie de session DOIT passer par le helper centralisé pour que la
+    // landing CF Pages (veridian.site) puisse partager la session avec le
+    // Hub (app.veridian.site). Si quelqu'un retire l'override `cookies:` ou
+    // inline une config sans helper, on perd le scope `.veridian.site` et
+    // /api/me/lite côté landing renverra toujours {authenticated:false}.
+    // Cf. docs/CROSS-SUBDOMAIN-LANDING.md.
+    expect(authSource).toMatch(/cookies:\s*resolveSessionCookieConfig\s*\(/);
+    expect(authSource).toMatch(/resolveSessionCookieConfig.*from.*@\/lib\/auth\/cookie-scope/);
+  });
+
   it('le logger Auth.js émet [auth-error][critical] sur Configuration + OAuthCallbackError', () => {
     // Garde-fou monitoring Grafana Loki. Si quelqu'un retire le logger
     // structuré, les incidents OAuth deviennent invisibles dans les
