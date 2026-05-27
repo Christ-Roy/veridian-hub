@@ -18,7 +18,6 @@ import { createCreateUserEvent } from '@/lib/auth/create-user-event';
 import { buildMockOauthProvider } from '@/lib/auth/mock-oauth-provider';
 import { buildGoogleOneTapProvider } from '@/lib/auth/google-one-tap-provider';
 import { createOauthEventLogger } from '@/lib/auth/oauth-event-log';
-import { resolveSessionCookieConfig } from '@/lib/auth/cookie-scope';
 
 const credentialsSchema = z.object({
   email: z.string().email(),
@@ -68,20 +67,6 @@ const OAUTH_FAILURE_ERROR_NAMES = new Set([
 export const { auth, handlers, signIn, signOut } = NextAuth({
   ...authConfig,
   adapter: PrismaAdapter(prisma),
-  // Scope cookie session sur `.veridian.site` (prod) / `.staging.veridian.site`
-  // (staging) pour que la landing CF Pages sur l'apex (veridian.site) puisse
-  // partager la session avec le Hub sur app.veridian.site. Sans `domain`, le
-  // cookie reste lié à l'host exact qui l'a posé (app.veridian.site) → la
-  // landing ne le verrait jamais.
-  //
-  // ⚠️ Le changement de `domain` INVALIDE les sessions actives au déploiement
-  // (le navigateur ne match plus l'ancien cookie scopé app.veridian.site avec
-  // le nouveau scopé .veridian.site → re-login forcé). Décision assumée :
-  // c'est un one-off au passage cross-subdomain.
-  //
-  // En local-dev (`undefined`) le cookie est laissé au défaut Auth.js (host
-  // courant, typiquement localhost) — pas de scope cross-subdomain à émuler.
-  cookies: resolveSessionCookieConfig(),
   // Logger structuré (JSON sur stderr) pour les erreurs Auth.js.
   // Cible prioritaire : `Configuration` (provider mal câblé côté serveur) et
   // `OAuthCallbackError` (provider en panne ou réponse invalide) — ces 2 codes

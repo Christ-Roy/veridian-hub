@@ -99,15 +99,16 @@ describe('auth.ts — invariants de config critiques', () => {
     );
   });
 
-  it('cookie session scopé via resolveSessionCookieConfig (cross-subdomain landing)', () => {
-    // Le cookie de session DOIT passer par le helper centralisé pour que la
-    // landing CF Pages (veridian.site) puisse partager la session avec le
-    // Hub (app.veridian.site). Si quelqu'un retire l'override `cookies:` ou
-    // inline une config sans helper, on perd le scope `.veridian.site` et
-    // /api/me/lite côté landing renverra toujours {authenticated:false}.
-    // Cf. docs/CROSS-SUBDOMAIN-LANDING.md.
-    expect(authSource).toMatch(/cookies:\s*resolveSessionCookieConfig\s*\(/);
-    expect(authSource).toMatch(/resolveSessionCookieConfig.*from.*@\/lib\/auth\/cookie-scope/);
+  it('PAS d\'override cookies sur sessionToken (cookie principal reste scope app.veridian.site)', () => {
+    // Décision Robert 2026-05-27 : le scope du cookie session principal reste
+    // celui par défaut Auth.js (host courant). Le cross-subdomain landing
+    // passe par un cookie hint séparé (lib/auth/session-hint-cookie.ts), pas
+    // par l'override du sessionToken — sinon on invaliderait les sessions
+    // actives prod au déploiement. Si quelqu'un re-ajoute `cookies: { ... }`
+    // avec un `domain` sur le sessionToken, on casse à nouveau les sessions.
+    // Cf. docs/CROSS-SUBDOMAIN-LANDING.md "pattern 2-cookies".
+    expect(authSource).not.toMatch(/cookies:\s*\{[\s\S]*?sessionToken[\s\S]*?domain/);
+    expect(authSource).not.toMatch(/cookies:\s*resolveSessionCookieConfig/);
   });
 
   it('le logger Auth.js émet [auth-error][critical] sur Configuration + OAuthCallbackError', () => {

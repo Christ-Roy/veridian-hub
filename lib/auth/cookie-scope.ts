@@ -1,27 +1,33 @@
 /**
- * Configuration du cookie session Auth.js — scope cross-subdomain.
+ * Helpers cookies — nom + scope pour le sessionToken Auth.js et le hint
+ * cookie cross-subdomain (`veridian-session-hint`).
  *
- * Permet à la landing CF Pages (veridian.site) et au Hub (app.veridian.site)
- * de partager la même session cookie. Sans `domain` explicite, Auth.js scope
- * le cookie sur l'host exact qui l'a posé — la landing ne verrait jamais le
- * cookie posé par /api/auth/callback côté Hub.
+ * **Pivot 2026-05-27** : on N'OVERRIDE PLUS le cookie session principal
+ * Auth.js. Il garde le scope par défaut (host courant = app.veridian.site
+ * en prod). Sinon, déployer la version `.veridian.site` invaliderait
+ * toutes les sessions actives prod. Décision Robert : zéro downtime
+ * sessions.
  *
- * Règles de scope par DEPLOY_ENV :
- *   - `prod`     → `.veridian.site`         (partagé entre veridian.site + app.veridian.site)
- *   - `staging`  → `.staging.veridian.site` (partagé entre hub.staging.veridian.site + futur veridian.staging.site)
- *   - autre/dev  → `undefined`              (laisse Auth.js gérer — localhost)
+ * Le partage de session avec la landing CF Pages (veridian.site) passe
+ * désormais par un **cookie hint séparé** :
+ *   - cookie session principal `__Secure-authjs.session-token` →
+ *     httpOnly, scope app.veridian.site (défaut) — comme avant
+ *   - cookie hint `veridian-session-hint` → JS-readable, scope
+ *     `.veridian.site`, signé JWT HS256, contient `{email, name, image}`
+ *     uniquement. Pas de claims sensibles, pas de userId.
  *
- * Nom du cookie : on garde le défaut Auth.js v5 — `__Secure-authjs.session-token`
- * en prod/staging (NODE_ENV=production → préfixe `__Secure-`), `authjs.session-token`
- * en local-dev. On utilise NODE_ENV ici (pas DEPLOY_ENV) parce que le préfixe
- * `__Secure-` est lié à la présence du flag `secure` du cookie, qui dépend de
- * HTTPS — donc de NODE_ENV=production qui force le build prod Next.js (cf.
- * memory feedback_node_env_vs_deploy_env : on évite NODE_ENV pour distinguer
- * staging/prod, MAIS ici on l'utilise pour distinguer prod-build vs local-dev,
- * ce qui EST son rôle légitime).
+ * Ce module expose 3 utilitaires :
+ *   - `resolveSessionCookieName(env)` — nom du sessionToken Auth.js,
+ *     préfixé `__Secure-` en NODE_ENV=production. Utilisé comme `salt`
+ *     dans `encode()` pour que @auth/core puisse déchiffrer le JWT.
+ *   - `resolveHintCookieDomain(env)` — `domain` à appliquer au hint
+ *     cookie (scope cross-subdomain). Réutilisé par session-hint-cookie.ts.
+ *   - `setSessionCookieOnResponse(res, jwt, {maxAge})` — pose le cookie
+ *     session principal sur une NextResponse. **PAS de `domain`** —
+ *     scope par défaut (host courant). Utilisé par les routes qui forgent
+ *     un cookie session (one-tap callback).
  */
 
-import type { NextAuthConfig } from 'next-auth';
 import type { NextResponse } from 'next/server';
 
 export type SessionCookieDomainEnv = {
@@ -32,28 +38,15 @@ export type SessionCookieDomainEnv = {
 };
 
 /**
- * Résout le `domain` du cookie session selon DEPLOY_ENV.
- *
- * Retourne `undefined` pour les envs non-production (dev, test, CI sans
- * DEPLOY_ENV posé) — laisse le navigateur scoper sur l'host courant.
- */
-export function resolveSessionCookieDomain(
-  env: SessionCookieDomainEnv = process.env,
-): string | undefined {
-  if (env.DEPLOY_ENV === 'prod') return '.veridian.site';
-  if (env.DEPLOY_ENV === 'staging') return '.staging.veridian.site';
-  return undefined;
-}
-
-/**
- * Résout le nom du cookie session — préfixe `__Secure-` requis dès que le
+ * Nom du cookie session Auth.js — préfixe `__Secure-` requis dès que le
  * cookie porte le flag `secure` (= NODE_ENV=production, build prod HTTPS).
  *
- * On lit la convention `authjs.session-token` (Auth.js v5) — l'ancien nom
- * `next-auth.session-token` est rétro-compat mais déprécié. Auth.js v5 pose
- * le bon nom selon NODE_ENV même sans config — on le redéclare ici parce que
- * dès qu'on override `cookies.sessionToken`, Auth.js attend le `name` complet
- * de notre côté (pas de fallback partiel).
+ * Convention `authjs.session-token` (Auth.js v5) — l'ancien
+ * `next-auth.session-token` est rétro-compat mais déprécié.
+ *
+ * Utilisé comme `salt` dans `encode()` de `next-auth/jwt` — DOIT matcher
+ * exactement le nom du cookie réel sinon @auth/core ne peut pas déchiffrer
+ * le JWT au prochain `auth()`.
  */
 export function resolveSessionCookieName(env: SessionCookieDomainEnv = process.env): string {
   return env.NODE_ENV === 'production'
@@ -62,41 +55,33 @@ export function resolveSessionCookieName(env: SessionCookieDomainEnv = process.e
 }
 
 /**
- * Configuration complète de l'override `cookies` pour `NextAuth()`.
+ * Résout le `domain` du cookie hint cross-subdomain selon DEPLOY_ENV.
  *
- * Renvoie un partial typé compatible avec `NextAuthConfig['cookies']`. Les
- * autres cookies Auth.js (csrf, pkce, state, nonce) restent au défaut.
+ * - `prod`    → `.veridian.site`         (apex + tous sous-domaines)
+ * - `staging` → `.staging.veridian.site` (hub.staging + futur landing staging)
+ * - dev/test  → `undefined`              (host courant, typ. localhost)
+ *
+ * NB : ce scope ne s'applique JAMAIS au cookie session principal. Voir
+ * le commentaire du module pour le pourquoi.
  */
-export function resolveSessionCookieConfig(
+export function resolveHintCookieDomain(
   env: SessionCookieDomainEnv = process.env,
-): NextAuthConfig['cookies'] {
-  const domain = resolveSessionCookieDomain(env);
-  const isProductionBuild = env.NODE_ENV === 'production';
-  return {
-    sessionToken: {
-      name: resolveSessionCookieName(env),
-      options: {
-        httpOnly: true,
-        sameSite: 'lax',
-        path: '/',
-        secure: isProductionBuild,
-        // `domain: undefined` est explicitement ignoré par le sérialiseur de
-        // cookie — équivalent à "ne pas poser l'attribut Domain", ce qu'on
-        // veut en local-dev.
-        domain,
-      },
-    },
-  };
+): string | undefined {
+  if (env.DEPLOY_ENV === 'prod') return '.veridian.site';
+  if (env.DEPLOY_ENV === 'staging') return '.staging.veridian.site';
+  return undefined;
 }
 
 /**
  * Pose le cookie session Auth.js sur une NextResponse — utilisé par les
- * routes qui forgent une session manuellement (One Tap callback, impersonate
- * callback). Garantit le même scope cross-subdomain que celui appliqué par
- * Auth.js sur les flows OAuth standard.
+ * routes qui forgent une session manuellement (one-tap callback).
  *
- * `maxAge` est requis (en secondes) — la valeur dépend de l'usage (90j pour
- * un login normal, plus court pour une session forgée).
+ * **PAS de `domain` explicite** : le cookie est scope host courant
+ * (`app.veridian.site` en prod), exactement comme un cookie posé par le
+ * flow OAuth standard Auth.js. C'est intentionnel — voir le pivot 2026-05-27
+ * en haut du module.
+ *
+ * `maxAge` est requis (en secondes).
  */
 export function setSessionCookieOnResponse(
   response: NextResponse,
@@ -105,14 +90,15 @@ export function setSessionCookieOnResponse(
 ): void {
   const env = options.env ?? process.env;
   const cookieName = resolveSessionCookieName(env);
-  const domain = resolveSessionCookieDomain(env);
   const isProductionBuild = env.NODE_ENV === 'production';
   response.cookies.set(cookieName, sessionJwt, {
     httpOnly: true,
     sameSite: 'lax',
     path: '/',
     secure: isProductionBuild,
-    domain,
+    // PAS de `domain` — scope host courant (= `app.veridian.site` en prod,
+    // comme tous les autres cookies session Auth.js du Hub). Le partage
+    // cross-subdomain est assuré par le hint cookie séparé.
     maxAge: options.maxAge,
   });
 }

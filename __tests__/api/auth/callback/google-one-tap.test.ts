@@ -224,11 +224,13 @@ describe('POST /api/auth/callback/google-one-tap — happy path', () => {
     // Provisioning workspace déclenché
     expect(provisionWorkspaceMock).toHaveBeenCalledTimes(1);
 
-    // Cookie session posé avec scope cross-subdomain
+    // Cookie session posé SANS Domain (pivot 2026-05-27 : scope host courant
+    // = app.veridian.site comme tous les autres cookies session Auth.js).
+    // Le partage cross-subdomain passe par le hint cookie séparé.
     const setCookie = res.headers.get('set-cookie');
     expect(setCookie).toBeTruthy();
     expect(setCookie).toContain('__Secure-authjs.session-token=');
-    expect(setCookie).toContain('Domain=.veridian.site');
+    expect(setCookie).not.toContain('Domain=');
     expect(setCookie).toContain('HttpOnly');
     expect(setCookie).toContain('SameSite=lax');
   });
