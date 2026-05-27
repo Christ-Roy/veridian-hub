@@ -1,7 +1,6 @@
 "use client";
 
-import Link from 'next/link';
-import { BrainCircuit, Plus } from 'lucide-react';
+import { BrainCircuit } from 'lucide-react';
 import {
   Card,
   CardContent,
@@ -9,13 +8,18 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 
 export interface CrmUsageView {
   used: number;
   limit: number;
-  /** Label du pack à acheter quand on dépasse — null si pas de pack offert. */
-  packCta: { label: string; href: string } | null;
+  /**
+   * Indique que les chiffres affichés sont un MOCK visuel (pas la vraie
+   * conso). On en profite pour afficher une bannière "preview" pour ne
+   * pas induire le user en erreur. Sera retiré quand le tracker tokens
+   * IA sera livré + les limites par plan figées côté business.
+   */
+  mock?: boolean;
 }
 
 function formatTokens(n: number): string {
@@ -28,12 +32,6 @@ export function CrmUsageCard({ usage }: { usage: CrmUsageView }) {
   const pct = usage.limit > 0
     ? Math.min(100, Math.round((usage.used / usage.limit) * 100))
     : 0;
-  const overQuota = usage.used >= usage.limit;
-  const color = overQuota
-    ? 'bg-destructive'
-    : pct > 80
-    ? 'bg-yellow-500'
-    : 'bg-primary';
 
   return (
     <Card>
@@ -41,10 +39,16 @@ export function CrmUsageCard({ usage }: { usage: CrmUsageView }) {
         <div className="flex items-center gap-2">
           <BrainCircuit className="h-5 w-5 text-primary" />
           <CardTitle>Quota IA ce mois</CardTitle>
+          {usage.mock && (
+            <Badge variant="secondary" className="ml-auto">
+              Aperçu
+            </Badge>
+          )}
         </div>
         <CardDescription>
-          Tokens consommés par les agents IA du CRM (rédaction emails, scoring
-          leads, résumés…).
+          {usage.mock
+            ? 'Aperçu visuel — les chiffres réels arrivent quand le tracker tokens IA sera branché.'
+            : 'Tokens consommés par les agents IA du CRM (rédaction emails, scoring leads, résumés…).'}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -53,11 +57,7 @@ export function CrmUsageCard({ usage }: { usage: CrmUsageView }) {
             <span className="text-muted-foreground">
               {formatTokens(usage.used)} / {formatTokens(usage.limit)} tokens
             </span>
-            <span
-              className={overQuota ? 'font-medium text-destructive' : 'text-muted-foreground'}
-            >
-              {pct}%
-            </span>
+            <span className="text-muted-foreground">{pct}%</span>
           </div>
           <div
             className="h-2 w-full overflow-hidden rounded-full bg-muted"
@@ -67,27 +67,11 @@ export function CrmUsageCard({ usage }: { usage: CrmUsageView }) {
             aria-valuemax={100}
           >
             <div
-              className={`h-full transition-all ${color}`}
+              className="h-full bg-primary transition-all"
               style={{ width: `${pct}%` }}
             />
           </div>
         </div>
-        {overQuota && usage.packCta && (
-          <Button asChild variant="default">
-            <Link href={usage.packCta.href}>
-              <Plus className="mr-2 h-4 w-4" />
-              {usage.packCta.label}
-            </Link>
-          </Button>
-        )}
-        {!overQuota && pct > 80 && usage.packCta && (
-          <Button asChild variant="outline">
-            <Link href={usage.packCta.href}>
-              <Plus className="mr-2 h-4 w-4" />
-              {usage.packCta.label}
-            </Link>
-          </Button>
-        )}
       </CardContent>
     </Card>
   );

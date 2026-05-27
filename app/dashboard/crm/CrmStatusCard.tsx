@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useTransition } from 'react';
-import Link from 'next/link';
-import { Database, ExternalLink, Loader2, Sparkles, Zap } from 'lucide-react';
+import { Database, ExternalLink, Loader2, Zap } from 'lucide-react';
 import {
   Card,
   CardContent,
@@ -15,52 +14,24 @@ import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 
 export type CrmCardVariant =
-  | { kind: 'gated' }
-  | { kind: 'inactive'; planLabel: string }
+  | { kind: 'inactive' }
+  | { kind: 'loading' }
   | {
       kind: 'active';
-      planLabel: string;
-      status: 'provisioning' | 'active' | 'suspended' | 'error';
+      status: 'active' | 'suspended' | 'error';
     };
 
 export function CrmStatusCard({ variant }: { variant: CrmCardVariant }) {
-  if (variant.kind === 'gated') {
-    return (
-      <Card className="border-dashed">
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Database className="h-5 w-5 text-muted-foreground" />
-            <CardTitle>CRM Veridian</CardTitle>
-            <Badge variant="secondary">Pro+</Badge>
-          </div>
-          <CardDescription>
-            Le CRM Veridian est inclus à partir du plan Pro. Centralise tes
-            leads, automatise tes relances et garde le contexte sur chaque
-            contact.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button asChild>
-            <Link href="/pricing">
-              <Sparkles className="mr-2 h-4 w-4" />
-              Voir les offres
-            </Link>
-          </Button>
-        </CardContent>
-      </Card>
-    );
-  }
-
   if (variant.kind === 'inactive') {
-    return <ActivateCrmCard planLabel={variant.planLabel} />;
+    return <ActivateCrmCard />;
   }
-
-  return (
-    <ActiveCrmCard planLabel={variant.planLabel} status={variant.status} />
-  );
+  if (variant.kind === 'loading') {
+    return <LoadingCrmCard />;
+  }
+  return <ActiveCrmCard status={variant.status} />;
 }
 
-function ActivateCrmCard({ planLabel }: { planLabel: string }) {
+function ActivateCrmCard() {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -75,7 +46,6 @@ function ActivateCrmCard({ planLabel }: { planLabel: string }) {
           const body = await res.json().catch(() => ({}));
           throw new Error(body.error || `HTTP ${res.status}`);
         }
-        // Recharge la page pour afficher la card "active"
         window.location.reload();
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Activation impossible');
@@ -89,12 +59,11 @@ function ActivateCrmCard({ planLabel }: { planLabel: string }) {
         <div className="flex items-center gap-2">
           <Database className="h-5 w-5 text-primary" />
           <CardTitle>Active ton CRM Veridian</CardTitle>
-          <Badge>{planLabel}</Badge>
         </div>
         <CardDescription>
-          Ton plan inclut un CRM dédié — il sera provisionné en quelques
-          secondes avec ton workspace, tes pipelines par défaut et l'accès
-          via magic-link.
+          Provisionne ton workspace CRM dédié en quelques secondes —
+          pipelines par défaut, accès via magic-link, sync auto depuis
+          Prospection.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -132,12 +101,35 @@ function ActivateCrmCard({ planLabel }: { planLabel: string }) {
   );
 }
 
+function LoadingCrmCard() {
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center gap-2">
+          <Database className="h-5 w-5 text-primary" />
+          <CardTitle>CRM en cours de provisionnement</CardTitle>
+          <Badge variant="secondary">Provisionnement…</Badge>
+        </div>
+        <CardDescription>
+          Ton workspace CRM est en cours de création. Cette opération prend
+          généralement moins d'une minute — recharge la page dans quelques
+          instants.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <Button disabled>
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+          Provisionnement…
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
 function ActiveCrmCard({
-  planLabel,
   status,
 }: {
-  planLabel: string;
-  status: 'provisioning' | 'active' | 'suspended' | 'error';
+  status: 'active' | 'suspended' | 'error';
 }) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -166,10 +158,6 @@ function ActiveCrmCard({
 
   const statusMeta = {
     active: { label: 'CRM actif', variant: 'default' as const },
-    provisioning: {
-      label: 'Provisionnement…',
-      variant: 'secondary' as const,
-    },
     suspended: { label: 'Suspendu', variant: 'destructive' as const },
     error: { label: 'Erreur', variant: 'destructive' as const },
   }[status];
@@ -181,9 +169,6 @@ function ActiveCrmCard({
           <Database className="h-5 w-5 text-primary" />
           <CardTitle>Mon CRM Veridian</CardTitle>
           <Badge variant={statusMeta.variant}>{statusMeta.label}</Badge>
-          <Badge variant="outline" className="ml-auto">
-            {planLabel}
-          </Badge>
         </div>
         <CardDescription>
           Ton workspace CRM est prêt. Ouvre-le via magic-link — pas besoin de

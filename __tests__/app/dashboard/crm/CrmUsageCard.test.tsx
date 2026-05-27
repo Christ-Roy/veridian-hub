@@ -1,5 +1,10 @@
 /**
  * RTL tests pour <CrmUsageCard /> — progress bar quota IA CRM.
+ *
+ * Mode plan-agnostic (revert Robert 2026-05-27) : la card sait juste
+ * afficher un ratio used/limit + un badge "Aperçu" si mock=true. Les
+ * limites par plan et le pack +5M tokens reviendront quand la grille
+ * business sera figée.
  */
 
 import React from 'react';
@@ -13,52 +18,40 @@ vi.mock('next/navigation', () => ({
 }));
 
 describe('<CrmUsageCard>', () => {
-  it('rend la conso formatée en millions + pourcentage', () => {
+  it('rend la conso formatée + pourcentage + progressbar aria', () => {
     render(
-      <CrmUsageCard
-        usage={{ used: 750_000, limit: 1_500_000, packCta: null }}
-      />,
+      <CrmUsageCard usage={{ used: 750_000, limit: 1_500_000 }} />,
     );
     expect(screen.getByText(/750k\s*\/\s*1\.5M/i)).toBeInTheDocument();
     expect(screen.getByText('50%')).toBeInTheDocument();
     const bar = screen.getByRole('progressbar');
     expect(bar).toHaveAttribute('aria-valuenow', '50');
+    expect(bar).toHaveAttribute('aria-valuemin', '0');
+    expect(bar).toHaveAttribute('aria-valuemax', '100');
   });
 
-  it('quota dépassé : affiche CTA pack +5M', () => {
+  it('mock=true : affiche badge "Aperçu" + copy disclaimer', () => {
     render(
       <CrmUsageCard
-        usage={{
-          used: 1_600_000,
-          limit: 1_500_000,
-          packCta: { label: 'Acheter pack +5M tokens (30€)', href: '/x' },
-        }}
+        usage={{ used: 0, limit: 1_000_000, mock: true }}
       />,
+    );
+    expect(screen.getByText('Aperçu')).toBeInTheDocument();
+    expect(screen.getByText(/aperçu visuel/i)).toBeInTheDocument();
+  });
+
+  it('mock absent : pas de badge "Aperçu", copy normale', () => {
+    render(
+      <CrmUsageCard usage={{ used: 100_000, limit: 1_000_000 }} />,
+    );
+    expect(screen.queryByText('Aperçu')).not.toBeInTheDocument();
+    expect(screen.getByText(/Tokens consommés/i)).toBeInTheDocument();
+  });
+
+  it('cap à 100% quand used > limit (anti-affichage 142%)', () => {
+    render(
+      <CrmUsageCard usage={{ used: 2_000_000, limit: 1_500_000 }} />,
     );
     expect(screen.getByText('100%')).toBeInTheDocument();
-    const cta = screen.getByRole('link', { name: /pack \+5M tokens/i });
-    expect(cta).toHaveAttribute('href', '/x');
-  });
-
-  it('moins de 80% : pas de CTA pack même si dispo', () => {
-    render(
-      <CrmUsageCard
-        usage={{
-          used: 100_000,
-          limit: 10_000_000,
-          packCta: { label: 'pack', href: '/x' },
-        }}
-      />,
-    );
-    expect(screen.queryByRole('link', { name: /pack/i })).not.toBeInTheDocument();
-  });
-
-  it('packCta=null : pas de bouton même si dépassé', () => {
-    render(
-      <CrmUsageCard
-        usage={{ used: 2_000_000, limit: 1_500_000, packCta: null }}
-      />,
-    );
-    expect(screen.queryByRole('link')).not.toBeInTheDocument();
   });
 });
