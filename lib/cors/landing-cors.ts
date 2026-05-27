@@ -37,6 +37,9 @@ export type LandingCorsEnv = {
   LANDING_ORIGIN?: string;
   LANDING_ORIGIN_STAGING?: string;
   DEPLOY_ENV?: string;
+  // Index signature pour rester assignable depuis process.env (ProcessEnv),
+  // qui est un Record<string, string|undefined>.
+  [key: string]: string | undefined;
 };
 
 /**

@@ -22,10 +22,13 @@
  */
 
 import type { NextAuthConfig } from 'next-auth';
+import type { NextResponse } from 'next/server';
 
 export type SessionCookieDomainEnv = {
   DEPLOY_ENV?: string;
   NODE_ENV?: string;
+  // Index signature pour rester assignable depuis process.env.
+  [key: string]: string | undefined;
 };
 
 /**
@@ -84,4 +87,32 @@ export function resolveSessionCookieConfig(
       },
     },
   };
+}
+
+/**
+ * Pose le cookie session Auth.js sur une NextResponse — utilisé par les
+ * routes qui forgent une session manuellement (One Tap callback, impersonate
+ * callback). Garantit le même scope cross-subdomain que celui appliqué par
+ * Auth.js sur les flows OAuth standard.
+ *
+ * `maxAge` est requis (en secondes) — la valeur dépend de l'usage (90j pour
+ * un login normal, plus court pour une session forgée).
+ */
+export function setSessionCookieOnResponse(
+  response: NextResponse,
+  sessionJwt: string,
+  options: { maxAge: number; env?: SessionCookieDomainEnv },
+): void {
+  const env = options.env ?? process.env;
+  const cookieName = resolveSessionCookieName(env);
+  const domain = resolveSessionCookieDomain(env);
+  const isProductionBuild = env.NODE_ENV === 'production';
+  response.cookies.set(cookieName, sessionJwt, {
+    httpOnly: true,
+    sameSite: 'lax',
+    path: '/',
+    secure: isProductionBuild,
+    domain,
+    maxAge: options.maxAge,
+  });
 }
