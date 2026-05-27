@@ -18,6 +18,7 @@ export function NavMain({
     url: string
     icon?: LucideIcon
     disabled?: boolean
+    badge?: string
   }[]
 }) {
   return (
@@ -44,6 +45,11 @@ export function NavMain({
                   <Link href={item.url}>
                     {item.icon && <item.icon />}
                     <span>{item.title}</span>
+                    {item.badge && (
+                      <span className="ml-auto rounded-md bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+                        {item.badge}
+                      </span>
+                    )}
                   </Link>
                 </SidebarMenuButton>
               )}
