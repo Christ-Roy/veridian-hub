@@ -128,3 +128,98 @@ describe('PricingGrid (rendu)', () => {
     expect(screen.getByRole('button', { name: /Démarrer gratuitement/i })).toBeTruthy();
   });
 });
+
+describe('PricingGrid (features CRM injectées dans les bundles)', () => {
+  // Décisions gravées (ticket review 2026-05-27) §Q1 option B :
+  // - PAS de SKU CRM standalone dans la grille
+  // - Pro 29€ bundle : CRM "lecture seule" + 1.5M tokens IA / mois
+  // - Business 99€ bundle : CRM "complet" write + AI + white-label + 10M tokens IA
+  // - Bas de page : mention "Pack +5M tokens = 30€" pour les extras IA
+  //
+  // Ces assertions verrouillent le wording exact (argument commercial
+  // qui figure aussi dans /docs/PRICING-VERIDIAN.md) + l'anti-régression
+  // option B (pas de card "CRM Veridian" autonome à apparaître).
+  //
+  // Le mapping clé → features est hardcodé dans PricingGrid.tsx
+  // (`CRM_FEATURES_BY_PLAN`) en attendant le bump submodule shared/
+  // par Agent B — refacto vers plans.ts en suivi.
+
+  const bundles: Plan[] = [
+    makePlan({
+      key: 'veridian-pro',
+      name: 'Veridian Pro',
+      price_eur: 29,
+      apps: ['notifuse', 'prospection'],
+    }),
+    makePlan({
+      key: 'veridian-business',
+      name: 'Veridian Business',
+      price_eur: 99,
+      apps: ['notifuse', 'prospection'],
+      recommended: true,
+    }),
+  ];
+
+  function renderBundlesOnly() {
+    return render(
+      <PricingGrid
+        bundles={bundles}
+        notifuse={[]}
+        prospection={[]}
+        isAuthenticated={false}
+      />,
+    );
+  }
+
+  it('Veridian Pro mentionne CRM lecture seule + 1.5M tokens IA', () => {
+    renderBundlesOnly();
+    expect(screen.getByText(/Veridian CRM \(lecture seule\)/i)).toBeTruthy();
+    expect(screen.getByText(/1\.5M tokens IA inclus/i)).toBeTruthy();
+  });
+
+  it('Veridian Business mentionne CRM complet + write + white-label + 10M tokens IA', () => {
+    renderBundlesOnly();
+    expect(
+      screen.getByText(/Veridian CRM complet.*write.*white-label/i),
+    ).toBeTruthy();
+    expect(screen.getByText(/10M tokens IA inclus/i)).toBeTruthy();
+  });
+
+  it('affiche le pack one-shot +5M tokens à 30€ en bas de page', () => {
+    renderBundlesOnly();
+    expect(screen.getByText(/Pack \+5M tokens = 30€/i)).toBeTruthy();
+  });
+
+  it('aucun SKU CRM standalone n\'apparaît dans la grille (anti-régression Q1 option B)', () => {
+    // Si un jour quelqu'un ajoute une card "Veridian CRM" standalone, ce
+    // test échoue. Le CRM doit rester une feature gating dans Pro/Business,
+    // pas un produit séparé.
+    renderBundlesOnly();
+    const standaloneCrmHeadings = screen.queryAllByRole('heading', {
+      name: /^(CRM Veridian|Veridian CRM)$/i,
+    });
+    expect(standaloneCrmHeadings).toHaveLength(0);
+    expect(screen.queryByRole('button', { name: /Choisir CRM/i })).toBeNull();
+  });
+
+  it('les plans à la carte (notifuse/prospection) n\'affichent PAS la mention CRM', () => {
+    // Le CRM est inclus uniquement dans les bundles cross-app — pas dans
+    // un plan notifuse-pro ou prospection-pro seul.
+    render(
+      <PricingGrid
+        bundles={[]}
+        notifuse={[
+          makePlan({
+            key: 'notifuse-pro',
+            name: 'Notifuse Pro',
+            price_eur: 29,
+            apps: ['notifuse'],
+          }),
+        ]}
+        prospection={[]}
+        isAuthenticated={false}
+      />,
+    );
+    expect(screen.queryByText(/Veridian CRM/i)).toBeNull();
+  });
+});
