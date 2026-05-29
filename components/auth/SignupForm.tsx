@@ -10,6 +10,7 @@ import {
   FieldSeparator,
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -116,10 +117,9 @@ export function SignupForm({
             </Field>
             <Field>
               <FieldLabel htmlFor="password">Mot de passe</FieldLabel>
-              <Input
+              <PasswordInput
                 id="password"
                 name="password"
-                type="password"
                 autoComplete="new-password"
                 minLength={8}
                 required
@@ -128,10 +128,9 @@ export function SignupForm({
             </Field>
             <Field>
               <FieldLabel htmlFor="confirmPassword">Confirmer le mot de passe</FieldLabel>
-              <Input
+              <PasswordInput
                 id="confirmPassword"
                 name="confirmPassword"
-                type="password"
                 autoComplete="new-password"
                 minLength={8}
                 required

@@ -51,14 +51,14 @@ export default async function SettingsPage() {
   });
 
   return (
-    <div className="flex flex-col gap-8 p-4 md:p-8 max-w-4xl mx-auto w-full">
+    <div className="flex flex-col gap-8 p-6 md:p-10 max-w-3xl mx-auto w-full">
       <DashboardPageHeader
         title="Paramètres"
-        description="Gérez les paramètres de votre compte et vos workspaces"
+        description="Gérez votre compte et vos préférences"
         icon={Settings}
       />
 
-      <div className="grid gap-6">
+      <div className="flex flex-col gap-5">
         {/* Profile Settings */}
         <Card>
           <CardHeader>
@@ -101,13 +101,13 @@ export default async function SettingsPage() {
           </CardContent>
         </Card>
 
-        {/* Workspace rename */}
+        {/* Nom de l'espace */}
         {workspace && (
           <Card>
             <CardHeader>
-              <CardTitle>Workspace</CardTitle>
+              <CardTitle>Votre espace</CardTitle>
               <CardDescription>
-                Renommez votre espace de travail Veridian.
+                Choisissez le nom de votre espace Veridian.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -120,46 +120,39 @@ export default async function SettingsPage() {
           </Card>
         )}
 
-        {/* Tenant Information */}
+        {/* Services actifs */}
         {tenant && (
           <Card>
             <CardHeader>
-              <CardTitle>Workspaces</CardTitle>
+              <CardTitle>Vos services</CardTitle>
               <CardDescription>
-                Vos workspaces et intégrations actifs
+                Les applications Veridian activées sur votre compte
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Notifuse */}
               {tenant.notifuseWorkspaceSlug && (
-                <div className="rounded-lg border p-4 space-y-2">
+                <div className="rounded-lg border p-4">
                   <div className="flex items-center gap-2">
-                    <h3 className="font-semibold">Notifuse</h3>
+                    <h3 className="font-semibold">Veridian Mail</h3>
                     <Badge variant="success" className="ml-auto">
                       Actif
                     </Badge>
                   </div>
-                  <div className="text-sm text-muted-foreground space-y-1">
-                    <div><strong>Email :</strong> {tenant.notifuseUserEmail}</div>
-                    <div>
-                      <strong>Workspace :</strong>{' '}
-                      <code className="text-xs bg-muted px-2 py-0.5 rounded">
-                        {tenant.notifuseWorkspaceSlug}
-                      </code>
-                    </div>
-                  </div>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Vos emails et campagnes, prêts à l&apos;emploi.
+                  </p>
                 </div>
               )}
 
               {!tenant.notifuseWorkspaceSlug && (
                 <div className="text-center py-6 text-muted-foreground">
-                  <p>Aucun workspace configuré pour l&apos;instant</p>
+                  <p>Aucun service activé pour l&apos;instant</p>
                   <p className="text-sm mt-2">
-                    Rendez-vous sur le{' '}
+                    Rendez-vous sur votre{' '}
                     <a href="/dashboard" className="text-primary hover:underline">
                       tableau de bord
                     </a>{' '}
-                    pour créer votre premier workspace
+                    pour activer votre premier service.
                   </p>
                 </div>
               )}
@@ -176,11 +169,6 @@ export default async function SettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 text-sm">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Identifiant du compte</span>
-              <code className="text-xs bg-muted px-2 py-0.5 rounded">{user.id.slice(0, 8)}...</code>
-            </div>
-            <Separator />
             <div className="flex justify-between">
               <span className="text-muted-foreground">Email vérifié</span>
               <span className={dbUser?.emailVerified ? 'text-success' : 'text-warning'}>
@@ -209,7 +197,7 @@ export default async function SettingsPage() {
           </CardHeader>
           <CardContent>
             <p className="text-sm text-muted-foreground mb-4">
-              Pour supprimer votre compte ou vos workspaces, contactez le support.
+              Pour supprimer votre compte, contactez notre support.
             </p>
           </CardContent>
         </Card>

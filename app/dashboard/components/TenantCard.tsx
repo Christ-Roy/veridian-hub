@@ -13,9 +13,9 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, ExternalLink, Info, Mail } from 'lucide-react';
+import { Loader2, ExternalLink } from 'lucide-react';
 import { StartTrialButton } from './StartTrialButton';
+import { AppIdentity } from './AppIdentity';
 
 interface TenantCardProps {
   service: 'notifuse';
@@ -37,8 +37,8 @@ export function TenantCard({
   const env = useEnv();
   const [loading, setLoading] = useState(false);
 
-  const serviceName = 'Notifuse';
-  const serviceDescription = 'Emails transactionnels et notifications';
+  const serviceName = 'Veridian Mail';
+  const serviceDescription = 'Vos emails et notifications, prêts à l\'emploi';
 
   const handleOpenService = async () => {
     setLoading(true);
@@ -88,9 +88,7 @@ export function TenantCard({
       <CardHeader>
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <div className="rounded-md bg-primary/10 p-2">
-              <Mail className="h-6 w-6 text-primary" />
-            </div>
+            <AppIdentity app="mail" />
             <div>
               <CardTitle className="text-xl">{serviceName}</CardTitle>
               <CardDescription className="mt-1">
@@ -106,27 +104,9 @@ export function TenantCard({
 
       <CardContent>
         {configured ? (
-          <div className="space-y-2">
-            {slug && (
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Workspace :</span>
-                <code className="bg-muted px-2 py-1 rounded text-xs">
-                  {slug}
-                </code>
-              </div>
-            )}
-
-            <Alert variant="info" className="mt-4">
-              <Info className="h-4 w-4" />
-              <AlertDescription className="text-xs space-y-2">
-                <div>
-                  <strong>Workspace : {slug}</strong>
-                </div>
-                <div>
-                  Clique sur &ldquo;Ouvrir&rdquo; pour te connecter automatiquement avec un nouveau magic link
-                </div>
-              </AlertDescription>
-            </Alert>
+          <div className="py-2 text-sm text-muted-foreground">
+            Votre service est actif. Cliquez sur « Ouvrir » pour y accéder en
+            un clic, sans avoir à vous reconnecter.
           </div>
         ) : (
           <div className="py-6 text-center text-sm text-muted-foreground space-y-2">

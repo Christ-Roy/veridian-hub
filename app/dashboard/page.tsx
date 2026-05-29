@@ -143,7 +143,7 @@ export default async function DashboardPage({
     <div className="container mx-auto p-8 max-w-6xl">
       <DashboardPageHeader
         title={workspaceName}
-        description="Vos apps SaaS et services de suivi Veridian réunis au même endroit"
+        description="Tous vos outils Veridian réunis au même endroit"
         icon={LayoutDashboard}
         action={<RefreshButton />}
         className="mb-8"
@@ -174,10 +174,9 @@ export default async function DashboardPage({
 
       <section className="mb-12">
         <div className="mb-4">
-          <h2 className="text-2xl font-semibold tracking-tight">Vos SaaS</h2>
+          <h2 className="text-2xl font-semibold tracking-tight">Vos outils</h2>
           <p className="text-sm text-muted-foreground">
-            Active chaque app indépendamment. Tu peux tester juste celle qui
-            t&apos;intéresse.
+            Activez les outils qui vous intéressent, chacun de façon indépendante.
           </p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -204,12 +203,12 @@ export default async function DashboardPage({
       <section className="mb-12">
         <div className="mb-4">
           <h2 className="text-2xl font-semibold tracking-tight">
-            Apps réservées clients sites vitrines
+            Inclus avec votre site web
           </h2>
           <p className="text-sm text-muted-foreground">
             {hasLifetimeSiteVitrine || hasServiceCms || hasServiceAnalytics
-              ? "Apps incluses dans ton offre site vitrine Veridian."
-              : "Ces apps sont incluses avec l'achat d'un site vitrine Veridian."}
+              ? "Ces services sont inclus dans votre offre site web Veridian."
+              : "Ces services sont offerts avec votre site web Veridian."}
           </p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -223,12 +222,13 @@ export default async function DashboardPage({
               description={APPS.analytics.tagline}
               url={analyticsMeta?.fallback_url ?? 'https://analytics.app.veridian.site'}
               icon="BarChart3"
+              appKey="analytics"
               badge="BETA"
               features={[
-                'Tracker JS humain-only',
-                'Sync Google Search Console',
-                'Tracking appels OVH SIP',
-                'Vue par client (multi-tenant)',
+                'Visiteurs réels (sans les robots)',
+                'Votre visibilité sur Google',
+                'Suivi de vos appels téléphoniques',
+                'Vos statistiques en un coup d\'œil',
               ]}
             />
           ) : (
@@ -244,12 +244,13 @@ export default async function DashboardPage({
               description={APPS.cms.tagline}
               url={cmsMeta?.fallback_url ?? 'https://cms.app.veridian.site'}
               icon="FileText"
+              appKey="cms"
               badge="BETA"
               features={[
-                'CMS multi-tenant (Payload)',
-                'Édition pages site vitrine',
-                'Upload assets / medias',
-                'Preview avant publication',
+                'Modifiez votre site vous-même',
+                'Textes et pages en quelques clics',
+                'Ajoutez vos photos et documents',
+                'Prévisualisez avant de publier',
               ]}
             />
           ) : (

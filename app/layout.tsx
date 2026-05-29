@@ -105,8 +105,8 @@ export default async function RootLayout({ children }: PropsWithChildren) {
           <Providers>
             <ThemeProvider
               attribute="class"
-              defaultTheme="dark"
-              enableSystem
+              defaultTheme="light"
+              enableSystem={false}
               disableTransitionOnChange
             >
               {children}

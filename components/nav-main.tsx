@@ -2,6 +2,7 @@
 
 import type { LucideIcon } from "lucide-react"
 import Link from "next/link"
+import { usePathname } from "next/navigation"
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -9,6 +10,17 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
+
+/**
+ * Détermine si un item de nav correspond à la route courante.
+ * `/dashboard` (la racine) ne matche QU'exactement, sinon il resterait
+ * actif sur toutes les sous-pages. Les autres matchent aussi leurs
+ * sous-routes (ex. /dashboard/billing actif sur /dashboard/billing/xxx).
+ */
+function isItemActive(pathname: string, url: string): boolean {
+  if (url === "/dashboard") return pathname === "/dashboard"
+  return pathname === url || pathname.startsWith(url + "/")
+}
 
 export function NavMain({
   items,
@@ -21,11 +33,14 @@ export function NavMain({
     badge?: string
   }[]
 }) {
+  const pathname = usePathname()
   return (
     <SidebarGroup>
       <SidebarGroupContent>
         <SidebarMenu>
-          {items.map((item) => (
+          {items.map((item) => {
+            const active = !item.disabled && isItemActive(pathname, item.url)
+            return (
             <SidebarMenuItem key={item.title}>
               {item.disabled ? (
                 <SidebarMenuButton
@@ -40,7 +55,8 @@ export function NavMain({
                 <SidebarMenuButton
                   tooltip={item.title}
                   asChild
-                  className={item.url === "/dashboard" ? "bg-primary text-primary-foreground hover:bg-primary/90" : ""}
+                  isActive={active}
+                  className="data-[active=true]:bg-primary data-[active=true]:text-primary-foreground data-[active=true]:font-medium"
                 >
                   <Link href={item.url}>
                     {item.icon && <item.icon />}
@@ -54,7 +70,8 @@ export function NavMain({
                 </SidebarMenuButton>
               )}
             </SidebarMenuItem>
-          ))}
+            )
+          })}
         </SidebarMenu>
       </SidebarGroupContent>
     </SidebarGroup>

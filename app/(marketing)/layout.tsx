@@ -18,7 +18,7 @@ import { PropsWithChildren } from 'react';
  */
 export default function MarketingLayout({ children }: PropsWithChildren) {
   return (
-    <div className="flex flex-col min-h-screen bg-background">
+    <div className="flex flex-col min-h-screen">
       <Navbar />
       <main
         id="skip"

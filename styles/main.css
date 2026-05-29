@@ -28,20 +28,39 @@
      ========================================================================== */
   :root {
     /* Base colors */
-    --background: oklch(0.9911 0 0);              /* Page background - White */
+    --background: oklch(0.9911 0 0);              /* Page background - White (fallback sous le gradient) */
     --foreground: oklch(0.2046 0 0);              /* Main text color - Dark */
 
-    /* Card colors */
-    --card: oklch(0.9911 0 0);                    /* Card background - White */
+    /* Gradient de page FORT (DA Veridian, palette de la landing) — jaune →
+       orange → rose → violet. Réservé aux pages auth (login/signup). */
+    --page-gradient: linear-gradient(125deg,
+      oklch(0.92 0.13 95) 0%,
+      oklch(0.86 0.16 60) 38%,
+      oklch(0.84 0.15 350) 70%,
+      oklch(0.86 0.14 308) 100%);
+
+    /* Gradient ATTÉNUÉ — pour l'app après login (dashboard, etc.). Mêmes
+       teintes mais chroma fortement réduit + plus clair : on devine la DA
+       sans fatiguer sur les écrans de travail. C'est le défaut du body. */
+    --page-gradient-soft: linear-gradient(125deg,
+      oklch(0.985 0.022 95) 0%,
+      oklch(0.975 0.030 60) 38%,
+      oklch(0.972 0.026 350) 70%,
+      oklch(0.975 0.024 308) 100%);
+
+    /* Card colors — semi-transparent (effet glass par-dessus le gradient).
+       Faible opacité pour que la couleur du gradient transparaisse bien. */
+    --card: oklch(0.99 0.01 95 / 0.38);           /* Card background - blanc cassé translucide */
     --card-foreground: oklch(0.2046 0 0);         /* Card text - Dark */
 
     /* Popover colors */
     --popover: oklch(0.9911 0 0);                 /* Popover background - White */
     --popover-foreground: oklch(0.4386 0 0);      /* Popover text - Medium dark */
 
-    /* Primary colors (main brand color - Green/Mint) */
-    --primary: oklch(0.8348 0.1302 160.9080);     /* Primary - Green/Mint */
-    --primary-foreground: oklch(0.2626 0.0147 166.4589); /* Primary text - Dark green */
+    /* Primary colors — noir/anthracite (le vert menthe est retiré ; la
+       couleur vit désormais dans le gradient de page + les CTA). */
+    --primary: oklch(0.2046 0 0);                 /* Primary - Noir */
+    --primary-foreground: oklch(0.9911 0 0);      /* Primary text - Blanc */
 
     /* Secondary colors (subtle actions) */
     --secondary: oklch(0.9940 0 0);               /* Secondary - Very light */
@@ -68,8 +87,8 @@
     --info-foreground: oklch(0.9911 0 0);         /* Info text - White */
 
     /* Border and Input */
-    --border: oklch(0.9037 0 0);                  /* Border color - Light gray */
-    --input: oklch(0.9731 0 0);                   /* Input background - Light gray */
+    --border: oklch(0.9037 0 0 / 0.7);            /* Border color - translucide */
+    --input: oklch(0.9950 0.003 95 / 0.55);       /* Input background - translucide (glass) */
     --ring: oklch(0.8348 0.1302 160.9080);        /* Focus ring - Green */
 
     /* Chart colors (for data visualization) */
@@ -79,8 +98,8 @@
     --chart-4: oklch(0.7686 0.1647 70.0804);      /* Yellow */
     --chart-5: oklch(0.6959 0.1491 162.4796);     /* Teal */
 
-    /* Sidebar colors (dashboard sidebar) */
-    --sidebar-background: oklch(0.9911 0 0);      /* Sidebar background - White */
+    /* Sidebar colors (dashboard sidebar) — semi-transparent (glass) */
+    --sidebar-background: oklch(0.9950 0.003 95 / 0.55); /* Sidebar background - translucide */
     --sidebar-foreground: oklch(0.5452 0 0);      /* Sidebar text - Medium gray */
     --sidebar-primary: oklch(0.8348 0.1302 160.9080); /* Sidebar active - Green */
     --sidebar-primary-foreground: oklch(0.2626 0.0147 166.4589); /* Sidebar active text */
@@ -120,32 +139,46 @@
      ========================================================================== */
   .dark {
     /* Base colors */
-    --background: oklch(0.1822 0 0);              /* Page background - Very dark */
-    --foreground: oklch(0.9288 0.0126 255.5078);  /* Main text color - White */
+    --background: oklch(0.17 0.012 285);          /* Page background - bleu-nuit profond (fallback) */
+    --foreground: oklch(0.95 0.008 285);          /* Main text color - blanc légèrement froid */
 
-    /* Card colors */
-    --card: oklch(0.2046 0 0);                    /* Card background - Dark */
-    --card-foreground: oklch(0.9288 0.0126 255.5078); /* Card text - White */
+    /* Gradient de page FORT (dark) — version nuit de la DA : ambre profond →
+       prune → indigo. Élégant, jamais boueux. Réservé aux pages auth. */
+    --page-gradient: linear-gradient(135deg,
+      oklch(0.24 0.05 70) 0%,
+      oklch(0.22 0.07 350) 50%,
+      oklch(0.21 0.08 290) 100%);
+
+    /* Gradient ATTÉNUÉ (dark) — défaut du body dans l'app après login.
+       Teintes nuit très discrètes sur fond sombre. */
+    --page-gradient-soft: linear-gradient(135deg,
+      oklch(0.185 0.018 70) 0%,
+      oklch(0.180 0.022 350) 50%,
+      oklch(0.180 0.024 290) 100%);
+
+    /* Card colors — translucide sombre (glass) */
+    --card: oklch(0.235 0.015 285 / 0.72);        /* Card background - bleu-nuit translucide */
+    --card-foreground: oklch(0.95 0.008 285);     /* Card text - blanc froid */
 
     /* Popover colors */
-    --popover: oklch(0.2603 0 0);                 /* Popover background - Medium dark */
-    --popover-foreground: oklch(0.7348 0 0);      /* Popover text - Light */
+    --popover: oklch(0.235 0.015 285);            /* Popover background - bleu-nuit */
+    --popover-foreground: oklch(0.88 0.008 285);  /* Popover text - clair */
 
-    /* Primary colors (Green/Mint in dark mode) */
-    --primary: oklch(0.4365 0.1044 156.7556);     /* Primary - Dark green */
-    --primary-foreground: oklch(0.9213 0.0135 167.1556); /* Primary text - Light green */
+    /* Primary colors — clair/blanc cassé en dark (vert menthe retiré). */
+    --primary: oklch(0.95 0.008 285);             /* Primary - Blanc froid */
+    --primary-foreground: oklch(0.17 0.012 285);  /* Primary text - bleu-nuit */
 
     /* Secondary colors */
-    --secondary: oklch(0.2603 0 0);               /* Secondary - Medium dark */
-    --secondary-foreground: oklch(0.9851 0 0);    /* Secondary text - White */
+    --secondary: oklch(0.26 0.015 285);           /* Secondary - bleu-nuit clair */
+    --secondary-foreground: oklch(0.95 0.008 285); /* Secondary text - clair */
 
     /* Muted colors */
-    --muted: oklch(0.2393 0 0);                   /* Muted background - Dark gray */
-    --muted-foreground: oklch(0.7122 0 0);        /* Muted text - Light gray */
+    --muted: oklch(0.25 0.012 285);               /* Muted background - bleu-nuit */
+    --muted-foreground: oklch(0.72 0.012 285);    /* Muted text - gris froid */
 
     /* Accent colors */
-    --accent: oklch(0.3132 0 0);                  /* Accent background - Medium dark */
-    --accent-foreground: oklch(0.9851 0 0);       /* Accent text - White */
+    --accent: oklch(0.30 0.02 285);               /* Accent background - bleu-nuit clair */
+    --accent-foreground: oklch(0.95 0.008 285);   /* Accent text - clair */
 
     /* Destructive colors */
     --destructive: oklch(0.3123 0.0852 29.7877);  /* Destructive - Dark red */
@@ -160,9 +193,9 @@
     --info-foreground: oklch(0.1822 0 0);         /* Info text - Dark */
 
     /* Border and Input */
-    --border: oklch(0.2809 0 0);                  /* Border color - Dark gray */
-    --input: oklch(0.2603 0 0);                   /* Input background - Medium dark */
-    --ring: oklch(0.8003 0.1821 151.7110);        /* Focus ring - Bright green */
+    --border: oklch(0.32 0.015 285 / 0.7);        /* Border color - bleu-nuit translucide */
+    --input: oklch(0.27 0.015 285 / 0.55);        /* Input background - bleu-nuit translucide (glass) */
+    --ring: oklch(0.70 0.10 290);                 /* Focus ring - violet doux */
 
     /* Chart colors */
     --chart-1: oklch(0.8003 0.1821 151.7110);     /* Bright green */
@@ -171,15 +204,15 @@
     --chart-4: oklch(0.8369 0.1644 84.4286);      /* Yellow */
     --chart-5: oklch(0.7845 0.1325 181.9120);     /* Teal */
 
-    /* Sidebar colors */
-    --sidebar-background: oklch(0.1822 0 0);      /* Sidebar background - Very dark */
-    --sidebar-foreground: oklch(0.6301 0 0);      /* Sidebar text - Light gray */
-    --sidebar-primary: oklch(0.4365 0.1044 156.7556); /* Sidebar active - Green */
-    --sidebar-primary-foreground: oklch(0.9213 0.0135 167.1556); /* Sidebar active text */
-    --sidebar-accent: oklch(0.3132 0 0);          /* Sidebar hover - Medium dark */
-    --sidebar-accent-foreground: oklch(0.9851 0 0); /* Sidebar hover text - White */
-    --sidebar-border: oklch(0.2809 0 0);          /* Sidebar border - Dark gray */
-    --sidebar-ring: oklch(0.8003 0.1821 151.7110); /* Sidebar focus ring - Green */
+    /* Sidebar colors — translucide sombre (glass) */
+    --sidebar-background: oklch(0.205 0.014 285 / 0.55); /* Sidebar background - bleu-nuit translucide */
+    --sidebar-foreground: oklch(0.70 0.012 285);  /* Sidebar text - gris froid clair */
+    --sidebar-primary: oklch(0.95 0.008 285);     /* Sidebar active - blanc froid */
+    --sidebar-primary-foreground: oklch(0.17 0.012 285); /* Sidebar active text - bleu-nuit */
+    --sidebar-accent: oklch(0.30 0.02 285);       /* Sidebar hover - bleu-nuit clair */
+    --sidebar-accent-foreground: oklch(0.95 0.008 285); /* Sidebar hover text - clair */
+    --sidebar-border: oklch(0.32 0.015 285);      /* Sidebar border - bleu-nuit */
+    --sidebar-ring: oklch(0.70 0.10 290);         /* Sidebar focus ring - violet doux */
   }
 
   /* ==========================================================================
@@ -190,7 +223,14 @@
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply text-foreground;
+    /* Par défaut (app après login) : gradient ATTÉNUÉ, fixe au scroll. Les
+       pages auth surchargent avec le gradient fort (.auth-screen ci-dessous).
+       Le background-color sert de fallback si le gradient ne charge pas. */
+    background-color: var(--background);
+    background-image: var(--page-gradient-soft);
+    background-attachment: fixed;
+    background-size: cover;
     font-family: Outfit, -apple-system, system-ui, BlinkMacSystemFont, 'Helvetica Neue', 'Helvetica', sans-serif;
     letter-spacing: var(--tracking-normal);
     text-rendering: optimizeLegibility;
@@ -249,9 +289,17 @@
     @apply mx-auto w-full max-w-6xl p-4 md:p-8;
   }
 
-  /* Auth container - Centered login/signup forms */
+  /* Auth container - Centered login/signup forms (fond = gradient body) */
   .auth-container {
-    @apply flex min-h-screen items-center justify-center p-4 bg-background;
+    @apply flex min-h-screen items-center justify-center p-4;
+  }
+
+  /* Auth screen - Remet le gradient FORT sur les pages auth (login/signup),
+     par-dessus le gradient atténué du body utilisé dans le reste de l'app. */
+  .auth-screen {
+    background-image: var(--page-gradient);
+    background-attachment: fixed;
+    background-size: cover;
   }
 
   /* Section spacing - Consistent spacing between sections */
@@ -333,6 +381,17 @@
   /* Link button - Styled link that looks like text */
   .link-button {
     @apply text-primary underline-offset-4 hover:underline;
+  }
+
+  /* CTA gradient - Boutons d'action principaux (même gradient que le logo
+     veridian.hub / le fond de page). Texte foncé pour rester lisible sur
+     les teintes claires jaune/orange. */
+  .cta-gradient {
+    background-image: var(--page-gradient);
+    @apply text-foreground transition-[filter,box-shadow] duration-300;
+  }
+  .cta-gradient:hover {
+    filter: brightness(1.05) saturate(1.1);
   }
 
   /* Icon button - Small icon-only button */

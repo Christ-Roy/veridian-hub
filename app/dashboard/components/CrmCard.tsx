@@ -12,7 +12,8 @@ import {
   CardFooter,
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, ExternalLink, Database } from 'lucide-react';
+import { Loader2, ExternalLink } from 'lucide-react';
+import { AppIdentity } from './AppIdentity';
 
 interface CrmCardProps {
   /** True si l'user a déjà un CrmTenant active en DB. Affiche "Ouvrir" sinon "Démarrer". */
@@ -70,14 +71,14 @@ export function CrmCard({ configured }: CrmCardProps) {
     <Card className="flex flex-col">
       <CardHeader>
         <div className="flex items-start justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <Database className="size-5 text-primary" />
-            <CardTitle>CRM Veridian</CardTitle>
+          <div className="flex items-center gap-3">
+            <AppIdentity app="crm" />
+            <CardTitle>Veridian CRM</CardTitle>
           </div>
           {configured && <Badge variant="secondary">Actif</Badge>}
         </div>
         <CardDescription>
-          Contacts, pipeline, opportunités. Méta-modélisable, intégré au reste de Veridian.
+          Vos contacts, votre pipeline et vos opportunités, réunis au même endroit.
         </CardDescription>
       </CardHeader>
 

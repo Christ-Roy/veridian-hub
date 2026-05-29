@@ -1,6 +1,7 @@
 import { SignupForm } from '@/components/auth/SignupForm';
 import { GoogleOneTap } from '@/components/auth/GoogleOneTap';
-import Logo from '@/components/icons/Logo';
+import { VeridianHubLogo } from '@/components/icons/VeridianHubLogo';
+import { AppTree } from '@/components/auth/AppTree';
 import { redirect } from 'next/navigation';
 import { getAuthTypes } from '@/utils/auth-helpers/settings';
 import { Card } from '@/components/ui/card';
@@ -16,20 +17,17 @@ export default async function SignupPage() {
   const { allowOauth, allowEmail } = getAuthTypes();
 
   return (
-    <div className="min-h-screen w-full flex flex-col lg:flex-row">
+    <div className="auth-screen min-h-screen w-full flex flex-col lg:flex-row">
       {/* Google One Tap : popup auto-login en complément du bouton OAuth
           classique. Aucun markup rendu, se gate lui-même. */}
       <GoogleOneTap callbackUrl="/dashboard" context="signup" />
 
       {/* Left side - Form */}
-      <div className="flex-1 flex items-center justify-center p-6 lg:p-12 bg-background">
+      <div className="flex-1 flex items-center justify-center p-6 lg:p-12">
         <div className="w-full max-w-sm">
           {/* Logo en haut sur mobile, caché sur desktop */}
           <div className="flex justify-center lg:hidden mb-6">
-            <a href="/" className="flex items-center gap-2 font-medium">
-              <Logo width="32px" height="32px" />
-              <span className="text-lg font-semibold text-foreground">Veridian</span>
-            </a>
+            <VeridianHubLogo size="md" href="/" />
           </div>
 
           {/* Formulaire dans une Card avec bordure */}
@@ -40,21 +38,13 @@ export default async function SignupPage() {
       </div>
 
       {/* Right side - Brand - 50% sur lg screens */}
-      <div className="hidden lg:flex lg:w-1/2 bg-muted items-center justify-center p-12">
+      <div className="hidden lg:flex lg:w-1/2 bg-card backdrop-blur-md border-l border-border items-center justify-center p-12">
         <div className="flex flex-col items-center justify-center text-center space-y-8">
-          {/* Logo desktop */}
-          <a href="/" className="flex items-center gap-4 absolute top-12 left-12">
-            <Logo width="32px" height="32px" />
-            <span className="text-lg font-semibold text-foreground">Veridian</span>
-          </a>
-
-          <div className="flex items-center gap-4">
-            <Logo width="80px" height="80px" />
-            <span className="text-6xl font-bold tracking-tight text-foreground">Veridian</span>
-          </div>
-          <p className="text-xl text-muted-foreground max-w-md">
+          <VeridianHubLogo size="lg" />
+          <p className="text-lg text-muted-foreground max-w-md">
             Rejoignez Veridian et boostez votre productivité
           </p>
+          <AppTree className="mt-2" />
         </div>
       </div>
     </div>
