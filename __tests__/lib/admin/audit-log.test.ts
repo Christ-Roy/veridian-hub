@@ -42,6 +42,29 @@ describe('writeAuditLog', () => {
     });
   });
 
+  it("accepte targetType 'tenant_app' (activation d'app gated par tenant)", async () => {
+    // Ajouté 2026-05-29 : l'endpoint /api/admin/tenants/app-access journalise
+    // avec targetType 'tenant_app'. Garde-fou de non-régression du union type
+    // (un build a déjà cassé en oubliant cette valeur dans AuditEvent).
+    createMock.mockResolvedValueOnce({});
+    await writeAuditLog(prisma, {
+      action: 'admin.tenant.app_access',
+      actor: 'token:ADMIN_SECRET',
+      targetType: 'tenant_app',
+      targetId: 'uuid-1',
+      payload: { app: 'twenty', enabled: true },
+    });
+    expect(createMock).toHaveBeenCalledWith({
+      data: {
+        action: 'admin.tenant.app_access',
+        actor: 'token:ADMIN_SECRET',
+        targetType: 'tenant_app',
+        targetId: 'uuid-1',
+        payload: { app: 'twenty', enabled: true },
+      },
+    });
+  });
+
   it('accepte les champs targetType/targetId/payload optionnels', async () => {
     createMock.mockResolvedValueOnce({});
     await writeAuditLog(prisma, {
