@@ -76,7 +76,13 @@ describe('LoginForm', () => {
     render(<LoginForm />);
 
     const emailInput = screen.getByLabelText(/Email/i) as HTMLInputElement;
-    const passwordInput = screen.getByLabelText(/Mot de passe/i) as HTMLInputElement;
+    // Cible l'input par son `name` : le label "Mot de passe" est désormais
+    // ambigu depuis l'ajout du composant PasswordInput (le bouton toggle
+    // œil porte un aria-label "Afficher/Masquer le mot de passe"). On vise
+    // l'input réel, stable et indépendant de la DA.
+    const passwordInput = document.querySelector(
+      'input[name="password"]',
+    ) as HTMLInputElement;
     emailInput.value = 'alice@example.com';
     fireEvent.input(emailInput, { target: { value: 'alice@example.com' } });
     fireEvent.input(passwordInput, { target: { value: 'hunter2hunter' } });

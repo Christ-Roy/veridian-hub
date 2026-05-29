@@ -17,7 +17,10 @@ import {
  * actif sur toutes les sous-pages. Les autres matchent aussi leurs
  * sous-routes (ex. /dashboard/billing actif sur /dashboard/billing/xxx).
  */
-function isItemActive(pathname: string, url: string): boolean {
+function isItemActive(pathname: string | null, url: string): boolean {
+  // `usePathname()` peut renvoyer null (avant hydratation / hors contexte
+  // router en test). Aucun item n'est actif dans ce cas.
+  if (!pathname) return false
   if (url === "/dashboard") return pathname === "/dashboard"
   return pathname === url || pathname.startsWith(url + "/")
 }
