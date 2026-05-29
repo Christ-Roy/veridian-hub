@@ -207,9 +207,12 @@ function buildProvider({ prisma, logger = console, generateUuid = randomUUID }: 
       // vrai OAuth via PrismaAdapter le crée. Best-effort (try/catch isolé),
       // idempotent (provisionDefaultWorkspace skippe si déjà membre).
       try {
+        // NB : on ne passe PAS `logger` ici — le logger du mock n'expose que
+        // {warn, info}, or provisionDefaultWorkspace veut {error, info}. On
+        // laisse son défaut `console`. (Type error attrapée par le build CI.)
         await provisionDefaultWorkspace(
           { userId: user.id, email: user.email, name: null },
-          { prisma: prisma as PrismaClient, actor: 'system:mock-oauth-signup', logger },
+          { prisma: prisma as PrismaClient, actor: 'system:mock-oauth-signup' },
         );
       } catch (err) {
         logger.warn(

@@ -18,6 +18,25 @@ Trois écarts détectés entre les specs et la réalité du code.
   veridian.site → **faux positif**. Corrigé : vérifie le 307 + `Location`
   contient `veridian.site`, sans suivre la redirect.
 
+## 🔬 Diagnostic giga-batterie 2026-05-29 (359/371, 12 échecs = 6 specs ×2 retry)
+
+**AUCUN échec n'est une régression de la feature du jour.** Détail :
+
+| Spec | Cause | Statut |
+|---|---|---|
+| A-01 signup OAuth Google | mock OAuth ne provisionnait pas le workspace | ✅ **FIXÉ** (commit mock-oauth) |
+| A-02 signup OAuth Microsoft | idem (même cause racine) | ✅ **FIXÉ** |
+| J-01 GDPR delete-tenant | idem (user sans workspace) | ✅ **FIXÉ** (même fix) |
+| G-02 discovery 3-niveaux | `NOTIFUSE_HUB_API_SECRET` PAS sourcé par le run | ✅ **non-bug** : repasse vert avec le secret du container |
+| K-02 cron race condition | flaky-by-design (le vrai cron trial-tick tourne /5min sur staging et active les rows avant les 2 ticks du test → 0 activated) | ⚠️ **à réécrire** (isoler du cron réel) |
+| 19-crm-card render | dette pré-existante (CardTitle=div, titre inversé) | 🟡 voir §0 |
+
+**⚠️ Le harnais `scripts/e2e/staging-full.sh` ne source PAS `NOTIFUSE_HUB_API_SECRET`
+ni `CRON_SECRET`** → G-02/K-02 tombent sur des fallbacks bidons (401). À ajouter
+à la liste sourcée. ATTENTION : ne PAS sourcer depuis `.all-creds.env` (pas fiable,
+CRON_SECRET y diffère du container) — sourcer depuis le **container staging**
+(`docker exec hub-staging sh -c 'echo $X'`) qui est la seule source de vérité.
+
 ## Fait 2026-05-29 (cette session)
 
 - ✅ **Spec 20 `20-tenant-app-access-flow.spec.ts` créée + verte** (6/6 sur staging
