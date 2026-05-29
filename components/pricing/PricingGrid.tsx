@@ -8,6 +8,23 @@ import { Card } from '@/components/ui/card';
 import { Check, X, Loader2 } from 'lucide-react';
 import type { Plan, PlanKey, Interval } from '@/lib/pricing/plans';
 
+// Features CRM hardcodées par bundle, en attendant le bump submodule
+// `shared/pricing/plans.ts` qui les injectera depuis le canonique (Agent B).
+// Reco ticket 2026-05-27-pricing-page-update-crm : option (a) hardcode
+// maintenant, refacto vers plans.ts en suivi. Décisions gravées review §Q1
+// option B : pas de SKU CRM standalone, le CRM est une feature gating dans
+// les plans Pro/Business existants.
+const CRM_FEATURES_BY_PLAN: Partial<Record<PlanKey, string[]>> = {
+  'veridian-pro': [
+    'Veridian CRM (lecture seule) — import contacts + pipeline read-only',
+    '1.5M tokens IA inclus / mois',
+  ],
+  'veridian-business': [
+    'Veridian CRM complet — write + AI assistant + white-label',
+    '10M tokens IA inclus / mois',
+  ],
+};
+
 interface PricingGridProps {
   bundles: Plan[];
   notifuse: Plan[];
@@ -198,6 +215,9 @@ export function PricingGrid({
       <p className="text-center text-xs text-muted-foreground mt-12">
         Paiement sécurisé par Stripe. Annulation à tout moment depuis ton dashboard.
       </p>
+      <p className="text-center text-xs text-muted-foreground mt-2">
+        Besoin de plus de tokens IA ? Pack +5M tokens = 30€ disponible dans Settings.
+      </p>
     </div>
   );
 }
@@ -269,6 +289,12 @@ function PlanCard({ plan, interval, isCurrentPlan, loading, onSelect, compact = 
             <span className={f.included ? '' : 'text-muted-foreground line-through'}>
               {f.label}
             </span>
+          </li>
+        ))}
+        {CRM_FEATURES_BY_PLAN[plan.key]?.map((label) => (
+          <li key={`crm-${label}`} className="flex items-start gap-2 text-sm">
+            <Check className="h-4 w-4 text-success shrink-0 mt-0.5" />
+            <span>{label}</span>
           </li>
         ))}
       </ul>

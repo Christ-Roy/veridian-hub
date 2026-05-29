@@ -115,6 +115,26 @@ services:
       # HUB_HMAC_SECRET et porte la même valeur.
       ANALYTICS_HUB_API_SECRET: ${ANALYTICS_HUB_API_SECRET_STAGING:-staging-analytics-hub-secret-not-real-e2e}
 
+      # ─── CRM Veridian (fork Twenty AGPLv3) ─────────────────────────────
+      # Déployé staging 2026-05-27 sur crm.staging.veridian.site (4 containers
+      # docker : crm-server + crm-worker + crm-redis + crm-postgres).
+      # Pattern API consumption pure (cf todo/2026-05-27-route-admin-create-crm-tenant.md) :
+      # - PAS de HMAC bidirectionnel (Hub appelle Twenty REST/GraphQL public)
+      # - PAS de webhook Twenty→Hub (lifecycle géré Hub-side)
+      # - PAS d'endpoint obligatoire côté Twenty (zero modif code AGPL)
+      # - Auth Hub→Twenty = Bearer API key stockée chiffrée par tenant
+      CRM_METADATA_URL: ${CRM_METADATA_URL_STAGING:-https://crm.staging.veridian.site/metadata}
+      CRM_REST_URL: ${CRM_REST_URL_STAGING:-https://crm.staging.veridian.site/rest}
+      CRM_FRONTEND_URL: ${CRM_FRONTEND_URL_STAGING:-https://crm.staging.veridian.site}
+      # Vault AES-256-GCM dédié au CRM (Bearer Twenty + password régen).
+      # Clé séparée de VAULT_ENC_KEY pour isoler le blast radius (rotation
+      # indépendante, clés long-lived 1 an stockées). Génération :
+      # `openssl rand -base64 32`. Le fallback ci-dessous (32 'b') ne sert
+      # qu'à laisser le container démarrer en local — les routes
+      # /api/admin/crm/* échoueront 500 vault_unavailable tant que la vraie
+      # clé n'est pas posée (cf. CRM_VAULT_KEY_STAGING dans .env staging).
+      CRM_VAULT_KEY: ${CRM_VAULT_KEY_STAGING:-YmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmJiYmI=}
+
       # ─── Services tiers staging ────────────────────────────────────────
       BREVO_API_KEY: ${BREVO_API_KEY_STAGING:-}
       CRON_SECRET: staging-cron-secret
@@ -143,6 +163,20 @@ services:
       # Côté E2E runner : sourced auto depuis ~/credentials/.all-creds.env
       # par scripts/e2e/staging-full.sh.
       E2E_RATELIMIT_BYPASS_SECRET: ${E2E_RATELIMIT_BYPASS_SECRET:-}
+
+      # ─── CORS landing cross-subdomain (cf. docs/CROSS-SUBDOMAIN-LANDING.md) ─
+      # Whitelist additionnelle pour /api/me/lite + /api/auth/callback/
+      # google-one-tap. Défauts hardcoded (veridian.site + www) déjà inclus
+      # côté code. Sur staging on autorise aussi un futur veridian.staging.site
+      # quand la landing aura un staging dédié (aujourd'hui pas câblé →
+      # variable vide acceptée).
+      LANDING_ORIGIN: ${LANDING_ORIGIN:-https://veridian.site}
+      LANDING_ORIGIN_STAGING: ${LANDING_ORIGIN_STAGING:-}
+
+      # Secret HS256 du cookie hint cross-subdomain.
+      # En staging : valeur factice acceptée (≥ 32 chars) → tests E2E
+      # passent même sans valeur réelle sourced depuis ~/credentials/.
+      SESSION_HINT_SECRET: ${SESSION_HINT_SECRET:-staging-session-hint-secret-not-real-e2e-padding}
     labels:
       - traefik.enable=true
       - traefik.docker.network=staging-edge

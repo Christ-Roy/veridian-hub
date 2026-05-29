@@ -23,6 +23,7 @@ import {
   Activity,
   type LucideIcon,
 } from 'lucide-react';
+import { AppIdentity, type AppKey } from './AppIdentity';
 
 // Map noms d'icônes → composants. Passer un composant React en prop depuis
 // un Server Component vers un Client Component crashe en Next.js 15 (RSC ne
@@ -48,6 +49,8 @@ export interface ServiceCardProps {
   icon: ServiceCardIcon;
   badge?: 'BETA' | 'NEW' | 'COMING_SOON';
   features?: string[];
+  /** Si fourni, affiche le logo de marque de l'app au lieu de l'icône générique. */
+  appKey?: AppKey;
 }
 
 const BADGE_VARIANTS: Record<
@@ -72,6 +75,7 @@ export function ServiceCard({
   icon,
   badge,
   features,
+  appKey,
 }: ServiceCardProps) {
   const Icon = ICON_MAP[icon] ?? BarChart3;
   const isComingSoon = badge === 'COMING_SOON';
@@ -81,9 +85,13 @@ export function ServiceCard({
       <CardHeader>
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-3">
-            <div className="rounded-md bg-primary/10 p-2">
-              <Icon className="h-6 w-6 text-primary" />
-            </div>
+            {appKey ? (
+              <AppIdentity app={appKey} />
+            ) : (
+              <div className="rounded-md bg-primary/10 p-2">
+                <Icon className="h-6 w-6 text-primary" />
+              </div>
+            )}
             <CardTitle>{name}</CardTitle>
           </div>
           {badge && (

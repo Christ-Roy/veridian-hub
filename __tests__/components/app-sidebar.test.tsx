@@ -23,15 +23,18 @@ vi.mock('@/components/ui/sidebar', async () => {
 
 import { AppSidebar } from '@/components/app-sidebar';
 import { SidebarProvider } from '@/components/ui/sidebar';
+import { TooltipProvider } from '@/components/ui/tooltip';
 
 function renderSidebar(props: Partial<React.ComponentProps<typeof AppSidebar>> = {}) {
   return render(
-    <SidebarProvider>
-      <AppSidebar
-        user={{ name: 'Alice', email: 'a@x.io', avatar: '/avatars/default.svg' }}
-        {...props}
-      />
-    </SidebarProvider>
+    <TooltipProvider>
+      <SidebarProvider>
+        <AppSidebar
+          user={{ name: 'Alice', email: 'a@x.io', avatar: '/avatars/default.svg' }}
+          {...props}
+        />
+      </SidebarProvider>
+    </TooltipProvider>
   );
 }
 
@@ -75,4 +78,5 @@ describe('AppSidebar', () => {
     expect(screen.getByText('Intégration')).toBeInTheDocument();
     expect(screen.getByText('Bientôt')).toBeInTheDocument();
   });
+
 });

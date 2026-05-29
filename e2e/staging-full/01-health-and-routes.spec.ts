@@ -12,10 +12,16 @@ test.describe('Journey 1 — Fondations', () => {
     expect(res.status()).toBe(200);
   });
 
-  test('GET / (landing) rend sans erreur 5xx', async ({ page }) => {
-    const res = await page.goto('/');
-    expect(res?.status()).toBeLessThan(500);
-    await expect(page).toHaveTitle(/Veridian/i);
+  test('GET / redirige le visiteur non-loggué vers le site marketing (depuis 2026-05-29)', async ({
+    request,
+  }) => {
+    // La home n'est plus une landing : elle redirige (307) vers veridian.site
+    // pour un visiteur non-loggué (loggué → /dashboard). On vérifie la redirect
+    // SANS la suivre — sinon on testerait veridian.site, hors périmètre Hub
+    // (et l'ancien test "titre Veridian" passait par accident sur la cible).
+    const res = await request.get('/', { maxRedirects: 0 });
+    expect(res.status()).toBe(307);
+    expect(res.headers()['location'] ?? '').toContain('veridian.site');
   });
 
   test('GET /login affiche le form Credentials (OAuth désactivé en staging Tailscale-only)', async ({ page }) => {

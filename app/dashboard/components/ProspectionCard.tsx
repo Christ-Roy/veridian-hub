@@ -13,7 +13,8 @@ import {
 } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Loader2, ExternalLink, Info, Target } from 'lucide-react';
+import { Loader2, ExternalLink, Info } from 'lucide-react';
+import { AppIdentity } from './AppIdentity';
 import { StartTrialButton } from './StartTrialButton';
 
 interface ProspectionCardProps {
@@ -74,11 +75,9 @@ export function ProspectionCard({
       <CardHeader>
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
-            <div className="rounded-md bg-primary/10 p-2">
-              <Target className="h-6 w-6 text-primary" />
-            </div>
+            <AppIdentity app="prospection" />
             <div>
-              <CardTitle className="text-xl">Prospection</CardTitle>
+              <CardTitle className="text-xl">Veridian Prospection</CardTitle>
               <CardDescription className="mt-1">
                 Qualification de leads .fr
               </CardDescription>

@@ -18,11 +18,11 @@ import { PLANS, type Interval, type PlanKey } from '@/lib/pricing/plans';
 export const metadata: Metadata = {
   title: 'Tarifs flexibles pour vos SaaS Veridian',
   description:
-    'Plans Notifuse + Prospection à la carte ou en bundle dégressif. Essai gratuit 15 jours sans carte bancaire.',
+    'Plans Notifuse + Prospection + CRM Veridian à la carte ou en bundle dégressif. Essai gratuit 15 jours sans carte bancaire.',
   openGraph: {
     title: 'Tarifs Veridian | Plans flexibles pour vos SaaS',
     description:
-      'Plans Notifuse + Prospection à la carte ou en bundle dégressif. Essai gratuit 15 jours sans carte bancaire.',
+      'Plans Notifuse + Prospection + CRM Veridian à la carte ou en bundle dégressif. Essai gratuit 15 jours sans carte bancaire.',
   },
 };
 

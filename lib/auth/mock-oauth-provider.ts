@@ -37,6 +37,7 @@ import { randomUUID } from 'node:crypto';
 import Credentials from 'next-auth/providers/credentials';
 import { z } from 'zod';
 import type { PrismaClient } from '@prisma/client';
+import { provisionDefaultWorkspace } from '@/lib/workspace/provision';
 
 const MOCK_INPUT_SCHEMA = z.object({
   email: z.string().email(),
@@ -197,6 +198,31 @@ function buildProvider({ prisma, logger = console, generateUuid = randomUUID }: 
             providerAccountId: email,
           },
         });
+      }
+
+      // Provision du workspace par défaut — MIROIR de l'event Auth.js réel
+      // `createUser` (lib/auth/create-user-event.ts). Le mock court-circuite
+      // l'event (provider Credentials déguisé) : sans cet appel, les users
+      // signés via mock OAuth n'ont PAS de workspace, alors qu'en prod le
+      // vrai OAuth via PrismaAdapter le crée. Best-effort (try/catch isolé),
+      // idempotent (provisionDefaultWorkspace skippe si déjà membre).
+      try {
+        // NB : on ne passe PAS `logger` ici — le logger du mock n'expose que
+        // {warn, info}, or provisionDefaultWorkspace veut {error, info}. On
+        // laisse son défaut `console`. (Type error attrapée par le build CI.)
+        await provisionDefaultWorkspace(
+          { userId: user.id, email: user.email, name: null },
+          { prisma: prisma as PrismaClient, actor: 'system:mock-oauth-signup' },
+        );
+      } catch (err) {
+        logger.warn(
+          JSON.stringify({
+            tag: '[mock-oauth-provider]',
+            level: 'warn',
+            message: 'provisionDefaultWorkspace failed (non-blocking)',
+            reason: err instanceof Error ? err.message : String(err),
+          }),
+        );
       }
 
       logger.info?.(

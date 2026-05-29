@@ -483,6 +483,34 @@ model Tenant {
   @@schema("hub_app")
 }
 
+/// Activation d'une app gated par tenant (panneau d'admin SaaS).
+///
+/// Pilote l'affichage "actif" des cards dashboard pour les services PAS
+/// grand public (twenty/CRM, analytics, cms). Par défaut une app n'a PAS de
+/// row → considérée DÉSACTIVÉE. C'est Robert (gestionnaire SaaS) qui active
+/// une app pour un tenant via l'Admin API.
+///
+/// HORS périmètre : prospection + notifuse restent TOUJOURS grand public
+/// (jamais gérés ici, toujours visibles sur le dashboard).
+///
+/// `userId` = UUID bridge (Tenant.userId / supabaseUserId), cohérent avec
+/// les autres tables tenants/subscriptions qui pivotent sur cet UUID.
+model TenantApp {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  appKey    String    @map("app_key") // 'twenty' | 'analytics' | 'cms'
+  enabled   Boolean   @default(false)
+  enabledAt DateTime? @map("enabled_at") @db.Timestamptz(6)
+  enabledBy String?   @map("enabled_by") // email admin ayant activé (audit)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([userId, appKey])
+  @@index([userId])
+  @@map("tenant_apps")
+  @@schema("hub_app")
+}
+
 model ProvisioningLog {
   id        String   @id @default(uuid()) @db.Uuid
   tenantId  String   @map("tenant_id") @db.Uuid
@@ -630,6 +658,49 @@ model AuditLog {
   @@index([targetId])
   @@index([actor, createdAt(sort: Desc)], map: "audit_log_actor_created_at_idx")
   @@map("audit_log")
+  @@schema("hub_app")
+}
+
+// ============================================================================
+// VERIDIAN CRM — tenants Twenty fork (créé 2026-05-27)
+// ============================================================================
+//
+// Table dédiée pour les workspaces Twenty (fork AGPL crm.staging.veridian.site)
+// provisionnés via POST /api/admin/crm/create-tenant.
+//
+// SÉPARÉE de `tenants` (scope Notifuse + Prospection) :
+//   - Le CRM Twenty a son propre cycle de vie (workspace fork avec storage
+//     custom, pas de plan billing Hub-side pour l'instant)
+//   - Les colonnes Bearer/password sont chiffrées AES-256-GCM avec
+//     CRM_VAULT_KEY (cf `lib/crm/vault.ts`)
+//   - L'idempotence est par email (UNIQUE partiel WHERE status != 'deleted')
+//
+// `userId` référence `users.supabase_user_id` (UUID v4 bridge), même pattern
+// que Tenant.userId. Pas de FK physique car la colonne cible est nullable.
+
+model CrmTenant {
+  id                        String    @id @default(uuid()) @db.Uuid
+  // FK logique vers hub_app.users.id (cuid text, pas uuid). Pas de relation
+  // Prisma typée pour rester aligné avec le pattern Tenant existant + éviter
+  // les contraintes au moment où le user est en cours de création.
+  userId                    String    @map("user_id")
+  email                     String
+  workspaceDisplayName      String    @map("workspace_display_name")
+  twentyWorkspaceId         String    @unique @map("twenty_workspace_id") @db.Uuid
+  twentyWorkspaceUrl        String    @map("twenty_workspace_url")
+  twentyApiKeyId            String    @map("twenty_api_key_id") @db.Uuid
+  twentyApiKeyEncrypted     String    @map("twenty_api_key_encrypted")
+  twentyApiKeyExpiresAt     DateTime  @map("twenty_api_key_expires_at") @db.Timestamptz(6)
+  twentyPasswordEncrypted   String    @map("twenty_password_encrypted")
+  status                    String    @default("active") // active | suspended | deleted
+  metadata                  Json?
+  provisionedAt             DateTime? @map("provisioned_at") @db.Timestamptz(6)
+  createdAt                 DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@index([userId])
+  @@index([status])
+  @@map("crm_tenants")
   @@schema("hub_app")
 }
 

@@ -48,6 +48,24 @@ if [ -f "$CREDS_FILE" ]; then
   done
 fi
 
+# ─── 0bis. Secrets sourcés depuis le CONTAINER staging (source de vérité) ───
+# `.all-creds.env` n'est PAS fiable pour ces secrets (constaté 2026-05-29 :
+# CRON_SECRET y diffère du runtime container → K-02 401). On lit donc les
+# valeurs RÉELLES injectées dans hub-staging. Sans ces deux-là, G-02 (discovery
+# HMAC) et K-02 (cron trial-tick) tombent sur des fallbacks bidons → 401/0-row.
+# Seulement si pas déjà fournis par l'env appelant.
+for pair in "NOTIFUSE_HUB_API_SECRET" "CRON_SECRET" "ADMIN_SECRET:HUB_ADMIN_SECRET" "E2E_RATELIMIT_BYPASS_SECRET"; do
+  remote="${pair%%:*}"
+  local_name="${pair#*:}"   # si pas de ':' → identique à remote
+  if [ -z "${!local_name:-}" ]; then
+    val=$(ssh -o BatchMode=yes -o ConnectTimeout=10 dev-pub \
+      "docker exec hub-staging sh -c 'echo \$${remote}'" 2>/dev/null | tr -d '\r\n' || true)
+    if [ -n "$val" ]; then
+      export "$local_name=$val"
+    fi
+  fi
+done
+
 RED=$'\033[0;31m'
 GREEN=$'\033[0;32m'
 YELLOW=$'\033[1;33m'

@@ -1,16 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
-  <style>
-    /* Par défaut (Mode Clair) : Fond vert foncé, texte menthe */
-    .bg { fill: #1a3d2f; transition: fill 0.3s; }
-    .symbol { fill: #86efac; transition: fill 0.3s; }
-
-    /* Mode Sombre : On peut inverser ou changer si on veut */
-    @media (prefers-color-scheme: dark) {
-      .bg { fill: #86efac; } /* Fond menthe */
-      .symbol { fill: #1a3d2f; } /* Texte vert foncé */
-    }
-  </style>
-  
-  <rect class="bg" width="32" height="32" rx="10"/>
-  <text class="symbol" x="50%" y="58%" dominant-baseline="middle" text-anchor="middle" style="font-family: sans-serif; font-weight: 800; font-size: 20px;">V</text>
+  <defs>
+    <linearGradient id="veridian-grad" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fbe7a8"/>
+      <stop offset="0.4" stop-color="#fbc56b"/>
+      <stop offset="0.72" stop-color="#f0a6c0"/>
+      <stop offset="1" stop-color="#c9a6e8"/>
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="9" fill="url(#veridian-grad)"/>
+  <text x="50%" y="56%" dominant-baseline="middle" text-anchor="middle"
+        fill="#2a2333" style="font-family: sans-serif; font-weight: 800; font-size: 20px;">V</text>
 </svg>

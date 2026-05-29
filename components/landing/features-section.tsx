@@ -1,6 +1,5 @@
 import {
   Users,
-  Mail,
   BarChart3,
   Zap,
   Target,
@@ -8,6 +7,9 @@ import {
   Database,
   Send,
   Filter,
+  Sparkles,
+  Plug,
+  ArrowRight,
 } from "lucide-react"
 import {
   Card,
@@ -17,7 +19,9 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import Image from "next/image"
+import Link from "next/link"
 
 /**
  * FEATURES SECTION - Présentation des services MVP
@@ -49,60 +53,83 @@ export function FeaturesSection() {
           </p>
         </div>
 
-        {/* Bloc 2: CRM Features - Service #1 du MVP */}
+        {/* Bloc 2: Veridian CRM - bientôt disponible (mode plan-agnostic).
+            Copy volontairement sobre, sans claim ferme sur features ni rattachement
+            à un tier pricing (offre pas encore tranchée — cf todo/2026-05-27-review-offre-crm-veridian.md). */}
         <div className="mb-20">
-          <h3 className="mb-6 flex items-center gap-2 text-2xl font-semibold text-foreground">
-            <Database className="size-6" />
-            CRM Intelligent
-          </h3>
+          <div className="mb-6 flex flex-wrap items-center gap-3">
+            <h3 className="flex items-center gap-2 text-2xl font-semibold text-foreground">
+              <Database className="size-6" />
+              Veridian CRM
+            </h3>
+            <Badge variant="secondary" className="text-xs">
+              Bientôt disponible
+            </Badge>
+            <Badge variant="outline" className="text-xs text-muted-foreground">
+              En cours de déploiement
+            </Badge>
+          </div>
+          <p className="mb-6 max-w-3xl text-muted-foreground">
+            Pipeline contacts, intégrations natives, AI assistant — un CRM pensé pour s&apos;intégrer nativement avec les autres apps Veridian.
+          </p>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3 md:gap-6">
-            {/* Feature CRM 1: Gestion des contacts */}
-            <Card className="bg-gradient-to-t from-primary/5 to-card">
-              <CardHeader className="relative">
-                <div className="absolute right-4 top-4">
-                  <Users className="size-8 text-muted-foreground/20" />
-                </div>
-                <CardTitle className="text-xl text-foreground">Gestion des contacts</CardTitle>
-                <CardDescription className="mt-2">
-                  Centralisez toutes vos données clients. Historique complet, notes, tags personnalisés.
-                </CardDescription>
-              </CardHeader>
-              <CardFooter className="text-sm text-muted-foreground">
-                Base de données illimitée en freemium
-              </CardFooter>
-            </Card>
-
-            {/* Feature CRM 2: Pipeline de ventes */}
+            {/* Feature CRM 1: Pipeline contacts */}
             <Card className="bg-gradient-to-t from-primary/5 to-card">
               <CardHeader className="relative">
                 <div className="absolute right-4 top-4">
                   <Target className="size-8 text-muted-foreground/20" />
                 </div>
-                <CardTitle className="text-xl text-foreground">Pipeline de ventes</CardTitle>
+                <CardTitle className="text-xl text-foreground">Pipeline contacts</CardTitle>
                 <CardDescription className="mt-2">
-                  Visualisez votre pipeline en temps réel. Drag & drop, étapes personnalisables, prévisions.
+                  Suivez vos contacts et vos deals dans un pipeline visuel pensé pour les équipes commerciales.
                 </CardDescription>
               </CardHeader>
               <CardFooter className="text-sm text-muted-foreground">
-                Kanban view inclus
+                Aperçu à venir
               </CardFooter>
             </Card>
 
-            {/* Feature CRM 3: Analytics */}
+            {/* Feature CRM 2: Intégrations natives */}
             <Card className="bg-gradient-to-t from-primary/5 to-card">
               <CardHeader className="relative">
                 <div className="absolute right-4 top-4">
-                  <BarChart3 className="size-8 text-muted-foreground/20" />
+                  <Plug className="size-8 text-muted-foreground/20" />
                 </div>
-                <CardTitle className="text-xl text-foreground">Analytics avancés</CardTitle>
+                <CardTitle className="text-xl text-foreground">Intégrations natives</CardTitle>
                 <CardDescription className="mt-2">
-                  Tableaux de bord personnalisables. Métriques clés, rapports exportables, insights IA.
+                  Connecté nativement aux autres apps Veridian pour éviter le copier-coller entre outils.
                 </CardDescription>
               </CardHeader>
               <CardFooter className="text-sm text-muted-foreground">
-                Rapports en temps réel
+                Aperçu à venir
               </CardFooter>
             </Card>
+
+            {/* Feature CRM 3: AI assistant */}
+            <Card className="bg-gradient-to-t from-primary/5 to-card">
+              <CardHeader className="relative">
+                <div className="absolute right-4 top-4">
+                  <Sparkles className="size-8 text-muted-foreground/20" />
+                </div>
+                <CardTitle className="text-xl text-foreground">AI assistant</CardTitle>
+                <CardDescription className="mt-2">
+                  Un assistant pour résumer vos échanges, qualifier vos contacts et suggérer les prochaines actions.
+                </CardDescription>
+              </CardHeader>
+              <CardFooter className="text-sm text-muted-foreground">
+                Aperçu à venir
+              </CardFooter>
+            </Card>
+          </div>
+
+          {/* CTA — pointe vers /pricing (pas d'ancre, offre pas encore figée) */}
+          <div className="mt-8 flex justify-center">
+            <Button asChild size="lg" variant="outline">
+              <Link href="/pricing">
+                Découvrir l&apos;offre
+                <ArrowRight className="ml-2 size-4" />
+              </Link>
+            </Button>
           </div>
 
           {/* Image CRM - Screenshot de l'interface */}
@@ -110,7 +137,7 @@ export function FeaturesSection() {
             <div className="relative overflow-hidden rounded-xl border bg-card shadow-2xl dark:shadow-[0_0_50px_0px_var(--primary)] ring-1 ring-black/5 dark:ring-primary/50">
               <Image
                 src="/landing/crm-interface.webp"
-                alt="Interface CRM - Gestion des contacts et pipeline de ventes"
+                alt="Aperçu Veridian CRM"
                 width={1600}
                 height={900}
                 className="w-full"
@@ -134,11 +161,11 @@ export function FeaturesSection() {
                 </div>
                 <CardTitle className="text-xl text-foreground">Campagnes automatisées</CardTitle>
                 <CardDescription className="mt-2">
-                  Créez des séquences d'emails intelligentes. Déclencheurs personnalisés, A/B testing intégré.
+                  Créez des séquences d&apos;emails intelligentes. Déclencheurs personnalisés, A/B testing intégré.
                 </CardDescription>
               </CardHeader>
               <CardFooter className="text-sm text-muted-foreground">
-                Templates prêts à l'emploi
+                Templates prêts à l&apos;emploi
               </CardFooter>
             </Card>
 
@@ -164,9 +191,9 @@ export function FeaturesSection() {
                 <div className="absolute right-4 top-4">
                   <TrendingUp className="size-8 text-muted-foreground/20" />
                 </div>
-                <CardTitle className="text-xl text-foreground">Tracking & Analytics</CardTitle>
+                <CardTitle className="text-xl text-foreground">Tracking &amp; Analytics</CardTitle>
                 <CardDescription className="mt-2">
-                  Suivez chaque interaction. Taux d'ouverture, clics, conversions, ROI en temps réel.
+                  Suivez chaque interaction. Taux d&apos;ouverture, clics, conversions, ROI en temps réel.
                 </CardDescription>
               </CardHeader>
               <CardFooter className="text-sm text-muted-foreground">

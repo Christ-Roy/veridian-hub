@@ -22,7 +22,7 @@ export default async function AdminHubLayout({ children }: { children: React.Rea
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen">
       <header className="bg-card border-b border-border sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-6 py-3 flex items-center gap-6">
           <Link href="/dashboard" className="text-sm font-semibold text-primary">
