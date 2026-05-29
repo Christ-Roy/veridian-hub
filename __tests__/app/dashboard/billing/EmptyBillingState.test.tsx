@@ -16,9 +16,10 @@ describe('<EmptyBillingState>', () => {
     expect(screen.getByText(/sans engagement/i)).toBeInTheDocument();
   });
 
-  it('expose un CTA bouton vers /pricing (pas un lien texte nu)', () => {
+  it('expose un CTA bouton vers la landing pricing (veridian.site/plateforme, pas un lien texte nu)', () => {
+    // Refonte DA 2026-05-29 : pricing centralisé sur veridian.site/plateforme.
     render(<EmptyBillingState />);
     const cta = screen.getByRole('link', { name: /découvrir les formules/i });
-    expect(cta).toHaveAttribute('href', '/pricing');
+    expect(cta).toHaveAttribute('href', 'https://veridian.site/plateforme');
   });
 });

@@ -53,12 +53,12 @@ describe('OnboardingChecklist', () => {
         hasInvitedMember={false}
       />,
     );
-    expect(screen.getByText('Démarre ta première app')).toBeTruthy();
+    expect(screen.getByText('Activez votre premier outil')).toBeTruthy();
     expect(
-      screen.getByText('Invite un membre dans ton workspace'),
+      screen.getByText('Invitez un membre dans votre espace'),
     ).toBeTruthy();
     expect(
-      screen.getByText('Personnalise le nom de ton workspace'),
+      screen.getByText('Personnalisez le nom de votre espace'),
     ).toBeTruthy();
   });
 
@@ -70,7 +70,7 @@ describe('OnboardingChecklist', () => {
         hasInvitedMember
       />,
     );
-    const item = screen.getByText('Invite un membre dans ton workspace');
+    const item = screen.getByText('Invitez un membre dans votre espace');
     expect(item.className).toContain('line-through');
   });
 
@@ -82,7 +82,7 @@ describe('OnboardingChecklist', () => {
         hasInvitedMember={false}
       />,
     );
-    const item = screen.getByText('Invite un membre dans ton workspace');
+    const item = screen.getByText('Invitez un membre dans votre espace');
     expect(item.className).not.toContain('line-through');
   });
 

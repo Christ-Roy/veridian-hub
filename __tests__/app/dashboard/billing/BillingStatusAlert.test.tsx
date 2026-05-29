@@ -36,12 +36,14 @@ describe('<BillingStatusAlert>', () => {
     ).toBeInTheDocument();
   });
 
-  it('canceled : affiche un CTA "Réactiver" pointant vers /pricing', () => {
+  it('canceled : affiche un CTA "Réactiver" pointant vers la landing pricing (veridian.site/plateforme)', () => {
+    // Depuis la refonte DA 2026-05-29 : le Hub n'expose plus de page pricing
+    // dans le tunnel ; le CTA renvoie vers la landing veridian.site/plateforme.
     render(<BillingStatusAlert status="canceled" />);
     expect(screen.getByRole('alert')).toBeInTheDocument();
     expect(screen.getByText(/abonnement est annulé/i)).toBeInTheDocument();
     const cta = screen.getByRole('link', { name: /réactiver mon abonnement/i });
-    expect(cta).toHaveAttribute('href', '/pricing');
+    expect(cta).toHaveAttribute('href', 'https://veridian.site/plateforme');
   });
 
   it('incomplete_expired : traité comme une annulation', () => {
