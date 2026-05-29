@@ -17,7 +17,7 @@ import type { PrismaClient } from '@prisma/client';
 export type AuditEvent = {
   action: string;
   actor: string;
-  targetType?: 'user' | 'tenant' | 'app_link';
+  targetType?: 'user' | 'tenant' | 'app_link' | 'tenant_app';
   targetId?: string;
   payload?: Record<string, unknown>;
 };
