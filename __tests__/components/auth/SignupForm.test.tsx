@@ -92,6 +92,24 @@ describe('SignupForm', () => {
     expect(screen.getByText(/Les mots de passe ne correspondent pas/i)).toBeTruthy();
   });
 
+  it('intègre PasswordInput sur les 2 champs : masqués par défaut + 2 boutons toggle', () => {
+    // Depuis la refonte DA, password ET confirmPassword utilisent PasswordInput
+    // (champ + bouton œil). Garde-fou : les 2 champs sont bien des inputs
+    // password masqués, et chacun a son bouton afficher/masquer.
+    render(<SignupForm />);
+
+    const pwd = document.querySelector('input[name="password"]') as HTMLInputElement;
+    const confirm = document.querySelector(
+      'input[name="confirmPassword"]',
+    ) as HTMLInputElement;
+    expect(pwd?.getAttribute('type')).toBe('password');
+    expect(confirm?.getAttribute('type')).toBe('password');
+
+    // 2 boutons toggle (un par champ), tous en mode "Afficher" au départ
+    const toggles = screen.getAllByRole('button', { name: /Afficher le mot de passe/i });
+    expect(toggles).toHaveLength(2);
+  });
+
   it('cache OAuthButtons (et son footer) quand allowOauth=false', () => {
     render(<SignupForm allowOauth={false} />);
     expect(screen.queryByRole('button', { name: /Continuer avec Google/i })).toBeNull();
