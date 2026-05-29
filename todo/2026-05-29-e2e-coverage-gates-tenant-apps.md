@@ -18,9 +18,32 @@ Trois écarts détectés entre les specs et la réalité du code.
   veridian.site → **faux positif**. Corrigé : vérifie le 307 + `Location`
   contient `veridian.site`, sans suivre la redirect.
 
+## Fait 2026-05-29 (cette session)
+
+- ✅ **Spec 20 `20-tenant-app-access-flow.spec.ts` créée + verte** (6/6 sur staging
+  réel) : couvre POST /api/admin/tenants/app-access (401/400/404 + activation/
+  désactivation twenty + vérif DB tenant_apps). Pièges réglés : mode serial,
+  user créé avec supabase_user_id, JOIN `supabase_user_id::uuid` (text=uuid).
+- ✅ Spec 19 : ajout `enableTwentyFor()` (active twenty en DB avant le flow card),
+  cleanup tenant_apps, casts UUID. **MAIS** voir ci-dessous : le test render
+  reste rouge pour une raison PRÉ-EXISTANTE (pas le gating).
+
 ## Reste à faire
 
-### 1. 🔴 `19-crm-card-dashboard-flow.spec.ts` cassé par le gating TenantApp
+### 0. 🟡 `19` test "render" : cassé AVANT le gating (dette pré-existante)
+
+Le 1er test (`login → dashboard render → card visible`) échoue à trouver le
+titre. Cause PRÉ-EXISTANTE (commit `829418e`, avant cette session) :
+- cherchait `getByRole('heading', { name: 'CRM Veridian' })` — or (a) le titre
+  rendu est `Veridian CRM` (ordre inversé) et (b) `CardTitle` rend un `<div>`,
+  pas un `<heading>`. Donc ce test ne pouvait pas passer depuis la refonte
+  shadcn de CardTitle.
+- Corrigé partiellement (titre + getByText) mais le titre reste introuvable au
+  render → suspecter que le dashboard ne rend pas la CrmCard dans le contexte
+  mock-OAuth (user sans workspace ?) OU timing SSR du flag. À investiguer à
+  tête reposée — NON bloquant pour la feature (l'endpoint est couvert par 20).
+
+### 1. 🟢 `19` flow activate/ouvrir (3 tests suivants, serial)
 
 Le test clique "Activer mon CRM" puis "Ouvrir mon CRM". Or depuis le gating
 (commit `feat(admin): activation des apps gated par tenant`), la card CRM est

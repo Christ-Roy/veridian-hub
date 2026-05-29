@@ -31,7 +31,7 @@ import { purgeMegaByPrefix } from './mega/_fixtures/db-purge';
 import { runSqlOnStaging, selectScalar } from './_sql-helper';
 import { MEGA_RUN_STAMP } from './mega/_fixtures/run-stamp';
 
-const BUCKET = 'crm-card';
+const BUCKET = 'crmcard';
 const SPEC = '19-dashboard-flow';
 
 test.describe.configure({ mode: 'serial' });
@@ -39,6 +39,21 @@ test.describe.configure({ mode: 'serial' });
 test.describe('CRM card dashboard E2E flow (HEADFULL)', () => {
   let session: MegaSession | null = null;
   let crmTenantId: string | null = null;
+
+  /**
+   * Active l'app `twenty` pour le user (par email) en posant directement le
+   * flag TenantApp en DB. Nécessaire depuis le gating 2026-05-29 : sans ça la
+   * card CRM est "Bientôt" (bouton désactivé) et le bouton "Activer mon CRM"
+   * n'existe pas. On joint sur users.supabase_user_id (UUID bridge).
+   */
+  function enableTwentyFor(email: string): void {
+    runSqlOnStaging(
+      `INSERT INTO hub_app.tenant_apps (user_id, app_key, enabled, enabled_at, enabled_by)
+       SELECT supabase_user_id::uuid, 'twenty', true, now(), 'e2e-mega'
+       FROM hub_app.users WHERE email = '${email}' AND supabase_user_id IS NOT NULL
+       ON CONFLICT (user_id, app_key) DO UPDATE SET enabled = true, enabled_at = now();`,
+    );
+  }
 
   test.afterEach(async () => {
     if (session) {
@@ -65,6 +80,18 @@ test.describe('CRM card dashboard E2E flow (HEADFULL)', () => {
     } catch {
       /* swallow */
     }
+    // Cleanup tenant_apps (flags twenty posés par enableTwentyFor) — join sur
+    // les users du bucket, supprimés ensuite par purgeMegaByPrefix.
+    try {
+      runSqlOnStaging(
+        `DELETE FROM hub_app.tenant_apps WHERE user_id IN (
+           SELECT supabase_user_id::uuid FROM hub_app.users
+           WHERE email LIKE 'e2e-mega-${BUCKET}-%' AND supabase_user_id IS NOT NULL
+         );`,
+      );
+    } catch {
+      /* swallow */
+    }
   });
 
   test('login → dashboard render → card CRM visible (NO crash Prisma sur crmTenant lookup)', async ({
@@ -77,7 +104,11 @@ test.describe('CRM card dashboard E2E flow (HEADFULL)', () => {
       provider: 'google',
       variant: 'render',
     });
-    expect(session.email).toMatch(/^e2e-mega-crm-card/);
+    expect(session.email).toMatch(/^e2e-mega-crmcard/);
+
+    // Gating 2026-05-29 : activer twenty pour ce user, sinon la card CRM
+    // reste "Bientôt" et le bouton "Activer mon CRM" n'apparaît pas.
+    enableTwentyFor(session.email);
 
     const ctx = await browser.newContext({
       storageState: session.storageState,
@@ -91,11 +122,12 @@ test.describe('CRM card dashboard E2E flow (HEADFULL)', () => {
     });
     expect(response?.status(), 'dashboard doit retourner 200').toBe(200);
 
-    // La card "CRM Veridian" doit être visible dans la grid SaaS
-    const crmCardTitle = page.getByRole('heading', { name: 'CRM Veridian' });
+    // La card "Veridian CRM" doit être visible dans la grid SaaS. Depuis la
+    // refonte DA, CardTitle rend un <div> (pas un <heading>) → cibler par texte.
+    const crmCardTitle = page.getByText('Veridian CRM', { exact: true });
     await expect(crmCardTitle).toBeVisible({ timeout: 10_000 });
 
-    // Le bouton initial doit être "Activer mon CRM" (pas de tenant en DB pour ce nouveau user)
+    // twenty activé (enableTwentyFor) + pas de tenant en DB → bouton "Activer mon CRM".
     const activateButton = page.getByRole('button', { name: /Activer mon CRM/i });
     await expect(activateButton).toBeVisible();
 
@@ -112,6 +144,9 @@ test.describe('CRM card dashboard E2E flow (HEADFULL)', () => {
       provider: 'google',
       variant: 'activate',
     });
+
+    // Gating 2026-05-29 : twenty doit être activé pour ce user.
+    enableTwentyFor(session.email);
 
     const ctx = await browser.newContext({
       storageState: session.storageState,
@@ -170,6 +205,9 @@ test.describe('CRM card dashboard E2E flow (HEADFULL)', () => {
       provider: 'google',
       variant: 'activate', // même user, même session
     });
+
+    // Gating 2026-05-29 : twenty doit être activé pour ce user.
+    enableTwentyFor(session.email);
 
     const ctx = await browser.newContext({
       storageState: session.storageState,
