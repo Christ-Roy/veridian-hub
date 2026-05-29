@@ -7,6 +7,18 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
+
+// Mock provisionDefaultWorkspace : on vérifie que le mock OAuth l'invoque
+// (miroir de l'event createUser réel). Sans ça, les users mock OAuth
+// n'avaient pas de workspace → A-01/A-02/J-01 E2E rouges (2026-05-29).
+const provisionWorkspaceMock = vi.hoisted(() => vi.fn(async () => ({
+  workspaceId: 'ws-mock',
+  created: true,
+})));
+vi.mock('@/lib/workspace/provision', () => ({
+  provisionDefaultWorkspace: provisionWorkspaceMock,
+}));
+
 import {
   assertSafeContext,
   isMockOauthEnabled,
@@ -253,6 +265,37 @@ describe('mock-oauth-provider — garde-fous sécurité', () => {
           'BUG-2026-05-21 : mock OAuth doit poser supabaseUserId UUID v4 (sinon Dashboard 500)',
         ).toMatch(
           /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+        );
+      } finally {
+        if (prev !== undefined) process.env.OAUTH_TEST_PROVIDER = prev;
+        else delete process.env.OAUTH_TEST_PROVIDER;
+      }
+    });
+
+    it('provisionne le workspace par défaut via mock OAuth (miroir event createUser, fix 2026-05-29)', async () => {
+      const prev = process.env.OAUTH_TEST_PROVIDER;
+      process.env.OAUTH_TEST_PROVIDER = 'true';
+      provisionWorkspaceMock.mockClear();
+      try {
+        const { prisma } = makePrisma();
+        const provider = buildMockOauthProvider({ prisma });
+        const resolved = typeof provider === 'function' ? provider({}) : provider;
+        const authorize = (resolved as { options?: { authorize?: (creds: unknown) => Promise<unknown> } })
+          .options?.authorize;
+
+        await authorize!({
+          email: 'mock-ws@e2e.veridian.site',
+          mockProvider: 'google',
+          mockEmailVerified: 'true',
+        });
+
+        // Le mock DOIT appeler provisionDefaultWorkspace avec le user fraîchement
+        // créé — sinon les signups mock OAuth n'ont pas de workspace (régression
+        // A-01/A-02/J-01 E2E).
+        expect(provisionWorkspaceMock).toHaveBeenCalledTimes(1);
+        expect(provisionWorkspaceMock).toHaveBeenCalledWith(
+          expect.objectContaining({ userId: 'mock-id', email: 'mock-ws@e2e.veridian.site' }),
+          expect.objectContaining({ actor: 'system:mock-oauth-signup' }),
         );
       } finally {
         if (prev !== undefined) process.env.OAUTH_TEST_PROVIDER = prev;
