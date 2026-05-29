@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/app-sidebar';
 import { FreemiumBanner } from '@/components/dashboard/FreemiumBanner';
+import { MobileTopbar } from '@/components/dashboard/MobileTopbar';
 import { Suspense } from 'react';
 import { AuthTracker } from '@/components/analytics/auth-tracker';
 import { PurchaseTracker } from '@/components/analytics/purchase-tracker';
@@ -124,7 +125,10 @@ export default async function DashboardLayout({
           }}
           workspaceName={currentWorkspaceName}
         />
-        <main className="flex-1 flex flex-col overflow-hidden w-full">
+        <main className="flex-1 flex flex-col overflow-hidden w-full min-w-0">
+          {/* Barre mobile : hamburger (ouvre la sidebar en drawer) + logo.
+              Cachée sur desktop où la sidebar est toujours visible. */}
+          <MobileTopbar />
           {/* Bandeau trial — rendu seulement si la state machine a révélé le
               trial (phase 4+). En phases silencieuses trialBanner === null. */}
           {trialBanner && <FreemiumBanner phase={trialBanner.phase} />}

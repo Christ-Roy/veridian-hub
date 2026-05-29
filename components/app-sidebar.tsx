@@ -4,7 +4,6 @@ import * as React from "react"
 import Link from "next/link"
 import {
   FileIcon,
-  HelpCircleIcon,
   LayoutDashboardIcon,
   SettingsIcon,
   Users2Icon,
@@ -13,7 +12,6 @@ import {
 
 import { VeridianHubLogo } from "@/components/icons/VeridianHubLogo"
 import { NavMain } from "@/components/nav-main"
-import { NavSecondary } from "@/components/nav-secondary"
 import { NavUser } from "@/components/nav-user"
 import { AnimatedThemeToggler } from "@/components/ui/animated-theme-toggler"
 import {
@@ -52,14 +50,6 @@ const navMain = [
     title: "Paramètres",
     url: "/dashboard/settings",
     icon: SettingsIcon,
-  },
-];
-
-const navSecondary = [
-  {
-    title: "Aide",
-    url: "#",
-    icon: HelpCircleIcon,
   },
 ];
 
@@ -112,7 +102,6 @@ export function AppSidebar({
       </SidebarHeader>
       <SidebarContent>
         <NavMain items={navMain} />
-        <NavSecondary items={navSecondary} className="mt-auto" />
       </SidebarContent>
       <SidebarFooter>
         <NavUser user={user} />

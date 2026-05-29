@@ -2,7 +2,6 @@
 
 import { useState } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import {
@@ -13,27 +12,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  ExternalLink,
-  Sparkles,
-  BarChart3,
-  FileText,
-  AppWindow,
-  type LucideIcon,
-} from 'lucide-react';
+import { ExternalLink } from 'lucide-react';
 import type { AppMetadata } from '@/lib/pricing/plans';
+import { AppIdentity, type AppKey } from './AppIdentity';
 
 interface ShadowAppCardProps {
   app: AppMetadata;
 }
 
-// Les apps client_only portent un emoji dans AppMetadata (lib/pricing/plans.ts,
-// hors périmètre). On le résout en icône lucide ici pour rester cohérent avec
-// le pattern conteneur tinté des autres cards du dashboard (ServiceCard,
-// ProspectionCard, TenantCard).
-const APP_ICONS: Record<string, LucideIcon> = {
-  analytics: BarChart3,
-  cms: FileText,
+// Résout la clé d'app (analytics / cms) vers le logo de marque AppIdentity
+// — même style favicon .hub que les cards actives, fini les icônes génériques.
+const SHADOW_APP_KEYS: Record<string, AppKey> = {
+  analytics: 'analytics',
+  cms: 'cms',
 };
 
 /**
@@ -48,35 +39,27 @@ const APP_ICONS: Record<string, LucideIcon> = {
  */
 export function ShadowAppCard({ app }: ShadowAppCardProps) {
   const [modalOpen, setModalOpen] = useState(false);
-  const Icon = APP_ICONS[app.key] ?? AppWindow;
+  const appKey = SHADOW_APP_KEYS[app.key];
 
   return (
     <>
       <Card
-        className="cursor-pointer hover:shadow-md hover:border-primary/40 transition-all"
+        className="flex flex-col h-full cursor-pointer hover:shadow-md hover:border-primary/40 transition-all"
         onClick={() => setModalOpen(true)}
       >
         <CardHeader>
-          <div className="flex items-start justify-between">
-            <div className="flex items-center gap-3">
-              <div className="rounded-md bg-primary/10 p-2">
-                <Icon className="h-6 w-6 text-primary" />
-              </div>
-              <div>
-                <CardTitle className="text-xl">{app.display_name}</CardTitle>
-                <CardDescription className="mt-1">{app.tagline}</CardDescription>
-              </div>
+          <div className="flex items-center gap-3">
+            {appKey && <AppIdentity app={appKey} />}
+            <div>
+              <CardTitle className="text-xl">{app.display_name}</CardTitle>
+              <CardDescription className="mt-1">{app.tagline}</CardDescription>
             </div>
-            <Badge variant="secondary" className="text-xs">
-              <Sparkles className="h-3 w-3 mr-1" />
-              Offre site Veridian
-            </Badge>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex-1">
           <div className="py-4 text-center text-sm text-muted-foreground">
-            <p>Cette app est <strong>incluse avec l&apos;achat d&apos;un site vitrine Veridian</strong>.</p>
-            <p className="text-xs mt-2">Clique pour découvrir l&apos;offre.</p>
+            <p>Cet outil est <strong>inclus avec votre site web Veridian</strong>.</p>
+            <p className="text-xs mt-2">Cliquez pour découvrir l&apos;offre.</p>
           </div>
         </CardContent>
         <CardFooter>
@@ -90,9 +73,7 @@ export function ShadowAppCard({ app }: ShadowAppCardProps) {
       <Dialog open={modalOpen} onOpenChange={setModalOpen}>
         <DialogContent>
           <DialogHeader className="items-center text-center">
-            <div className="rounded-md bg-primary/10 p-3 mb-1">
-              <Icon className="h-8 w-8 text-primary" />
-            </div>
+            {appKey && <AppIdentity app={appKey} size="lg" className="mb-1" />}
             <DialogTitle>{app.display_name}</DialogTitle>
             <DialogDescription>{app.tagline}</DialogDescription>
           </DialogHeader>

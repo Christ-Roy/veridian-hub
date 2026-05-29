@@ -81,7 +81,7 @@ export function ServiceCard({
   const isComingSoon = badge === 'COMING_SOON';
 
   return (
-    <Card className="flex flex-col">
+    <Card className="flex flex-col h-full">
       <CardHeader>
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-3">

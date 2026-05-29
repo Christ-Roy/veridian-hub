@@ -1,7 +1,16 @@
+'use client';
+
+import { useEffect } from 'react';
 import Link from 'next/link';
 import { CheckCircle2, Circle, Sparkles } from 'lucide-react';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { celebrate } from '@/lib/confetti';
+
+/** Clé localStorage : mémorise quels items d'onboarding étaient déjà cochés
+ *  au précédent rendu, pour ne déclencher les confettis qu'aux NOUVELLES
+ *  complétions (transition false → true). */
+const SEEN_KEY = 'veridian:onboarding:seen';
 
 /**
  * Repère d'accueil "premier pas" du dashboard, affiché tant que l'onboarding
@@ -29,6 +38,7 @@ export interface OnboardingChecklistProps {
 }
 
 interface ChecklistItem {
+  id: string;
   label: string;
   done: boolean;
   hint: string;
@@ -39,38 +49,60 @@ export function OnboardingChecklist({
   hasStartedApp,
   hasInvitedMember,
 }: OnboardingChecklistProps) {
+  const items: ChecklistItem[] = [
+    {
+      id: 'app',
+      label: 'Activez votre premier outil',
+      done: hasStartedApp,
+      hint: 'Choisissez un outil ci-dessous pour commencer.',
+    },
+    {
+      id: 'member',
+      label: 'Invitez un membre dans votre espace',
+      done: hasInvitedMember,
+      hint: 'Optionnel — travaillez à plusieurs sur le même espace.',
+    },
+    {
+      id: 'rename',
+      label: 'Personnalisez le nom de votre espace',
+      done: false,
+      hint: 'Optionnel — un nom parlant pour votre équipe.',
+    },
+  ];
+
+  // Confettis à CHAQUE item qui vient d'être coché (transition false → true).
+  // On compare l'ensemble des items "done" avec celui mémorisé au dernier
+  // rendu (localStorage) pour ne célébrer que les nouvelles complétions.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const doneNow = items.filter((i) => i.done).map((i) => i.id);
+    let seen: string[] = [];
+    try {
+      seen = JSON.parse(window.localStorage.getItem(SEEN_KEY) || '[]');
+    } catch {
+      seen = [];
+    }
+    const freshlyDone = doneNow.filter((id) => !seen.includes(id));
+    if (freshlyDone.length > 0) {
+      celebrate();
+    }
+    window.localStorage.setItem(SEEN_KEY, JSON.stringify(doneNow));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasStartedApp, hasInvitedMember]);
+
   // Onboarding considéré abouti dès la première app démarrée : le user a
   // franchi l'étape clé du funnel, on libère l'écran.
   if (hasStartedApp) return null;
 
-  const items: ChecklistItem[] = [
-    {
-      label: 'Démarre ta première app',
-      done: hasStartedApp,
-      hint: 'Choisis Prospection ou Notifuse ci-dessous — essai gratuit, sans carte bancaire.',
-    },
-    {
-      label: 'Invite un membre dans ton workspace',
-      done: hasInvitedMember,
-      hint: 'Optionnel — travaille à plusieurs sur le même espace.',
-    },
-    {
-      label: 'Personnalise le nom de ton workspace',
-      done: false,
-      hint: 'Optionnel — un nom parlant pour ton équipe.',
-    },
-  ];
-
   return (
-    <Card className="mb-8 border-primary/30 bg-primary/5">
+    <Card className="relief-card mb-8 border">
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-xl">
           <Sparkles className="h-5 w-5 text-primary" />
           Bienvenue sur {workspaceName}
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          Quelques étapes pour démarrer. Pas de carte bancaire, 15 jours
-          offerts par app.
+          Quelques étapes pour bien démarrer.
         </p>
       </CardHeader>
       <CardContent>
@@ -98,7 +130,7 @@ export function OnboardingChecklist({
           ))}
         </ul>
         <p className="mt-4 text-xs text-muted-foreground">
-          Tu peux renommer ton workspace depuis les{' '}
+          Vous pouvez renommer votre espace depuis les{' '}
           <Link
             href="/dashboard/settings"
             className="text-primary hover:underline"

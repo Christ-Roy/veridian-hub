@@ -1,6 +1,6 @@
-import Link from 'next/link';
 import { Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { resolvePlateformeUrl } from '@/lib/marketing-url';
 
 /**
  * État vide de la page billing : l'utilisateur n'a aucune subscription.
@@ -18,12 +18,14 @@ export function EmptyBillingState() {
       <div className="space-y-1">
         <p className="font-medium">Aucun abonnement actif</p>
         <p className="text-sm text-muted-foreground max-w-md">
-          Choisis une formule pour débloquer l’ensemble des fonctionnalités
+          Choisissez une formule pour profiter de toutes les fonctionnalités
           Veridian. Toutes les formules sont sans engagement.
         </p>
       </div>
       <Button asChild className="w-fit">
-        <Link href="/pricing">Découvrir les formules</Link>
+        <a href={resolvePlateformeUrl()} target="_blank" rel="noopener noreferrer">
+          Découvrir les formules
+        </a>
       </Button>
     </div>
   );

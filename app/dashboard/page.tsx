@@ -4,7 +4,6 @@ import { ProspectionCard } from './components/ProspectionCard';
 import { CrmCard } from './components/CrmCard';
 import { ServiceCard } from './components/ServiceCard';
 import { ShadowAppCard } from './components/ShadowAppCard';
-import { RefreshButton } from './components/RefreshButton';
 import { OnboardingChecklist } from './components/OnboardingChecklist';
 import { DashboardPageHeader } from '@/components/dashboard/PageHeader';
 import { LayoutDashboard } from 'lucide-react';
@@ -153,12 +152,11 @@ export default async function DashboardPage({
   const notifuseAvailable = !notifuseUrl.includes('localhost') && notifuseUrl.length > 0;
 
   return (
-    <div className="container mx-auto p-8 max-w-6xl">
+    <div className="container mx-auto p-4 sm:p-6 lg:p-8 max-w-6xl">
       <DashboardPageHeader
         title={workspaceName}
         description="Tous vos outils Veridian réunis au même endroit"
         icon={LayoutDashboard}
-        action={<RefreshButton />}
         className="mb-8"
       />
 
@@ -209,23 +207,8 @@ export default async function DashboardPage({
             userEmail={user.email || undefined}
           />
 
-          <CrmCard configured={!!crmTenant} enabled={isTwentyEnabled} />
-        </div>
-      </section>
-
-      <section className="mb-12">
-        <div className="mb-4">
-          <h2 className="text-2xl font-semibold tracking-tight">
-            Inclus avec votre site web
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            {hasLifetimeSiteVitrine || hasServiceCms || hasServiceAnalytics
-              ? "Ces services sont inclus dans votre offre site web Veridian."
-              : "Ces services sont offerts avec votre site web Veridian."}
-          </p>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {showActiveAnalytics ? (
+          {/* Analytics / CMS remontent ici une fois activés */}
+          {showActiveAnalytics && (
             <ServiceCard
               name={
                 analyticsMeta?.tenant_name
@@ -238,16 +221,14 @@ export default async function DashboardPage({
               appKey="analytics"
               badge="BETA"
               features={[
-                'Visiteurs réels (sans les robots)',
-                'Votre visibilité sur Google',
+                'Qui vous contacte, et depuis quelle source',
+                'Retour sur investissement du site et des emails',
                 'Suivi de vos appels téléphoniques',
-                'Vos statistiques en un coup d\'œil',
+                'Toutes les performances de votre site',
               ]}
             />
-          ) : (
-            <ShadowAppCard app={APPS.analytics} />
           )}
-          {showActiveCms ? (
+          {showActiveCms && (
             <ServiceCard
               name={
                 cmsMeta?.tenant_name
@@ -266,34 +247,61 @@ export default async function DashboardPage({
                 'Prévisualisez avant de publier',
               ]}
             />
-          ) : (
-            <ShadowAppCard app={APPS.cms} />
           )}
         </div>
       </section>
 
-      <Card className="mt-12 bg-muted/50 border-muted">
+      {/* Section "Inclus avec votre site web" : uniquement les services pas
+          encore activés (les actifs ont remonté dans "Vos outils"). Masquée
+          si tout est déjà activé. */}
+      {(!showActiveAnalytics || !showActiveCms) && (
+        <section className="mb-12">
+          <div className="mb-4">
+            <h2 className="text-2xl font-semibold tracking-tight">
+              Inclus avec votre site web
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              Ces services sont offerts avec votre site web Veridian.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {!showActiveAnalytics && <ShadowAppCard app={APPS.analytics} />}
+            {!showActiveCms && <ShadowAppCard app={APPS.cms} />}
+          </div>
+        </section>
+      )}
+
+      {/* Section "Prochainement" : outils annoncés, pas encore disponibles. */}
+      <section className="mb-12">
+        <div className="mb-4">
+          <h2 className="text-2xl font-semibold tracking-tight">Prochainement</h2>
+          <p className="text-sm text-muted-foreground">
+            De nouveaux outils arrivent bientôt dans votre espace Veridian.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <CrmCard configured={!!crmTenant} enabled={isTwentyEnabled} />
+        </div>
+      </section>
+
+      <Card className="relief-card mt-12 border">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Comment ça marche</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 text-sm text-muted-foreground">
           <p>
-            <strong>Démarrage à la demande :</strong> chaque app est
-            provisionnée quand tu cliques &ldquo;Commencer l&apos;essai&rdquo;.
-            Tu peux n&apos;activer que ce dont tu as besoin.
+            <strong>Activez ce qui vous est utile :</strong> chaque outil
+            s&apos;active en un clic. Vous n&apos;activez que ceux dont vous
+            avez besoin, quand vous en avez besoin.
           </p>
           <p>
-            <strong>Notifuse :</strong> magic link auto-login généré à la volée
-            par le Hub (TTL 60s). Pas de mot de passe à gérer côté Notifuse.
-          </p>
-          <p>
-            <strong>Prospection :</strong> lien sécurisé one-shot, session
-            longue durée côté app pour ne pas avoir à re-cliquer chaque jour.
+            <strong>Un seul compte pour tout :</strong> une fois connecté,
+            vous accédez à chaque outil sans avoir à vous reconnecter ni à
+            gérer plusieurs mots de passe.
           </p>
           <p className="mt-4 text-xs">
-            Sécurité : tous les accès passent par le Hub. Les apps downstream
-            ne stockent aucun mot de passe — l&apos;authentification se fait
-            par lien magique.
+            Vos accès sont sécurisés et centralisés depuis votre espace
+            Veridian.
           </p>
         </CardContent>
       </Card>

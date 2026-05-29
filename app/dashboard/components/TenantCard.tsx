@@ -38,7 +38,7 @@ export function TenantCard({
   const [loading, setLoading] = useState(false);
 
   const serviceName = 'Veridian Mail';
-  const serviceDescription = 'Vos emails et notifications, prêts à l\'emploi';
+  const serviceDescription = 'Contactez prospects et clients par mail automatiquement.';
 
   const handleOpenService = async () => {
     setLoading(true);
@@ -84,7 +84,7 @@ export function TenantCard({
   };
 
   return (
-    <Card className="hover:shadow-lg transition-shadow">
+    <Card className="flex flex-col h-full hover:shadow-lg transition-shadow">
       <CardHeader>
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
@@ -102,19 +102,16 @@ export function TenantCard({
         </div>
       </CardHeader>
 
-      <CardContent>
+      <CardContent className="flex-1">
         {configured ? (
           <div className="py-2 text-sm text-muted-foreground">
             Votre service est actif. Cliquez sur « Ouvrir » pour y accéder en
             un clic, sans avoir à vous reconnecter.
           </div>
         ) : (
-          <div className="py-6 text-center text-sm text-muted-foreground space-y-2">
+          <div className="py-6 text-center text-sm text-muted-foreground">
             <p className="font-medium text-foreground">
-              Envoie tes emails transactionnels
-            </p>
-            <p className="text-xs">
-              Essai gratuit 15 jours — aucune carte bancaire demandée.
+              Contactez prospects et clients par mail automatiquement.
             </p>
           </div>
         )}

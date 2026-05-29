@@ -75,7 +75,7 @@ export function CrmCard({ configured, enabled = false }: CrmCardProps) {
   };
 
   return (
-    <Card className="flex flex-col">
+    <Card className="flex flex-col h-full">
       <CardHeader>
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-3">
@@ -89,15 +89,16 @@ export function CrmCard({ configured, enabled = false }: CrmCardProps) {
           )}
         </div>
         <CardDescription>
-          Vos contacts, votre pipeline et vos opportunités, réunis au même endroit.
+          Le premier CRM IA-first, entièrement pilotable par l&apos;intelligence
+          artificielle.
         </CardDescription>
       </CardHeader>
 
       <CardContent className="flex-1">
         <ul className="space-y-1 text-sm text-muted-foreground">
-          <li>• Pipeline Kanban personnalisable</li>
-          <li>• Contacts unifiés + entreprises</li>
-          <li>• API REST pour push de leads</li>
+          <li>• Piloté par l&apos;IA, de bout en bout</li>
+          <li>• Vos contacts et entreprises réunis</li>
+          <li>• Suivi de vos opportunités commerciales</li>
         </ul>
       </CardContent>
 

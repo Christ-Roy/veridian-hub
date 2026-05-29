@@ -16,14 +16,11 @@ import { getPublicPricingSections } from '@/lib/pricing/helpers';
 import { PLANS, type Interval, type PlanKey } from '@/lib/pricing/plans';
 
 export const metadata: Metadata = {
-  title: 'Tarifs flexibles pour vos SaaS Veridian',
-  description:
-    'Plans Notifuse + Prospection + CRM Veridian à la carte ou en bundle dégressif. Essai gratuit 15 jours sans carte bancaire.',
-  openGraph: {
-    title: 'Tarifs Veridian | Plans flexibles pour vos SaaS',
-    description:
-      'Plans Notifuse + Prospection + CRM Veridian à la carte ou en bundle dégressif. Essai gratuit 15 jours sans carte bancaire.',
-  },
+  title: 'Finaliser votre abonnement Veridian',
+  // Tunnel de checkout, PAS une page vitrine : le marketing/tarifs vit sur
+  // veridian.site/plateforme. On retire cette page de l'index Google pour
+  // éviter le doublon SEO (Google ne l'avait de toute façon jamais indexée).
+  robots: { index: false, follow: false },
 };
 
 function generateJsonLd() {

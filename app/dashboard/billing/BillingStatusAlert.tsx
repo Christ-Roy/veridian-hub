@@ -1,8 +1,8 @@
-import Link from 'next/link';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { StripePortalButton } from './StripePortalButton';
+import { resolvePlateformeUrl } from '@/lib/marketing-url';
 import { getStatusAlert } from './status-presentation';
 
 interface BillingStatusAlertProps {
@@ -45,7 +45,9 @@ export function BillingStatusAlert({ status }: BillingStatusAlertProps) {
             />
           ) : (
             <Button asChild className="w-fit">
-              <Link href="/pricing">{alert.ctaLabel}</Link>
+              <a href={resolvePlateformeUrl()} target="_blank" rel="noopener noreferrer">
+                {alert.ctaLabel}
+              </a>
             </Button>
           )}
         </div>

@@ -19,21 +19,21 @@ export default function robots(): MetadataRoute.Robots {
       {
         userAgent: '*', // Tous les crawlers
         allow: [
-          // Pages publiques autorisées
-          '/',
-          '/pricing',
-          '/docs',
+          // Seules pages publiques du Hub : les pages légales. Le reste du
+          // marketing vit sur veridian.site.
           '/legal',
           '/privacy',
           '/terms',
         ],
         disallow: [
-          // Zones privées - Désactivées
+          // Tunnel de checkout (noindex) + zones privées + pages qui
+          // redirigent vers veridian.site.
+          '/pricing',
           '/dashboard/',
           '/api/',
           '/auth/',
-          '/login/',
-          '/signup/',
+          '/login',
+          '/signup',
         ],
       },
     ],

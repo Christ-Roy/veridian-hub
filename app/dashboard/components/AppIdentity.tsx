@@ -1,39 +1,44 @@
 import { cn } from '@/lib/utils';
-import { Mail, Search, BarChart3, Users, FileText, type LucideIcon } from 'lucide-react';
 
 /**
- * Identité visuelle d'une app Veridian (logo = pastille au gradient de
- * marque + icône) pour les cards du tableau de bord. Couleurs alignées sur
- * l'arborescence des pages auth (composant AppTree) pour une DA cohérente.
+ * Logo d'une app Veridian — exactement le style du favicon .hub / .site :
+ * badge carré arrondi au gradient de marque + un "V" blanc centré + fin
+ * liseré clair (ring) pour le relief. L'identité de l'app passe par la
+ * COULEUR du gradient (le glyphe est toujours le "V" Veridian).
+ *
+ * Gradients multi-stops (comme le favicon) pour un rendu riche.
  */
 
 export type AppKey = 'mail' | 'prospection' | 'analytics' | 'crm' | 'cms';
 
-const REGISTRY: Record<AppKey, { name: string; icon: LucideIcon; badge: string }> = {
+const REGISTRY: Record<AppKey, { name: string; gradient: string }> = {
+  // Mail → violet Notifuse
   mail: {
     name: 'Veridian Mail',
-    icon: Mail,
-    badge: 'bg-[linear-gradient(135deg,#7763f1,#6553d9)]',
+    gradient: 'linear-gradient(135deg, #8b78ff 0%, #7763f1 45%, #5b48d6 100%)',
   },
+  // Prospection → noir profond (Vercel / Next.js)
   prospection: {
     name: 'Veridian Prospection',
-    icon: Search,
-    badge: 'bg-[linear-gradient(135deg,#3a3a3a,#0a0a0a)]',
+    gradient: 'linear-gradient(135deg, #4a4a4a 0%, #262626 50%, #0a0a0a 100%)',
   },
+  // Analytics → violet foncé
   analytics: {
     name: 'Veridian Analytics',
-    icon: BarChart3,
-    badge: 'bg-[linear-gradient(135deg,oklch(0.42_0.17_300),oklch(0.26_0.13_295))]',
+    gradient:
+      'linear-gradient(135deg, oklch(0.50 0.18 300) 0%, oklch(0.36 0.16 298) 55%, oklch(0.26 0.13 295) 100%)',
   },
+  // CRM → corail / rouge chaud
   crm: {
     name: 'Veridian CRM',
-    icon: Users,
-    badge: 'bg-[linear-gradient(135deg,oklch(0.55_0.16_25),oklch(0.42_0.15_20))]',
+    gradient:
+      'linear-gradient(135deg, oklch(0.68 0.17 30) 0%, oklch(0.55 0.17 25) 55%, oklch(0.44 0.15 18) 100%)',
   },
+  // CMS → bleu
   cms: {
     name: 'Veridian CMS',
-    icon: FileText,
-    badge: 'bg-[linear-gradient(135deg,oklch(0.55_0.14_220),oklch(0.40_0.13_230))]',
+    gradient:
+      'linear-gradient(135deg, oklch(0.66 0.15 225) 0%, oklch(0.52 0.14 228) 55%, oklch(0.40 0.13 232) 100%)',
   },
 };
 
@@ -41,30 +46,35 @@ export function appName(key: AppKey): string {
   return REGISTRY[key].name;
 }
 
-/** Pastille logo de l'app (icône blanche sur gradient de marque). */
+const BOX = {
+  sm: 'h-9 w-9 rounded-lg text-base',
+  md: 'h-11 w-11 rounded-xl text-xl',
+  lg: 'h-14 w-14 rounded-2xl text-2xl',
+} as const;
+
+/** Logo de l'app : badge gradient (style favicon .hub) + "V" blanc. */
 export function AppIdentity({
   app,
   size = 'md',
   className,
 }: {
   app: AppKey;
-  size?: 'sm' | 'md';
+  size?: 'sm' | 'md' | 'lg';
   className?: string;
 }) {
-  const { icon: Icon, badge } = REGISTRY[app];
-  const box = size === 'sm' ? 'h-9 w-9 rounded-lg' : 'h-11 w-11 rounded-xl';
-  const ic = size === 'sm' ? 'h-4.5 w-4.5' : 'h-5.5 w-5.5';
+  const { gradient } = REGISTRY[app];
 
   return (
     <div
       className={cn(
-        'flex shrink-0 items-center justify-center text-white shadow-sm ring-1 ring-foreground/10',
-        box,
-        badge,
+        'flex shrink-0 items-center justify-center font-extrabold leading-none text-white shadow-md shadow-foreground/10 ring-1 ring-white/25 drop-shadow-sm',
+        BOX[size],
         className,
       )}
+      style={{ backgroundImage: gradient }}
+      aria-hidden
     >
-      <Icon className={cn('h-5 w-5', ic)} />
+      V
     </div>
   );
 }

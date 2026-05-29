@@ -29,6 +29,8 @@ const DEFAULT_MARKETING_URL = 'https://veridian.site';
  */
 export type MarketingUrlEnv = {
   MARKETING_URL?: string;
+  /** Domaine du site vitrine (défaut https://veridian.site). Sert à la page produit. */
+  VERIDIAN_SITE_URL?: string;
   [key: string]: string | undefined;
 };
 
@@ -45,4 +47,20 @@ export function resolveMarketingUrl(
   const url = raw && raw.length > 0 ? raw : DEFAULT_MARKETING_URL;
   const trimmed = url.replace(/\/+$/, '');
   return trimmed.includes('://') ? trimmed : `https://${trimmed}`;
+}
+
+/**
+ * URL de la page produit/tarifs publique (`veridian.site/plateforme`).
+ * Source de découverte des formules pour les CTA billing du Hub.
+ *
+ * Volontairement INDÉPENDANTE de `MARKETING_URL` : cette dernière sert au
+ * routage de la home (`/`) et peut pointer ailleurs en dev (ex. le login
+ * local). La page produit, elle, est une URL externe fixe du site vitrine.
+ * Override possible via `VERIDIAN_SITE_URL` (défaut : https://veridian.site).
+ */
+export function resolvePlateformeUrl(env: MarketingUrlEnv = process.env): string {
+  const raw = env.VERIDIAN_SITE_URL?.trim();
+  const base = (raw && raw.length > 0 ? raw : DEFAULT_MARKETING_URL).replace(/\/+$/, '');
+  const withScheme = base.includes('://') ? base : `https://${base}`;
+  return `${withScheme}/plateforme`;
 }

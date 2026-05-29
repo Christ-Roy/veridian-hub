@@ -10,13 +10,14 @@ import { DashboardPageHeader } from '@/components/dashboard/PageHeader';
 import { FileText } from 'lucide-react';
 import { StripePortalButton } from './StripePortalButton';
 import { BillingStatusAlert } from './BillingStatusAlert';
-import { EmptyBillingState } from './EmptyBillingState';
 import { SubscriptionCard, type SubscriptionView } from './SubscriptionCard';
 import { RecentInvoicesCard } from './RecentInvoicesCard';
 import { RefillPromoCard } from './RefillPromoCard';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
 import { getRecentInvoices } from '@/lib/stripe/invoices';
+import { PricingGrid } from '@/components/pricing/PricingGrid';
+import { getPublicPricingSections } from '@/lib/pricing/helpers';
 
 export default async function BillingPage() {
   const user = await getCurrentUser();
@@ -89,6 +90,10 @@ export default async function BillingPage() {
       }
     : null;
 
+  // Catalogue de plans publics (mêmes données que veridian.site/plateforme),
+  // affiché directement dans Facturation pour un user déjà connecté.
+  const sections = getPublicPricingSections();
+
   return (
     <div className="flex flex-col gap-8 p-4 md:p-8 max-w-4xl mx-auto w-full">
       <DashboardPageHeader
@@ -116,9 +121,34 @@ export default async function BillingPage() {
             <SubscriptionCard subscription={subscriptionView} />
           ) : (
             <CardContent>
-              <EmptyBillingState />
+              <p className="text-sm text-muted-foreground">
+                Choisissez une formule ci-dessous pour profiter de toutes les
+                fonctionnalités Veridian. Sans engagement.
+              </p>
             </CardContent>
           )}
+        </Card>
+
+        {/* Grille de plans — affichée directement ici (user connecté). Le clic
+            sur une formule ouvre le checkout Stripe sans quitter l'espace. */}
+        <Card>
+          <CardHeader>
+            <CardTitle>
+              {subscriptionView ? 'Changer de formule' : 'Choisir une formule'}
+            </CardTitle>
+            <CardDescription>
+              Toutes les formules sont sans engagement, résiliables à tout moment.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <PricingGrid
+              bundles={sections.bundles}
+              notifuse={sections.notifuse}
+              prospection={sections.prospection}
+              isAuthenticated
+              successRedirect="/dashboard/billing"
+            />
+          </CardContent>
         </Card>
 
         {/* Portail Stripe — visible dès qu'une subscription existe (même

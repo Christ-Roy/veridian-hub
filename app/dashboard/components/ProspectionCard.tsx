@@ -71,7 +71,7 @@ export function ProspectionCard({
   };
 
   return (
-    <Card className="hover:shadow-lg transition-shadow">
+    <Card className="flex flex-col h-full hover:shadow-lg transition-shadow">
       <CardHeader>
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
@@ -79,7 +79,7 @@ export function ProspectionCard({
             <div>
               <CardTitle className="text-xl">Veridian Prospection</CardTitle>
               <CardDescription className="mt-1">
-                Qualification de leads .fr
+                Base de données B2B
               </CardDescription>
             </div>
           </div>
@@ -91,7 +91,7 @@ export function ProspectionCard({
         </div>
       </CardHeader>
 
-      <CardContent>
+      <CardContent className="flex-1">
         {configured ? (
           <div className="space-y-2">
             <div className="flex items-center justify-between text-sm">
@@ -119,10 +119,7 @@ export function ProspectionCard({
         ) : (
           <div className="py-6 text-center text-sm text-muted-foreground space-y-2">
             <p className="font-medium text-foreground">
-              Qualifie tes leads .fr en quelques clics
-            </p>
-            <p className="text-xs">
-              Essai gratuit 15 jours — aucune carte bancaire demandée.
+              Récupérez les coordonnées d&apos;entreprises dans votre cible
             </p>
           </div>
         )}

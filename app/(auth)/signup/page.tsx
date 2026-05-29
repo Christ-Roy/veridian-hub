@@ -30,15 +30,15 @@ export default async function SignupPage() {
             <VeridianHubLogo size="md" href="/" />
           </div>
 
-          {/* Formulaire dans une Card avec bordure */}
-          <Card className="border shadow-sm p-6">
+          {/* Formulaire dans une Card avec effet relief (glass + voile dégradé) */}
+          <Card className="relief-card border p-6">
             <SignupForm allowEmail={allowEmail} allowOauth={allowOauth} />
           </Card>
         </div>
       </div>
 
       {/* Right side - Brand - 50% sur lg screens */}
-      <div className="hidden lg:flex lg:w-1/2 bg-card backdrop-blur-md border-l border-border items-center justify-center p-12">
+      <div className="relief-card hidden lg:flex lg:w-1/2 bg-card backdrop-blur-md border-l border-border items-center justify-center p-12">
         <div className="flex flex-col items-center justify-center text-center space-y-8">
           <VeridianHubLogo size="lg" />
           <p className="text-lg text-muted-foreground max-w-md">

@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Loader2, Rocket } from 'lucide-react';
+import { celebrate } from '@/lib/confetti';
 
 interface StartTrialButtonProps {
   app: 'notifuse' | 'prospection';
@@ -38,8 +39,11 @@ export function StartTrialButton({
         return;
       }
 
-      toast.success("Essai démarré ✓", {
-        description: 'On rafraîchit ton dashboard...',
+      // 🎉 Célébration : confettis aux couleurs Veridian
+      celebrate();
+
+      toast.success('Service activé', {
+        description: 'On rafraîchit votre dashboard…',
       });
 
       if (openAfter) {
@@ -52,7 +56,9 @@ export function StartTrialButton({
         }
       }
 
-      setTimeout(() => window.location.reload(), 800);
+      // Délai laissé volontairement long pour que les confettis se déroulent
+      // avant le rechargement du dashboard.
+      setTimeout(() => window.location.reload(), 1600);
     } catch (e: any) {
       toast.error('Erreur réseau', {
         description: e?.message || 'Réessaye dans quelques secondes',
@@ -67,7 +73,7 @@ export function StartTrialButton({
     <Button
       onClick={handleClick}
       disabled={loading}
-      className="w-full"
+      className="w-full cta-gradient-animated"
       size="lg"
     >
       {loading ? (
@@ -78,7 +84,7 @@ export function StartTrialButton({
       ) : (
         <>
           <Rocket className="mr-2 h-4 w-4" />
-          {label ?? "Commencer l'essai gratuit (15 j)"}
+          {label ?? "Activer gratuitement"}
         </>
       )}
     </Button>

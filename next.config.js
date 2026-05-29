@@ -43,6 +43,11 @@ const nextConfig = {
     return [
       { source: '/signin', destination: '/login', permanent: true },
       { source: '/signin1', destination: '/login', permanent: true },
+      // /docs (anciennement page vitrine du Hub, indexée) → site vitrine.
+      // 301 pour transférer le jus SEO vers veridian.site. Le Hub n'héberge
+      // plus de doc publique.
+      { source: '/docs', destination: 'https://veridian.site', permanent: true },
+      { source: '/docs/:path*', destination: 'https://veridian.site', permanent: true },
     ];
   },
 
