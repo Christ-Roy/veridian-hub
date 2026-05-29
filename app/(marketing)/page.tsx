@@ -1,55 +1,38 @@
-import { Metadata } from 'next';
-import { HeroSection } from "@/components/landing/hero-section"
-import { FeaturesSection } from "@/components/landing/features-section"
-import { CTASection } from "@/components/landing/cta-section"
-import { GoogleOneTap } from "@/components/auth/GoogleOneTap"
-
-export const metadata: Metadata = {
-  title: 'Pilotez vos SaaS depuis une plateforme unique',
-  description: 'Simplifiez votre business : centralisez Notifuse, Prospection et vos outils sur Veridian. Automatisez votre marketing et gérez vos clients sans friction.',
-  openGraph: {
-    title: 'Veridian | Pilotez vos SaaS depuis une plateforme unique',
-    description: 'Simplifiez votre business : centralisez Notifuse, Prospection et vos outils sur Veridian. Automatisez votre marketing et gérez vos clients sans friction.'
-  }
-};
+import { redirect } from 'next/navigation';
+import { getCurrentUser } from '@/lib/auth/get-user';
+import { resolveMarketingUrl } from '@/lib/marketing-url';
 
 /**
- * LANDING PAGE - Page d'accueil principale (route /)
+ * HOME `/` — n'est plus une landing page (depuis 2026-05-29).
  *
- * Objectif business: Convertir les visiteurs en utilisateurs freemium
+ * Le marketing est centralisé sur le site vitrine statique `veridian.site`
+ * (CF Pages, optimisé SEO). La home du Hub se contente de router :
  *
- * Structure de la page:
- * 1. HeroSection - Accroche principale + CTA "Commencer gratuitement"
- * 2. FeaturesSection - Présentation détaillée CRM + Mail Automation
- * 3. CTASection - Rappel final pour conversion
+ *   - user loggué      → `/dashboard` (son espace — un client ne doit JAMAIS
+ *                        être éjecté vers le marketing)
+ *   - user non-loggué  → URL marketing (page produit SaaS), via
+ *                        `resolveMarketingUrl()` configurable par ENV
+ *                        `MARKETING_URL`.
  *
- * Layout parent: (marketing)/layout.tsx fournit Navbar + Footer
+ * Le One Tap Google n'est PAS perdu : il vit toujours sur `/login` et
+ * `/signup`, et sur la landing veridian.site (cf. docs/CROSS-SUBDOMAIN-LANDING.md).
  *
- * IMPORTANT - Pas de logique technique pour l'instant:
- * - Les boutons CTA sont statiques (pas de lien vers /signup)
- * - Pas de queries Supabase
- * - On ajoutera l'auth et la redirection plus tard ensemble
+ * Les composants landing (`components/landing/*`) sont conservés
+ * volontairement — retour arrière gratuit si on veut re-héberger une LP ici.
  *
- * Ancienne version (Pricing):
- * - Remplacée par cette landing page moderne
- * - Le composant Pricing existe toujours dans /components/ui/Pricing
- * - On pourra créer une route /pricing dédiée si besoin plus tard
+ * `force-dynamic` : la décision dépend de la session courante, jamais de
+ * cache statique.
  */
-export default function LandingPage() {
-  return (
-    <div className="flex flex-col">
-      {/* Google One Tap : popup auto-login pour les visiteurs non-loggués.
-          Ne rend aucun markup, se gate lui-même sur session + env + path. */}
-      <GoogleOneTap callbackUrl="/dashboard" />
+export const dynamic = 'force-dynamic';
 
-      {/* Bloc 1: Hero - Première impression et CTA principal */}
-      <HeroSection />
+export default async function HomePage() {
+  const user = await getCurrentUser();
 
-      {/* Bloc 2: Features - Détail des services MVP */}
-      <FeaturesSection />
+  if (user) {
+    redirect('/dashboard');
+  }
 
-      {/* Bloc 3: CTA Final - Dernière opportunité de conversion */}
-      <CTASection />
-    </div>
-  )
+  // Visiteur non-loggué → site vitrine. `redirect()` vers une URL externe
+  // émet un 307 côté serveur (pas de flash de contenu).
+  redirect(resolveMarketingUrl());
 }
