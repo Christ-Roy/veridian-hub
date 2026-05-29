@@ -297,6 +297,11 @@ describe('mock-oauth-provider — garde-fous sécurité', () => {
           expect.objectContaining({ userId: 'mock-id', email: 'mock-ws@e2e.veridian.site' }),
           expect.objectContaining({ actor: 'system:mock-oauth-signup' }),
         );
+        // Le 2e arg (deps) ne passe PAS de `logger` custom : le logger du mock
+        // n'a que {warn,info}, or provision veut {error,info} → on laisse le
+        // défaut console (sinon type error au build, attrapée 2026-05-29).
+        const deps = provisionWorkspaceMock.mock.calls[0][1] as Record<string, unknown>;
+        expect(deps).not.toHaveProperty('logger');
       } finally {
         if (prev !== undefined) process.env.OAUTH_TEST_PROVIDER = prev;
         else delete process.env.OAUTH_TEST_PROVIDER;
