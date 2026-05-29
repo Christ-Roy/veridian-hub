@@ -79,4 +79,10 @@ describe('AppSidebar', () => {
     expect(screen.getByText('Bientôt')).toBeInTheDocument();
   });
 
+  it('n\'affiche plus de lien "Aide" (NavSecondary retiré — refonte DA 2026-05-29)', () => {
+    // La refonte a retiré la nav secondaire (lien "Aide" placeholder #).
+    renderSidebar();
+    expect(screen.queryByText('Aide')).not.toBeInTheDocument();
+  });
+
 });

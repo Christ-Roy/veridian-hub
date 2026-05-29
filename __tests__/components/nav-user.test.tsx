@@ -56,6 +56,13 @@ describe('NavUser', () => {
     expect(screen.getAllByText('AM').length).toBeGreaterThan(0);
   });
 
+  it('l\'avatar n\'est plus grisé (grayscale retiré — refonte DA 2026-05-29)', () => {
+    const { container } = renderNavUser();
+    // Le commit DA a retiré la classe `grayscale` de l'Avatar du trigger.
+    const grayscaled = container.querySelector('.grayscale');
+    expect(grayscaled).toBeNull();
+  });
+
   /**
    * Ouvre le DropdownMenu Radix. Le trigger réagit à pointerdown/pointerup
    * (pas au `click` synthétique seul) — c'est le geste que Radix écoute.

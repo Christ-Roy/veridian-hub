@@ -294,4 +294,13 @@ describe('APPS catalogue (v1.3)', () => {
       expect(app.icon).toBeTruthy();
     }
   });
+
+  it('les taglines sont grand public (pas de jargon technique — refonte DA)', () => {
+    // La refonte a reformulé les taglines pour le grand public : plus de
+    // "multi-tenant" / "Payload" / "SIP" / "GSC" exposés au client final.
+    const jargon = /multi-tenant|payload|\bSIP\b|GSC/i;
+    for (const app of Object.values(APPS)) {
+      expect(app.tagline, `tagline ${app.key} ne doit pas contenir de jargon`).not.toMatch(jargon);
+    }
+  });
 });
