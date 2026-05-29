@@ -11,6 +11,7 @@ import { LayoutDashboard } from 'lucide-react';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
 import { APPS } from '@/lib/pricing/plans';
+import { getEnabledGatedApps } from '@/lib/tenant-apps';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 /**
@@ -49,6 +50,15 @@ export default async function DashboardPage({
       console.error('[Dashboard] Failed to fetch CRM tenant:', err);
       return null;
     });
+
+  // Apps GATED activées pour ce tenant (twenty/CRM, analytics, cms) — pilotées
+  // par Robert via l'Admin API. Défaut OFF : sans activation explicite, ces
+  // cards restent en mode "Bientôt" (ShadowAppCard). Prospection + Notifuse
+  // ne sont PAS concernés (toujours grand public). Lecture par UUID bridge.
+  const enabledApps = await getEnabledGatedApps(prisma, userUuid(user));
+  const isTwentyEnabled = enabledApps.has('twenty');
+  const isAnalyticsEnabled = enabledApps.has('analytics');
+  const isCmsEnabled = enabledApps.has('cms');
 
   const tenant = await prisma.tenant.findFirst({
     where: { userId: userUuid(user) },
@@ -117,8 +127,11 @@ export default async function DashboardPage({
   const analyticsMeta = (meta.analytics as AppMetadata) ?? null;
   const hasServiceCms = !!cmsMeta?.fallback_url;
   const hasServiceAnalytics = !!analyticsMeta?.fallback_url;
-  const showActiveAnalytics = hasLifetimeSiteVitrine || hasServiceAnalytics;
-  const showActiveCms = hasLifetimeSiteVitrine || hasServiceCms;
+  // Une card service est "active" si : activée par l'admin (flag TenantApp,
+  // défaut OFF) OU déjà servie via metadata link-app OU plan lifetime vitrine.
+  const showActiveAnalytics =
+    isAnalyticsEnabled || hasLifetimeSiteVitrine || hasServiceAnalytics;
+  const showActiveCms = isCmsEnabled || hasLifetimeSiteVitrine || hasServiceCms;
 
   let prospectionTokenValid = false;
   if (tenant?.prospectionLoginToken && tenant?.prospectionLoginTokenCreatedAt) {
@@ -196,7 +209,7 @@ export default async function DashboardPage({
             userEmail={user.email || undefined}
           />
 
-          <CrmCard configured={!!crmTenant} />
+          <CrmCard configured={!!crmTenant} enabled={isTwentyEnabled} />
         </div>
       </section>
 

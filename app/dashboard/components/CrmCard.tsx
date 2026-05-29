@@ -18,6 +18,13 @@ import { AppIdentity } from './AppIdentity';
 interface CrmCardProps {
   /** True si l'user a déjà un CrmTenant active en DB. Affiche "Ouvrir" sinon "Démarrer". */
   configured: boolean;
+  /**
+   * True si l'app `twenty` est activée pour ce tenant (flag TenantApp, piloté
+   * par l'admin SaaS). DÉFAUT false : le CRM n'est pas grand public, la card
+   * reste en mode "Bientôt" (bouton désactivé) tant que Robert ne l'a pas
+   * activée pour ce tenant via l'Admin API.
+   */
+  enabled?: boolean;
 }
 
 /**
@@ -30,7 +37,7 @@ interface CrmCardProps {
  * Pas de page custom /dashboard/crm — tout passe par cette card +
  * fenêtre Twenty ouverte.
  */
-export function CrmCard({ configured }: CrmCardProps) {
+export function CrmCard({ configured, enabled = false }: CrmCardProps) {
   const [loading, setLoading] = useState(false);
 
   const handleActivateOrOpen = async () => {
@@ -75,7 +82,11 @@ export function CrmCard({ configured }: CrmCardProps) {
             <AppIdentity app="crm" />
             <CardTitle>Veridian CRM</CardTitle>
           </div>
-          {configured && <Badge variant="secondary">Actif</Badge>}
+          {!enabled ? (
+            <Badge variant="outline">Bientôt</Badge>
+          ) : (
+            configured && <Badge variant="secondary">Actif</Badge>
+          )}
         </div>
         <CardDescription>
           Vos contacts, votre pipeline et vos opportunités, réunis au même endroit.
@@ -91,24 +102,32 @@ export function CrmCard({ configured }: CrmCardProps) {
       </CardContent>
 
       <CardFooter>
-        <Button
-          onClick={handleActivateOrOpen}
-          disabled={loading}
-          className="w-full"
-          variant={configured ? 'default' : 'outline'}
-        >
-          {loading ? (
-            <>
-              <Loader2 className="mr-2 size-4 animate-spin" />
-              {configured ? 'Ouverture…' : 'Création du workspace…'}
-            </>
-          ) : (
-            <>
-              <ExternalLink className="mr-2 size-4" />
-              {configured ? 'Ouvrir mon CRM' : 'Activer mon CRM'}
-            </>
-          )}
-        </Button>
+        {!enabled ? (
+          // App gated non activée pour ce tenant : pas grand public encore.
+          // Bouton inerte "Bientôt disponible" (l'activation se fait côté admin).
+          <Button disabled className="w-full" variant="outline">
+            Bientôt disponible
+          </Button>
+        ) : (
+          <Button
+            onClick={handleActivateOrOpen}
+            disabled={loading}
+            className="w-full"
+            variant={configured ? 'default' : 'outline'}
+          >
+            {loading ? (
+              <>
+                <Loader2 className="mr-2 size-4 animate-spin" />
+                {configured ? 'Ouverture…' : 'Création du workspace…'}
+              </>
+            ) : (
+              <>
+                <ExternalLink className="mr-2 size-4" />
+                {configured ? 'Ouvrir mon CRM' : 'Activer mon CRM'}
+              </>
+            )}
+          </Button>
+        )}
       </CardFooter>
     </Card>
   );
