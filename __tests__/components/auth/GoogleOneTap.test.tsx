@@ -124,6 +124,10 @@ describe('GoogleOneTap — render conditionnel', () => {
     expect(cfg.client_id).toBe(CLIENT_ID);
     expect(cfg.auto_select).toBe(true);
     expect(cfg.itp_support).toBe(true);
+    // ANTI-RÉGRESSION FedCM (bug prod 2026-05-30) : sans use_fedcm_for_prompt,
+    // Chrome ne rend plus le prompt One Tap legacy → la popup ne s'affiche
+    // jamais. Ce flag est non-négociable depuis la migration FedCM Google.
+    expect(cfg.use_fedcm_for_prompt).toBe(true);
     expect(gsi.prompt).toHaveBeenCalledTimes(1);
   });
 

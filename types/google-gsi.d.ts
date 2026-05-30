@@ -40,6 +40,12 @@ interface GoogleIdConfiguration {
   itp_support?: boolean;
   /** Si false, la popup reste affichée même au clic en dehors. */
   cancel_on_tap_outside?: boolean;
+  /**
+   * Active l'API navigateur FedCM pour le prompt One Tap. OBLIGATOIRE
+   * depuis fin 2024 : Chrome ne rend plus le prompt One Tap legacy
+   * (cookies tiers dépréciés). Sans ce flag, One Tap ne s'affiche pas.
+   */
+  use_fedcm_for_prompt?: boolean;
   /** Contexte d'usage — adapte le wording de la popup. */
   context?: 'signin' | 'signup' | 'use';
   /** Mode UX — 'popup' (défaut) ou 'redirect'. */

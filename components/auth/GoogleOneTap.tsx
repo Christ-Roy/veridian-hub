@@ -110,6 +110,13 @@ export function GoogleOneTap({
       gsi.initialize({
         client_id: clientId,
         callback: handleCredentialResponse,
+        // FedCM obligatoire : depuis fin 2024 Google migre One Tap vers
+        // l'API navigateur FedCM et Chrome NE REND PLUS le prompt legacy
+        // (cookies tiers dépréciés). Sans ce flag, One Tap ne s'affiche
+        // tout simplement plus sur Chrome récent — bug constaté prod
+        // 2026-05-30 (warning GSI_LOGGER FedCM migration). Réf :
+        // developers.google.com/identity/gsi/web/guides/fedcm-migration
+        use_fedcm_for_prompt: true,
         // Auto-select : affiche directement le compte le plus récent.
         // Le cooldown "Don't show again" (24h) reste géré par GSI.
         auto_select: true,
@@ -117,6 +124,8 @@ export function GoogleOneTap({
         itp_support: true,
         // La popup reste affichée si l'user clique en dehors : moins
         // agressif qu'une fermeture au moindre clic accidentel.
+        // NB : sous FedCM, la fermeture est gérée par l'UI navigateur ;
+        // ce flag reste sans effet négatif (ignoré en mode FedCM).
         cancel_on_tap_outside: false,
         context,
       });
