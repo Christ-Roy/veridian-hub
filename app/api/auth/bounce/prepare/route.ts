@@ -27,6 +27,7 @@ import {
   NEXT_COOKIE_NAME_INSECURE,
   NEXT_COOKIE_TTL_MS,
 } from '@/lib/auth/bounce-next';
+import { getHubBaseUrl } from '@/lib/mail/oauth-cookies';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -37,7 +38,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const deployEnv = process.env.DEPLOY_ENV;
   const secret = process.env.AUTH_SECRET;
 
-  const loginUrl = new URL('/login', req.url);
+  // Base URL publique : derrière Traefik, req.url vaut https://0.0.0.0:3000.
+  // getHubBaseUrl force NEXT_PUBLIC_SITE_URL (cf lib/mail/oauth-cookies.ts).
+  const baseUrl = getHubBaseUrl(req.url);
+  const loginUrl = new URL('/login', baseUrl);
 
   const parsed = parseNext(nextRaw, deployEnv);
 

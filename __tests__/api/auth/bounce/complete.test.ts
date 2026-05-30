@@ -49,6 +49,16 @@ function makeReq(opts: { cookie?: string } = {}): NextRequest {
   return req;
 }
 
+/** Derrière Traefik : req.url = host interne 0.0.0.0:3000. */
+function makeReqBehindProxy(opts: { cookie?: string } = {}): NextRequest {
+  const url = new URL('https://0.0.0.0:3000/api/auth/bounce/complete');
+  const req = new NextRequest(url);
+  if (opts.cookie) {
+    req.cookies.set(NEXT_COOKIE_NAME_SECURE, opts.cookie);
+  }
+  return req;
+}
+
 describe('GET /api/auth/bounce/complete', () => {
   it('AUTH_SECRET manquant → redirect /dashboard, cookies vidés', async () => {
     delete process.env.AUTH_SECRET;
@@ -65,6 +75,16 @@ describe('GET /api/auth/bounce/complete', () => {
     expect(res.headers.get('location')).toContain('/dashboard');
     expect(res.headers.get('location')).not.toContain('app=');
     expect(getCurrentUserMock).not.toHaveBeenCalled();
+  });
+
+  it('derrière Traefik (req.url=0.0.0.0:3000) → redirect sur app.veridian.site, JAMAIS 0.0.0.0', async () => {
+    // Régression du bug 2026-05-30 : les 7 new URL(path, req.url) héritaient
+    // du host interne 0.0.0.0:3000. getHubBaseUrl force NEXT_PUBLIC_SITE_URL.
+    const { GET } = await import('@/app/api/auth/bounce/complete/route');
+    const res = await GET(makeReqBehindProxy());
+    const loc = res.headers.get('location') ?? '';
+    expect(loc).not.toContain('0.0.0.0');
+    expect(loc.startsWith('https://app.veridian.site/dashboard')).toBe(true);
   });
 
   it('cookie expiré → redirect /dashboard, cookies vidés', async () => {

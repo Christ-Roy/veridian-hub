@@ -34,6 +34,7 @@ import {
   NEXT_COOKIE_NAME_INSECURE,
 } from '@/lib/auth/bounce-next';
 import { issueMagicLinkForApp, BounceError } from '@/lib/auth/bounce-apps';
+import { getHubBaseUrl } from '@/lib/mail/oauth-cookies';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -41,6 +42,10 @@ export const runtime = 'nodejs';
 export async function GET(req: NextRequest): Promise<NextResponse> {
   const deployEnv = process.env.DEPLOY_ENV;
   const secret = process.env.AUTH_SECRET;
+
+  // Base URL publique : derrière Traefik, req.url vaut https://0.0.0.0:3000.
+  // getHubBaseUrl force NEXT_PUBLIC_SITE_URL (cf lib/mail/oauth-cookies.ts).
+  const baseUrl = getHubBaseUrl(req.url);
 
   const cookieValueSecure = req.cookies.get(NEXT_COOKIE_NAME_SECURE)?.value;
   const cookieValueInsecure = req.cookies.get(NEXT_COOKIE_NAME_INSECURE)?.value;
@@ -66,27 +71,27 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         ts: new Date().toISOString(),
       })
     );
-    return wipeCookies(NextResponse.redirect(new URL('/dashboard', req.url)));
+    return wipeCookies(NextResponse.redirect(new URL('/dashboard', baseUrl)));
   }
 
   const next = verifyNextCookie(cookieValue, secret);
   if (!next) {
     // Pas de cookie ou expiré / signature invalide : pas de cible légitime.
-    return wipeCookies(NextResponse.redirect(new URL('/dashboard', req.url)));
+    return wipeCookies(NextResponse.redirect(new URL('/dashboard', baseUrl)));
   }
 
   const parsed = parseNext(next, deployEnv);
   if (!parsed) {
     // Cookie présent mais host plus dans la whitelist (cas pathologique :
     // deploy / env changed pendant le flow).
-    return wipeCookies(NextResponse.redirect(new URL('/dashboard', req.url)));
+    return wipeCookies(NextResponse.redirect(new URL('/dashboard', baseUrl)));
   }
 
   const user = await getCurrentUser();
   if (!user || !user.email) {
     // Pas de session : OAuth a échoué silencieusement. On garde le cookie
     // next pour relayer la prochaine tentative.
-    const url = new URL('/login', req.url);
+    const url = new URL('/login', baseUrl);
     url.searchParams.set('next', parsed.url);
     return NextResponse.redirect(url);
   }
@@ -103,7 +108,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   } catch (err) {
     if (err instanceof BounceError) {
       if (err.code === 'user_not_in_app') {
-        const url = new URL('/dashboard', req.url);
+        const url = new URL('/dashboard', baseUrl);
         url.searchParams.set('app', parsed.app);
         url.searchParams.set('hint', 'signup');
         return wipeCookies(NextResponse.redirect(url));
@@ -120,7 +125,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           ts: new Date().toISOString(),
         })
       );
-      const url = new URL('/auth/bounce/error', req.url);
+      const url = new URL('/auth/bounce/error', baseUrl);
       url.searchParams.set('app', parsed.app);
       url.searchParams.set('code', err.code);
       return wipeCookies(NextResponse.redirect(url));
@@ -135,7 +140,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         ts: new Date().toISOString(),
       })
     );
-    const url = new URL('/auth/bounce/error', req.url);
+    const url = new URL('/auth/bounce/error', baseUrl);
     url.searchParams.set('app', parsed.app);
     url.searchParams.set('code', 'unexpected');
     return wipeCookies(NextResponse.redirect(url));

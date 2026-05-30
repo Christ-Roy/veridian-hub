@@ -82,7 +82,10 @@ export interface BounceAppConfig {
  * `CONTRAT-HUB.md` §6.5. Ajouter une app = ajouter une entrée ici (pas de
  * convention magique pour éviter les surprises et garder l'audit clair).
  */
-const APP_ENV_MAP: Record<string, { urlVar: string; secretVar: string }> = {
+const APP_ENV_MAP: Record<
+  string,
+  { urlVar: string; secretVar: string; legacySecretVar?: string }
+> = {
   notifuse: {
     urlVar: 'NOTIFUSE_API_URL',
     secretVar: 'NOTIFUSE_HUB_API_SECRET',
@@ -90,6 +93,11 @@ const APP_ENV_MAP: Record<string, { urlVar: string; secretVar: string }> = {
   prospection: {
     urlVar: 'PROSPECTION_API_URL',
     secretVar: 'PROSPECTION_HUB_API_SECRET',
+    // Fallback legacy aligné sur lib/prospection/client.ts:readProspectionSecret
+    // et lib/sync/discovery.ts. En prod seul PROSPECTION_TENANT_API_SECRET est
+    // posé — sans ce fallback, resolveAppConfig retourne null et le bounce
+    // OAuth échoue en `not_configured`.
+    legacySecretVar: 'PROSPECTION_TENANT_API_SECRET',
   },
   cms: {
     urlVar: 'CMS_API_URL',
@@ -117,7 +125,9 @@ export function resolveAppConfig(
   const mapping = APP_ENV_MAP[app];
   if (!mapping) return null;
   const apiUrl = env[mapping.urlVar];
-  const hubSecret = env[mapping.secretVar];
+  const hubSecret =
+    env[mapping.secretVar] ||
+    (mapping.legacySecretVar ? env[mapping.legacySecretVar] : undefined);
   if (!apiUrl || !hubSecret) return null;
   return {
     appName: app,

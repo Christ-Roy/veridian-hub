@@ -27,6 +27,17 @@ function makeReq(nextValue?: string): NextRequest {
   return new NextRequest(url);
 }
 
+/**
+ * Simule le vrai cas prod : derrière Traefik, Next bind sur 0.0.0.0:3000
+ * et req.url vaut https://0.0.0.0:3000/... — le redirect DOIT quand même
+ * pointer sur l'URL publique (NEXT_PUBLIC_SITE_URL), pas sur 0.0.0.0.
+ */
+function makeReqBehindProxy(nextValue?: string): NextRequest {
+  const url = new URL('https://0.0.0.0:3000/api/auth/bounce/prepare');
+  if (nextValue !== undefined) url.searchParams.set('next', nextValue);
+  return new NextRequest(url);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   process.env.AUTH_SECRET = TEST_SECRET;
@@ -52,6 +63,20 @@ describe('GET /api/auth/bounce/prepare', () => {
     expect(loc).toContain('/login');
     expect(loc).not.toContain('mode=bounce');
     expect(res.cookies.get(NEXT_COOKIE_NAME_SECURE)?.value).toBeFalsy();
+  });
+
+  it('derrière Traefik (req.url=0.0.0.0:3000) → redirect sur app.veridian.site, JAMAIS 0.0.0.0', async () => {
+    // Régression du bug 2026-05-30 : new URL(path, req.url) héritait du host
+    // interne 0.0.0.0:3000 → SSO cross-app cassé. getHubBaseUrl force
+    // NEXT_PUBLIC_SITE_URL.
+    const { GET } = await import('@/app/api/auth/bounce/prepare/route');
+    const res = await GET(
+      makeReqBehindProxy('https://prospection.veridian.site/login'),
+    );
+    const loc = res.headers.get('location') ?? '';
+    expect(loc).not.toContain('0.0.0.0');
+    expect(loc.startsWith('https://app.veridian.site/login')).toBe(true);
+    expect(loc).toContain('mode=bounce');
   });
 
   it('next valide (newapp.veridian.site, regex large) → cookie signé + redirect mode=bounce&app=newapp', async () => {

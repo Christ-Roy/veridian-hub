@@ -75,6 +75,26 @@ describe('resolveAppConfig', () => {
     expect(c!.apiUrl).toBe('https://prospection.veridian.site');
   });
 
+  it('prospection : fallback legacy PROSPECTION_TENANT_API_SECRET', () => {
+    // En prod seul le secret legacy est posé (cf readProspectionSecret).
+    // Sans fallback, le bounce OAuth échouait en `not_configured`.
+    const c = resolveAppConfig('prospection', {
+      PROSPECTION_API_URL: 'https://prospection.veridian.site',
+      PROSPECTION_TENANT_API_SECRET: 'legacy-sec',
+    });
+    expect(c).not.toBeNull();
+    expect(c!.hubSecret).toBe('legacy-sec');
+  });
+
+  it('prospection : le secret canonique prime sur le legacy', () => {
+    const c = resolveAppConfig('prospection', {
+      PROSPECTION_API_URL: 'https://prospection.veridian.site',
+      PROSPECTION_HUB_API_SECRET: 'canon',
+      PROSPECTION_TENANT_API_SECRET: 'legacy',
+    });
+    expect(c!.hubSecret).toBe('canon');
+  });
+
   it('cms est mappé', () => {
     const c = resolveAppConfig('cms', {
       CMS_API_URL: 'https://cms.veridian.site',
