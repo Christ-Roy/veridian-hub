@@ -13,6 +13,68 @@ export const RETURN_COOKIE = 'mail-oauth-return';
 export const STATE_TTL_SECONDS = 10 * 60;
 
 /**
+ * Allowlist des hosts apps Veridian autorisés comme `return` URL absolue
+ * après le flow OAuth Mail Sender.
+ *
+ * POURQUOI : les apps downstream (Notifuse, Prospection…) initient le flow
+ * Gmail depuis LEUR domaine et veulent rebondir vers leur propre UI après
+ * consent. Comme c'est cross-domain, le `return` est une URL ABSOLUE
+ * (`https://notifuse.app.veridian.site/...`), pas un path relatif. On ne
+ * peut donc PAS se contenter de `startsWith('/')` (qui rejetterait l'URL
+ * légitime), mais on ne doit SURTOUT pas accepter n'importe quel host
+ * (open-redirect / phishing). D'où cette allowlist stricte.
+ *
+ * Sécurité : seul le HOST est comparé (jamais le path), HTTPS obligatoire.
+ */
+export const ALLOWED_RETURN_HOSTS: readonly string[] = [
+  'notifuse.app.veridian.site',
+  'prospection.app.veridian.site',
+  'analytics.app.veridian.site',
+  'cms.veridian.site',
+  // Staging équivalents (le flow OAuth Gmail réel ne tourne qu'en prod et
+  // local-dev — cf gating Tailscale — mais on autorise le rebond staging
+  // pour les tests E2E bout-en-bout cross-app sur le dev server).
+  'notifuse.staging.veridian.site',
+  'prospection.staging.veridian.site',
+  'analytics.staging.veridian.site',
+  'cms.staging.veridian.site',
+];
+
+/**
+ * Valide et normalise une `return` URL fournie par une app downstream.
+ *
+ * Accepte deux formes :
+ *  1. Path relatif interne au Hub (`/dashboard/settings/mail`) — utilisé
+ *     quand le Hub initie le flow pour lui-même. Rejette `//host` (protocol
+ *     -relative = open-redirect déguisé).
+ *  2. URL absolue HTTPS dont le host ∈ {@link ALLOWED_RETURN_HOSTS} — utilisé
+ *     par les apps downstream pour rebondir cross-domain.
+ *
+ * @returns la chaîne validée (relative ou absolue), ou `''` si invalide.
+ *          Le caller traite `''` comme « pas de return » → fallback Hub.
+ */
+export function validateReturnUrl(raw: string | null | undefined): string {
+  const value = (raw ?? '').trim();
+  if (value === '') return '';
+
+  // Forme 1 : path relatif interne Hub. `//` exclu (protocol-relative).
+  if (value.startsWith('/') && !value.startsWith('//')) {
+    return value;
+  }
+
+  // Forme 2 : URL absolue cross-domain → host doit être allowlisté + HTTPS.
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return '';
+  }
+  if (parsed.protocol !== 'https:') return '';
+  if (!ALLOWED_RETURN_HOSTS.includes(parsed.host)) return '';
+  return parsed.toString();
+}
+
+/**
  * Source de vérité de l'origin Hub pour les redirects OAuth.
  *
  * IMPORTANT : derrière Traefik / reverse proxy, Next.js bind sur

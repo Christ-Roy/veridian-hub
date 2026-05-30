@@ -25,6 +25,7 @@ import {
   STATE_TTL_SECONDS,
   buildRedirectUri,
   getHubBaseUrl,
+  validateReturnUrl,
 } from '@/lib/mail/oauth-cookies';
 
 export const runtime = 'nodejs';
@@ -40,13 +41,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL('/login', baseUrl));
   }
 
-  // ─── Optional `return` param : URL relative de retour côté app downstream
-  // (ex: ?return=/settings/mail-account). On valide qu'elle commence par /
-  // pour empêcher un open-redirect vers un domaine externe.
+  // ─── Optional `return` param : URL de retour côté app downstream.
+  // Deux formes acceptées (cf validateReturnUrl) :
+  //   - path relatif interne Hub (ex: ?return=/settings/mail-account)
+  //   - URL absolue HTTPS cross-domain dont le host ∈ allowlist apps
+  //     Veridian (ex: Notifuse envoie
+  //     ?return=https://notifuse.app.veridian.site/console/...).
+  // Tout host hors allowlist ou protocole non-HTTPS → '' (anti open-redirect).
   const url = new URL(request.url);
-  const rawReturn = url.searchParams.get('return') ?? '';
-  const safeReturn =
-    rawReturn.startsWith('/') && !rawReturn.startsWith('//') ? rawReturn : '';
+  const safeReturn = validateReturnUrl(url.searchParams.get('return'));
 
   const state = randomBytes(32).toString('hex');
   // origin pour cookies secure flag + fallback buildRedirectUri (qui lit

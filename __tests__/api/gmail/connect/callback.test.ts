@@ -171,6 +171,73 @@ describe('GET /api/gmail/connect/callback', () => {
     expect(res.headers.get('location')).toContain('status=oauth_failed');
   });
 
+  // ─── Rebond cross-app Notifuse (fix 2026-05-30) ──────────────────────
+  it('rebondit vers l\'URL absolue Notifuse avec mail_status=connected (return cookie)', async () => {
+    getCurrentUserMock.mockResolvedValue(sessionUser);
+    exchangeMailCodeMock.mockResolvedValueOnce({
+      access_token: 'a',
+      refresh_token: 'r',
+      expires_at: Date.now() + 3600_000,
+      id_token: 't',
+      email: 'alice@example.com',
+      sub: 'sub_alice',
+      granted_scope: 'openid email gmail.send',
+    });
+    upsertMock.mockResolvedValueOnce({});
+    const returnTo =
+      'https://notifuse.app.veridian.site/console/workspace/ws_1/settings/mail-account';
+    const res = await callRoute(
+      makeReq(
+        { code: 'c', state: 's' },
+        { 'mail-oauth-state': 's', 'mail-oauth-return': returnTo },
+      ),
+    );
+    const loc = res.headers.get('location') ?? '';
+    // Rebond cross-domain vers Notifuse, PAS le fallback Hub.
+    expect(loc).toContain('notifuse.app.veridian.site');
+    expect(loc).toContain('mail_status=connected');
+    expect(loc).not.toContain('hub.staging.veridian.site/dashboard/settings/mail');
+  });
+
+  it('propage mail_status=denied vers Notifuse quand l\'user refuse le consent', async () => {
+    getCurrentUserMock.mockResolvedValue(sessionUser);
+    const returnTo = 'https://notifuse.app.veridian.site/console/x/settings/mail-account';
+    const res = await callRoute(
+      makeReq(
+        { error: 'access_denied' },
+        { 'mail-oauth-return': returnTo },
+      ),
+    );
+    const loc = res.headers.get('location') ?? '';
+    expect(loc).toContain('notifuse.app.veridian.site');
+    expect(loc).toContain('mail_status=denied');
+  });
+
+  it('ignore un return cookie hors allowlist et retombe sur le fallback Hub (défense en profondeur)', async () => {
+    getCurrentUserMock.mockResolvedValue(sessionUser);
+    exchangeMailCodeMock.mockResolvedValueOnce({
+      access_token: 'a',
+      refresh_token: 'r',
+      expires_at: Date.now() + 3600_000,
+      id_token: 't',
+      email: 'alice@example.com',
+      sub: 'sub_alice',
+      granted_scope: 'openid email gmail.send',
+    });
+    upsertMock.mockResolvedValueOnce({});
+    // Cookie altéré pointant hors allowlist : ne doit JAMAIS rediriger dessus.
+    const res = await callRoute(
+      makeReq(
+        { code: 'c', state: 's' },
+        { 'mail-oauth-state': 's', 'mail-oauth-return': 'https://evil.com/steal' },
+      ),
+    );
+    const loc = res.headers.get('location') ?? '';
+    expect(loc).not.toContain('evil.com');
+    expect(loc).toContain('/dashboard/settings/mail');
+    expect(loc).toContain('status=connected');
+  });
+
   // ─── ANTI-RÉGRESSION 2026-05-25 ──────────────────────────────────────
   // Le router doit utiliser getHubBaseUrl(request.url) pour TOUS les
   // redirects post-callback (login + return + denied + invalid_state +

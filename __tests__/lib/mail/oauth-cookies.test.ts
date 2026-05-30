@@ -17,6 +17,8 @@ import {
   RETURN_COOKIE,
   STATE_TTL_SECONDS,
   buildRedirectUri,
+  validateReturnUrl,
+  ALLOWED_RETURN_HOSTS,
 } from '@/lib/mail/oauth-cookies';
 
 describe('OAuth cookie constants', () => {
@@ -138,6 +140,90 @@ describe('buildRedirectUri', () => {
       } else {
         process.env.NEXT_PUBLIC_SITE_URL = originalEnv;
       }
+    }
+  });
+});
+
+describe('validateReturnUrl — rebond OAuth cross-app (anti open-redirect)', () => {
+  // ── Forme 1 : path relatif interne Hub ────────────────────────────────
+  it('accepte un path relatif interne Hub', () => {
+    expect(validateReturnUrl('/dashboard/settings/mail')).toBe(
+      '/dashboard/settings/mail',
+    );
+  });
+
+  it('accepte un path relatif avec query string', () => {
+    expect(validateReturnUrl('/settings/mail-account?foo=1')).toBe(
+      '/settings/mail-account?foo=1',
+    );
+  });
+
+  it('REJETTE le protocol-relative //evil.com (open-redirect déguisé)', () => {
+    expect(validateReturnUrl('//evil.com/phish')).toBe('');
+  });
+
+  // ── Forme 2 : URL absolue cross-domain allowlistée ────────────────────
+  it('accepte une URL absolue HTTPS dont le host est allowlisté (Notifuse prod)', () => {
+    const url =
+      'https://notifuse.app.veridian.site/console/workspace/ws_1/settings/mail-account';
+    expect(validateReturnUrl(url)).toBe(url);
+  });
+
+  it('accepte le host staging Notifuse (E2E cross-app)', () => {
+    const url = 'https://notifuse.staging.veridian.site/console/x';
+    expect(validateReturnUrl(url)).toBe(url);
+  });
+
+  it('accepte Prospection et CMS allowlistés', () => {
+    expect(validateReturnUrl('https://prospection.app.veridian.site/x')).toBe(
+      'https://prospection.app.veridian.site/x',
+    );
+    expect(validateReturnUrl('https://cms.veridian.site/x')).toBe(
+      'https://cms.veridian.site/x',
+    );
+  });
+
+  // ── Sécurité : tout le reste doit tomber à '' ─────────────────────────
+  it('REJETTE un host hors allowlist (phishing)', () => {
+    expect(validateReturnUrl('https://evil.com/steal')).toBe('');
+  });
+
+  it('REJETTE un host qui ressemble mais ne matche pas (sub-domaine pirate)', () => {
+    // host exact comparé : un attaquant ne peut pas glisser le domaine
+    // légitime dans un sous-domaine ou un path.
+    expect(
+      validateReturnUrl('https://notifuse.app.veridian.site.evil.com/x'),
+    ).toBe('');
+    expect(
+      validateReturnUrl('https://evil.com/notifuse.app.veridian.site'),
+    ).toBe('');
+  });
+
+  it('REJETTE le HTTP non sécurisé même sur un host allowlisté', () => {
+    expect(validateReturnUrl('http://notifuse.app.veridian.site/x')).toBe('');
+  });
+
+  it('REJETTE les schemes dangereux (javascript:, data:)', () => {
+    expect(validateReturnUrl('javascript:alert(1)')).toBe('');
+    expect(validateReturnUrl('data:text/html,<script>')).toBe('');
+  });
+
+  it('traite null / undefined / vide / espaces comme pas de return', () => {
+    expect(validateReturnUrl(null)).toBe('');
+    expect(validateReturnUrl(undefined)).toBe('');
+    expect(validateReturnUrl('')).toBe('');
+    expect(validateReturnUrl('   ')).toBe('');
+  });
+
+  it('REJETTE une chaîne non-URL non-path', () => {
+    expect(validateReturnUrl('pas une url')).toBe('');
+  });
+
+  it('ALLOWED_RETURN_HOSTS ne contient que des hosts (pas de scheme ni path)', () => {
+    for (const host of ALLOWED_RETURN_HOSTS) {
+      expect(host).not.toContain('://');
+      expect(host).not.toContain('/');
+      expect(host).toMatch(/veridian\.site$/);
     }
   });
 });

@@ -144,8 +144,11 @@ Hub ne tente PAS de gérer ce cas (relai direct au caller via 503).
 
 ## 4. Flow OAuth utilisateur
 
-L'app downstream redirige l'user vers `GET <hub>/api/gmail/connect`
-(optionnellement avec `?return=<url>` pour revenir à l'UI app). Flow :
+L'app downstream redirige l'user vers la page Hub
+`GET <hub>/dashboard/settings/mail?return=<url>&provider=google` (UI Hub
+qui démarre ensuite `GET <hub>/api/gmail/connect?return=<url>`). Le
+paramètre `return` permet de rebondir vers l'UI de l'app après consent.
+Flow :
 
 1. Session Auth.js Hub obligatoire (sinon redirect `/login`)
 2. State CSRF généré + stocké en cookie signé HttpOnly (TTL 10 min)
@@ -157,7 +160,44 @@ L'app downstream redirige l'user vers `GET <hub>/api/gmail/connect`
 5. Hub vérifie state cookie, échange code → tokens via Client OAuth #2
 6. Vérifie email Google = email Hub (sinon `?status=email_mismatch`)
 7. Upsert `Account` Prisma avec `mailSendScope` contenant `gmail.send`
-8. Redirect vers `/dashboard/settings/mail?status=connected` (ou `return`)
+8. Redirect vers `/dashboard/settings/mail?status=connected` (flow Hub
+   interne) **ou** rebond vers l'URL `return` avec `?mail_status=<status>`
+   (flow app downstream).
+
+### 4.1 Rebond cross-domain `return` (apps downstream)
+
+Une app downstream tourne sur **un autre domaine** que le Hub. Son `return`
+est donc une **URL absolue** (`https://notifuse.app.veridian.site/...`),
+pas un path relatif. Le Hub l'accepte uniquement si :
+
+- le scheme est **HTTPS**, ET
+- le **host** ∈ allowlist `ALLOWED_RETURN_HOSTS`
+  (`lib/mail/oauth-cookies.ts` → `validateReturnUrl`). Hosts autorisés :
+  `notifuse|prospection|analytics.app.veridian.site`, `cms.veridian.site`,
+  et leurs équivalents `*.staging.veridian.site`.
+
+Tout host hors allowlist ou scheme non-HTTPS → le `return` est ignoré
+(anti open-redirect / phishing) et le flow retombe sur le fallback Hub
+`/dashboard/settings/mail`. La validation est appliquée **3 fois** (pose
+du cookie dans `connect`, href de la page `settings/mail`, et au redirect
+dans `callback` — défense en profondeur, un cookie altéré ne peut pas
+rediriger hors allowlist).
+
+**Contrat de retour côté app downstream** : après rebond, lire le query
+param `?mail_status=` qui vaut `connected` | `denied` | `invalid_state` |
+`oauth_failed` | `email_mismatch`. (Côté flow Hub interne, le param
+s'appelle `status` et non `mail_status` — distinction volontaire.)
+
+**Exemple Notifuse** (cf `console/.../veridian_mail_account_settings.tsx`) :
+```
+https://app.veridian.site/dashboard/settings/mail
+  ?return=https://notifuse.app.veridian.site/console/workspace/<id>/settings/mail-account
+  &add=1&provider=google
+```
+→ rebond final :
+```
+https://notifuse.app.veridian.site/console/workspace/<id>/settings/mail-account?mail_status=connected
+```
 
 Note : en v1, l'user verra le warning Google **"Google hasn't verified this app"**
 au consent. Acceptable beta privée (100 slots dispo). Brand verification

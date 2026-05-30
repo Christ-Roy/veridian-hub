@@ -9,10 +9,27 @@ import { Button } from '@/components/ui/button';
 type Props = {
   isConnected: boolean;
   needsReauth: boolean;
+  /**
+   * URL de rebond optionnelle (déjà validée côté serveur dans page.tsx) :
+   * quand une app downstream initie le flow, on propage ce `return` jusqu'à
+   * /api/gmail/connect pour que le callback rebondisse vers l'app après
+   * consent. '' = pas de return (flow Hub interne).
+   */
+  returnUrl?: string;
 };
 
-export function MailSenderActions({ isConnected, needsReauth }: Props) {
+export function MailSenderActions({
+  isConnected,
+  needsReauth,
+  returnUrl = '',
+}: Props) {
   const router = useRouter();
+
+  // Construit le href du flow connect en propageant `return` s'il existe.
+  // returnUrl est déjà validé serveur — on l'encode juste pour le query string.
+  const connectHref = returnUrl
+    ? `/api/gmail/connect?return=${encodeURIComponent(returnUrl)}`
+    : '/api/gmail/connect';
   const [testing, setTesting] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [testResult, setTestResult] = useState<
@@ -64,7 +81,7 @@ export function MailSenderActions({ isConnected, needsReauth }: Props) {
     return (
       <div className="flex gap-2">
         <Button asChild>
-          <a href="/api/gmail/connect">
+          <a href={connectHref}>
             <Mail className="mr-2 h-4 w-4" />
             Connecter mon Gmail
           </a>
@@ -77,7 +94,7 @@ export function MailSenderActions({ isConnected, needsReauth }: Props) {
     return (
       <div className="flex gap-2">
         <Button asChild variant="default">
-          <a href="/api/gmail/connect">
+          <a href={connectHref}>
             <RefreshCw className="mr-2 h-4 w-4" />
             Reconnecter
           </a>

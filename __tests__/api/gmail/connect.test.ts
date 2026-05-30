@@ -80,6 +80,30 @@ describe('GET /api/gmail/connect', () => {
     expect(returnMatch?.[1] ?? '').toBe('');
   });
 
+  // ─── Rebond cross-app Notifuse (fix 2026-05-30) ──────────────────────
+  it('preserves an absolute allowlisted return URL (Notifuse cross-domain)', async () => {
+    getCurrentUserMock.mockResolvedValueOnce(sessionUser);
+    const returnTo =
+      'https://notifuse.app.veridian.site/console/workspace/ws_1/settings/mail-account';
+    const res = await callRoute(
+      `https://hub.staging.veridian.site/api/gmail/connect?return=${encodeURIComponent(returnTo)}&add=1&provider=google`,
+    );
+    const setCookie = res.headers.get('set-cookie') ?? '';
+    expect(setCookie).toContain('mail-oauth-return=');
+    // Le cookie contient bien l'URL absolue Notifuse (URL-encodée par Set-Cookie).
+    expect(decodeURIComponent(setCookie)).toContain(returnTo);
+  });
+
+  it('rejects an absolute return URL whose host is NOT allowlisted', async () => {
+    getCurrentUserMock.mockResolvedValueOnce(sessionUser);
+    const res = await callRoute(
+      `https://hub.staging.veridian.site/api/gmail/connect?return=${encodeURIComponent('https://evil.com/steal')}`,
+    );
+    const setCookie = res.headers.get('set-cookie') ?? '';
+    const returnMatch = setCookie.match(/mail-oauth-return=([^;]*)/);
+    expect(returnMatch?.[1] ?? '').toBe('');
+  });
+
   it('returns 503 when GOOGLE_MAIL_CLIENT_ID missing', async () => {
     delete process.env.GOOGLE_MAIL_CLIENT_ID;
     getCurrentUserMock.mockResolvedValueOnce(sessionUser);

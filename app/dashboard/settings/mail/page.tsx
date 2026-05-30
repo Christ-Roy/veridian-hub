@@ -19,6 +19,7 @@ import { Mail, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
 import { scopeIncludesGmailSend } from '@/lib/mail/gmail-oauth';
+import { validateReturnUrl } from '@/lib/mail/oauth-cookies';
 import {
   Card,
   CardContent,
@@ -35,13 +36,20 @@ export const dynamic = 'force-dynamic';
 export default async function MailSettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string }>;
+  searchParams: Promise<{ status?: string; return?: string; provider?: string }>;
 }) {
   const params = await searchParams;
   const user = await getCurrentUser();
   if (!user) {
     redirect('/login');
   }
+
+  // `return` : quand une app downstream (Notifuse, Prospection…) envoie l'user
+  // ici pour connecter son Gmail, elle passe ?return=<son URL> pour rebondir
+  // après consent. On le valide côté serveur (allowlist host, anti
+  // open-redirect) AVANT de l'injecter dans le href du bouton "Connecter".
+  // '' = pas de return valide → le flow OAuth retombera sur le fallback Hub.
+  const returnUrl = validateReturnUrl(params.return);
 
   const accounts = await prisma.account.findMany({
     where: { userId: user.id, provider: 'google' },
@@ -178,6 +186,7 @@ export default async function MailSettingsPage({
           <MailSenderActions
             isConnected={isConnected}
             needsReauth={needsReauth}
+            returnUrl={returnUrl}
           />
         </CardContent>
       </Card>

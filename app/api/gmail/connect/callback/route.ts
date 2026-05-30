@@ -35,6 +35,7 @@ import {
   RETURN_COOKIE,
   buildRedirectUri,
   getHubBaseUrl,
+  validateReturnUrl,
 } from '@/lib/mail/oauth-cookies';
 
 export const runtime = 'nodejs';
@@ -45,8 +46,15 @@ function buildReturnRedirect(
   status: 'connected' | 'denied' | 'invalid_state' | 'oauth_failed' | 'email_mismatch',
   returnPath: string | undefined,
 ): URL {
-  if (returnPath && returnPath.startsWith('/') && !returnPath.startsWith('//')) {
-    const ret = new URL(returnPath, baseUrl);
+  // Le cookie RETURN_COOKIE a déjà été validé à la pose (connect/route.ts),
+  // mais on re-valide ici en défense en profondeur : un cookie ne doit
+  // jamais déclencher un redirect vers un host hors allowlist, même altéré.
+  const safeReturn = validateReturnUrl(returnPath);
+  if (safeReturn !== '') {
+    // `new URL(safeReturn, baseUrl)` : si safeReturn est absolu (cross-domain
+    // app downstream), baseUrl est ignoré ; si relatif (interne Hub), il sert
+    // de base. Dans les deux cas on annonce le résultat via `mail_status`.
+    const ret = new URL(safeReturn, baseUrl);
     ret.searchParams.set('mail_status', status);
     return ret;
   }
