@@ -27,6 +27,14 @@ l'UI. Ce ticket trace leur réactivation.
 4. **K-02** `parallel-trial-ticks` — `total activated (0+0) ≥ 3` : le cron
    trial-tick n'active aucune row sur staging (souci seed/cron staging,
    indépendant de l'UI et du signin).
+5. **19** (describe entier, 4 tests) — tous dépendent de megaSignIn →
+   skippé au niveau `test.describe.skip`.
+6. **L-02** `checkout-budget` — budget perf p50 trop serré pour staging :
+   mesuré p50≈1347ms vs budget 960ms (800+20%), MAIS p95=1488 / p99=1904
+   largement sous budget (2500/5000). Route `/api/billing/checkout` NON
+   touchée par la refonte UI → pas une régression. Action : re-câbler un
+   budget p50 réaliste pour staging (1 worker, ressources réduites) ou
+   marquer ce budget "prod only".
 
 NB : une erreur SQL est apparue en STDERR pendant le run —
 `update or delete on table "users" violates foreign key constraint
