@@ -450,6 +450,11 @@ saas_guardrails_audit() {
     local d="$SAAS_ROOT/$r"
     local issues=()
 
+    # Repos sans stack Node : husky/pre-push n'a pas de sens (couverture = Trivy quotidien)
+    case "$r" in
+        veridian-infra) echo "✓ trusted|n/a — repo infra sans stack Node"; return ;;
+    esac
+
     # 1. Husky configuré ?
     local hp; hp=$(git -C "$d" config core.hooksPath 2>/dev/null)
     if [ -z "$hp" ]; then
