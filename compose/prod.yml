@@ -126,11 +126,13 @@ services:
       - traefik.docker.network=dokploy-network
       - traefik.http.routers.hub-${DEPLOY_ENV:-prod}-web.entrypoints=web
       - traefik.http.routers.hub-${DEPLOY_ENV:-prod}-web.rule=Host(`${HUB_HOST:-app.veridian.site}`)
-      - traefik.http.routers.hub-${DEPLOY_ENV:-prod}-web.middlewares=redirect-to-https@file
+      - traefik.http.routers.hub-${DEPLOY_ENV:-prod}-web.middlewares=redirect-to-https@file,hub-${DEPLOY_ENV:-prod}-noindex@docker
       - traefik.http.routers.hub-${DEPLOY_ENV:-prod}-websecure.entrypoints=websecure
       - traefik.http.routers.hub-${DEPLOY_ENV:-prod}-websecure.rule=Host(`${HUB_HOST:-app.veridian.site}`)
+      - traefik.http.routers.hub-${DEPLOY_ENV:-prod}-websecure.middlewares=hub-${DEPLOY_ENV:-prod}-noindex@docker
       - traefik.http.routers.hub-${DEPLOY_ENV:-prod}-websecure.tls=true
       - traefik.http.routers.hub-${DEPLOY_ENV:-prod}-websecure.tls.certresolver=letsencrypt
+      - traefik.http.middlewares.hub-${DEPLOY_ENV:-prod}-noindex.headers.customresponseheaders.X-Robots-Tag=noindex, nofollow, noarchive
       - traefik.http.services.hub-${DEPLOY_ENV:-prod}.loadbalancer.server.port=3000
 
 networks:
