@@ -40,6 +40,12 @@ vi.mock('@/lib/workspace/provision', () => ({
   }),
 }));
 
+const trackGoalMock = vi.fn(async () => undefined);
+vi.mock('@/lib/analytics/track-event', () => ({
+  trackGoal: (...args: any[]) => trackGoalMock(...args),
+  hubSessionId: (uuid: string) => `hub-${uuid}`,
+}));
+
 beforeEach(async () => {
   vi.clearAllMocks();
   userStore.clear();
@@ -209,5 +215,19 @@ describe('POST /api/auth/signup', () => {
     expect(body.email).toBe('wsfail@test.io');
     // Mais l'appel provisioning a bien été tenté
     expect(provisionCalls).toHaveLength(1);
+  });
+
+  it('émet le goal signup tunnel (provider=credentials, user_id=email normalisé)', async () => {
+    const { POST } = await import('@/app/api/auth/signup/route');
+    const res = await POST(makeReq({ email: 'Tunnel@Test.IO', password: 'longenough' }));
+    expect(res.status).toBe(201);
+
+    expect(trackGoalMock).toHaveBeenCalledTimes(1);
+    expect(trackGoalMock).toHaveBeenCalledWith({
+      userEmail: 'tunnel@test.io',
+      goal: 'signup',
+      sessionId: expect.stringMatching(/^hub-/),
+      properties: { provider: 'credentials' },
+    });
   });
 });

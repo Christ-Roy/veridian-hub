@@ -34,6 +34,7 @@
 import { randomUUID } from 'crypto';
 import type { PrismaClient } from '@prisma/client';
 import { provisionDefaultWorkspace } from '@/lib/workspace/provision';
+import { trackGoal, hubSessionId } from '@/lib/analytics/track-event';
 
 type CreatedUser = {
   id?: string | null;
@@ -42,6 +43,7 @@ type CreatedUser = {
 };
 
 type ProvisionWorkspaceFn = typeof provisionDefaultWorkspace;
+type TrackGoalFn = typeof trackGoal;
 
 export type CreateUserEventDeps = {
   /** Prisma client minimal (mockable) */
@@ -52,6 +54,8 @@ export type CreateUserEventDeps = {
   logger?: { error: (...args: unknown[]) => void; info?: (...args: unknown[]) => void };
   /** Provision workspace function (mockable) — par défaut le module workspace */
   provisionWorkspace?: ProvisionWorkspaceFn;
+  /** Émission de goal Analytics (mockable) — par défaut le module track-event */
+  trackGoalFn?: TrackGoalFn;
 };
 
 export function createCreateUserEvent({
@@ -59,6 +63,7 @@ export function createCreateUserEvent({
   generateUuid = randomUUID,
   logger = console,
   provisionWorkspace = provisionDefaultWorkspace,
+  trackGoalFn = trackGoal,
 }: CreateUserEventDeps) {
   return async function onCreateUser({ user }: { user: CreatedUser }): Promise<void> {
     if (!user.id) {
@@ -123,6 +128,35 @@ export function createCreateUserEvent({
       }
     } catch (err) {
       logger.error('[auth-event:createUser] failed to provision default workspace', err);
+    }
+
+    // ─── 3. Tunnel de vente : goal `signup` vers Veridian Analytics ──────
+    // Best-effort, fire-and-forget. user_id = email → le bridge fait l'union
+    // slug↔email. L'event Auth.js `createUser` ne porte PAS le provider (c'est
+    // l'adapter qui crée le user) → on le relit depuis l'Account créé par le
+    // PrismaAdapter juste avant. Fallback `oauth` si introuvable. Aucune de ces
+    // étapes ne doit jamais bloquer la session : tout est swallow.
+    try {
+      let provider = 'oauth';
+      try {
+        const account = await prisma.account.findFirst({
+          where: { userId: user.id! },
+          select: { provider: true },
+          orderBy: { id: 'desc' },
+        });
+        if (account?.provider) provider = account.provider;
+      } catch (accErr) {
+        logger.error('[auth-event:createUser] failed to read provider for goal', accErr);
+      }
+
+      void trackGoalFn({
+        userEmail: user.email,
+        goal: 'signup',
+        sessionId: hubSessionId(user.id!),
+        properties: { provider },
+      });
+    } catch (err) {
+      logger.error('[auth-event:createUser] failed to emit signup goal', err);
     }
   };
 }

@@ -23,6 +23,8 @@ function makeDeps(opts: {
   fixedUuid?: string;
   provisionThrows?: boolean;
   provisionResult?: { workspaceId: string; created: boolean; workspaceName: string };
+  accountProvider?: string | null;
+  accountFindThrows?: boolean;
 } = {}) {
   const findUnique = vi.fn(async () => {
     if (opts.findUniqueThrows) throw new Error('DB down');
@@ -34,20 +36,34 @@ function makeDeps(opts: {
     if (opts.updateThrows) throw new Error('DB down');
     return { id: 'u1' };
   });
+  // Account créé par le PrismaAdapter avant l'event createUser. Sert à relire
+  // le provider OAuth (google / microsoft-entra-id) pour le goal `signup`.
+  const accountFindFirst = vi.fn(async () => {
+    if (opts.accountFindThrows) throw new Error('account DB down');
+    return opts.accountProvider === undefined
+      ? { provider: 'google' }
+      : opts.accountProvider === null
+        ? null
+        : { provider: opts.accountProvider };
+  });
   const generateUuid = vi.fn(() => opts.fixedUuid ?? '11111111-1111-4111-8111-111111111111');
   const logger = { error: vi.fn(), info: vi.fn() };
   const provisionWorkspace = vi.fn(async () => {
     if (opts.provisionThrows) throw new Error('workspace provision failed');
     return opts.provisionResult ?? { workspaceId: 'ws-1', created: true, workspaceName: 'default workspace' };
   });
+  const trackGoalFn = vi.fn(async () => undefined);
   return {
-    prisma: { user: { findUnique, update } } as never,
+    prisma: { user: { findUnique, update }, account: { findFirst: accountFindFirst } } as never,
     generateUuid,
     logger,
     provisionWorkspace: provisionWorkspace as never,
+    trackGoalFn: trackGoalFn as never,
     _findUnique: findUnique,
     _update: update,
     _provisionWorkspace: provisionWorkspace,
+    _accountFindFirst: accountFindFirst,
+    _trackGoalFn: trackGoalFn,
   };
 }
 
@@ -190,5 +206,74 @@ describe('createCreateUserEvent — provisioning workspace par défaut', () => {
     expect(deps.logger.error).toHaveBeenCalledWith(
       expect.stringContaining('user.email missing'),
     );
+  });
+});
+
+describe('createCreateUserEvent — goal signup tunnel (best-effort)', () => {
+  it('OAuth Google fresh user → trackGoal(signup, provider=google, user_id=email)', async () => {
+    const deps = makeDeps({ accountProvider: 'google' });
+    const event = createCreateUserEvent(deps);
+
+    await event({ user: { id: 'cm-g', email: 'g@gmail.com', name: 'G' } });
+
+    expect(deps._accountFindFirst).toHaveBeenCalledWith({
+      where: { userId: 'cm-g' },
+      select: { provider: true },
+      orderBy: { id: 'desc' },
+    });
+    expect(deps._trackGoalFn).toHaveBeenCalledWith({
+      userEmail: 'g@gmail.com',
+      goal: 'signup',
+      sessionId: 'hub-cm-g',
+      properties: { provider: 'google' },
+    });
+  });
+
+  it('provider Microsoft remonté dans les properties', async () => {
+    const deps = makeDeps({ accountProvider: 'microsoft-entra-id' });
+    const event = createCreateUserEvent(deps);
+
+    await event({ user: { id: 'cm-m', email: 'm@outlook.com' } });
+
+    expect(deps._trackGoalFn).toHaveBeenCalledWith(
+      expect.objectContaining({ properties: { provider: 'microsoft-entra-id' } }),
+    );
+  });
+
+  it('Account introuvable → fallback provider=oauth, goal quand même émis', async () => {
+    const deps = makeDeps({ accountProvider: null });
+    const event = createCreateUserEvent(deps);
+
+    await event({ user: { id: 'cm-x', email: 'x@gmail.com' } });
+
+    expect(deps._trackGoalFn).toHaveBeenCalledWith(
+      expect.objectContaining({ properties: { provider: 'oauth' } }),
+    );
+  });
+
+  it('lecture provider throw → log error mais goal émis (fallback oauth), pas de throw', async () => {
+    const deps = makeDeps({ accountFindThrows: true });
+    const event = createCreateUserEvent(deps);
+
+    await expect(
+      event({ user: { id: 'cm-e', email: 'e@gmail.com' } }),
+    ).resolves.toBeUndefined();
+
+    expect(deps.logger.error).toHaveBeenCalledWith(
+      '[auth-event:createUser] failed to read provider for goal',
+      expect.any(Error),
+    );
+    expect(deps._trackGoalFn).toHaveBeenCalledWith(
+      expect.objectContaining({ goal: 'signup', properties: { provider: 'oauth' } }),
+    );
+  });
+
+  it('email manquant → court-circuit avant le goal (pas de trackGoal)', async () => {
+    const deps = makeDeps();
+    const event = createCreateUserEvent(deps);
+
+    await event({ user: { id: 'cm-ne', email: null } });
+
+    expect(deps._trackGoalFn).not.toHaveBeenCalled();
   });
 });

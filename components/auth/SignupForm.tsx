@@ -78,7 +78,12 @@ export function SignupForm({
       return;
     }
 
-    router.push(callbackUrl);
+    // Marque la redirection post-signup avec `?event=signup` pour que
+    // AuthTracker (components/analytics/auth-tracker.tsx) compte un SignUp GA4
+    // et non un Login (sans ce param, tout signup Credentials était tracké
+    // `login`). On préserve les éventuels query params du callbackUrl.
+    const separator = callbackUrl.includes('?') ? '&' : '?';
+    router.push(`${callbackUrl}${separator}event=signup`);
     router.refresh();
   };
 

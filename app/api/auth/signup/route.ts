@@ -25,6 +25,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { signupLimiter, extractClientIp } from '@/lib/auth/rate-limit';
 import { provisionDefaultWorkspace } from '@/lib/workspace/provision';
+import { trackGoal, hubSessionId } from '@/lib/analytics/track-event';
 
 const signupSchema = z.object({
   email: z.string().email(),
@@ -122,6 +123,16 @@ export async function POST(request: NextRequest) {
     } catch (wsErr) {
       console.error('[Signup] workspace provisioning failed (non-blocking):', wsErr);
     }
+
+    // Tunnel de vente : goal `signup` vers Veridian Analytics (best-effort,
+    // fire-and-forget). user_id = email → le bridge fait l'union slug↔email.
+    // Volontairement NON awaité : un échec analytics ne casse jamais le signup.
+    void trackGoal({
+      userEmail: user.email,
+      goal: 'signup',
+      sessionId: hubSessionId(userUuid),
+      properties: { provider: 'credentials' },
+    });
 
     return NextResponse.json({ id: user.id, email: user.email }, { status: 201 });
   } catch (err: any) {

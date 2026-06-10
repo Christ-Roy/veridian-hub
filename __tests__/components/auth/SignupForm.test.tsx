@@ -71,6 +71,45 @@ describe('SignupForm', () => {
     expect(loginLink.getAttribute('href')).toBe('/login');
   });
 
+  it('signup réussi → redirige vers callbackUrl AVEC ?event=signup (tracking GA4 SignUp vs Login)', async () => {
+    // Garde-fou du fix tunnel : sans `?event=signup`, auth-tracker.tsx compte
+    // tout signup Credentials comme un Login GA4. La redirection post-signup
+    // doit donc porter ce param.
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ id: 'u1', email: 'bob@example.com' }) });
+    signInMock.mockResolvedValue({ error: null });
+
+    render(<SignupForm />);
+    fireEvent.input(screen.getByLabelText('Email'), { target: { value: 'bob@example.com' } });
+    fireEvent.input(screen.getByLabelText('Mot de passe'), { target: { value: 'hunter2hunter' } });
+    fireEvent.input(screen.getByLabelText('Confirmer le mot de passe'), { target: { value: 'hunter2hunter' } });
+    fireEvent.click(screen.getByRole('button', { name: /Créer mon compte/i }));
+
+    // Attend la résolution des promises fetch + signIn (handler async).
+    await vi.waitFor(() => expect(routerPushMock).toHaveBeenCalled());
+    expect(routerPushMock).toHaveBeenCalledWith('/dashboard?event=signup');
+  });
+
+  it('signup réussi avec callbackUrl déjà porteur d\'un query param → séparateur & (URL valide)', async () => {
+    vi.resetModules();
+    vi.doMock('next/navigation', () => ({
+      useRouter: () => ({ push: routerPushMock, refresh: routerRefreshMock }),
+      useSearchParams: () => new URLSearchParams('callbackUrl=/dashboard?tab=billing'),
+    }));
+    const { SignupForm: Fresh } = await import('@/components/auth/SignupForm');
+
+    fetchMock.mockResolvedValue({ ok: true, json: async () => ({ id: 'u1', email: 'c@example.com' }) });
+    signInMock.mockResolvedValue({ error: null });
+
+    render(<Fresh />);
+    fireEvent.input(screen.getByLabelText('Email'), { target: { value: 'c@example.com' } });
+    fireEvent.input(screen.getByLabelText('Mot de passe'), { target: { value: 'hunter2hunter' } });
+    fireEvent.input(screen.getByLabelText('Confirmer le mot de passe'), { target: { value: 'hunter2hunter' } });
+    fireEvent.click(screen.getByRole('button', { name: /Créer mon compte/i }));
+
+    await vi.waitFor(() => expect(routerPushMock).toHaveBeenCalled());
+    expect(routerPushMock).toHaveBeenCalledWith('/dashboard?tab=billing&event=signup');
+  });
+
   it('refuse la soumission si les mots de passe ne correspondent pas', async () => {
     render(<SignupForm />);
 

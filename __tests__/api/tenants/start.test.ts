@@ -22,6 +22,12 @@ vi.mock('@/utils/tenants/provision', () => ({
   provisionTenants: (...args: any[]) => provisionTenantsMock(...args),
 }));
 
+const trackGoalMock = vi.fn(async () => undefined);
+vi.mock('@/lib/analytics/track-event', () => ({
+  trackGoal: (...args: any[]) => trackGoalMock(...args),
+  hubSessionId: (uuid: string) => `hub-${uuid}`,
+}));
+
 let mockUser: any = {
   id: 'u-1',
   email: 'r@test.io',
@@ -127,5 +133,61 @@ describe('POST /api/tenants/start', () => {
     const res = await POST(makeReq({ app: 'prospection' }));
     expect(res.status).toBe(200);
     expect(provisionTenantsMock).toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/tenants/start — goal app_started tunnel', () => {
+  it('1ère provision app=all → app_started émis pour notifuse ET prospection', async () => {
+    tenantRow = null;
+    const { POST } = await import('@/app/api/tenants/start/route');
+    await POST(makeReq({ app: 'all' }));
+
+    const apps = trackGoalMock.mock.calls.map((c: any[]) => c[0].properties.app).sort();
+    expect(apps).toEqual(['notifuse', 'prospection']);
+    for (const call of trackGoalMock.mock.calls) {
+      expect(call[0]).toMatchObject({
+        userEmail: 'r@test.io',
+        goal: 'app_started',
+        sessionId: 'hub-uuid-1',
+      });
+    }
+  });
+
+  it('idempotent (allDone) → AUCUN app_started (court-circuit avant provision)', async () => {
+    tenantRow = {
+      id: 't-1',
+      notifuseWorkspaceSlug: 'ws-existing',
+      prospectionProvisionedAt: '2026-06-01T00:00:00Z',
+    };
+    const { POST } = await import('@/app/api/tenants/start/route');
+    await POST(makeReq({ app: 'all' }));
+    expect(trackGoalMock).not.toHaveBeenCalled();
+  });
+
+  it('notifuse déjà provisionné, prospection nouvelle → app_started UNIQUEMENT prospection', async () => {
+    tenantRow = {
+      id: 't-1',
+      notifuseWorkspaceSlug: 'ws-existing',
+      prospectionProvisionedAt: null,
+    };
+    const { POST } = await import('@/app/api/tenants/start/route');
+    await POST(makeReq({ app: 'all' }));
+
+    const apps = trackGoalMock.mock.calls.map((c: any[]) => c[0].properties.app);
+    expect(apps).toEqual(['prospection']);
+  });
+
+  it('provision en échec → pas de app_started pour cette app', async () => {
+    tenantRow = null;
+    provisionTenantsMock.mockResolvedValueOnce({
+      success: false,
+      notifuse: { success: false, workspaceId: undefined, autoLoginUrl: undefined } as any,
+      prospection: { success: true, tenantId: 't-prosp', loginUrl: 'https://pr/auto' },
+    });
+    const { POST } = await import('@/app/api/tenants/start/route');
+    await POST(makeReq({ app: 'all' }));
+
+    const apps = trackGoalMock.mock.calls.map((c: any[]) => c[0].properties.app);
+    expect(apps).toEqual(['prospection']);
   });
 });

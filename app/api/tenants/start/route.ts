@@ -17,6 +17,7 @@ import { z } from 'zod';
 import { requireUser, userUuid } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
 import { provisionTenants } from '@/utils/tenants/provision';
+import { trackGoal, hubSessionId } from '@/lib/analytics/track-event';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -86,6 +87,25 @@ export async function POST(request: NextRequest) {
   }
 
   const result = await provisionTenants(user.email, uuid, { app });
+
+  // Tunnel de vente : goal `app_started` vers Veridian Analytics (best-effort,
+  // fire-and-forget). UNIQUEMENT sur 1ère provision RÉELLE et RÉUSSIE de chaque
+  // app — le court-circuit idempotent ci-dessus (allDone) a déjà return avant
+  // d'arriver ici, et on filtre encore sur `success` pour ne pas compter une
+  // provision en échec. Une app déjà provisionnée (avant cet appel) n'émet pas.
+  const justProvisioned: Array<{ app: string; ok: boolean }> = [
+    { app: 'notifuse', ok: !!result.notifuse?.success && !alreadyProvisioned.notifuse },
+    { app: 'prospection', ok: !!result.prospection?.success && !alreadyProvisioned.prospection },
+  ];
+  for (const { app: startedApp, ok } of justProvisioned) {
+    if (!ok) continue;
+    void trackGoal({
+      userEmail: user.email,
+      goal: 'app_started',
+      sessionId: hubSessionId(uuid),
+      properties: { app: startedApp },
+    });
+  }
 
   return NextResponse.json({
     ok: result.success,
