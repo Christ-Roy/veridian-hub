@@ -83,6 +83,12 @@ ENV NEXT_TELEMETRY_DISABLED=1
 # - C'est un DoS regex via extglob, pas une RCE / auth bypass
 # - Upstream Node devra bump le npm bundled
 
+# Patch les paquets OS Alpine (openssl/libcrypto3/libssl3, etc.) sans attendre
+# que l'image node:22-alpine officielle rebuild. Sans ça, l'image hérite des
+# CVE OS publiées entre deux releases Node (ex CVE-2026-45447 openssl HIGH,
+# fixée en 3.5.7-r0) → le gate Trivy `CRIT/HIGH bloquant` bloque le deploy prod.
+RUN apk upgrade --no-cache
+
 # Create a non-root user
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
