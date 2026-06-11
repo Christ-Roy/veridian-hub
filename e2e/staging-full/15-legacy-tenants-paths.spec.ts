@@ -68,9 +68,19 @@ function runSqlOnStaging(sql: string): string {
   // Quotage : on passe le SQL via stdin pour éviter ARG_MAX + double
   // évasion shell. Le `bash -c` distant lit stdin du `ssh`.
   // -X = pas de psqlrc, -q = quiet, -v ON_ERROR_STOP=1 = échec à la 1ère erreur.
-  const cmd =
-    `ssh -o ConnectTimeout=10 -o BatchMode=yes dev-pub ` +
-    `"docker exec -i hub-staging-db psql -U hub -d hub -t -A -X -q -v ON_ERROR_STOP=1"`;
+  //
+  // Mode "direct psql" (E2E_DIRECT_PSQL=1) : quand la suite tourne SUR le
+  // dev server lui-même (cf. _sql-helper.ts), l'alias ssh `dev-pub` n'existe
+  // pas → on se connecte en TCP direct au container Postgres via son IP/host
+  // (E2E_DB_HOST) + PGPASSWORD. Aligne ce helper local sur _sql-helper.ts.
+  const directPsql = process.env.E2E_DIRECT_PSQL === '1';
+  const dbHost = process.env.E2E_DB_HOST || 'hub-staging-db';
+  const dbUser = process.env.E2E_DB_USER || 'hub';
+  const dbName = process.env.E2E_DB_NAME || 'hub';
+  const cmd = directPsql
+    ? `psql -h ${dbHost} -U ${dbUser} -d ${dbName} -t -A -X -q -v ON_ERROR_STOP=1`
+    : `ssh -o ConnectTimeout=10 -o BatchMode=yes dev-pub ` +
+      `"docker exec -i hub-staging-db psql -U hub -d hub -t -A -X -q -v ON_ERROR_STOP=1"`;
   try {
     return execSync(cmd, {
       timeout: 20_000,
