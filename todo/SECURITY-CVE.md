@@ -1,8 +1,8 @@
 # 🔒 Veille CVE automatique — veridian-hub
 
 > **Généré par** : `veridian-infra/.github/workflows/cron-trivy.yml`
-> **Dernier run** : 2026-06-11 04:06 UTC
-> **Run URL** : local-cron@mail.mybigserveur.local:2026-06-11
+> **Dernier run** : 2026-06-12 04:06 UTC
+> **Run URL** : local-cron@mail.mybigserveur.local:2026-06-12
 > **Image scannée** : `ghcr.io/christ-roy/veridian-hub:latest`
 > **CVE bruts détectés** : 22 (avant filtrage)
 > **Scoring** : `veridian-infra/ci/trivy-scoring.yml`
@@ -10,28 +10,16 @@
 ## TL;DR
 
 - 🚨 **0 RED** — fix prioritaire
-- 🔴 **1 HIGH** — action recommandée cette semaine
-- 🟡 **5 MEDIUM** — récap, pas urgent
+- 🔴 **0 HIGH** — action recommandée cette semaine
+- 🟡 **6 MEDIUM** — récap, pas urgent
 - 🟢 **10 NOISE** — annexe collapse
 
-
----
-
-## 🔴 HIGH — 1 CVE en 1 groupe
-
-### 1. `libssl3` + `libcrypto3` — 3.5.6-r0 → **3.5.7-r0** *(base image OS)*
-
-- **CVE** : `CVE-2026-45447` (HIGH/RCE)
-- **Type** : RCE
-- **Score max** : 37.5
-- **Title** : Issue summary: A specially crafted PKCS#7 or S/MIME signed message cou ...
-- **Source** : `ghcr.io/christ-roy/veridian-hub:latest (alpine 3.23.4)`
-- **Fix** : rebuild image avec base image patchée — `libssl3` >= `3.5.7-r0`
+✅ **Rien d'urgent.** Quelques items MEDIUM à voir quand t'as 5 min.
 
 
 ---
 
-## 🟡 MEDIUM — 5 CVE en 4 groupes
+## 🟡 MEDIUM — 6 CVE en 5 groupes
 
 ### 1. `@hono/node-server` — 1.19.11 → **1.19.13**
 
@@ -51,7 +39,16 @@
 - **Source** : `Node.js`
 - **Fix** : `pnpm up picomatch` (jusqu'à >= `4.0.4`)
 
-### 3. `postcss` — 8.4.31 → **8.5.10**
+### 3. `libssl3` + `libcrypto3` — 3.5.6-r0 → **3.5.7-r0** *(base image OS)*
+
+- **CVE** : `CVE-2026-45447` (HIGH/Memory corruption)
+- **Type** : Memory corruption
+- **Score max** : 15.0
+- **Title** : openssl: Heap Use-After-Free in OpenSSL PKCS7_verify()
+- **Source** : `ghcr.io/christ-roy/veridian-hub:latest (alpine 3.24.0)`
+- **Fix** : rebuild image avec base image patchée — `libssl3` >= `3.5.7-r0`
+
+### 4. `postcss` — 8.4.31 → **8.5.10**
 
 - **CVE** : `CVE-2026-41305` (MEDIUM/XSS)
 - **Type** : XSS
@@ -60,12 +57,12 @@
 - **Source** : `pnpm-lock.yaml`
 - **Fix** : `pnpm up postcss` (jusqu'à >= `8.5.10`)
 
-### 4. `ip-address` — 10.1.0 → **10.1.1**
+### 5. `ip-address` — 10.1.0 → **10.1.1**
 
 - **CVE** : `CVE-2026-42338` (MEDIUM/XSS)
 - **Type** : XSS
 - **Score max** : 12
-- **Title** : ip-address is a library for parsing and manipulating IPv4 and IPv6 add ...
+- **Title** : ip-address: ip-address: Cross-site scripting via improper HTML escaping of untrusted input
 - **Source** : `Node.js`
 - **Fix** : `pnpm up ip-address` (jusqu'à >= `10.1.1`)
 
