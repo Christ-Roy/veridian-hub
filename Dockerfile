@@ -107,25 +107,33 @@ COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 
-# Install runtime dependencies for init-stripe script + prisma migrate-on-boot.
-# These are needed because init-stripe.mjs and `prisma migrate deploy` run before
-# Next.js and aren't in the standalone bundle.
+# Install runtime dependencies for init-stripe script.
+# These are needed because init-stripe.mjs runs before Next.js and isn't in standalone
 # Install in /tmp then merge with standalone's node_modules (overwrites are OK - standalone doesn't need these)
-#
-# `prisma` (CLI) + `dotenv` (importé par prisma.config.ts) permettent d'appliquer
-# les migrations Prisma au démarrage (cf. CMD). Empreinte ~225 Mo (le CLI prisma 7
-# embarque @prisma/engines + son loader de config). Pinné sur la même version que
-# le devDep du package.json (prisma ^7.7.0) — bumper les deux ensemble.
 RUN echo '{"type":"module"}' > /tmp/package.json && \
     cd /tmp && \
     npm install --omit=dev --no-package-lock \
       stripe@14.25.0 \
-      @supabase/supabase-js@2.43.4 \
-      prisma@7.7.0 \
-      dotenv@17.2.3 && \
+      @supabase/supabase-js@2.43.4 && \
     mkdir -p /app/node_modules && \
     cp -r /tmp/node_modules/* /app/node_modules/ && \
     rm -rf /tmp/node_modules /tmp/package.json
+
+# Prisma CLI dans un préfixe ISOLÉ (/opt/prisma-cli), PAS mergé avec le node_modules
+# standalone : le CLI prisma 7 embarque @prisma/studio-core qui tire react/react-dom,
+# qui entreraient en collision avec le react/react-dom du standalone Next (cp échoue
+# sur target existant). L'isolation évite la collision ET garde le standalone intact.
+#
+# `prisma` (CLI + @prisma/engines, le schema-engine de migration) + `dotenv`
+# (importé par prisma.config.ts). Permet `prisma migrate deploy` au boot (cf. CMD).
+# Empreinte ~227 Mo. Pinné sur la même version que le devDep du package.json
+# (prisma ^7.7.0) — bumper les deux ensemble.
+RUN mkdir -p /opt/prisma-cli && \
+    echo '{"type":"module"}' > /opt/prisma-cli/package.json && \
+    cd /opt/prisma-cli && \
+    npm install --omit=dev --no-package-lock \
+      prisma@7.7.0 \
+      dotenv@17.2.3
 
 # Set correct permissions
 RUN chown -R nextjs:nodejs /app
@@ -157,7 +165,9 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 #     avant d'appliquer → si plusieurs replicas démarrent en parallèle, un seul
 #     applique, les autres attendent puis voient "no pending". Safe au scale.
 #   - Lit DATABASE_URL via prisma.config.ts (Prisma 7) — même URL que le runtime.
-CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy && node scripts/init-stripe.mjs && node server.js"]
+#   - CLI dans le préfixe isolé /opt/prisma-cli ; NODE_PATH résout `dotenv`
+#     importé par prisma.config.ts. CWD=/app pour trouver prisma/ + prisma.config.ts.
+CMD ["sh", "-c", "NODE_PATH=/opt/prisma-cli/node_modules node /opt/prisma-cli/node_modules/prisma/build/index.js migrate deploy && node scripts/init-stripe.mjs && node server.js"]
 
 # ============================================================================
 # STAGE 4: Development (with hot reload)
