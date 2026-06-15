@@ -68,6 +68,14 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 
+// Mock l'ingestion prospect (legacy path behavioral events). On vérifie que la
+// route normalise et délègue — la logique d'ingest est testée à part
+// (__tests__/lib/prospect/ingest.test.ts).
+const ingestProspectEventMock = vi.fn();
+vi.mock('@/lib/prospect/ingest', () => ({
+  ingestProspectEvent: (...args: unknown[]) => ingestProspectEventMock(...args),
+}));
+
 // ============================================================================
 // Helpers
 // ============================================================================
@@ -102,6 +110,12 @@ beforeEach(() => {
   findFirstMock.mockClear();
   updateMock.mockClear();
   tenantTrialUpsertMock.mockReset();
+  ingestProspectEventMock.mockReset();
+  ingestProspectEventMock.mockResolvedValue({
+    ingested: true,
+    scored: true,
+    points: 5,
+  });
 });
 
 afterEach(() => {
@@ -454,5 +468,44 @@ describe('POST /api/webhooks/notifuse — Legacy HMAC', () => {
     // On a regardé en DB (idempotence + dispatch), mais aucune mise à jour
     expect(findFirstMock).toHaveBeenCalled();
     expect(updateMock).not.toHaveBeenCalled();
+  });
+
+  it('behavioral event (email.clicked) delegates to ingestProspectEvent via the legacy switch', async () => {
+    const { POST } = await import('@/app/api/webhooks/notifuse/route');
+    const ts = String(Date.now());
+    const body = JSON.stringify({
+      event_id: '00000000-0000-4000-8000-0000000000c1',
+      event_type: 'email.clicked',
+      tenant_id: 'ws_acme',
+      occurred_at: '2026-06-15T10:00:00.000Z',
+      data: {
+        contact_email: 'prospect@acme.com',
+        vid: 'vid_42',
+        link_url: 'https://example.com/audit',
+      },
+    });
+    const sig = signLegacy(ts, body, LEGACY_SECRET);
+    const res = await POST(
+      makeNextRequest({
+        body,
+        headers: {
+          'x-veridian-timestamp': ts,
+          'x-veridian-notifuse-signature': sig,
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(ingestProspectEventMock).toHaveBeenCalledTimes(1);
+    expect(ingestProspectEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        app: 'notifuse',
+        eventType: 'email.clicked',
+        workspaceSlug: 'ws_acme',
+        // event_id legacy = clé d'idempotence applicative
+        idempotencyKey: '00000000-0000-4000-8000-0000000000c1',
+        contactEmail: 'prospect@acme.com',
+        vid: 'vid_42',
+      }),
+    );
   });
 });

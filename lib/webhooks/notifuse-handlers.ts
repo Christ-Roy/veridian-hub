@@ -26,6 +26,23 @@ import {
   applySoftDeleted,
   applySuspended,
 } from '@/lib/sync/snapshot-updater';
+import { ingestProspectEvent } from '@/lib/prospect/ingest';
+
+/**
+ * Extrait `contact_email` et `vid` du `data` d'un event comportemental v1.4.
+ * Tolérant : champs absents = undefined (la jointure V1 se fait par email,
+ * un event sans email reste ingéré mais non scoré).
+ */
+function behavioralFields(data: Record<string, unknown> | undefined): {
+  contactEmail?: string;
+  vid?: string;
+} {
+  const d = data ?? {};
+  const contactEmail =
+    typeof d.contact_email === 'string' ? d.contact_email : undefined;
+  const vid = typeof d.vid === 'string' ? d.vid : undefined;
+  return { contactEmail, vid };
+}
 
 export const v14Handlers: HandlerTable = {
   'tenant.touched': async (payload) => {
@@ -178,5 +195,59 @@ export const v14Handlers: HandlerTable = {
       payload.tenant_id,
       'trial.eligible',
     );
+  },
+
+  // ==========================================================================
+  // Events COMPORTEMENTAUX — réconciliateur cold↔web + scoring prospect.
+  // Cf docs/CONTRAT-HUB.md §7.5 (standard d'event comportemental) +
+  // todo/2026-06-15-reconciliateur-events-cold-web-prospect-scoring.md.
+  //
+  // Ces 3 handlers sont la voie STANDARD v1.4 Bearer. Le fork Notifuse émet
+  // aujourd'hui via la voie LEGACY HMAC (dispatchLegacyEvent dans la route) —
+  // les deux voies normalisent et appellent le MÊME ingestProspectEvent.
+  // Analytics (page.hit) arrivera par sa propre route /api/webhooks/analytics
+  // (v1.4 Bearer) et appellera le même ingest, sans rien changer ici.
+  // ==========================================================================
+
+  'email.opened': async (payload) => {
+    const { contactEmail, vid } = behavioralFields(payload.data);
+    await ingestProspectEvent({
+      app: 'notifuse',
+      eventType: 'email.opened',
+      workspaceSlug: payload.tenant_id,
+      idempotencyKey: payload.idempotency_key,
+      occurredAt: payload.occurred_at,
+      contactEmail,
+      vid,
+      data: payload.data ?? null,
+    });
+  },
+
+  'email.clicked': async (payload) => {
+    const { contactEmail, vid } = behavioralFields(payload.data);
+    await ingestProspectEvent({
+      app: 'notifuse',
+      eventType: 'email.clicked',
+      workspaceSlug: payload.tenant_id,
+      idempotencyKey: payload.idempotency_key,
+      occurredAt: payload.occurred_at,
+      contactEmail,
+      vid,
+      data: payload.data ?? null,
+    });
+  },
+
+  'email.replied': async (payload) => {
+    const { contactEmail, vid } = behavioralFields(payload.data);
+    await ingestProspectEvent({
+      app: 'notifuse',
+      eventType: 'email.replied',
+      workspaceSlug: payload.tenant_id,
+      idempotencyKey: payload.idempotency_key,
+      occurredAt: payload.occurred_at,
+      contactEmail,
+      vid,
+      data: payload.data ?? null,
+    });
   },
 };

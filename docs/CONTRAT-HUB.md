@@ -2550,6 +2550,103 @@ Le signal `tenant.activity_threshold_reached` transite par ce canal mais
 sa **sémantique billing** (déclencheur de trial) est gravée
 `CONTRAT-BILLING.md` §7.4.
 
+### 7.5 Events COMPORTEMENTAUX — standard cross-app (gravé 2026-06-15)
+
+> **C'est LE standard que TOUTE app émettrice doit suivre** pour pousser un
+> event comportemental (cold ou web) vers le réconciliateur prospect du Hub.
+> Gravé une fois ici → Analytics (`page.hit`), Notifuse (`email.*`) et toute
+> app future émettent au MÊME format, le Hub ingère sans code spécifique par
+> app. Distinct des events `tenant.*` (état tenant, §7.1) — ici on parle du
+> **comportement d'un PROSPECT** (un humain identifié par son adresse mail,
+> et à terme par un `vid` déterministe).
+>
+> Backend Hub : `lib/prospect/ingest.ts` (ingestion + scoring),
+> `lib/prospect/scoring.ts` (barème), tables `hub_app.prospect_events` +
+> `hub_app.prospect_scores` (migration `20260615120000`). Ticket :
+> `todo/2026-06-15-reconciliateur-events-cold-web-prospect-scoring.md`.
+
+#### 7.5.1 Schéma d'event uniforme
+
+Tout event comportemental est un objet JSON :
+
+```json
+{
+  "event": "email.clicked",
+  "app": "notifuse",
+  "tenant_id": "ws_acme",
+  "vid": "vid_abc123",
+  "contact_email": "prospect@acme.com",
+  "occurred_at": "2026-06-15T10:00:00.000Z",
+  "idempotency_key": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+  "data": { "link_url": "https://...", "message_id": "msg_1" },
+  "contract_version": "1.6"
+}
+```
+
+| Champ | Obligatoire | Sémantique |
+|---|---|---|
+| `event` | ✅ | Type canonique. V1 : `email.opened`, `email.clicked`, `email.replied` (Notifuse), `page.hit` (Analytics, à venir). Un type inconnu est **ingéré pour forensics mais non scoré**. |
+| `app` | ✅ | App émettrice : `notifuse`, `analytics`, ... (sélectionne le secret côté auth). |
+| `tenant_id` | ✅ | Clé tenant telle que l'app la connaît. Notifuse = `notifuse_workspace_slug`. Le Hub résout le tenant UUID via le mapping (best-effort : workspace orphelin = event ingéré, `tenant_uuid` NULL). |
+| `vid` | ⏳ étage 2 | ID prospect **déterministe** propagé cross-app (clé de jointure FORTE cold↔web). **Nullable au V1** — la jointure se fait alors par `contact_email`. Quand Notifuse le posera dans les liens `/t/` `/r/` et qu'Analytics le captera au hit, il deviendra la clé prioritaire. |
+| `contact_email` | ✅ pour scorer | Adresse du prospect = **clé de jointure V1**. Un event sans email (ex : `page.hit` anonyme) est ingéré mais NON attribué à un prospect (donc non scoré) tant que le `vid` n'est pas câblé. |
+| `occurred_at` | ✅ | ISO8601 de l'event côté app. Le Hub garde `max(lastEventAt, occurred_at)` (out-of-order safe). |
+| `idempotency_key` | ✅ | UUID **unique par event** fourni par l'émetteur. Clé d'idempotence applicative (`prospect_events.idempotency_key` UNIQUE). Un replay ne **ré-incrémente jamais** le score. |
+| `data` | optionnel | Payload brut spécifique (message_id, link_url, page_path, ...). Conservé tel quel dans `prospect_events.data` (JSONB). |
+| `contract_version` | recommandé | Doit commencer par `1.`. Sinon log warn (non bloquant). |
+
+#### 7.5.2 Transport & auth — DEUX voies, un seul handler
+
+Le Hub accepte un event comportemental par **deux canaux**, qui se rejoignent
+sur le MÊME `ingestProspectEvent` (zéro divergence de logique) :
+
+1. **v1.4 Bearer (voie STANDARD, recommandée pour toute NOUVELLE app)** :
+   `POST /api/webhooks/<app>` avec `Authorization: Bearer <APP_WEBHOOK_TOKEN>`,
+   body au format §7.5.1, dédup transport via `webhook_dedup` (PK `(app,
+   idempotency_key)`, §7.2/§7.3). C'est le format que **Analytics** doit
+   émettre pour `page.hit`. Handler : table d'events injectée dans
+   `lib/webhooks/<app>-handlers.ts`.
+2. **Legacy HMAC (héritage Notifuse, en service en prod)** :
+   `POST /api/webhooks/notifuse` avec `X-Veridian-Notifuse-Signature` =
+   `HMAC-SHA256(secret, "${ts}.${rawBody}")` + `X-Veridian-Timestamp` (ms),
+   body `{event_id, event_type, tenant_id, occurred_at, data}`. Ici `event_id`
+   sert de `idempotency_key`, `tenant_id` = workspace slug, et `contact_email`
+   / `vid` voyagent dans `data`. C'est par là que le **fork Notifuse émet
+   aujourd'hui** ses `email.opened/clicked/replied` (cf
+   `internal/service/veridian_webhook_emitter.go`). À retirer quand Notifuse
+   migrera sur v1.4 Bearer (le handler v1.4 est déjà prêt à prendre le relais
+   sans changement).
+
+> **Règle pour une nouvelle app (ex : Analytics)** : émettre en **v1.4 Bearer**.
+> Pas de HMAC neuf. Ajouter `email.*`/`page.hit` à la `HandlerTable` de l'app
+> dans `lib/webhooks/<app>-handlers.ts`, chaque handler appelle
+> `ingestProspectEvent({ app, eventType, workspaceSlug: payload.tenant_id,
+> idempotencyKey: payload.idempotency_key, occurredAt: payload.occurred_at,
+> contactEmail: data.contact_email, vid: data.vid, data })`. Rien d'autre.
+
+#### 7.5.3 Jointure & scoring
+
+- **Jointure** : `vid` prioritaire (étage 2, quand câblé), **`contact_email`
+  fallback** (V1). Un event non joignable (ni vid ni email) est ingéré pour
+  audit mais ne déplace aucun score.
+- **Barème V1** (synchrone, `lib/prospect/scoring.ts`, figé Robert 2026-06-15) :
+  `email.opened` **+1** · `email.clicked` **+5** · `email.replied` **+20** ·
+  `page.hit` **+3**. Additif, borné par event, sans decay temporel (feature
+  post-volume). `prospect_scores.signals` garde le compteur par type
+  (`{opened, clicked, replied, page_hit}`) pour expliquer un score.
+- **Best-effort de bout en bout** : la résolution du tenant et le scoring ne
+  bloquent jamais l'ingestion ; une erreur de persistance remonte au caller
+  pour retry (legacy = 500 → backoff app ; v1.4 = `processed_at` reste NULL).
+
+#### 7.5.4 Ce qui n'est PAS encore là (étage 2)
+
+- Le `vid` déterministe partagé (Hub source) propagé dans les liens de tracking
+  Notifuse + capté par Analytics : **pas câblé**. Tant que non câblé, la
+  corrélation cold↔web repose sur `contact_email` (un `page.hit` anonyme ne se
+  rattache donc pas encore à un prospect).
+- L'écriture du score dans le CRM Twenty (priorisation) : hors périmètre du
+  socle d'ingestion (lot suivant).
+
 ---
 
 ## 8. Pilotage des plans + lifecycle depuis le Hub

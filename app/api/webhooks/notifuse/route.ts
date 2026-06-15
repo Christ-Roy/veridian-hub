@@ -31,6 +31,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createHmac, timingSafeEqual } from 'crypto';
 
 import {
+  BehavioralEventData,
   EmailSentEventData,
   NotifuseEventType,
   QuotaExceededEventData,
@@ -42,6 +43,7 @@ import {
 import { prisma } from '@/lib/prisma';
 import { handleWebhook } from '@/lib/webhooks/receiver';
 import { v14Handlers } from '@/lib/webhooks/notifuse-handlers';
+import { ingestProspectEvent } from '@/lib/prospect/ingest';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -300,6 +302,41 @@ async function dispatchLegacyEvent(
         '[notifuse-webhook] tenant.quota_exceeded',
         tenantSlug,
         `${data?.emails_sent_this_month}/${data?.monthly_email_quota}`,
+      );
+      return;
+    }
+
+    // Events COMPORTEMENTAUX (réconciliateur cold↔web + scoring prospect).
+    // Voie LEGACY HMAC = celle qu'emprunte le fork Notifuse aujourd'hui. On
+    // normalise et on délègue au MÊME ingestProspectEvent que la voie v1.4
+    // Bearer (lib/webhooks/notifuse-handlers.ts). Cf docs/CONTRAT-HUB.md §7.5.
+    //
+    // `event_id` legacy sert de clé d'idempotence applicative (UUID v4 généré
+    // par l'émetteur Go). `tenant_id` = notifuse workspace slug.
+    case 'email.opened':
+    case 'email.clicked':
+    case 'email.replied': {
+      const data = (payload.data ?? {}) as BehavioralEventData;
+      const result = await ingestProspectEvent({
+        app: 'notifuse',
+        eventType,
+        workspaceSlug: tenantSlug,
+        idempotencyKey: payload.event_id,
+        occurredAt:
+          typeof data.occurred_at === 'string'
+            ? data.occurred_at
+            : payload.occurred_at,
+        contactEmail:
+          typeof data.contact_email === 'string' ? data.contact_email : null,
+        vid: typeof data.vid === 'string' ? data.vid : null,
+        data: data as Record<string, unknown>,
+      });
+      console.info(
+        '[notifuse-webhook] behavioral',
+        eventType,
+        tenantSlug,
+        data.contact_email ?? '(no email)',
+        result.ingested ? `+${result.points}` : 'dedup',
       );
       return;
     }

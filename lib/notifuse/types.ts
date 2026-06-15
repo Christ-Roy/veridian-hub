@@ -157,7 +157,12 @@ export type NotifuseEventType =
   | 'tenant.resumed'
   | 'tenant.deleted'
   | 'tenant.quota_exceeded'
-  | 'email.sent';
+  | 'email.sent'
+  // Events COMPORTEMENTAUX (réconciliateur cold↔web, 2026-06-15). Émis par le
+  // fork Notifuse via la voie LEGACY HMAC. Cf docs/CONTRAT-HUB.md §7.5.
+  | 'email.opened'
+  | 'email.clicked'
+  | 'email.replied';
 
 export interface VeridianEventPayload<T = unknown> {
   event_id: string;
@@ -189,6 +194,21 @@ export interface EmailSentEventData {
 export interface QuotaExceededEventData {
   monthly_email_quota: number;
   emails_sent_this_month: number;
+}
+
+/**
+ * `data` d'un event comportemental cold (email.opened/clicked/replied).
+ * `contact_email` = clé de jointure prospect V1. `vid` = ID prospect
+ * déterministe cross-app (étage 2, optionnel). Champs additionnels libres
+ * (message_id, link_url, ...) conservés dans le JSONB ProspectEvent.data.
+ */
+export interface BehavioralEventData {
+  contact_email?: string;
+  vid?: string;
+  message_id?: string;
+  link_url?: string;
+  occurred_at?: string;
+  [key: string]: unknown;
 }
 
 export class NotifuseError extends Error {

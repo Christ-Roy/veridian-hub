@@ -19,6 +19,7 @@ const applyPurgedMock = vi.fn();
 const applyOwnerChangedMock = vi.fn();
 const applyQuotaExceededMock = vi.fn();
 const applyMemberEventMock = vi.fn();
+const ingestProspectEventMock = vi.fn();
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -38,6 +39,10 @@ vi.mock('@/lib/sync/snapshot-updater', () => ({
   applyMemberEvent: (...args: unknown[]) => applyMemberEventMock(...args),
 }));
 
+vi.mock('@/lib/prospect/ingest', () => ({
+  ingestProspectEvent: (...args: unknown[]) => ingestProspectEventMock(...args),
+}));
+
 beforeEach(() => {
   upsertMock.mockReset();
   applySuspendedMock.mockReset();
@@ -47,6 +52,7 @@ beforeEach(() => {
   applyOwnerChangedMock.mockReset();
   applyQuotaExceededMock.mockReset();
   applyMemberEventMock.mockReset();
+  ingestProspectEventMock.mockReset();
 });
 
 describe('v14Handlers.tenant.activity_threshold_reached', () => {
@@ -141,7 +147,7 @@ describe('v14Handlers.tenant.activity_threshold_reached', () => {
 });
 
 describe('v14Handlers table shape', () => {
-  it('exposes the v1.4 contract events + Niveau 2 sync handlers', async () => {
+  it('exposes the v1.4 contract events + Niveau 2 sync + behavioral handlers', async () => {
     const { v14Handlers } = await import('@/lib/webhooks/notifuse-handlers');
     expect(Object.keys(v14Handlers).sort()).toEqual(
       [
@@ -156,8 +162,107 @@ describe('v14Handlers table shape', () => {
         'tenant.soft_deleted',
         'tenant.suspended',
         'tenant.touched',
+        // Events comportementaux (réconciliateur cold↔web)
+        'email.opened',
+        'email.clicked',
+        'email.replied',
       ].sort(),
     );
+  });
+});
+
+// ============================================================================
+// Events COMPORTEMENTAUX v1.4 — délégation à ingestProspectEvent.
+// ============================================================================
+
+describe('v14Handlers — behavioral events (réconciliateur cold↔web)', () => {
+  it('email.opened delegates to ingestProspectEvent with email+vid from data', async () => {
+    ingestProspectEventMock.mockResolvedValue({
+      ingested: true,
+      scored: true,
+      points: 1,
+    });
+    const { v14Handlers } = await import('@/lib/webhooks/notifuse-handlers');
+    await v14Handlers['email.opened']({
+      event: 'email.opened',
+      tenant_id: 'ws_acme',
+      data: { contact_email: 'p@acme.com', vid: 'vid_1', message_id: 'm1' },
+      idempotency_key: '00000000-0000-4000-8000-0000000000a1',
+      occurred_at: '2026-06-15T10:00:00.000Z',
+    });
+    expect(ingestProspectEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        app: 'notifuse',
+        eventType: 'email.opened',
+        workspaceSlug: 'ws_acme',
+        idempotencyKey: '00000000-0000-4000-8000-0000000000a1',
+        occurredAt: '2026-06-15T10:00:00.000Z',
+        contactEmail: 'p@acme.com',
+        vid: 'vid_1',
+      }),
+    );
+  });
+
+  it('email.clicked + email.replied route to the right eventType', async () => {
+    ingestProspectEventMock.mockResolvedValue({
+      ingested: true,
+      scored: true,
+      points: 5,
+    });
+    const { v14Handlers } = await import('@/lib/webhooks/notifuse-handlers');
+    await v14Handlers['email.clicked']({
+      event: 'email.clicked',
+      tenant_id: 'ws_acme',
+      data: { contact_email: 'p@acme.com' },
+      idempotency_key: '00000000-0000-4000-8000-0000000000a2',
+      occurred_at: '2026-06-15T10:01:00.000Z',
+    });
+    expect(ingestProspectEventMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ eventType: 'email.clicked' }),
+    );
+
+    await v14Handlers['email.replied']({
+      event: 'email.replied',
+      tenant_id: 'ws_acme',
+      data: { contact_email: 'p@acme.com' },
+      idempotency_key: '00000000-0000-4000-8000-0000000000a3',
+      occurred_at: '2026-06-15T10:02:00.000Z',
+    });
+    expect(ingestProspectEventMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({ eventType: 'email.replied' }),
+    );
+  });
+
+  it('tolerates a missing data block (no contact_email/vid)', async () => {
+    ingestProspectEventMock.mockResolvedValue({
+      ingested: true,
+      scored: false,
+      points: 0,
+    });
+    const { v14Handlers } = await import('@/lib/webhooks/notifuse-handlers');
+    await v14Handlers['email.opened']({
+      event: 'email.opened',
+      tenant_id: 'ws_acme',
+      idempotency_key: '00000000-0000-4000-8000-0000000000a4',
+      occurred_at: '2026-06-15T10:03:00.000Z',
+    });
+    const arg = ingestProspectEventMock.mock.calls.at(-1)![0];
+    expect(arg.contactEmail).toBeUndefined();
+    expect(arg.vid).toBeUndefined();
+  });
+
+  it('propagates ingest errors so the receiver leaves processed_at=NULL', async () => {
+    ingestProspectEventMock.mockRejectedValueOnce(new Error('db down'));
+    const { v14Handlers } = await import('@/lib/webhooks/notifuse-handlers');
+    await expect(
+      v14Handlers['email.clicked']({
+        event: 'email.clicked',
+        tenant_id: 'ws_acme',
+        data: { contact_email: 'p@acme.com' },
+        idempotency_key: '00000000-0000-4000-8000-0000000000a5',
+        occurred_at: '2026-06-15T10:04:00.000Z',
+      }),
+    ).rejects.toThrow(/db down/);
   });
 });
 
