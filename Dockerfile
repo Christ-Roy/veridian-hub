@@ -99,14 +99,30 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/scripts ./scripts
 
-# Install runtime dependencies for init-stripe script
-# These are needed because init-stripe.mjs runs before Next.js and isn't in standalone
+# Prisma schema + migrations + config → nécessaires pour `prisma migrate deploy`
+# au boot du container (cf. CMD). Le standalone Next.js ne les embarque pas.
+# `prisma.config.ts` (Prisma 7) déclare le schema, le chemin migrations et lit
+# DATABASE_URL depuis l'env — chargé nativement par le CLI prisma (loader TS
+# bundlé, pas besoin de tsx au runtime).
+COPY --from=builder /app/prisma ./prisma
+COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
+
+# Install runtime dependencies for init-stripe script + prisma migrate-on-boot.
+# These are needed because init-stripe.mjs and `prisma migrate deploy` run before
+# Next.js and aren't in the standalone bundle.
 # Install in /tmp then merge with standalone's node_modules (overwrites are OK - standalone doesn't need these)
+#
+# `prisma` (CLI) + `dotenv` (importé par prisma.config.ts) permettent d'appliquer
+# les migrations Prisma au démarrage (cf. CMD). Empreinte ~225 Mo (le CLI prisma 7
+# embarque @prisma/engines + son loader de config). Pinné sur la même version que
+# le devDep du package.json (prisma ^7.7.0) — bumper les deux ensemble.
 RUN echo '{"type":"module"}' > /tmp/package.json && \
     cd /tmp && \
     npm install --omit=dev --no-package-lock \
       stripe@14.25.0 \
-      @supabase/supabase-js@2.43.4 && \
+      @supabase/supabase-js@2.43.4 \
+      prisma@7.7.0 \
+      dotenv@17.2.3 && \
     mkdir -p /app/node_modules && \
     cp -r /tmp/node_modules/* /app/node_modules/ && \
     rm -rf /tmp/node_modules /tmp/package.json
@@ -128,8 +144,20 @@ ENV PORT=3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3000/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
-# Start the application with Stripe init
-CMD ["sh", "-c", "node scripts/init-stripe.mjs && node server.js"]
+# Start the application : migrations Prisma au boot → init Stripe → serveur Next.
+#
+# `prisma migrate deploy` :
+#   - IDEMPOTENT : n'applique que les migrations manquantes (compare au
+#     _prisma_migrations de la DB), exit 0 si tout est déjà appliqué.
+#   - FAIL FAST : si une migration échoue (ou DB injoignable), exit non-zero →
+#     le `&&` court-circuite, server.js NE démarre PAS. Mieux qu'un 500
+#     silencieux sur table inexistante (cf. incident réconciliateur 2026-06-15,
+#     todo/done/2026-06-15-staging-migrations-prisma-non-appliquees.md).
+#   - CONCURRENCE : Prisma pose un advisory lock Postgres (pg_advisory_lock)
+#     avant d'appliquer → si plusieurs replicas démarrent en parallèle, un seul
+#     applique, les autres attendent puis voient "no pending". Safe au scale.
+#   - Lit DATABASE_URL via prisma.config.ts (Prisma 7) — même URL que le runtime.
+CMD ["sh", "-c", "node node_modules/prisma/build/index.js migrate deploy && node scripts/init-stripe.mjs && node server.js"]
 
 # ============================================================================
 # STAGE 4: Development (with hot reload)
