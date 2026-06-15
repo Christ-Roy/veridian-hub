@@ -835,3 +835,91 @@ model OauthSigninEvent {
   @@map("oauth_signin_events")
   @@schema("hub_app")
 }
+
+// ============================================================================
+// Réconciliateur events COMPORTEMENTAUX cold↔web (2026-06-15)
+// Ticket : todo/2026-06-15-reconciliateur-events-cold-web-prospect-scoring.md
+// Spec   : notifuse-veridian/todo/2026-06-15-SPEC-reconciliation-cold-web-events-hub.md
+// ============================================================================
+//
+// DISTINCT de la réconciliation BILLING (lib/sync/reconcile.ts = état tenant).
+// Ici on ingère les events COMPORTEMENTAUX émis par les apps (Notifuse :
+// email.opened/clicked/replied ; Analytics plus tard : page.hit) pour SCORER
+// le prospect et prioriser les chauds dans le CRM Twenty.
+//
+// V1 (ce lot) : jointure par `contactEmail` (le prospect = une adresse mail).
+// Le `vid` (ID prospect déterministe propagé cross-app) est nullable au V1 ;
+// l'étage 2 (vid prioritaire, contactEmail fallback) viendra après que
+// Notifuse propage le vid dans les liens /t/ /r/ et qu'Analytics le capte.
+//
+// Le STANDARD d'event comportemental que TOUTE app émet est gravé dans
+// docs/CONTRAT-HUB.md §7.5.
+
+/// Event comportemental ingéré (1 row par event après dédup).
+///
+/// Clé d'idempotence applicative : `idempotencyKey` (UNIQUE). La dédup de
+/// transport (webhook_dedup PK (app, idempotency_key)) protège la route ;
+/// cet UNIQUE protège l'insertion ProspectEvent elle-même (best-effort :
+/// un INSERT en doublon = no-op, le score n'est PAS ré-incrémenté).
+///
+/// `tenantId` = clé fournie par le mapping côté webhook. Pour Notifuse on
+/// reçoit le `notifuse_workspace_slug` → on stocke le slug ET, quand le
+/// mapping Tenant résout, l'UUID tenant Hub dans `tenantUuid` (nullable :
+/// un event d'un workspace orphelin reste ingéré pour forensics).
+model ProspectEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  // App émettrice : 'notifuse' | 'analytics' (extensible).
+  app            String
+  // Type d'event canonique : 'email.opened' | 'email.clicked' |
+  // 'email.replied' | 'page.hit' (extensible — cf barème lib/prospect/scoring.ts).
+  eventType      String   @map("event_type")
+  // ID prospect déterministe cross-app. NULLABLE au V1 (jointure par email).
+  vid            String?
+  // Clé tenant telle que fournie par l'app (Notifuse = workspace slug).
+  workspaceSlug  String   @map("workspace_slug")
+  // UUID tenant Hub résolu via le mapping (nullable si workspace orphelin).
+  tenantUuid     String?  @map("tenant_uuid") @db.Uuid
+  // Adresse mail du prospect (clé de jointure V1). NULLABLE (page.hit anonyme).
+  contactEmail   String?  @map("contact_email")
+  // Idempotence applicative — UUID v4 fourni par l'émetteur.
+  idempotencyKey String   @unique @map("idempotency_key")
+  // Quand l'event s'est produit côté app (ISO8601 → DateTime).
+  occurredAt     DateTime @map("occurred_at") @db.Timestamptz(6)
+  // Payload brut spécifique à l'event (message_id, link_url, page_path, ...).
+  data           Json
+  // Quand le Hub a reçu/ingéré l'event.
+  receivedAt     DateTime @default(now()) @map("received_at") @db.Timestamptz(6)
+
+  @@index([vid, occurredAt(sort: Desc)])
+  @@index([workspaceSlug, eventType])
+  @@index([contactEmail])
+  @@index([tenantUuid])
+  @@map("prospect_events")
+  @@schema("hub_app")
+}
+
+/// Score d'engagement agrégé PAR PROSPECT (pas par tenant → table dédiée,
+/// distincte de Tenant.leadScore qui est un signal billing par tenant).
+///
+/// Clé V1 = (workspaceSlug, contactEmail). Le `vid` est dénormalisé ici pour
+/// la migration future vers une clé (workspaceSlug, vid) sans perte de data.
+/// `signals` = compteurs détaillés par eventType ({opened, clicked, replied,
+/// page_hit}) pour expliquer le score sans relire tous les events.
+model ProspectScore {
+  id              String    @id @default(uuid()) @db.Uuid
+  workspaceSlug   String    @map("workspace_slug")
+  contactEmail    String    @map("contact_email")
+  vid             String?
+  tenantUuid      String?   @map("tenant_uuid") @db.Uuid
+  engagementScore Int       @default(0) @map("engagement_score")
+  lastEventAt     DateTime? @map("last_event_at") @db.Timestamptz(6)
+  signals         Json      @default("{}")
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([workspaceSlug, contactEmail], map: "prospect_scores_workspace_email_unique")
+  @@index([workspaceSlug, engagementScore(sort: Desc)])
+  @@index([vid])
+  @@map("prospect_scores")
+  @@schema("hub_app")
+}
