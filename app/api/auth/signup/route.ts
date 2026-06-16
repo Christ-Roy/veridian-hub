@@ -29,7 +29,10 @@ import { trackGoal, hubSessionId } from '@/lib/analytics/track-event';
 
 const signupSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(8),
+  // max(72) : bcrypt tronque silencieusement à 72 bytes — au-delà n'ajoute
+  // aucune sécurité et expose à un DoS (hash CPU + stockage sur payload XXL,
+  // ex. password 2 MB). Borne explicite côté Zod → 400 avant tout hash.
+  password: z.string().min(8).max(72),
 });
 
 export async function POST(request: NextRequest) {

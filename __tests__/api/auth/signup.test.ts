@@ -178,6 +178,15 @@ describe('POST /api/auth/signup', () => {
     expect(res.status).toBe(400);
   });
 
+  it('rejects password > 72 bytes (anti-DoS bcrypt + payload XXL)', async () => {
+    // bcrypt tronque à 72 bytes : au-delà = inutile + DoS (hash CPU sur 2 MB).
+    // Le schema Zod doit borner AVANT tout hash → 400, jamais 201.
+    const { POST } = await import('@/app/api/auth/signup/route');
+    const huge = 'A'.repeat(2 * 1024 * 1024); // 2 MB
+    const res = await POST(makeReq({ email: 'xxl@test.io', password: huge }));
+    expect(res.status).toBe(400);
+  });
+
   it('rejects duplicate email (409)', async () => {
     userStore.set('dup@test.io', { id: 'existing' });
     const { POST } = await import('@/app/api/auth/signup/route');
