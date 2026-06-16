@@ -81,6 +81,8 @@ const WORKSPACE_SLUG = `recon-e2e-${RUN_STAMP}`;
 const PROSPECT_EMAIL = `e2e-prospect-${RUN_STAMP}@veridian.test`;
 // 2e prospect pour la voie v1.4 (état DB indépendant du 1er).
 const PROSPECT_EMAIL_V14 = `e2e-prospect-v14-${RUN_STAMP}@veridian.test`;
+// 3e prospect dédié au test de CONCURRENCE (course sur le MÊME score).
+const PROSPECT_EMAIL_RACE = `e2e-prospect-race-${RUN_STAMP}@veridian.test`;
 
 // ─── Helpers POST (legacy HMAC + v1.4 Bearer) ─────────────────────────────
 
@@ -350,5 +352,127 @@ test.describe('Journey 21 — Réconciliateur prospect (voie v1.4 Bearer)', () =
       'engagement_score = 5 via Bearer (les deux voies convergent sur ingestProspectEvent)',
     ).toBe(5);
     expect(sc!.signals.clicked, 'signals.clicked = 1 via v1.4').toBe(1);
+  });
+});
+
+// ─── CONCURRENCE : la course prouve l'atomicité jsonb_set + increment ─────
+//
+// POURQUOI ce test est le plus important du fix atomique (61d4cc6) :
+//   Le fix #2 (signals via `jsonb_set` ON CONFLICT côté DB, au lieu d'un
+//   read-modify-write applicatif) ne se PROUVE que sous concurrence réelle.
+//   Son test unitaire vérifie juste que le bon SQL est émis — pas qu'il
+//   résiste à la course. Ici on tape N events scorables EN PARALLÈLE sur le
+//   MÊME (workspace, contact_email), chacun avec un idempotency_key DIFFÉRENT
+//   (sinon la dédup avale tout sauf 1).
+//
+//   Invariant prouvé : engagement_score == signals.opened == N.
+//   - engagement_score était déjà bon avec l'ancien code (increment SQL
+//     atomique `{ increment: points }`).
+//   - signals.opened, lui, passait par un read-modify-write applicatif
+//     (findUnique → bumpSignals JS → upsert) → sous course, plusieurs
+//     transactions lisaient le même `signals` et écrasaient les incréments
+//     concurrents → signals.opened < N alors que le score restait à N.
+//   Donc l'ÉGALITÉ des deux sous course = la preuve que le jsonb_set
+//   atomique a éliminé la divergence. Si la régression revenait,
+//   signals.opened tomberait < score et ce test deviendrait rouge.
+//
+// La route webhook n'a PAS de rate-limiter (auth HMAC/Bearer) → on peut
+// envoyer le burst sans withRateLimitRetry, ce qui garantit un vrai
+// parallélisme côté serveur (pas de sérialisation par back-off 429).
+
+/**
+ * POST legacy HMAC SANS retry rate-limit — pour préserver le parallélisme
+ * réel du burst (le wrapper retry sérialiserait sur back-off).
+ */
+async function postLegacyHmacRaw(
+  request: APIRequestContext,
+  payload: {
+    event_id: string;
+    event_type: string;
+    tenant_id: string;
+    occurred_at?: string;
+    data: Record<string, unknown>;
+  },
+) {
+  const body = JSON.stringify(payload);
+  const ts = Date.now();
+  const sig = createHmac('sha256', NOTIFUSE_HUB_WEBHOOK_SECRET)
+    .update(`${ts}.${body}`)
+    .digest('hex');
+  return request.post(`${STAGING_URL}/api/webhooks/notifuse`, {
+    headers: {
+      'content-type': 'application/json',
+      'x-veridian-timestamp': String(ts),
+      'x-veridian-notifuse-signature': sig,
+      ...freshIpHeader(),
+    },
+    data: body,
+    failOnStatusCode: false,
+  });
+}
+
+test.describe('Journey 21 — Concurrence (atomicité score↔signals sous course)', () => {
+  test('10× email.opened en PARALLÈLE sur même prospect → score==10 ET signals.opened==10', async ({
+    request,
+  }) => {
+    const N = 10;
+    // N events scorables (opened=+1 chacun), idempotency_key DISTINCT pour que
+    // chacun s'ingère (sinon dédup → 1 seul). Même (workspace, email) → ils se
+    // disputent la MÊME row prospect_scores : c'est la course recherchée.
+    const eventIds = Array.from({ length: N }, () => randomUUID());
+
+    const responses = await Promise.all(
+      eventIds.map((event_id) =>
+        postLegacyHmacRaw(request, {
+          event_id,
+          event_type: 'email.opened',
+          tenant_id: WORKSPACE_SLUG,
+          occurred_at: new Date().toISOString(),
+          data: { contact_email: PROSPECT_EMAIL_RACE },
+        }),
+      ),
+    );
+
+    // Tous acceptés (200). Un 429 serait suspect (la route webhook n'a pas de
+    // rate-limiter) ; on l'assert pour ne pas masquer une course incomplète.
+    for (const res of responses) {
+      expect(
+        res.status(),
+        'chaque webhook du burst concurrent doit être accepté 200',
+      ).toBe(200);
+    }
+
+    // Les N events sont bien tous persistés (aucun perdu / aucun doublon).
+    const totalEvents = Number(
+      selectScalar(
+        `SELECT count(*) FROM hub_app.prospect_events
+           WHERE workspace_slug = '${sqlStr(WORKSPACE_SLUG)}'
+             AND contact_email = '${sqlStr(PROSPECT_EMAIL_RACE)}'
+             AND event_type = 'email.opened'`,
+      ) ?? '0',
+    );
+    expect(
+      totalEvents,
+      `les ${N} events concurrents doivent TOUS être persistés (idempotency_key distincts)`,
+    ).toBe(N);
+
+    // CŒUR DU TEST : score ET signals.opened cohérents == N.
+    // L'égalité sous course = preuve que le jsonb_set atomique ne diverge plus.
+    const sc = readScore(WORKSPACE_SLUG, PROSPECT_EMAIL_RACE);
+    expect(sc, 'prospect_scores doit exister après le burst').not.toBeNull();
+    expect(
+      sc!.score,
+      `engagement_score == ${N} (increment atomique de chaque opened=+1)`,
+    ).toBe(N);
+    expect(
+      sc!.signals.opened,
+      `signals.opened == ${N} — si < ${N}, le jsonb_set n'est PAS atomique ` +
+        `(régression read-modify-write : incréments perdus sous course)`,
+    ).toBe(N);
+    // Redondance explicite de l'invariant : les deux compteurs ne divergent PAS.
+    expect(
+      sc!.signals.opened,
+      'signals.opened DOIT rester égal à engagement_score (zéro divergence)',
+    ).toBe(sc!.score);
   });
 });
