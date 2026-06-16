@@ -39,3 +39,20 @@ Deux options, par ordre de préférence :
 ## Sévérité
 
 🟢 P2 : impact business faible (le score numérique reste à peu près juste via l'increment atomique ; seule la ventilation par type dérive), et invisible tant qu'il n'y a pas de volume concurrent réel sur un même `(workspace, email)`. Mais c'est un vrai défaut de conception à corriger en même temps que le ticket atomicité (même cause racine : read-modify-write applicatif hors transaction). Ne PAS shipper l'explicabilité du score dans un dashboard sans avoir réglé ça.
+
+## Résolu — 2026-06-17 (agent fix-ingest-atomic)
+
+Option A retenue (recommandée par le ticket) : le read-modify-write applicatif
+est **supprimé entièrement**. Le mouvement du score se fait désormais en SQL
+atomique dans la transaction d'ingestion (`lib/prospect/ingest.ts`) :
+`INSERT ... ON CONFLICT (workspace_slug, contact_email) DO UPDATE SET
+engagement_score = engagement_score + points, signals = jsonb_set(...,
+(signals->>'key')::int + 1)`. Le `findUnique` séparé est retiré.
+
+→ `signals.<clé>` est incrémenté côté DB par le même `UPDATE` atomique qui
+incrémente `engagement_score` → les deux ne peuvent plus diverger sous events
+concurrents sur un même `(workspace, email)` (plus de fenêtre read→write
+applicative). La clé de signal est dérivée de `bumpSignals` (source de vérité
+unique du mapping eventType→clé), pas dupliquée. Vérif du comportement réel
+`jsonb_set` incrémental = du ressort du E2E réconciliateur sur DB staging réelle
+(le mock unitaire ne simule pas `jsonb_set`, il vérifie que le bon SQL est émis).

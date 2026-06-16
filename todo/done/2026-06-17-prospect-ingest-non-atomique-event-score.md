@@ -46,3 +46,20 @@ Subtilité : le P2002 (replay) doit rester un no-op gracieux — donc soit catch
 ## Sévérité
 
 🟡 P1 et pas P0 parce qu'aujourd'hui **aucun émetteur d'events comportementaux n'est branché en prod** (l'émetteur Go Notifuse n'émet pas encore `email.opened/clicked/replied` — vérifié `veridian_webhook_emitter.go`). Le bug est donc **latent** : il se déclenchera dès le premier émetteur réel sous charge. À fixer AVANT de brancher un émetteur, pas après.
+
+## Résolu — 2026-06-17 (agent fix-ingest-atomic)
+
+INSERT event + mouvement du score enveloppés dans une seule `prisma.$transaction`
+interactive (`lib/prospect/ingest.ts`). Le P2002 (replay) abort la tx via une
+sentinelle → no-op gracieux. Tout autre échec (event ou score) rollback les DEUX
+→ le retry re-tente et finit par appliquer le score. Fixé ensemble avec le ticket
+P2 `signals` (même cause racine). Test sabotage ajouté : sans la transaction, la
+suite `ingest.test.ts` passe rouge.
+
+⚠️ Correction de l'audit : l'affirmation « `$transaction` n'est utilisé NULLE PART
+dans tout le repo » était **fausse**. Au 2026-06-17 il y a 6 usages préexistants
+(`lib/workspace/provision.ts`, `lib/invitations/accept.ts`, `lib/invitations/revoke.ts`,
+`app/api/account/connected-providers/[provider]/route.ts`, +2 routes) et `$queryRaw`
+est utilisé dans `lib/trial/run-tick.ts` + `lib/sync/snapshot-updater.ts`. Le fix
+suit le pattern interactif établi par `accept.ts` (callback `async (tx) => {}` +
+discriminated return), donc aucun pattern nouveau introduit.
