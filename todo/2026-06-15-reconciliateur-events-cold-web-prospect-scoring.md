@@ -25,3 +25,19 @@ Notifuse : `notifuse-veridian/todo/2026-06-15-SPEC-reconciliation-cold-web-event
 
 ## Pas urgent
 Feature de scoring post-volume. Le tunnel cold Notifuse tourne sans. Spec pour cadrer l'archi.
+
+## Statut — 2026-06-17 (Lot 1 EN PROD)
+✅ **Lot 1 livré en prod** (commits 5f74282 + 37c74ad, promus prod le 2026-06-17,
+   run CI 27650883471) :
+- Tables `prospect_events` + `prospect_scores` créées en prod (schema hub_app),
+  migration `20260615120000_add_prospect_events_and_scores` appliquée au boot
+  (migrate-on-boot prouvé en prod réelle).
+- Ingestion + scoring V1 par `contactEmail` (`lib/prospect/ingest.ts` + `scoring.ts`).
+- Handlers webhook Notifuse (voie legacy HMAC + v1.4 Bearer) pour email.opened/clicked/replied.
+- Standard event comportemental gravé `docs/CONTRAT-HUB.md §7.5`.
+
+⏳ **Reste à faire (étages 2+)** — ticket maintenu pending :
+- `vid` déterministe propagé cross-app (Notifuse doit l'émettre dans les liens /t/ /r/).
+- Analytics `page.hit` branché (legacy/bridge à décommissionner d'abord).
+- Synchro tenant 3 niveaux fiable (mapping workspace Notifuse ↔ tenant Analytics).
+- Push vers CRM Twenty des prospects chauds (scoring → priorisation).
