@@ -1,10 +1,10 @@
 # 🔒 Veille CVE automatique — veridian-hub
 
 > **Généré par** : `veridian-infra/.github/workflows/cron-trivy.yml`
-> **Dernier run** : 2026-06-15 04:06 UTC
-> **Run URL** : local-cron@mail.mybigserveur.local:2026-06-15
+> **Dernier run** : 2026-06-16 04:06 UTC
+> **Run URL** : local-cron@mail.mybigserveur.local:2026-06-16
 > **Image scannée** : `ghcr.io/christ-roy/veridian-hub:latest`
-> **CVE bruts détectés** : 23 (avant filtrage)
+> **CVE bruts détectés** : 27 (avant filtrage)
 > **Scoring** : `veridian-infra/ci/trivy-scoring.yml`
 
 ## TL;DR
@@ -12,7 +12,7 @@
 - 🚨 **0 RED** — fix prioritaire
 - 🔴 **1 HIGH** — action recommandée cette semaine
 - 🟡 **6 MEDIUM** — récap, pas urgent
-- 🟢 **10 NOISE** — annexe collapse
+- 🟢 **14 NOISE** — annexe collapse
 
 
 ---
@@ -81,16 +81,18 @@
 
 ---
 
-## 🟢 NOISE filtré (10 CVE)
+## 🟢 NOISE filtré (14 CVE)
 
 <details>
-<summary>Liste complète (4 groupes — clique pour déplier)</summary>
+<summary>Liste complète (6 groupes — clique pour déplier)</summary>
 
 | Package | Installed | Fix | CVE count | Max score |
 |---|---|---|---|---|
 | `hono` | 4.12.18 | 4.12.21 | 4 | 6 |
+| `nodemailer` | 8.0.7 | 8.0.9 | 3 | 6 |
 | `qs` | 6.15.1 | 6.15.2 | 1 | 6 |
 | `brace-expansion` | 2.0.2 | 5.0.5 | 1 | 6 |
+| `tar` | 7.5.11 | 7.5.16 | 1 | 6 |
 | `libssl3` | 3.5.6-r0 | 3.5.7-r0 | 4 | 3.0 |
 
 </details>
