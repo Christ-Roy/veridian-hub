@@ -2565,6 +2565,25 @@ sa **sémantique billing** (déclencheur de trial) est gravée
 > `hub_app.prospect_scores` (migration `20260615120000`). Ticket :
 > `todo/2026-06-15-reconciliateur-events-cold-web-prospect-scoring.md`.
 
+> ### ⚠️ État d'alimentation au 2026-06-17 — réconciliateur ORPHELIN
+>
+> **Ce §7.5 spécifie un standard ; il ne décrit PAS un flux qui tourne.**
+> Au 2026-06-17, le récepteur Hub est livré mais **AUCUN émetteur ne
+> l'alimente** → le réconciliateur prospect ne reçoit **rien** en prod
+> (`prospect_events` = 0 row, `prospect_scores` = 0 row).
+>
+> | Brique | État réel 2026-06-17 |
+> |---|---|
+> | **Récepteur Hub** (`ingestProspectEvent`, handlers `email.*`, tables, scoring) | ✅ **livré prod** (Lot 1) — prêt à recevoir, n'attend que des events |
+> | **Émetteur Notifuse** (`email.opened/clicked/replied`) | ❌ **PAS câblé** — l'open/click EXISTE dans la DB Go Notifuse (`OpenEmail`→`SetOpened`, `VisitLink`→`SetClicked`) mais n'est **jamais `.Emit()`** vers le Hub. Ticket : `notifuse-veridian/todo/2026-06-17-emettre-events-comportementaux-email-opened-clicked-replied-hub.md` |
+> | **Émetteur Analytics** (`page.hit`) | ❌ **PAS câblé** — ticket : `veridian-analytics/todo/2026-06-17-emettre-page-hit-vid-vers-hub-reconciliateur.md`. Côté Hub, la route réceptrice v1.4 Bearer reste à créer : `veridian-hub/todo/2026-06-17-creer-route-webhook-analytics-page-hit.md` |
+> | **`vid` déterministe partagé** | ❌ **pas généré** (cf §7.5.4 étage 2) — jointure cold↔web sur `contact_email` uniquement |
+>
+> **Conséquence pour le lecteur** : ne pas conclure « le scoring prospect
+> est livré, branchons le CRM ». La base — recevoir UN seul event réel —
+> n'existe pas tant que les tickets émetteurs ci-dessus ne sont pas livrés.
+> Le réconciliateur est un **récepteur prêt en attente d'émetteurs**.
+
 #### 7.5.1 Schéma d'event uniforme
 
 Tout event comportemental est un objet JSON :
@@ -2606,16 +2625,24 @@ sur le MÊME `ingestProspectEvent` (zéro divergence de logique) :
    idempotency_key)`, §7.2/§7.3). C'est le format que **Analytics** doit
    émettre pour `page.hit`. Handler : table d'events injectée dans
    `lib/webhooks/<app>-handlers.ts`.
-2. **Legacy HMAC (héritage Notifuse, en service en prod)** :
+2. **Legacy HMAC (canal Notifuse existant, en service en prod pour
+   `tenant.*` + `email.{sent,bounced,complaint}`)** :
    `POST /api/webhooks/notifuse` avec `X-Veridian-Notifuse-Signature` =
    `HMAC-SHA256(secret, "${ts}.${rawBody}")` + `X-Veridian-Timestamp` (ms),
    body `{event_id, event_type, tenant_id, occurred_at, data}`. Ici `event_id`
    sert de `idempotency_key`, `tenant_id` = workspace slug, et `contact_email`
-   / `vid` voyagent dans `data`. C'est par là que le **fork Notifuse émet
-   aujourd'hui** ses `email.opened/clicked/replied` (cf
-   `internal/service/veridian_webhook_emitter.go`). À retirer quand Notifuse
-   migrera sur v1.4 Bearer (le handler v1.4 est déjà prêt à prendre le relais
-   sans changement).
+   / `vid` voyagent dans `data`.
+   ⚠️ **Les handlers `email.opened/clicked/replied` côté Hub sont PRÊTS sur
+   ce canal, mais le fork Notifuse ne les émet PAS encore aujourd'hui.**
+   L'emitter Go (`internal/service/veridian_webhook_emitter.go` /
+   `internal/domain/veridian.go`) ne connaît que `email.{sent,bounced,complaint}`
+   + `tenant.*` + quota/threshold ; l'open/click vit dans la DB Notifuse
+   (`OpenEmail`→`SetOpened`, `VisitLink`→`SetClicked`) sans jamais être
+   propagé au Hub. L'émission `email.opened/clicked/replied` **sera câblée**
+   par le ticket Notifuse
+   `2026-06-17-emettre-events-comportementaux-email-opened-clicked-replied-hub.md`.
+   À retirer (le canal HMAC) quand Notifuse migrera sur v1.4 Bearer — le
+   handler v1.4 est déjà prêt à prendre le relais sans changement.
 
 > **Règle pour une nouvelle app (ex : Analytics)** : émettre en **v1.4 Bearer**.
 > Pas de HMAC neuf. Ajouter `email.*`/`page.hit` à la `HandlerTable` de l'app
