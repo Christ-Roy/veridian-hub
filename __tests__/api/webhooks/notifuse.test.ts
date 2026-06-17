@@ -456,6 +456,72 @@ describe('POST /api/webhooks/notifuse — Legacy HMAC', () => {
     );
   });
 
+  it('email.sent on UNKNOWN tenant (orphan workspace) is STILL ingested (counter skipped)', async () => {
+    // Aucun tenant pour ce slug → le compteur billing est sauté, MAIS
+    // l'event comportemental est ingéré quand même (forensics + parité bridge).
+    // C'est le trou révélé par l'E2E juge de paix : avant, if(!tenant) return
+    // court-circuitait l'ingestion. Maintenant l'ingestion est inconditionnelle.
+    const { POST } = await import('@/app/api/webhooks/notifuse/route');
+    const ts = String(Date.now());
+    const body = JSON.stringify({
+      event_id: 'evt_email_orphan',
+      event_type: 'email.sent',
+      tenant_id: 't_orphan_no_row',
+      data: { message_id: 'msg_x', to: 'orphan@bar.com', sent_at: '2026-05-21T10:00:00.000Z' },
+    });
+    const sig = signLegacy(ts, body, LEGACY_SECRET);
+    const res = await POST(
+      makeNextRequest({
+        body,
+        headers: {
+          'x-veridian-timestamp': ts,
+          'x-veridian-notifuse-signature': sig,
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(ingestProspectEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'email.sent',
+        workspaceSlug: 't_orphan_no_row',
+        contactEmail: 'orphan@bar.com',
+      }),
+    );
+  });
+
+  it('email.sent tolère l’adresse dans contact_email (format comportemental)', async () => {
+    tenantStore.set('tenant-uuid-ce', {
+      id: 'tenant-uuid-ce',
+      notifuseWorkspaceSlug: 't_ce',
+      metadata: {},
+    });
+    const { POST } = await import('@/app/api/webhooks/notifuse/route');
+    const ts = String(Date.now());
+    const body = JSON.stringify({
+      event_id: 'evt_email_ce',
+      event_type: 'email.sent',
+      tenant_id: 't_ce',
+      data: { message_id: 'msg_ce', contact_email: 'ce@bar.com' },
+    });
+    const sig = signLegacy(ts, body, LEGACY_SECRET);
+    const res = await POST(
+      makeNextRequest({
+        body,
+        headers: {
+          'x-veridian-timestamp': ts,
+          'x-veridian-notifuse-signature': sig,
+        },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(ingestProspectEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'email.sent',
+        contactEmail: 'ce@bar.com',
+      }),
+    );
+  });
+
   it('returns 200 on unknown tenant_id (no row in DB) without crashing — but still verifies signature', async () => {
     // Aucun tenant inséré dans le store → findFirst renverra null
     const { POST } = await import('@/app/api/webhooks/notifuse/route');

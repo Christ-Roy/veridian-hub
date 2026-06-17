@@ -264,43 +264,51 @@ async function dispatchLegacyEvent(
 
     case 'email.sent': {
       const data = payload.data as EmailSentEventData | undefined;
-      if (!tenant) {
+      const sentRaw = (payload.data ?? {}) as Record<string, unknown>;
+
+      // Compteur billing (quota mensuel) : conditionné à un Tenant Hub réel.
+      if (tenant) {
+        const meta = (tenant.metadata as Record<string, unknown> | null) ?? {};
+        const current =
+          typeof meta.notifuse_emails_sent_this_month === 'number'
+            ? (meta.notifuse_emails_sent_this_month as number)
+            : 0;
+        const next = current + 1;
+        await prisma.tenant.update({
+          where: { id: tenant.id },
+          data: {
+            metadata: {
+              ...meta,
+              notifuse_emails_sent_this_month: next,
+            } as object,
+          },
+        });
+        console.info(
+          '[notifuse-webhook] email.sent',
+          tenantSlug,
+          data?.message_id ?? '',
+          '→',
+          next,
+        );
+      } else {
         console.warn(
-          '[notifuse-webhook] email.sent for unknown tenant',
+          '[notifuse-webhook] email.sent for unknown tenant (counter skipped, event still ingested)',
           tenantSlug,
         );
-        return;
       }
-      const meta = (tenant.metadata as Record<string, unknown> | null) ?? {};
-      const current =
-        typeof meta.notifuse_emails_sent_this_month === 'number'
-          ? (meta.notifuse_emails_sent_this_month as number)
-          : 0;
-      const next = current + 1;
-      await prisma.tenant.update({
-        where: { id: tenant.id },
-        data: {
-          metadata: {
-            ...meta,
-            notifuse_emails_sent_this_month: next,
-          } as object,
-        },
-      });
-      console.info(
-        '[notifuse-webhook] email.sent',
-        tenantSlug,
-        data?.message_id ?? '',
-        '→',
-        next,
-      );
 
-      // En PLUS du compteur billing ci-dessus : on ingère email.sent comme
-      // event comportemental (baseline 0 point au scoring, cf scoring.ts) pour
-      // qu'il soit en DB. Le stage CRM NEW→SCREENING en dépend (hasEmailSent
-      // dans lib/prospect/push-to-crm.ts). Parité bridge : le bridge stockait
-      // les email.sent. Découplage : l'ingestion persiste l'event seul.
-      // L'adresse prospect est dans `to` (EmailSentEventData), la date `sent_at`.
-      const sentRaw = (payload.data ?? {}) as Record<string, unknown>;
+      // INCONDITIONNEL (comme opened/clicked/replied) : on ingère email.sent
+      // comme event comportemental, MÊME pour un workspace orphelin (forensics +
+      // parité bridge). Baseline 0 point au scoring, mais persisté pour
+      // déclencher le stage CRM NEW→SCREENING (hasEmailSent dans push-to-crm.ts).
+      // Découplage : l'ingestion persiste l'event seul. L'adresse vient de `to`
+      // (EmailSentEventData) ou `contact_email` (format comportemental).
+      const sentEmail =
+        typeof data?.to === 'string'
+          ? data.to
+          : typeof sentRaw.contact_email === 'string'
+            ? (sentRaw.contact_email as string)
+            : null;
       await ingestProspectEvent({
         app: 'notifuse',
         eventType: 'email.sent',
@@ -308,7 +316,7 @@ async function dispatchLegacyEvent(
         idempotencyKey: payload.event_id,
         occurredAt:
           typeof data?.sent_at === 'string' ? data.sent_at : payload.occurred_at,
-        contactEmail: typeof data?.to === 'string' ? data.to : null,
+        contactEmail: sentEmail,
         vid: typeof sentRaw.vid === 'string' ? (sentRaw.vid as string) : null,
         data: sentRaw,
       });
