@@ -250,4 +250,25 @@ export const v14Handlers: HandlerTable = {
       data: payload.data ?? null,
     });
   },
+
+  // email.sent : baseline 0 point au scoring, mais INGÉRÉ pour que le stage
+  // CRM NEW→SCREENING se déclenche (hasEmailSent dans push-to-crm.ts). Parité
+  // bridge. L'adresse peut arriver en `contact_email` (format comportemental)
+  // ou `to` (EmailSentEventData) — on tolère les deux.
+  'email.sent': async (payload) => {
+    const { contactEmail, vid } = behavioralFields(payload.data);
+    const data = (payload.data ?? {}) as Record<string, unknown>;
+    const email =
+      contactEmail ?? (typeof data.to === 'string' ? data.to : undefined);
+    await ingestProspectEvent({
+      app: 'notifuse',
+      eventType: 'email.sent',
+      workspaceSlug: payload.tenant_id,
+      idempotencyKey: payload.idempotency_key,
+      occurredAt: payload.occurred_at,
+      contactEmail: email,
+      vid,
+      data: payload.data ?? null,
+    });
+  },
 };

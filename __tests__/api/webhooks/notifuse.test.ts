@@ -441,6 +441,19 @@ describe('POST /api/webhooks/notifuse — Legacy HMAC', () => {
     expect(
       (tenant.metadata as any).notifuse_processed_events,
     ).toContain('evt_email_1');
+    // email.sent est AUSSI ingéré comme event comportemental (parité bridge,
+    // déclenche le stage CRM NEW→SCREENING via hasEmailSent). Baseline 0 point
+    // au scoring mais doit être en DB. L'adresse vient de `to`, la date `sent_at`.
+    expect(ingestProspectEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        app: 'notifuse',
+        eventType: 'email.sent',
+        workspaceSlug: 't_email',
+        idempotencyKey: 'evt_email_1',
+        contactEmail: 'foo@bar.com',
+        occurredAt: '2026-05-21T10:00:00.000Z',
+      }),
+    );
   });
 
   it('returns 200 on unknown tenant_id (no row in DB) without crashing — but still verifies signature', async () => {

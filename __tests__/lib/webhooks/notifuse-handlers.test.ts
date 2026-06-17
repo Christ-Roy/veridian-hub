@@ -163,6 +163,7 @@ describe('v14Handlers table shape', () => {
         'tenant.suspended',
         'tenant.touched',
         // Events comportementaux (réconciliateur cold↔web)
+        'email.sent',
         'email.opened',
         'email.clicked',
         'email.replied',
@@ -199,6 +200,47 @@ describe('v14Handlers — behavioral events (réconciliateur cold↔web)', () =>
         occurredAt: '2026-06-15T10:00:00.000Z',
         contactEmail: 'p@acme.com',
         vid: 'vid_1',
+      }),
+    );
+  });
+
+  it('email.sent delegates to ingestProspectEvent (parité bridge → stage SCREENING)', async () => {
+    ingestProspectEventMock.mockResolvedValue({ ingested: true });
+    const { v14Handlers } = await import('@/lib/webhooks/notifuse-handlers');
+    // Cas format comportemental (contact_email présent)
+    await v14Handlers['email.sent']({
+      event: 'email.sent',
+      tenant_id: 'ws_acme',
+      data: { contact_email: 'p@acme.com', vid: 'vid_1', message_id: 'm1' },
+      idempotency_key: '00000000-0000-4000-8000-0000000000b1',
+      occurred_at: '2026-06-15T10:00:00.000Z',
+    });
+    expect(ingestProspectEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        app: 'notifuse',
+        eventType: 'email.sent',
+        workspaceSlug: 'ws_acme',
+        idempotencyKey: '00000000-0000-4000-8000-0000000000b1',
+        contactEmail: 'p@acme.com',
+        vid: 'vid_1',
+      }),
+    );
+  });
+
+  it('email.sent tolère l’adresse dans `to` (format EmailSentEventData)', async () => {
+    ingestProspectEventMock.mockResolvedValue({ ingested: true });
+    const { v14Handlers } = await import('@/lib/webhooks/notifuse-handlers');
+    await v14Handlers['email.sent']({
+      event: 'email.sent',
+      tenant_id: 'ws_acme',
+      data: { to: 'dest@acme.com', message_id: 'm2', sent_at: '2026-06-15T11:00:00.000Z' },
+      idempotency_key: '00000000-0000-4000-8000-0000000000b2',
+      occurred_at: '2026-06-15T11:00:00.000Z',
+    });
+    expect(ingestProspectEventMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'email.sent',
+        contactEmail: 'dest@acme.com',
       }),
     );
   });

@@ -293,6 +293,25 @@ async function dispatchLegacyEvent(
         '→',
         next,
       );
+
+      // En PLUS du compteur billing ci-dessus : on ingère email.sent comme
+      // event comportemental (baseline 0 point au scoring, cf scoring.ts) pour
+      // qu'il soit en DB. Le stage CRM NEW→SCREENING en dépend (hasEmailSent
+      // dans lib/prospect/push-to-crm.ts). Parité bridge : le bridge stockait
+      // les email.sent. Découplage : l'ingestion persiste l'event seul.
+      // L'adresse prospect est dans `to` (EmailSentEventData), la date `sent_at`.
+      const sentRaw = (payload.data ?? {}) as Record<string, unknown>;
+      await ingestProspectEvent({
+        app: 'notifuse',
+        eventType: 'email.sent',
+        workspaceSlug: tenantSlug,
+        idempotencyKey: payload.event_id,
+        occurredAt:
+          typeof data?.sent_at === 'string' ? data.sent_at : payload.occurred_at,
+        contactEmail: typeof data?.to === 'string' ? data.to : null,
+        vid: typeof sentRaw.vid === 'string' ? (sentRaw.vid as string) : null,
+        data: sentRaw,
+      });
       return;
     }
 
