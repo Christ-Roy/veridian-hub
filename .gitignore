@@ -56,4 +56,5 @@ stripe-products-export.json
 /playwright/.cache/
 e2e-headfull-staging.json
 e2e-mega-staging.json
+e2e-tunnel-gates.json
 playwright-report-mega/
