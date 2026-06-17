@@ -11,12 +11,25 @@
  *  - regenerateMagicLink : appel étape 7 + buildMagicLink correct
  *  - pushLeads : batch séquentiel, collecte les erreurs par index
  *  - aucun secret loggué (smoke check via console spy)
+ *
+ * ─── Écriture Twenty par tenant (parité bridge §4c, ajout 2026-06-17) ──────
+ * Portage des tests du bridge `veridian-tunnel-de-vente/bridge/tests/
+ * writer.test.ts` vers le Hub. Le bridge testait son `TwentyWriter` (store +
+ * client) ; ici on teste le CONTRAT des méthodes d'écriture du CrmClient (le
+ * writer/cron est un AUTRE agent — périmètre L4) :
+ *  - resolveByEmail / resolveBySlug : bon filtre REST, parse Person
+ *  - resolvePersonCached : voie par la FORME (@ = email, sinon slug) + cache TTL
+ *  - batchTimeline : happensAt normalisé .toISOString(), micro-précision, >60
+ *  - patchPerson : score + doNotContact
+ *  - opportunityForPerson + patchOpportunityStage : read-then-patch
+ *  - DRY_RUN : mutations LOGUÉES (pas envoyées), lectures RÉELLES — garde-fou
+ *  - rate-limit : token bucket ≤60 req/min (throw 429 au-delà, reset fenêtre)
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 import { CrmClient } from '@/lib/crm/client';
-import { CrmClientError } from '@/lib/crm/types';
+import { CrmClientError, type TwentyWriteContext } from '@/lib/crm/types';
 
 const METADATA_URL = 'https://crm.staging.example.com/metadata';
 const REST_URL = 'https://crm.staging.example.com/rest';
@@ -460,5 +473,457 @@ describe('CrmClient — constructor guards', () => {
           frontendUrl: FRONTEND_URL,
         }),
     ).toThrow(/metadataUrl is required/);
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Écriture Twenty par tenant (parité bridge §4c)
+// ═══════════════════════════════════════════════════════════════════════════
+
+const CTX: TwentyWriteContext = {
+  baseUrl: 'https://acme.crm.staging.example.com/',
+  bearer: 'tenant-bearer-real',
+};
+
+/** Person trouvée par filter REST. */
+function peopleResponse(person: Record<string, unknown> | null): Response {
+  return jsonResponse(200, { data: { people: person ? [person] : [] } });
+}
+
+function oppResponse(opp: Record<string, unknown> | null): Response {
+  return jsonResponse(200, { data: { opportunities: opp ? [opp] : [] } });
+}
+
+interface WriteFetchCall {
+  url: string;
+  method: string;
+  body: unknown;
+  authorization?: string;
+}
+
+/** Mock fetch qui replay une suite de réponses + capture url/method/body. */
+function mockWriteFetch(responses: Response[]): {
+  fetchImpl: ReturnType<typeof vi.fn>;
+  calls: WriteFetchCall[];
+} {
+  const calls: WriteFetchCall[] = [];
+  let i = 0;
+  const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+    const headers = init?.headers as Record<string, string> | undefined;
+    calls.push({
+      url: String(url),
+      method: String(init?.method ?? 'GET'),
+      body: init?.body ? JSON.parse(String(init.body)) : undefined,
+      authorization: headers?.['Authorization'],
+    });
+    if (i >= responses.length) throw new Error(`mockWriteFetch exhausted at call ${i}`);
+    return responses[i++];
+  });
+  return { fetchImpl, calls };
+}
+
+function buildWriteClient(
+  fetchImpl: typeof fetch,
+  overrides: Partial<{ dryRun: boolean; now: () => number }> = {},
+): CrmClient {
+  return new CrmClient({
+    metadataUrl: METADATA_URL,
+    restUrl: REST_URL,
+    frontendUrl: FRONTEND_URL,
+    fetchImpl,
+    ...overrides,
+  });
+}
+
+describe('CrmClient.resolveByEmail / resolveBySlug', () => {
+  it('resolveByEmail : filtre emails.primaryEmail[eq], parse id + doNotContact', async () => {
+    const { fetchImpl, calls } = mockWriteFetch([
+      peopleResponse({ id: 'P1', doNotContact: true }),
+    ]);
+    const client = buildWriteClient(fetchImpl);
+
+    const person = await client.resolveByEmail(CTX, 'p@x.fr');
+
+    expect(person).toEqual({ id: 'P1', stage: null, doNotContact: true });
+    expect(calls[0].method).toBe('GET');
+    expect(calls[0].url).toContain('https://acme.crm.staging.example.com/rest/people');
+    expect(decodeURIComponent(calls[0].url)).toContain('emails.primaryEmail[eq]:"p@x.fr"');
+    // Bearer = celui du tenant (ctx), pas un secret figé au client
+    expect(calls[0].authorization).toBe('Bearer tenant-bearer-real');
+  });
+
+  it('resolveBySlug : filtre auditSlug[eq]', async () => {
+    const { fetchImpl, calls } = mockWriteFetch([peopleResponse({ id: 'P2' })]);
+    const client = buildWriteClient(fetchImpl);
+
+    const person = await client.resolveBySlug(CTX, 'tramtech-x7k2q1aa');
+
+    expect(person).toEqual({ id: 'P2', stage: null, doNotContact: false });
+    expect(decodeURIComponent(calls[0].url)).toContain('auditSlug[eq]:"tramtech-x7k2q1aa"');
+  });
+
+  it('Person introuvable → null (jamais de création)', async () => {
+    const { fetchImpl } = mockWriteFetch([peopleResponse(null)]);
+    const client = buildWriteClient(fetchImpl);
+    expect(await client.resolveByEmail(CTX, 'inconnu@x.fr')).toBeNull();
+  });
+
+  it('resolve REST non-OK → CrmClientError', async () => {
+    const { fetchImpl } = mockWriteFetch([jsonResponse(401, 'unauthorized')]);
+    const client = buildWriteClient(fetchImpl);
+    await expect(client.resolveByEmail(CTX, 'p@x.fr')).rejects.toMatchObject({
+      name: 'CrmClientError',
+      status: 401,
+    });
+  });
+});
+
+describe('CrmClient.resolvePersonCached — voie par la FORME + cache', () => {
+  it('identité avec @ → resolveByEmail ; sans @ → resolveBySlug', async () => {
+    const { fetchImpl, calls } = mockWriteFetch([
+      peopleResponse({ id: 'PE' }),
+      peopleResponse({ id: 'PS' }),
+    ]);
+    const client = buildWriteClient(fetchImpl);
+
+    await client.resolvePersonCached(CTX, 'p@x.fr');
+    await client.resolvePersonCached(CTX, 'tramtech-x7k2q1aa');
+
+    expect(decodeURIComponent(calls[0].url)).toContain('emails.primaryEmail[eq]');
+    expect(decodeURIComponent(calls[1].url)).toContain('auditSlug[eq]');
+  });
+
+  it('cache TTL 24h : 2e résolution même identité → 0 fetch supplémentaire', async () => {
+    const { fetchImpl, calls } = mockWriteFetch([peopleResponse({ id: 'P1' })]);
+    const client = buildWriteClient(fetchImpl);
+
+    const first = await client.resolvePersonCached(CTX, 'p@x.fr');
+    const second = await client.resolvePersonCached(CTX, 'p@x.fr');
+
+    expect(first?.id).toBe('P1');
+    expect(second?.id).toBe('P1');
+    expect(calls).toHaveLength(1); // 2e call servi par le cache
+  });
+
+  it('cache expiré (> 24h) → re-resolve', async () => {
+    let clock = 1_000_000;
+    const { fetchImpl, calls } = mockWriteFetch([
+      peopleResponse({ id: 'P1' }),
+      peopleResponse({ id: 'P1' }),
+    ]);
+    const client = buildWriteClient(fetchImpl, { now: () => clock });
+
+    await client.resolvePersonCached(CTX, 'p@x.fr');
+    clock += 25 * 60 * 60 * 1000; // +25h > TTL
+    await client.resolvePersonCached(CTX, 'p@x.fr');
+
+    expect(calls).toHaveLength(2);
+  });
+
+  it('cache keyé par workspace : même identité, 2 tenants → 2 resolves', async () => {
+    const { fetchImpl, calls } = mockWriteFetch([
+      peopleResponse({ id: 'P1' }),
+      peopleResponse({ id: 'P2' }),
+    ]);
+    const client = buildWriteClient(fetchImpl);
+
+    await client.resolvePersonCached(CTX, 'p@x.fr');
+    await client.resolvePersonCached(
+      { baseUrl: 'https://other.crm.example.com', bearer: 'b2' },
+      'p@x.fr',
+    );
+
+    expect(calls).toHaveLength(2);
+  });
+});
+
+describe('CrmClient.batchTimeline', () => {
+  it('happensAt = event_timestamp vrai, normalisé .toISOString() + createdBy API', async () => {
+    const { fetchImpl, calls } = mockWriteFetch([jsonResponse(200, {})]);
+    const client = buildWriteClient(fetchImpl);
+
+    await client.batchTimeline(CTX, [
+      {
+        name: 'email.clicked',
+        happensAt: '2026-06-10T10:00:00Z',
+        targetPersonId: 'P1',
+        properties: { eventId: 'e1', source: 'notifuse' },
+      },
+    ]);
+
+    expect(calls[0].method).toBe('POST');
+    expect(calls[0].url).toBe(
+      'https://acme.crm.staging.example.com/rest/batch/timelineActivities',
+    );
+    const sent = calls[0].body as Array<Record<string, unknown>>;
+    expect(sent[0].happensAt).toBe('2026-06-10T10:00:00.000Z');
+    expect(sent[0].createdBy).toEqual({ source: 'API' });
+    expect(sent[0].name).toBe('email.clicked');
+  });
+
+  it('happensAt micro-précision Postgres (.52305Z) → normalisé ISO ms', async () => {
+    // Cas réel run5 : timestamps Postgres à 5 décimales → Twenty 400 sinon.
+    const { fetchImpl, calls } = mockWriteFetch([jsonResponse(200, {})]);
+    const client = buildWriteClient(fetchImpl);
+
+    await client.batchTimeline(CTX, [
+      {
+        name: 'email.sent',
+        happensAt: '2026-06-10T23:49:59.52305Z',
+        targetPersonId: 'P1',
+        properties: {},
+      },
+    ]);
+
+    const sent = calls[0].body as Array<Record<string, unknown>>;
+    expect(sent[0].happensAt).toBe('2026-06-10T23:49:59.523Z');
+  });
+
+  it('happensAt illisible → fallback now ISO (jamais de brut vers Twenty)', async () => {
+    const { fetchImpl, calls } = mockWriteFetch([jsonResponse(200, {})]);
+    const client = buildWriteClient(fetchImpl);
+
+    await client.batchTimeline(CTX, [
+      { name: 'email.sent', happensAt: 'pas-une-date', targetPersonId: 'P1', properties: {} },
+    ]);
+
+    const sent = calls[0].body as Array<Record<string, unknown>>;
+    expect(String(sent[0].happensAt)).toMatch(
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+    );
+  });
+
+  it('batch > 60 → throw CrmClientError (contrat §4c.2)', async () => {
+    const { fetchImpl } = mockWriteFetch([]);
+    const client = buildWriteClient(fetchImpl);
+    const items = Array.from({ length: 61 }, (_, i) => ({
+      name: 'email.sent',
+      happensAt: '2026-06-10T10:00:00Z',
+      targetPersonId: `P${i}`,
+      properties: {},
+    }));
+    await expect(client.batchTimeline(CTX, items)).rejects.toMatchObject({
+      name: 'CrmClientError',
+      step: 'batchTimeline',
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('batch vide → 0 fetch', async () => {
+    const { fetchImpl } = mockWriteFetch([]);
+    const client = buildWriteClient(fetchImpl);
+    await client.batchTimeline(CTX, []);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('batch REST non-OK → CrmClientError (replay possible côté caller)', async () => {
+    const { fetchImpl } = mockWriteFetch([jsonResponse(400, 'bad happensAt')]);
+    const client = buildWriteClient(fetchImpl);
+    await expect(
+      client.batchTimeline(CTX, [
+        { name: 'email.sent', happensAt: '2026-06-10T10:00:00Z', targetPersonId: 'P1', properties: {} },
+      ]),
+    ).rejects.toMatchObject({ name: 'CrmClientError', status: 400 });
+  });
+});
+
+describe('CrmClient.patchPerson — score + doNotContact (§4c.4 / §4c.5)', () => {
+  it('PATCH /rest/people/{id} avec score', async () => {
+    const { fetchImpl, calls } = mockWriteFetch([jsonResponse(200, {})]);
+    const client = buildWriteClient(fetchImpl);
+
+    await client.patchPerson(CTX, 'P1', { score: 45 });
+
+    expect(calls[0].method).toBe('PATCH');
+    expect(calls[0].url).toBe('https://acme.crm.staging.example.com/rest/people/P1');
+    expect(calls[0].body).toEqual({ score: 45 });
+  });
+
+  it('PATCH doNotContact=true (disqualif unsubscribe / hard bounce)', async () => {
+    const { fetchImpl, calls } = mockWriteFetch([jsonResponse(200, {})]);
+    const client = buildWriteClient(fetchImpl);
+
+    await client.patchPerson(CTX, 'P1', { doNotContact: true });
+
+    expect(calls[0].body).toEqual({ doNotContact: true });
+  });
+});
+
+describe('CrmClient.opportunityForPerson + patchOpportunityStage (§4c.6)', () => {
+  it('opportunityForPerson : filtre pointOfContactId, parse id + stage', async () => {
+    const { fetchImpl, calls } = mockWriteFetch([oppResponse({ id: 'O1', stage: 'NEW' })]);
+    const client = buildWriteClient(fetchImpl);
+
+    const opp = await client.opportunityForPerson(CTX, 'P1');
+
+    expect(opp).toEqual({ id: 'O1', stage: 'NEW' });
+    expect(decodeURIComponent(calls[0].url)).toContain('pointOfContactId[eq]:"P1"');
+  });
+
+  it('opportunityForPerson : aucune → null', async () => {
+    const { fetchImpl } = mockWriteFetch([oppResponse(null)]);
+    const client = buildWriteClient(fetchImpl);
+    expect(await client.opportunityForPerson(CTX, 'P1')).toBeNull();
+  });
+
+  it('read-then-patch NEW→SCREENING : le caller lit puis patch (jamais de recul)', async () => {
+    // Le client ne décide pas du recul — c'est le caller (cron) qui lit le
+    // stage avant de patcher. On vérifie que le PATCH part bien tel quel.
+    const { fetchImpl, calls } = mockWriteFetch([
+      oppResponse({ id: 'O1', stage: 'NEW' }),
+      jsonResponse(200, {}),
+    ]);
+    const client = buildWriteClient(fetchImpl);
+
+    const opp = await client.opportunityForPerson(CTX, 'P1');
+    expect(opp?.stage).toBe('NEW');
+    await client.patchOpportunityStage(CTX, opp!.id, 'SCREENING');
+
+    expect(calls[1].method).toBe('PATCH');
+    expect(calls[1].url).toBe('https://acme.crm.staging.example.com/rest/opportunities/O1');
+    expect(calls[1].body).toEqual({ stage: 'SCREENING' });
+  });
+});
+
+describe('CrmClient — DRY_RUN (garde-fou critique)', () => {
+  let logSpy: ReturnType<typeof vi.spyOn>;
+  beforeEach(() => {
+    logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    logSpy.mockRestore();
+  });
+
+  it('dryRun client : les MUTATIONS sont loguées, AUCUN fetch envoyé', async () => {
+    const { fetchImpl } = mockWriteFetch([]);
+    const client = buildWriteClient(fetchImpl, { dryRun: true });
+
+    await client.batchTimeline(CTX, [
+      { name: 'email.sent', happensAt: '2026-06-10T10:00:00Z', targetPersonId: 'P1', properties: {} },
+    ]);
+    await client.patchPerson(CTX, 'P1', { score: 90 });
+    await client.patchPerson(CTX, 'P1', { doNotContact: true });
+    await client.patchOpportunityStage(CTX, 'O1', 'SCREENING');
+
+    expect(fetchImpl).not.toHaveBeenCalled(); // ZÉRO mutation réseau
+    const logged = logSpy.mock.calls.map((c) => String(c[0]));
+    expect(logged.some((l) => l.includes('[DRY_RUN]') && l.includes('timelineActivities'))).toBe(true);
+    expect(logged.some((l) => l.includes('[DRY_RUN]') && l.includes('/rest/people/P1'))).toBe(true);
+    expect(logged.some((l) => l.includes('[DRY_RUN]') && l.includes('/rest/opportunities/O1'))).toBe(true);
+  });
+
+  it('dryRun client : les LECTURES restent RÉELLES (resolve, opportunity)', async () => {
+    const { fetchImpl, calls } = mockWriteFetch([
+      peopleResponse({ id: 'P1' }),
+      oppResponse({ id: 'O1', stage: 'NEW' }),
+    ]);
+    const client = buildWriteClient(fetchImpl, { dryRun: true });
+
+    const person = await client.resolveByEmail(CTX, 'p@x.fr');
+    const opp = await client.opportunityForPerson(CTX, 'P1');
+
+    expect(person?.id).toBe('P1'); // lecture réelle
+    expect(opp?.id).toBe('O1');
+    expect(calls).toHaveLength(2); // les 2 GET sont bien partis
+  });
+
+  it('override par-appel : dryRun=true force le log même si client live', async () => {
+    const { fetchImpl } = mockWriteFetch([]);
+    const client = buildWriteClient(fetchImpl, { dryRun: false });
+
+    await client.patchPerson(CTX, 'P1', { score: 10 }, { dryRun: true });
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('override par-appel : dryRun=false force l’envoi même si client dryRun', async () => {
+    const { fetchImpl, calls } = mockWriteFetch([jsonResponse(200, {})]);
+    const client = buildWriteClient(fetchImpl, { dryRun: true });
+
+    await client.patchPerson(CTX, 'P1', { score: 10 }, { dryRun: false });
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0].method).toBe('PATCH');
+  });
+});
+
+describe('CrmClient — token bucket ≤60 req/min (parité bridge §6.2)', () => {
+  it('le 61e appel mutation dans la fenêtre throw 429 (budget épuisé)', async () => {
+    const responses = Array.from({ length: 61 }, () => jsonResponse(200, {}));
+    const { fetchImpl, calls } = mockWriteFetch(responses);
+    const client = buildWriteClient(fetchImpl, { now: () => 1_000_000 }); // horloge figée
+
+    for (let i = 0; i < 60; i++) {
+      await client.patchPerson(CTX, `P${i}`, { score: i });
+    }
+    expect(calls).toHaveLength(60); // 60 partis, budget plein
+
+    await expect(client.patchPerson(CTX, 'P60', { score: 60 })).rejects.toMatchObject({
+      name: 'CrmClientError',
+      status: 429,
+    });
+    expect(calls).toHaveLength(60); // le 61e n'a PAS touché le réseau
+  });
+
+  it('fenêtre minute glissante : après 60s le budget se réarme', async () => {
+    let clock = 1_000_000;
+    const responses = Array.from({ length: 61 }, () => jsonResponse(200, {}));
+    const { fetchImpl, calls } = mockWriteFetch(responses);
+    const client = buildWriteClient(fetchImpl, { now: () => clock });
+
+    for (let i = 0; i < 60; i++) {
+      await client.patchPerson(CTX, `P${i}`, { score: i });
+    }
+    clock += 60_001; // nouvelle fenêtre
+    await client.patchPerson(CTX, 'P60', { score: 60 }); // re-autorisé
+
+    expect(calls).toHaveLength(61);
+  });
+
+  it('le budget compte AUSSI les lectures opportunity (read-then-patch sous budget)', async () => {
+    const responses = Array.from({ length: 61 }, () => oppResponse({ id: 'O', stage: 'NEW' }));
+    const { fetchImpl } = mockWriteFetch(responses);
+    const client = buildWriteClient(fetchImpl, { now: () => 1_000_000 });
+
+    for (let i = 0; i < 60; i++) {
+      await client.opportunityForPerson(CTX, `P${i}`);
+    }
+    await expect(client.opportunityForPerson(CTX, 'P60')).rejects.toMatchObject({
+      status: 429,
+    });
+  });
+
+  it('DRY_RUN ne consomme PAS de budget (mutation loguée, pas comptée)', async () => {
+    const { fetchImpl, calls } = mockWriteFetch(
+      Array.from({ length: 5 }, () => jsonResponse(200, {})),
+    );
+    const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const client = buildWriteClient(fetchImpl, { dryRun: true, now: () => 1_000_000 });
+
+    // 100 patchs en DRY_RUN — aucun ne consomme le budget
+    for (let i = 0; i < 100; i++) {
+      await client.patchPerson(CTX, `P${i}`, { score: i });
+    }
+    // puis 5 patchs LIVE doivent passer (budget intact)
+    for (let i = 0; i < 5; i++) {
+      await client.patchPerson(CTX, `L${i}`, { score: i }, { dryRun: false });
+    }
+    expect(calls).toHaveLength(5);
+    logSpy.mockRestore();
+  });
+});
+
+describe('CrmClient — resetWriteBudget', () => {
+  it('resetWriteBudget réarme le compteur', async () => {
+    const responses = Array.from({ length: 61 }, () => jsonResponse(200, {}));
+    const { fetchImpl, calls } = mockWriteFetch(responses);
+    const client = buildWriteClient(fetchImpl, { now: () => 1_000_000 });
+
+    for (let i = 0; i < 60; i++) {
+      await client.patchPerson(CTX, `P${i}`, { score: i });
+    }
+    client.resetWriteBudget();
+    await client.patchPerson(CTX, 'P60', { score: 60 }); // re-autorisé
+    expect(calls).toHaveLength(61);
   });
 });

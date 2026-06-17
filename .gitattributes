@@ -1,0 +1,15 @@
+# Force les sources/textes à être traités comme du TEXTE par Git.
+# Sans ça, un fichier UTF-8 à forte densité de caractères accentués (nos
+# commentaires FR : é, —, etc.) peut franchir l'heuristique « binaire » de
+# Git et s'afficher « Binary files differ » dans les diffs/reviews/CI.
+*.ts    text diff
+*.tsx   text diff
+*.js    text diff
+*.jsx   text diff
+*.mjs   text diff
+*.cjs   text diff
+*.json  text diff
+*.css   text diff
+*.md    text diff
+*.yml   text diff
+*.yaml  text diff
