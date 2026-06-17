@@ -79,3 +79,20 @@ volet Analytics.
   l'un ni l'autre, l'event est ingéré pour forensics (non scoré) — comportement attendu.
 - Peut être livré AVANT que l'émetteur Analytics soit prêt (la route 200 à vide,
   testée en isolation). Recommandé : livrer la route en premier (cheap-low côté Hub).
+
+## MAJ 2026-06-17 — le PULL Analytics est livré (voie alternative au push)
+Le chantier bridge→Hub a livré en prod le cron **pull-analytics** (L4,
+`app/api/cron/pull-analytics` + `lib/prospect/analytics-pull.ts` +
+`lib/prospect/engine-client.ts`). Il TIRE l'export `userEvents` de l'engine
+Analytics (fenêtre 48h, horaire) → jalons audit déterministes → ingère dans
+prospect_events. Donc le volet web a DÉJÀ une voie fonctionnelle (PULL).
+
+⚠️ Pré-requis prod pour que le pull serve : ENV `ENGINE_ADMIN_EMAIL` +
+`ENGINE_ADMIN_PASSWORD` dans le compose Hub prod (sinon la route répond
+`skipped:true`, garde-fou). À provisionner côté infra avant une vraie campagne web.
+
+Cette route PUSH `/api/webhooks/analytics` reste l'archi CIBLE (étage 2, temps
+réel + vid) mais n'est PAS bloquante : le pull couvre le besoin au V1. À faire
+quand Analytics émettra activement (cf ticket veridian-analytics + le vid).
+Décision archi PULL (V1) vs PUSH (cible) : PULL retenu pour la parité bridge
+(le bridge faisait un pull horaire). Le push viendra avec le vid temps-réel.
