@@ -903,8 +903,19 @@ model ProspectEvent {
 ///
 /// Clé V1 = (workspaceSlug, contactEmail). Le `vid` est dénormalisé ici pour
 /// la migration future vers une clé (workspaceSlug, vid) sans perte de data.
-/// `signals` = compteurs détaillés par eventType ({opened, clicked, replied,
-/// page_hit}) pour expliquer le score sans relire tous les events.
+///
+/// SCORING DÉCOUPLÉ (2026-06-17) : ces colonnes sont écrites par la couche
+/// scoring SÉPARÉE (un `ScoringEngine` recompute FROM-SCRATCH depuis les events
+/// agrégés, appelé À LA DEMANDE par le job/cron de push — PAS à l'ingestion des
+/// events). `engagementScore` n'est donc PAS une somme additive mais le résultat
+/// du moteur (barème tunnel par défaut — caps, non-cumul, récence, disqualif).
+///   - `label`        : froid / tiede / chaud (dérivé du score, seuil chaud 30).
+///   - `disqualified` : bounce dur OU unsubscribe → score 0 + doNotContact CRM.
+///   - `components`   : détail des points par composant ({email_clicks: 30,
+///     identify_email: 35, ...}) — le score n'est pas une boîte noire, poussé
+///     tel quel dans le CRM.
+///   - `signals`      : compteurs résumés par signal ({opened, clicked, ...})
+///     pour la timeline, dérivés des mêmes components (jamais de dérive).
 model ProspectScore {
   id              String    @id @default(uuid()) @db.Uuid
   workspaceSlug   String    @map("workspace_slug")
@@ -912,8 +923,14 @@ model ProspectScore {
   vid             String?
   tenantUuid      String?   @map("tenant_uuid") @db.Uuid
   engagementScore Int       @default(0) @map("engagement_score")
+  /// Label dérivé du score : 'froid' | 'tiede' | 'chaud'.
+  label           String    @default("froid")
+  /// Bounce dur ou opt-out → score forcé à 0, doNotContact côté CRM.
+  disqualified    Boolean   @default(false)
   lastEventAt     DateTime? @map("last_event_at") @db.Timestamptz(6)
   signals         Json      @default("{}")
+  /// Détail des points par composant (score explicable, poussé au CRM).
+  components      Json      @default("{}")
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 

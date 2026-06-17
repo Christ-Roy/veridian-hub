@@ -336,7 +336,9 @@ async function dispatchLegacyEvent(
         eventType,
         tenantSlug,
         data.contact_email ?? '(no email)',
-        result.ingested ? `+${result.points}` : 'dedup',
+        // Events ⟂ scoring : l'ingestion persiste l'event seul (pas de score
+        // ici). Le score est recalculé plus tard par la couche scoring découplée.
+        result.ingested ? 'ingested' : 'dedup',
       );
       return;
     }

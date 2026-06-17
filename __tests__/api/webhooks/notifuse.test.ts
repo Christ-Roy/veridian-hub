@@ -111,11 +111,10 @@ beforeEach(() => {
   updateMock.mockClear();
   tenantTrialUpsertMock.mockReset();
   ingestProspectEventMock.mockReset();
-  ingestProspectEventMock.mockResolvedValue({
-    ingested: true,
-    scored: true,
-    points: 5,
-  });
+  // Events ⟂ scoring (archi découplée 2026-06-17) : ingestProspectEvent
+  // persiste l'event seul et ne renvoie QUE `ingested`. Le score est calculé
+  // plus tard par la couche scoring (cron), pas à l'ingestion.
+  ingestProspectEventMock.mockResolvedValue({ ingested: true });
 });
 
 afterEach(() => {
