@@ -44,3 +44,11 @@ Le cron route : `prospect_scores.tenant_uuid → Tenant → CrmTenant.twentyWork
 ## Garde-fou
 Le bridge reste en DRY_RUN=1 = filet de sécurité. Tant que cette bascule n'est
 pas faite, RIEN n'écrit dans le CRM de Robert (ni bridge ni Hub).
+
+## MAJ 2026-06-17 — modèle changé : RELAIS temps réel, pas push batch
+Le cron push-prospect-scores + push-to-crm.ts ont été SUPPRIMÉS (Hub = bus
+d'events). L'activation du "push CRM" devient l'activation du RELAIS temps réel
+des events vers le CRM (cf todo/2026-06-17-relais-events-temps-reel-vers-crm-tenant.md).
+Les étapes 1-5 de ce ticket (brancher le CRM de Robert, créer le Tenant, débrancher
+le bridge) restent valides ; remplacer "passer le cron en DRY_RUN=0" par "activer
+le relais event→CRM".

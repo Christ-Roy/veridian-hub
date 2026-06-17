@@ -1,11 +1,11 @@
 /**
  * Tests de l'ingestion d'events comportementaux (lib/prospect/ingest.ts).
  *
- * EVENTS ⟂ SCORING — DÉCOUPLÉS (archi Robert 2026-06-17). L'ingestion PERSISTE
- * l'event, POINT. Elle ne calcule AUCUN score (le scoring est une couche
- * séparée, appelée à la demande par un job/cron). Ces tests VERROUILLENT ce
- * découplage : l'ingestion ne doit JAMAIS toucher prospect_scores ni appeler la
- * couche scoring.
+ * LE HUB EST UN BUS D'EVENTS (archi Robert 2026-06-17). L'ingestion PERSISTE
+ * l'event dans prospect_events, POINT. Elle ne calcule AUCUN score — le scoring
+ * est sorti du Hub (il vit dans le CRM Twenty de chaque tenant). Ces tests
+ * VERROUILLENT ce contrat : l'ingestion ne doit JAMAIS calculer/écrire un score
+ * (la table prospect_scores n'existe même plus, droppée le 2026-06-17).
  *
  * Le mock de `$transaction(cb)` EXÉCUTE réellement le callback avec un `tx`
  * mocké (`tx.prospectEvent.create`). Une erreur levée dans le callback remonte

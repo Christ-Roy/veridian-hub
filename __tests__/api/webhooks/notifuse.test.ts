@@ -111,9 +111,9 @@ beforeEach(() => {
   updateMock.mockClear();
   tenantTrialUpsertMock.mockReset();
   ingestProspectEventMock.mockReset();
-  // Events ⟂ scoring (archi découplée 2026-06-17) : ingestProspectEvent
-  // persiste l'event seul et ne renvoie QUE `ingested`. Le score est calculé
-  // plus tard par la couche scoring (cron), pas à l'ingestion.
+  // Bus d'events (archi Robert 2026-06-17) : ingestProspectEvent persiste l'event
+  // seul et ne renvoie QUE `ingested`. Aucun score côté Hub — le scoring vit dans
+  // le CRM du tenant.
   ingestProspectEventMock.mockResolvedValue({ ingested: true });
 });
 

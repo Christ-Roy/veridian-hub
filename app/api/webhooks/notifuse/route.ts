@@ -298,11 +298,10 @@ async function dispatchLegacyEvent(
       }
 
       // INCONDITIONNEL (comme opened/clicked/replied) : on ingère email.sent
-      // comme event comportemental, MÊME pour un workspace orphelin (forensics +
-      // parité bridge). Baseline 0 point au scoring, mais persisté pour
-      // déclencher le stage CRM NEW→SCREENING (hasEmailSent dans push-to-crm.ts).
-      // Découplage : l'ingestion persiste l'event seul. L'adresse vient de `to`
-      // (EmailSentEventData) ou `contact_email` (format comportemental).
+      // comme event comportemental, MÊME pour un workspace orphelin (forensics).
+      // Le Hub est un bus d'events : on persiste, le scoring/stage se fait dans
+      // le CRM du tenant. L'adresse vient de `to` (EmailSentEventData) ou
+      // `contact_email` (format comportemental).
       const sentEmail =
         typeof data?.to === 'string'
           ? data.to
@@ -363,8 +362,8 @@ async function dispatchLegacyEvent(
         eventType,
         tenantSlug,
         data.contact_email ?? '(no email)',
-        // Events ⟂ scoring : l'ingestion persiste l'event seul (pas de score
-        // ici). Le score est recalculé plus tard par la couche scoring découplée.
+        // Bus d'events : on persiste l'event, le scoring se fait dans le CRM
+        // du tenant. Pas de score côté Hub.
         result.ingested ? 'ingested' : 'dedup',
       );
       return;

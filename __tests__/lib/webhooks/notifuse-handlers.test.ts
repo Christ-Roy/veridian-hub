@@ -204,7 +204,7 @@ describe('v14Handlers — behavioral events (réconciliateur cold↔web)', () =>
     );
   });
 
-  it('email.sent delegates to ingestProspectEvent (parité bridge → stage SCREENING)', async () => {
+  it('email.sent delegates to ingestProspectEvent (bus d\'events, pas de score côté Hub)', async () => {
     ingestProspectEventMock.mockResolvedValue({ ingested: true });
     const { v14Handlers } = await import('@/lib/webhooks/notifuse-handlers');
     // Cas format comportemental (contact_email présent)

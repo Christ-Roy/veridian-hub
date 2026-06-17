@@ -17,19 +17,17 @@
  * `ingestProspectEvent`.
  *
  * ┌─────────────────────────────────────────────────────────────────────────┐
- * │ EVENTS ⟂ SCORING — DÉCOUPLÉS (archi tranchée Robert 2026-06-17).          │
+ * │ LE HUB EST UN BUS D'EVENTS (archi tranchée Robert 2026-06-17).            │
  * │                                                                           │
- * │ L'ingestion PERSISTE l'event comportemental, POINT. Elle ne calcule       │
- * │ AUCUN score. L'ingestion d'events doit marcher SANS la couche scoring     │
- * │ (le scoring est OPTIONNEL, fait plus tard, ailleurs).                     │
+ * │ L'ingestion PERSISTE l'event comportemental dans `prospect_events`,       │
+ * │ POINT. Le Hub ne calcule ni ne stocke AUCUN score. Le scoring est sorti   │
+ * │ du Hub : il vit dans le CRM Twenty de CHAQUE TENANT, réglable par lui      │
+ * │ (barème/seuils/presets via les workflows natifs du CRM, par workspace).   │
  * │                                                                           │
- * │ Le score vit dans une couche SÉPARÉE par-dessus (`lib/prospect/scoring`   │
- * │ + le job/cron qui l'appelle) : un `ScoringEngine` recompute le score      │
- * │ FROM-SCRATCH depuis les events agrégés, À LA DEMANDE (tick de cron de     │
- * │ push CRM), JAMAIS à l'ingestion. Avantages : l'ingestion reste rapide et  │
- * │ robuste (un bug/refonte de barème ne casse pas la réception d'events) ;   │
- * │ le moteur de scoring est pluggable et rejouable sur l'historique sans     │
- * │ toucher au flux d'ingestion.                                              │
+ * │ Le Hub RELAIE les events temps réel vers le CRM du tenant (timeline       │
+ * │ activity), sans batch ni cron. Les events sont la donnée brute et la      │
+ * │ vérité, indépendants de tout scoring. Un bug/refonte de barème côté CRM    │
+ * │ ne touche jamais la réception/persistance des events ici.                 │
  * └─────────────────────────────────────────────────────────────────────────┘
  *
  * Idempotence : deux couches.

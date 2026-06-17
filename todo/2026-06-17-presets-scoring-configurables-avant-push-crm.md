@@ -45,3 +45,12 @@ Une couche de **presets de scoring configurables** au-dessus de l'engine pluggab
 ## Non bloquant pour
 La campagne email peut tourner SANS (les events s'ingèrent, le scoring tourne avec
 le preset défaut tunnel-v2). C'est le PUSH CRM qui attend les presets.
+
+## MAJ 2026-06-17 — le scoring est SORTI du Hub (refactor bus d'events)
+Décision Robert affinée : le score ne vit plus dans le Hub du tout (cron + table
+prospect_scores + scoring.ts SUPPRIMÉS). Donc les "presets de scoring" ne se
+construisent PAS côté Hub — ils se règlent dans le CRM Twenty de chaque tenant
+(workflows natifs configurables par workspace). Ce ticket devient : "définir/
+documenter comment un tenant règle son scoring dans Twenty (presets de workflow,
+seuils, barème) à partir des events que le Hub lui relaie". Le moteur n'est plus
+un ScoringEngine TS dans le Hub. Voir todo/2026-06-17-relais-events-temps-reel-vers-crm-tenant.md.

@@ -251,10 +251,9 @@ export const v14Handlers: HandlerTable = {
     });
   },
 
-  // email.sent : baseline 0 point au scoring, mais INGÉRÉ pour que le stage
-  // CRM NEW→SCREENING se déclenche (hasEmailSent dans push-to-crm.ts). Parité
-  // bridge. L'adresse peut arriver en `contact_email` (format comportemental)
-  // ou `to` (EmailSentEventData) — on tolère les deux.
+  // email.sent : ingéré dans le bus d'events comme les autres (le scoring/stage
+  // se fait dans le CRM du tenant, pas ici). L'adresse peut arriver en
+  // `contact_email` (format comportemental) ou `to` (EmailSentEventData).
   'email.sent': async (payload) => {
     const { contactEmail, vid } = behavioralFields(payload.data);
     const data = (payload.data ?? {}) as Record<string, unknown>;

@@ -898,58 +898,10 @@ model ProspectEvent {
   @@schema("hub_app")
 }
 
-/// Score d'engagement agrégé PAR PROSPECT (pas par tenant → table dédiée,
-/// distincte de Tenant.leadScore qui est un signal billing par tenant).
-///
-/// Clé V1 = (workspaceSlug, contactEmail). Le `vid` est dénormalisé ici pour
-/// la migration future vers une clé (workspaceSlug, vid) sans perte de data.
-///
-/// SCORING DÉCOUPLÉ (2026-06-17) : ces colonnes sont écrites par la couche
-/// scoring SÉPARÉE (un `ScoringEngine` recompute FROM-SCRATCH depuis les events
-/// agrégés, appelé À LA DEMANDE par le job/cron de push — PAS à l'ingestion des
-/// events). `engagementScore` n'est donc PAS une somme additive mais le résultat
-/// du moteur (barème tunnel par défaut — caps, non-cumul, récence, disqualif).
-///   - `label`        : froid / tiede / chaud (dérivé du score, seuil chaud 30).
-///   - `disqualified` : bounce dur OU unsubscribe → score 0 + doNotContact CRM.
-///   - `components`   : détail des points par composant ({email_clicks: 30,
-///     identify_email: 35, ...}) — le score n'est pas une boîte noire, poussé
-///     tel quel dans le CRM.
-///   - `signals`      : compteurs résumés par signal ({opened, clicked, ...})
-///     pour la timeline, dérivés des mêmes components (jamais de dérive).
-model ProspectScore {
-  id              String    @id @default(uuid()) @db.Uuid
-  workspaceSlug   String    @map("workspace_slug")
-  contactEmail    String    @map("contact_email")
-  vid             String?
-  tenantUuid      String?   @map("tenant_uuid") @db.Uuid
-  engagementScore Int       @default(0) @map("engagement_score")
-  /// Label dérivé du score : 'froid' | 'tiede' | 'chaud'.
-  label           String    @default("froid")
-  /// Bounce dur ou opt-out → score forcé à 0, doNotContact côté CRM.
-  disqualified    Boolean   @default(false)
-  lastEventAt     DateTime? @map("last_event_at") @db.Timestamptz(6)
-  signals         Json      @default("{}")
-  /// Détail des points par composant (score explicable, poussé au CRM).
-  components      Json      @default("{}")
-  /// IDEMPOTENCE SORTANTE (push CRM découplé, 2026-06-17). Le cron
-  /// `push-prospect-scores` ne re-pousse au CRM que si le score a CHANGÉ depuis
-  /// le dernier push — sinon il spammerait Twenty à chaque tick. Ces deux
-  /// colonnes mémorisent l'état du DERNIER push réussi :
-  ///   - `crmPushedScore` : la valeur d'`engagementScore` au moment du push.
-  ///     Le cron compare `crmPushedScore !== engagementScore` avant de pousser.
-  ///     NULL = jamais poussé (→ premier push inconditionnel si score scorable).
-  ///   - `crmPushedAt`    : horodatage du dernier push réussi (observabilité +
-  ///     débogage "ce prospect a-t-il bien été poussé ?").
-  /// En DRY_RUN le cron NE met PAS à jour ces colonnes (rien n'a été réellement
-  /// poussé) → l'idempotence sortante ne « consomme » que les vrais pushes.
-  crmPushedAt     DateTime? @map("crm_pushed_at") @db.Timestamptz(6)
-  crmPushedScore  Int?      @map("crm_pushed_score")
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-
-  @@unique([workspaceSlug, contactEmail], map: "prospect_scores_workspace_email_unique")
-  @@index([workspaceSlug, engagementScore(sort: Desc)])
-  @@index([vid])
-  @@map("prospect_scores")
-  @@schema("hub_app")
-}
+// NOTE (2026-06-17) : le modèle ProspectScore a été SUPPRIMÉ. Décision Robert :
+// le score sort du Hub. Le Hub est un BUS D'EVENTS pur (prospect_events) qui
+// relaie les events temps réel vers le CRM du tenant ; le scoring/barème/presets
+// se règlent DANS le CRM Twenty de chaque tenant (workflows natifs, par workspace).
+// Le score n'est plus calculé ni stocké centralement. Table prospect_scores
+// droppée (migration 20260617160000_drop_prospect_scores). Voir
+// todo/2026-06-17-presets-scoring-configurables-avant-push-crm.md.
