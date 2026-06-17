@@ -76,6 +76,30 @@ const NOTIFUSE_WEBHOOK_TOKEN =
   process.env.NOTIFUSE_WEBHOOK_TOKEN ||
   '6a68be1b9effd251386d0d25d04409cdda75575d79feee3de899c30dfa9b59f2';
 
+// CRON_SECRET : déclenche le cron de scoring découplé (push-prospect-scores).
+// ⚠️ ARCHI DÉCOUPLÉE (Robert 2026-06-17) : l'ingestion d'un event NE calcule
+// PLUS le score. Le score est recalculé À LA DEMANDE par le cron de scoring.
+// Donc cette spec : ingère l'event → DÉCLENCHE le cron → vérifie le score.
+const CRON_SECRET = process.env.CRON_SECRET || '';
+
+/**
+ * Déclenche un passage du cron push-prospect-scores (DRY_RUN attendu en staging).
+ * C'est lui qui, dans l'archi découplée, relit les events agrégés, recalcule le
+ * score via getScoringEngine('tunnel-v2') et l'écrit dans prospect_scores.
+ * Sans ce tick, prospect_scores reste vide après une simple ingestion.
+ */
+async function triggerScoreCron(request: APIRequestContext): Promise<void> {
+  const res = await request.post(
+    `${STAGING_URL}/api/cron/push-prospect-scores`,
+    { headers: { authorization: `Bearer ${CRON_SECRET}` } },
+  );
+  expect(
+    res.status(),
+    `cron push-prospect-scores doit répondre 200 (got ${res.status()}). ` +
+      'Un 401 = CRON_SECRET désaligné (le launcher le source du container staging).',
+  ).toBe(200);
+}
+
 // ─── Identifiants de test (isolés par RUN_STAMP, cleanup ciblé) ───────────
 const WORKSPACE_SLUG = `recon-e2e-${RUN_STAMP}`;
 const PROSPECT_EMAIL = `e2e-prospect-${RUN_STAMP}@veridian.test`;
@@ -214,7 +238,7 @@ test.describe('Journey 21 — Réconciliateur prospect (voie legacy HMAC)', () =
 
   test.describe.configure({ mode: 'serial' }); // flow séquentiel : score cumulé
 
-  test('email.clicked signé HMAC → 200 + event ingéré + score=5, signals.clicked=1', async ({
+  test('email.clicked signé HMAC → 200 + event ingéré, score=30 après tick cron (CLICK_FIRST×récence)', async ({
     request,
   }) => {
     const res = await postLegacyHmac(request, {
@@ -239,11 +263,20 @@ test.describe('Journey 21 — Réconciliateur prospect (voie legacy HMAC)', () =
       'prospect_events doit avoir 1 row pour cet event_id',
     ).toBe(1);
 
-    // Score = 5 (barème clicked=+5), signal clicked incrémenté à 1.
+    // Découplage : l'ingestion ne score PAS. On déclenche le cron de scoring.
+    await triggerScoreCron(request);
+
+    // Score = 30 : CLICK_FIRST=+20, ×1.5 (RECENCY_MULTIPLIER, event <48h) = 30.
+    // L'event de test est créé "maintenant" → la récence s'applique toujours.
     const sc = readScore(WORKSPACE_SLUG, PROSPECT_EMAIL);
-    expect(sc, 'prospect_scores doit exister après email.clicked').not.toBeNull();
-    expect(sc!.score, 'engagement_score après clicked (barème +5)').toBe(5);
-    expect(sc!.signals.clicked, 'signals.clicked = 1').toBe(1);
+    expect(
+      sc,
+      'prospect_scores doit exister après ingestion + tick du cron de scoring',
+    ).not.toBeNull();
+    expect(
+      sc!.score,
+      'engagement_score après clicked : CLICK_FIRST(+20) × récence(1.5) = 30',
+    ).toBe(30);
   });
 
   test('replay du MÊME event_id → 200, score INCHANGÉ (idempotence DB)', async ({
@@ -270,17 +303,21 @@ test.describe('Journey 21 — Réconciliateur prospect (voie legacy HMAC)', () =
       'replay ne doit PAS créer un 2e event (idempotency_key UNIQUE)',
     ).toBe(1);
 
-    // Score INCHANGÉ : 5, pas 10. C'est le cœur de l'anti-double-comptage.
+    // Re-tick du cron : le score recalculé from-scratch sur les MÊMES events
+    // (1 seul clicked) reste 20. C'est le cœur de l'anti-double-comptage.
+    await triggerScoreCron(request);
+
+    // Score INCHANGÉ : 30, pas 60. Le recompute sur 1 event clicked = CLICK_FIRST
+    // (+20) × récence(1.5) = 30. Le replay n'ajoute pas de 2e clicked.
     const sc = readScore(WORKSPACE_SLUG, PROSPECT_EMAIL);
     expect(sc, 'prospect_scores toujours présent').not.toBeNull();
     expect(
       sc!.score,
-      'engagement_score INCHANGÉ après replay (5, pas 10) — anti double comptage',
-    ).toBe(5);
-    expect(sc!.signals.clicked, 'signals.clicked reste 1 après replay').toBe(1);
+      'engagement_score INCHANGÉ après replay (30, pas 60) — anti double comptage',
+    ).toBe(30);
   });
 
-  test('email.replied (même email, nouvel event_id) → score cumulé=25, signals.replied=1', async ({
+  test('email.replied (même email, nouvel event_id) → score cumulé=83 après cron', async ({
     request,
   }) => {
     const repliedEventId = randomUUID();
@@ -301,22 +338,24 @@ test.describe('Journey 21 — Réconciliateur prospect (voie legacy HMAC)', () =
       'le replied doit créer sa propre row event',
     ).toBe(1);
 
-    // Cumul : 5 (clicked) + 20 (replied) = 25. signals = {clicked:1, replied:1}.
+    // Recalcul du score sur l'état cumulé (1 clicked + 1 replied).
+    await triggerScoreCron(request);
+
+    // Cumul : (CLICK_FIRST 20 + EMAIL_REPLIED 35 = 55) × récence(1.5) = 82.5
+    // → Math.round = 83.
     const sc = readScore(WORKSPACE_SLUG, PROSPECT_EMAIL);
     expect(sc, 'prospect_scores toujours présent').not.toBeNull();
     expect(
       sc!.score,
-      'engagement_score cumulé après clicked(+5)+replied(+20) = 25',
-    ).toBe(25);
-    expect(sc!.signals.clicked, 'signals.clicked reste 1').toBe(1);
-    expect(sc!.signals.replied, 'signals.replied = 1 après replied').toBe(1);
+      'engagement_score cumulé : (clicked 20 + replied 35) × récence 1.5 = 83',
+    ).toBe(83);
   });
 });
 
 // ─── Voie v1.4 BEARER : même état DB que la voie legacy ───────────────────
 
 test.describe('Journey 21 — Réconciliateur prospect (voie v1.4 Bearer)', () => {
-  test('email.clicked via Bearer → 200 + score=5 (les deux voies convergent en DB)', async ({
+  test('email.clicked via Bearer → 200 + score=30 après cron (les deux voies convergent)', async ({
     request,
   }) => {
     const idempotencyKey = randomUUID();
@@ -341,7 +380,10 @@ test.describe('Journey 21 — Réconciliateur prospect (voie v1.4 Bearer)', () =
       'prospect_events doit avoir 1 row pour la voie v1.4',
     ).toBe(1);
 
-    // Même barème, même table de scores : engagement_score = 5.
+    // Découplage : tick du cron de scoring, puis vérif.
+    await triggerScoreCron(request);
+
+    // Même barème, même table : CLICK_FIRST(20) × récence(1.5) = 30 (comme legacy).
     const sc = readScore(WORKSPACE_SLUG, PROSPECT_EMAIL_V14);
     expect(
       sc,
@@ -349,9 +391,8 @@ test.describe('Journey 21 — Réconciliateur prospect (voie v1.4 Bearer)', () =
     ).not.toBeNull();
     expect(
       sc!.score,
-      'engagement_score = 5 via Bearer (les deux voies convergent sur ingestProspectEvent)',
-    ).toBe(5);
-    expect(sc!.signals.clicked, 'signals.clicked = 1 via v1.4').toBe(1);
+      'engagement_score = 30 via Bearer (clicked 20 × récence 1.5, les 2 voies convergent)',
+    ).toBe(30);
   });
 });
 
@@ -411,14 +452,17 @@ async function postLegacyHmacRaw(
   });
 }
 
-test.describe('Journey 21 — Concurrence (atomicité score↔signals sous course)', () => {
-  test('10× email.opened en PARALLÈLE sur même prospect → score==10 ET signals.opened==10', async ({
+test.describe('Journey 21 — Concurrence (ingestion atomique sous course, modèle découplé)', () => {
+  test('10× email.opened en PARALLÈLE → 10 events persistés sans perte, puis cron → score=8 (OPEN_FIRST cap×récence)', async ({
     request,
   }) => {
     const N = 10;
-    // N events scorables (opened=+1 chacun), idempotency_key DISTINCT pour que
-    // chacun s'ingère (sinon dédup → 1 seul). Même (workspace, email) → ils se
-    // disputent la MÊME row prospect_scores : c'est la course recherchée.
+    // ARCHI DÉCOUPLÉE : l'ingestion ne calcule PLUS le score (plus de course
+    // read-modify-write sur prospect_scores à l'ingestion). La course se joue
+    // donc sur l'INGESTION ATOMIQUE des events (idempotency_key UNIQUE) : N
+    // events parallèles sur le même prospect doivent TOUS être persistés sans
+    // perte ni doublon. Le score est ensuite recalculé from-scratch par le cron
+    // (déterministe, plus de divergence possible signals↔score).
     const eventIds = Array.from({ length: N }, () => randomUUID());
 
     const responses = await Promise.all(
@@ -433,8 +477,6 @@ test.describe('Journey 21 — Concurrence (atomicité score↔signals sous cours
       ),
     );
 
-    // Tous acceptés (200). Un 429 serait suspect (la route webhook n'a pas de
-    // rate-limiter) ; on l'assert pour ne pas masquer une course incomplète.
     for (const res of responses) {
       expect(
         res.status(),
@@ -442,7 +484,8 @@ test.describe('Journey 21 — Concurrence (atomicité score↔signals sous cours
       ).toBe(200);
     }
 
-    // Les N events sont bien tous persistés (aucun perdu / aucun doublon).
+    // Les N events sont TOUS persistés (aucun perdu / aucun doublon) — preuve
+    // de l'atomicité de l'ingestion sous course.
     const totalEvents = Number(
       selectScalar(
         `SELECT count(*) FROM hub_app.prospect_events
@@ -456,23 +499,15 @@ test.describe('Journey 21 — Concurrence (atomicité score↔signals sous cours
       `les ${N} events concurrents doivent TOUS être persistés (idempotency_key distincts)`,
     ).toBe(N);
 
-    // CŒUR DU TEST : score ET signals.opened cohérents == N.
-    // L'égalité sous course = preuve que le jsonb_set atomique ne diverge plus.
+    // Recompute déterministe par le cron : OPEN_FIRST = +5 NON cumulable (cap 5),
+    // × récence(1.5) = round(7.5) = 8. 10 opened → 8 (pas 10×), quel que soit
+    // l'ordre/la concurrence d'arrivée — le recompute from-scratch le garantit.
+    await triggerScoreCron(request);
     const sc = readScore(WORKSPACE_SLUG, PROSPECT_EMAIL_RACE);
-    expect(sc, 'prospect_scores doit exister après le burst').not.toBeNull();
+    expect(sc, 'prospect_scores doit exister après le burst + cron').not.toBeNull();
     expect(
       sc!.score,
-      `engagement_score == ${N} (increment atomique de chaque opened=+1)`,
-    ).toBe(N);
-    expect(
-      sc!.signals.opened,
-      `signals.opened == ${N} — si < ${N}, le jsonb_set n'est PAS atomique ` +
-        `(régression read-modify-write : incréments perdus sous course)`,
-    ).toBe(N);
-    // Redondance explicite de l'invariant : les deux compteurs ne divergent PAS.
-    expect(
-      sc!.signals.opened,
-      'signals.opened DOIT rester égal à engagement_score (zéro divergence)',
-    ).toBe(sc!.score);
+      'engagement_score == 8 (OPEN_FIRST cap 5 × récence 1.5) — recompute déterministe',
+    ).toBe(8);
   });
 });
