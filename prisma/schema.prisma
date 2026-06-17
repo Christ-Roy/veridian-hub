@@ -931,6 +931,19 @@ model ProspectScore {
   signals         Json      @default("{}")
   /// Détail des points par composant (score explicable, poussé au CRM).
   components      Json      @default("{}")
+  /// IDEMPOTENCE SORTANTE (push CRM découplé, 2026-06-17). Le cron
+  /// `push-prospect-scores` ne re-pousse au CRM que si le score a CHANGÉ depuis
+  /// le dernier push — sinon il spammerait Twenty à chaque tick. Ces deux
+  /// colonnes mémorisent l'état du DERNIER push réussi :
+  ///   - `crmPushedScore` : la valeur d'`engagementScore` au moment du push.
+  ///     Le cron compare `crmPushedScore !== engagementScore` avant de pousser.
+  ///     NULL = jamais poussé (→ premier push inconditionnel si score scorable).
+  ///   - `crmPushedAt`    : horodatage du dernier push réussi (observabilité +
+  ///     débogage "ce prospect a-t-il bien été poussé ?").
+  /// En DRY_RUN le cron NE met PAS à jour ces colonnes (rien n'a été réellement
+  /// poussé) → l'idempotence sortante ne « consomme » que les vrais pushes.
+  crmPushedAt     DateTime? @map("crm_pushed_at") @db.Timestamptz(6)
+  crmPushedScore  Int?      @map("crm_pushed_score")
   createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 

@@ -1,0 +1,76 @@
+name: Hub — Push Prospect Scores (hourly)
+
+# Cron qui déclenche le push des scores prospect vers le CRM (réconciliateur).
+#
+# Couche AVAL DÉCOUPLÉE (archi events ⟂ scoring, Robert 2026-06-17) : pour chaque
+# prospect ayant des events, RELIT ses events agrégés → RECALCULE le score
+# FROM-SCRATCH via un ScoringEngine pluggable → ÉCRIT le score en DB → ROUTE
+# multitenant (tenant_uuid → CrmTenant) → PUSHE au CRM Twenty (timeline, score,
+# doNotContact, opportunity NEW→SCREENING).
+#
+# Idempotence SORTANTE : re-push UNIQUEMENT si le score a changé depuis le
+# dernier push (`crm_pushed_score`) — sinon on spammerait le CRM à chaque tick.
+#
+# DRY_RUN par défaut (CRON_PUSH_DRY_RUN côté compose prod, défaut true) : les
+# mutations Twenty sont LOGUÉES, pas envoyées, tant que la bascule n'est pas
+# validée. 0 CrmTenant en prod au 2026-06-17 → les prospects sont scorés en DB
+# mais le push est skippé gracieusement (no_crm_tenant).
+#
+# Fréquence horaire à h+47 : décalé du pull-analytics (h+37) pour que le score
+# recalculé s'appuie sur les events fraîchement pullés, sans chevauchement de run.
+#
+# Secret `CRON_SECRET` : déjà provisionné (partagé avec les autres crons Hub).
+
+on:
+  schedule:
+    - cron: '47 * * * *' # h+47 — après pull-analytics (h+37), avant le tick suivant
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  push-scores:
+    name: Push Prospect Scores
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Call /api/cron/push-prospect-scores on prod
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "::error::CRON_SECRET secret manquant dans GH Secrets"
+            exit 1
+          fi
+
+          URL="https://app.veridian.site/api/cron/push-prospect-scores"
+
+          HTTP_CODE=$(curl -s -o /tmp/resp.json -w "%{http_code}" \
+            -X POST "$URL" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            --max-time 300 \
+            --retry 2 --retry-delay 10)
+
+          echo "HTTP $HTTP_CODE"
+          cat /tmp/resp.json || true
+          echo
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Push Prospect Scores tick failed (HTTP $HTTP_CODE)"
+            exit 1
+          fi
+
+      - name: Notify Telegram on failure
+        if: failure()
+        env:
+          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then exit 0; fi
+          curl -sf -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
+            -d chat_id=${TG_CHAT} \
+            -d parse_mode=Markdown \
+            -d "text=Push Prospect Scores cron *FAIL*. Run : ${RUN_URL}" \
+            >/dev/null || true
