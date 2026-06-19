@@ -1,20 +1,32 @@
 # 🔒 Veille CVE automatique — veridian-hub
 
 > **Généré par** : `veridian-infra/.github/workflows/cron-trivy.yml`
-> **Dernier run** : 2026-06-18 04:06 UTC
-> **Run URL** : local-cron@mail.mybigserveur.local:2026-06-18
+> **Dernier run** : 2026-06-19 04:07 UTC
+> **Run URL** : local-cron@mail.mybigserveur.local:2026-06-19
 > **Image scannée** : `ghcr.io/christ-roy/veridian-hub:latest`
-> **CVE bruts détectés** : 13 (avant filtrage)
+> **CVE bruts détectés** : 14 (avant filtrage)
 > **Scoring** : `veridian-infra/ci/trivy-scoring.yml`
 
 ## TL;DR
 
 - 🚨 **0 RED** — fix prioritaire
-- 🔴 **0 HIGH** — action recommandée cette semaine
+- 🔴 **1 HIGH** — action recommandée cette semaine
 - 🟡 **5 MEDIUM** — récap, pas urgent
 - 🟢 **6 NOISE** — annexe collapse
 
-✅ **Rien d'urgent.** Quelques items MEDIUM à voir quand t'as 5 min.
+
+---
+
+## 🔴 HIGH — 1 CVE en 1 groupe
+
+### 1. `nodemailer` — 8.0.7 → **9.0.1**
+
+- **CVE** : `GHSA-p6gq-j5cr-w38f` (HIGH/SSRF)
+- **Type** : SSRF
+- **Score max** : 45
+- **Title** : Nodemailer: Message-level raw option bypasses disableFileAccess/disableUrlAccess, enabling arbitrary file read and full-response SSRF in the delivered message
+- **Source** : `pnpm-lock.yaml`
+- **Fix** : `pnpm up nodemailer` (jusqu'à >= `9.0.1`)
 
 
 ---
