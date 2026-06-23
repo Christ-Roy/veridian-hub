@@ -55,6 +55,22 @@ describe('RateLimiter', () => {
     expect(rl.enforce('ip1', t0 + 2000).ok).toBe(true);
   });
 
+  it('NE FUIT PAS : les clés d\'IP expirées sont purgées (GC amorti, anti-OOM)', () => {
+    const rl = new RateLimiter({ capacity: 5, windowMs: 1000, name: 'test' });
+    const t0 = 1_000_000;
+    // 300 IP uniques font 1 hit chacune à t0 → 300 clés dans la Map.
+    for (let i = 0; i < 300; i++) rl.enforce(`ip-${i}`, t0);
+    expect(rl.size()).toBe(300); // avant GC : 300 clés vivantes
+
+    // Bien APRÈS expiration de leurs fenêtres (t0+10000 >> windowMs 1000), une
+    // même IP refait > GC_EVERY (256) requêtes → le GC amorti se déclenche et
+    // doit purger les 300 clés mortes (tous leurs hits hors fenêtre).
+    const tLate = t0 + 10_000;
+    for (let i = 0; i < 300; i++) rl.enforce('ip-late', tLate);
+    // Ne reste que 'ip-late'. Sans le GC, la Map garderait les 301 → leak OOM.
+    expect(rl.size()).toBeLessThan(10);
+  });
+
   it('les tentatives refusées comptent aussi (pas de bypass)', () => {
     const rl = new RateLimiter({ capacity: 1, windowMs: 1000, name: 'test' });
     expect(rl.enforce('ip1').ok).toBe(true);

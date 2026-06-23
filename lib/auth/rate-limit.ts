@@ -23,8 +23,13 @@ export type RateLimitResult =
   | { ok: true; remaining: number; resetAt: number }
   | { ok: false; remaining: 0; resetAt: number; retryAfterSeconds: number };
 
+/** Fréquence du GC amorti des clés mortes (1 balayage toutes les N requêtes). */
+const GC_EVERY = 256;
+
 export class RateLimiter {
   private hits: Map<string, number[]> = new Map();
+  /** Compteur d'ops depuis le dernier GC des clés expirées (cf enforce). */
+  private opsSinceGc = 0;
 
   constructor(
     private readonly options: {
@@ -50,6 +55,21 @@ export class RateLimiter {
    */
   enforce(key: string, now: number = Date.now()): RateLimitResult {
     const windowStart = now - this.options.windowMs;
+
+    // GC AMORTI des clés mortes : sans ça, la Map accumule 1 clé par IP unique
+    // À VIE (même une IP qui a fait 1 requête il y a 1h garde sa clé avec un
+    // tableau vide) → leak mémoire OOM lent sur les endpoints publics qui voient
+    // passer des milliers d'IP. On ne purge PAS à chaque appel (coût O(N) sous
+    // charge) mais une fois toutes les GC_EVERY requêtes : amorti et borné.
+    if (++this.opsSinceGc >= GC_EVERY) {
+      this.opsSinceGc = 0;
+      for (const [k, hits] of this.hits) {
+        if (hits.length === 0 || hits[hits.length - 1] <= windowStart) {
+          this.hits.delete(k);
+        }
+      }
+    }
+
     const existing = this.hits.get(key) ?? [];
     // GC fenêtre : on garde seulement les hits dans la fenêtre
     const fresh = existing.filter((t) => t > windowStart);
@@ -129,7 +149,12 @@ export class RateLimiter {
     this.hits.clear();
   }
 
-  /** Utilitaire tests : compte d'entrées trackées (≤ IPs uniques actives). */
+  /**
+   * Compte d'entrées trackées dans la Map. Grâce au GC amorti (cf enforce),
+   * ce nombre reste borné aux IPs actives sur la fenêtre récente (les clés
+   * mortes sont purgées toutes les GC_EVERY requêtes) — il ne croît PLUS à
+   * l'infini avec le nombre d'IPs uniques vues depuis le boot.
+   */
   size() {
     return this.hits.size;
   }

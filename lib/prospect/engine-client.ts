@@ -131,19 +131,48 @@ export class EngineClient {
     return (await res.json()) as ExportResponse;
   }
 
-  /** Pull complet par curseur depuis `since` (borné par l'appelant). */
+  /**
+   * Pull complet par curseur depuis `since` (borné par l'appelant).
+   *
+   * Garde-fous anti-loop infini (le cron tourne en prod, sans surveillance) :
+   *   - `MAX_PAGES` : cap dur sur le nombre de pages (1000 × `limit` 1000 =
+   *     1M events max par fenêtre 48h, largement au-dessus du volume réel). Si
+   *     l'API ment et renvoie `has_more:true` indéfiniment, on s'arrête net.
+   *   - curseur non-progressant : si l'API renvoie le MÊME `next_cursor` que la
+   *     page précédente, on boucle sur place → on coupe (sinon hang + OOM).
+   */
   async *exportAll(
     since: string,
     until: string
   ): AsyncGenerator<ExportedEvent[]> {
+    const MAX_PAGES = 1000;
     let cursor: string | null = null;
+    let prevCursor: string | null = null;
     let hasMore = true;
+    let pages = 0;
     while (hasMore) {
+      if (pages >= MAX_PAGES) {
+        console.warn(
+          `[engine-client] exportAll: cap de ${MAX_PAGES} pages atteint ` +
+            `(since=${since} until=${until}) — arrêt anti-loop. Curseur API suspect.`
+        );
+        break;
+      }
       const page: ExportResponse = await this.exportPage(
         cursor ? { cursor, until } : { since, until }
       );
+      pages += 1;
       if (page.data.length > 0) yield page.data;
+      prevCursor = cursor;
       cursor = page.next_cursor;
+      // Curseur qui ne progresse pas = boucle sur place → on coupe.
+      if (cursor !== null && cursor === prevCursor) {
+        console.warn(
+          '[engine-client] exportAll: next_cursor non-progressant ' +
+            `(${cursor}) — arrêt anti-loop.`
+        );
+        break;
+      }
       hasMore = page.has_more && cursor !== null;
     }
   }

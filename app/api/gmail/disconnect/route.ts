@@ -48,13 +48,19 @@ export async function POST() {
 
   // Best-effort revoke côté Google. Le endpoint accepte access_token OU
   // refresh_token (https://developers.google.com/identity/protocols/oauth2/web-server#tokenrevoke).
+  // Timeout 5s OBLIGATOIRE : sans AbortController, si Google est lent/down, la
+  // requête disconnect HANG indéfiniment (le user reste bloqué sur "déconnexion").
+  // Un best-effort ne doit jamais pouvoir bloquer la requête.
   if (account.refresh_token) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
     try {
       await fetch(
         `https://oauth2.googleapis.com/revoke?token=${encodeURIComponent(account.refresh_token)}`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          signal: controller.signal,
         },
       );
     } catch (err) {
@@ -65,6 +71,8 @@ export async function POST() {
           error: err instanceof Error ? err.message : String(err),
         }),
       );
+    } finally {
+      clearTimeout(timer);
     }
   }
 

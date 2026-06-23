@@ -80,6 +80,9 @@ describe('POST /api/gmail/disconnect', () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls[0][0]).toContain('oauth2.googleapis.com/revoke');
     expect(fetchMock.mock.calls[0][0]).toContain('r-tok');
+    // Anti-hang : le revoke DOIT passer un AbortSignal (timeout 5s). Sans ça,
+    // un Google lent bloquerait la requête disconnect indéfiniment.
+    expect(fetchMock.mock.calls[0][1]?.signal).toBeInstanceOf(AbortSignal);
 
     const updateArgs = updateMock.mock.calls[0][0];
     expect(updateArgs.where.id).toBe('acc_1');

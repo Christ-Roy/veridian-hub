@@ -206,4 +206,28 @@ describe('EngineClient.exportAll', () => {
 
     expect(pages).toHaveLength(0);
   });
+
+  it('ANTI-LOOP : curseur non-progressant (même next_cursor) → s’arrête, pas de boucle infinie', async () => {
+    // L'engine ment : il renvoie TOUJOURS le même curseur 'stuck' avec
+    // has_more:true. Sans garde-fou, exportAll bouclerait à l'infini (hang +
+    // OOM du cron prod). On vérifie qu'il s'arrête après détection du curseur
+    // qui ne progresse pas — le test TERMINE (sinon il timeout = régression).
+    fetchMock.mockResolvedValueOnce(jsonResponse({ access_token: 'tok-1' }));
+    // Factory : NOUVELLE Response à chaque appel (sinon le body est consommé
+    // au 1er .json() → "Body already used"). L'engine renvoie toujours 'stuck'.
+    fetchMock.mockImplementation(() =>
+      Promise.resolve(
+        jsonResponse({ data: [evt('e1')], next_cursor: 'stuck', has_more: true }),
+      ),
+    );
+
+    const client = new EngineClient(CONFIG);
+    const pages: ExportedEvent[][] = [];
+    for await (const p of client.exportAll('2026-06-15', '2026-06-17')) pages.push(p);
+
+    // 1ère page (cursor null→'stuck') yieldée, 2e page (cursor 'stuck'==prev)
+    // détecte le non-progrès et coupe. Donc ≤ 2 pages, JAMAIS l'infini.
+    expect(pages.length).toBeLessThanOrEqual(2);
+    expect(pages.length).toBeGreaterThan(0);
+  });
 });
