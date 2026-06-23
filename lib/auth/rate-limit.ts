@@ -63,7 +63,9 @@ export class RateLimiter {
     // charge) mais une fois toutes les GC_EVERY requêtes : amorti et borné.
     if (++this.opsSinceGc >= GC_EVERY) {
       this.opsSinceGc = 0;
-      for (const [k, hits] of this.hits) {
+      // Array.from : le tsconfig Hub cible ES5 → pas d'itération directe sur Map
+      // (sinon "can only be iterated with --downlevelIteration / target es2015+").
+      for (const [k, hits] of Array.from(this.hits)) {
         if (hits.length === 0 || hits[hits.length - 1] <= windowStart) {
           this.hits.delete(k);
         }

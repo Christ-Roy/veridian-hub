@@ -36,7 +36,6 @@ export function trackEvent(event: string, data?: Record<string, any>) {
     ...data
   };
 
-  console.log('[GTM] ✅ Tracking event:', event, eventData);
   window.dataLayer.push(eventData);
 
   // Vérifier que l'événement a bien été pushé
@@ -194,7 +193,6 @@ export function trackError(type: string, message: string, fatal: boolean = false
  */
 export function setUserId(userId: string) {
   if (typeof window !== 'undefined' && window.dataLayer) {
-    console.log('[GTM] Setting user ID:', userId);
     window.dataLayer.push({
       user_id: userId, // Standard GA4
       event: 'user_id_set'
@@ -209,7 +207,6 @@ export function setUserId(userId: string) {
  */
 export function clearUserId() {
   if (typeof window !== 'undefined' && window.dataLayer) {
-    console.log('[GTM] Clearing user ID');
     window.dataLayer.push({
       user_id: undefined,
       event: 'user_id_cleared'

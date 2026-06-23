@@ -67,8 +67,10 @@ describe('RateLimiter', () => {
     // doit purger les 300 clés mortes (tous leurs hits hors fenêtre).
     const tLate = t0 + 10_000;
     for (let i = 0; i < 300; i++) rl.enforce('ip-late', tLate);
-    // Ne reste que 'ip-late'. Sans le GC, la Map garderait les 301 → leak OOM.
-    expect(rl.size()).toBeLessThan(10);
+    // Ne reste QUE 'ip-late' : les 300 IP mortes sont toutes purgées (le GC
+    // balaie la Map via Array.from — itération ES5-safe). Sans le GC, la Map
+    // garderait les 301 clés à vie → leak OOM.
+    expect(rl.size()).toBe(1);
   });
 
   it('les tentatives refusées comptent aussi (pas de bypass)', () => {
