@@ -85,8 +85,9 @@ function normalizeEmail(email: string | null | undefined): string | null {
 
 /**
  * Ingère un event comportemental : INSERT ProspectEvent (idempotent). NE calcule
- * AUCUN score (events ⟂ scoring, cf en-tête). Le score est recalculé plus tard,
- * à la demande, par la couche scoring découplée (`lib/prospect/scoring`).
+ * AUCUN score (events ⟂ scoring, cf en-tête) : le scoring est SORTI du Hub
+ * (refactor bus 2026-06-17), il vit dans le CRM Twenty de chaque tenant. Il n'y
+ * a plus de couche scoring côté Hub — `lib/prospect/scoring` a été supprimé.
  *
  * @throws si la persistance échoue (hors violation d'unique = replay, avalé).
  */

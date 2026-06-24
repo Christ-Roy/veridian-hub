@@ -88,10 +88,24 @@ describe("ingestProspectEvent — persiste l'event SEUL (découplé du scoring)"
 
   it('NEVER scores at ingestion (no $queryRaw / $executeRaw on prospect_scores)', async () => {
     // Garde-fou du découplage : un event scorable NE déclenche AUCUN calcul de
-    // score à l'ingestion. Le score est recalculé plus tard, ailleurs.
+    // score à l'ingestion. Le scoring est SORTI du Hub (refactor 2026-06-17) :
+    // il vit dans le CRM Twenty de chaque tenant, il n'y a plus aucune couche
+    // scoring côté Hub à invoquer.
     await ingestProspectEvent({ ...base, eventType: 'email.replied' });
     expect(txQueryRawMock).not.toHaveBeenCalled();
     expect(txExecuteRawMock).not.toHaveBeenCalled();
+  });
+
+  it('n\'écrit AUCUN champ score/stage/barème sur l\'event persisté (bus pur)', async () => {
+    // Sabotage-proof du contrat bus (refactor 2026-06-17) : l'event persisté
+    // ne porte JAMAIS de score/stage/barème — le scoring vit dans le CRM du
+    // tenant. Si quelqu'un ré-injecte une notion de score à l'ingestion côté
+    // Hub, ces assertions rougissent.
+    await ingestProspectEvent({ ...base, eventType: 'email.clicked' });
+    const persisted = txCreateMock.mock.calls[0][0].data;
+    expect(persisted).not.toHaveProperty('score');
+    expect(persisted).not.toHaveProperty('stage');
+    expect(persisted).not.toHaveProperty('bareme');
   });
 
   it('persists all event fields (type, email, ws, idempotencyKey, data)', async () => {

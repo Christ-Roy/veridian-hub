@@ -585,5 +585,17 @@ describe('POST /api/webhooks/notifuse — Legacy HMAC', () => {
         vid: 'vid_42',
       }),
     );
+
+    // Bus d'events pur (refactor 2026-06-17) : le webhook PERSISTE l'event brut,
+    // il n'enrichit JAMAIS d'un score/stage/barème — le scoring vit dans le CRM
+    // du tenant. Sabotage-proof : si quelqu'un ré-injecte une notion de score
+    // dans le payload d'ingestion côté Hub, ces assertions rougissent.
+    const ingestArg = ingestProspectEventMock.mock.calls[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect(ingestArg).not.toHaveProperty('score');
+    expect(ingestArg).not.toHaveProperty('stage');
+    expect(ingestArg).not.toHaveProperty('bareme');
   });
 });

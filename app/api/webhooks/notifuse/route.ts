@@ -332,10 +332,12 @@ async function dispatchLegacyEvent(
       return;
     }
 
-    // Events COMPORTEMENTAUX (réconciliateur cold↔web + scoring prospect).
-    // Voie LEGACY HMAC = celle qu'emprunte le fork Notifuse aujourd'hui. On
-    // normalise et on délègue au MÊME ingestProspectEvent que la voie v1.4
-    // Bearer (lib/webhooks/notifuse-handlers.ts). Cf docs/CONTRAT-HUB.md §7.5.
+    // Events COMPORTEMENTAUX (réconciliateur cold↔web, bus d'events pur).
+    // Le Hub PERSISTE l'event, point — le scoring est sorti du Hub (refactor
+    // 2026-06-17), il vit dans le CRM Twenty de chaque tenant. Voie LEGACY HMAC
+    // = celle qu'emprunte le fork Notifuse aujourd'hui. On normalise et on
+    // délègue au MÊME ingestProspectEvent que la voie v1.4 Bearer
+    // (lib/webhooks/notifuse-handlers.ts). Cf docs/CONTRAT-HUB.md §7.5.
     //
     // `event_id` legacy sert de clé d'idempotence applicative (UUID v4 généré
     // par l'émetteur Go). `tenant_id` = notifuse workspace slug.
