@@ -5,7 +5,8 @@
 //
 // Fallback SMTP Lark si Brevo est indispo / clé absente (rare).
 
-import nodemailer from 'nodemailer';
+// nodemailer v9 + @types/nodemailer v7 : plus de default export → import nommé.
+import { createTransport } from 'nodemailer';
 
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 
@@ -73,7 +74,7 @@ async function sendViaSmtp(
   config: { smtpHost: string; smtpUser: string; smtpPassword: string }
 ): Promise<void> {
   const sender = payload.sender ?? DEFAULT_SENDER;
-  const transporter = nodemailer.createTransport({
+  const transporter = createTransport({
     host: config.smtpHost,
     port: Number(process.env.SMTP_PORT ?? 465),
     secure: true,
