@@ -1,25 +1,25 @@
 # 🔒 Veille CVE automatique — veridian-hub
 
 > **Généré par** : `veridian-infra/.github/workflows/cron-trivy.yml`
-> **Dernier run** : 2026-07-09 04:06 UTC
-> **Run URL** : local-cron@mail.mybigserveur.local:2026-07-09
+> **Dernier run** : 2026-07-10 04:13 UTC
+> **Run URL** : local-cron@mail.mybigserveur.local:2026-07-10
 > **Image scannée** : `ghcr.io/christ-roy/veridian-hub:latest`
-> **CVE bruts détectés** : 12 (avant filtrage)
+> **CVE bruts détectés** : 3 (avant filtrage)
 > **Scoring** : `veridian-infra/ci/trivy-scoring.yml`
 
 ## TL;DR
 
 - 🚨 **0 RED** — fix prioritaire
 - 🔴 **0 HIGH** — action recommandée cette semaine
-- 🟡 **6 MEDIUM** — récap, pas urgent
-- 🟢 **4 NOISE** — annexe collapse
+- 🟡 **2 MEDIUM** — récap, pas urgent
+- 🟢 **1 NOISE** — annexe collapse
 
 ✅ **Rien d'urgent.** Quelques items MEDIUM à voir quand t'as 5 min.
 
 
 ---
 
-## 🟡 MEDIUM — 6 CVE en 5 groupes
+## 🟡 MEDIUM — 2 CVE en 2 groupes
 
 ### 1. `@hono/node-server` — 1.19.11 → **1.19.13**
 
@@ -30,25 +30,7 @@
 - **Source** : `pnpm-lock.yaml`
 - **Fix** : `pnpm up @hono/node-server` (jusqu'à >= `1.19.13`)
 
-### 2. `picomatch` — 4.0.3 → **4.0.4**
-
-- **CVE** : `CVE-2026-33672` (MEDIUM/Auth bypass), `CVE-2026-33671` (HIGH/DoS)
-- **Type** : Auth bypass, DoS
-- **Score max** : 18
-- **Title** : picomatch: Picomatch: Data integrity compromised via method injection with crafted POSIX bracket expressions
-- **Source** : `Node.js`
-- **Fix** : `pnpm up picomatch` (jusqu'à >= `4.0.4`)
-
-### 3. `sigstore` — 3.1.0 → **4.1.1**
-
-- **CVE** : `CVE-2026-48815` (HIGH/Unclassified)
-- **Type** : Unclassified
-- **Score max** : 15
-- **Title** : sigstore's `certificateOIDs` verification constraints are silently dropped and never enforced
-- **Source** : `Node.js`
-- **Fix** : `pnpm up sigstore` (jusqu'à >= `4.1.1`)
-
-### 4. `postcss` — 8.4.31 → **8.5.10**
+### 2. `postcss` — 8.4.31 → **8.5.10**
 
 - **CVE** : `CVE-2026-41305` (MEDIUM/XSS)
 - **Type** : XSS
@@ -57,29 +39,17 @@
 - **Source** : `pnpm-lock.yaml`
 - **Fix** : `pnpm up postcss` (jusqu'à >= `8.5.10`)
 
-### 5. `ip-address` — 10.1.0 → **10.1.1**
-
-- **CVE** : `CVE-2026-42338` (MEDIUM/XSS)
-- **Type** : XSS
-- **Score max** : 12
-- **Title** : ip-address: ip-address: Cross-site scripting via improper HTML escaping of untrusted input
-- **Source** : `Node.js`
-- **Fix** : `pnpm up ip-address` (jusqu'à >= `10.1.1`)
-
 
 ---
 
-## 🟢 NOISE filtré (4 CVE)
+## 🟢 NOISE filtré (1 CVE)
 
 <details>
-<summary>Liste complète (4 groupes — clique pour déplier)</summary>
+<summary>Liste complète (1 groupe — clique pour déplier)</summary>
 
 | Package | Installed | Fix | CVE count | Max score |
 |---|---|---|---|---|
 | `qs` | 6.15.1 | 6.15.2 | 1 | 6 |
-| `@sigstore/core` | 2.0.0 | 3.2.1 | 1 | 6 |
-| `brace-expansion` | 2.0.2 | 5.0.5 | 1 | 6 |
-| `tar` | 7.5.11 | 7.5.16 | 1 | 6 |
 
 </details>
 
