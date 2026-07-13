@@ -1,37 +1,25 @@
 # 🔒 Veille CVE automatique — veridian-hub
 
 > **Généré par** : `veridian-infra/.github/workflows/cron-trivy.yml`
-> **Dernier run** : 2026-06-24 04:06 UTC
-> **Run URL** : local-cron@mail.mybigserveur.local:2026-06-24
+> **Dernier run** : 2026-07-13 04:06 UTC
+> **Run URL** : local-cron@mail.mybigserveur.local:2026-07-13
 > **Image scannée** : `ghcr.io/christ-roy/veridian-hub:latest`
-> **CVE bruts détectés** : 14 (avant filtrage)
+> **CVE bruts détectés** : 12 (avant filtrage)
 > **Scoring** : `veridian-infra/ci/trivy-scoring.yml`
 
 ## TL;DR
 
 - 🚨 **0 RED** — fix prioritaire
-- 🔴 **1 HIGH** — action recommandée cette semaine
-- 🟡 **5 MEDIUM** — récap, pas urgent
-- 🟢 **6 NOISE** — annexe collapse
+- 🔴 **0 HIGH** — action recommandée cette semaine
+- 🟡 **6 MEDIUM** — récap, pas urgent
+- 🟢 **4 NOISE** — annexe collapse
+
+✅ **Rien d'urgent.** Quelques items MEDIUM à voir quand t'as 5 min.
 
 
 ---
 
-## 🔴 HIGH — 1 CVE en 1 groupe
-
-### 1. `nodemailer` — 8.0.7 → **9.0.1**
-
-- **CVE** : `GHSA-p6gq-j5cr-w38f` (HIGH/SSRF)
-- **Type** : SSRF
-- **Score max** : 45
-- **Title** : Nodemailer: Message-level raw option bypasses disableFileAccess/disableUrlAccess, enabling arbitrary file read and full-response SSRF in the delivered message
-- **Source** : `pnpm-lock.yaml`
-- **Fix** : `pnpm up nodemailer` (jusqu'à >= `9.0.1`)
-
-
----
-
-## 🟡 MEDIUM — 5 CVE en 4 groupes
+## 🟡 MEDIUM — 6 CVE en 5 groupes
 
 ### 1. `@hono/node-server` — 1.19.11 → **1.19.13**
 
@@ -51,7 +39,16 @@
 - **Source** : `Node.js`
 - **Fix** : `pnpm up picomatch` (jusqu'à >= `4.0.4`)
 
-### 3. `postcss` — 8.4.31 → **8.5.10**
+### 3. `sigstore` — 3.1.0 → **4.1.1**
+
+- **CVE** : `CVE-2026-48815` (HIGH/Unclassified)
+- **Type** : Unclassified
+- **Score max** : 15
+- **Title** : sigstore's `certificateOIDs` verification constraints are silently dropped and never enforced
+- **Source** : `Node.js`
+- **Fix** : `pnpm up sigstore` (jusqu'à >= `4.1.1`)
+
+### 4. `postcss` — 8.4.31 → **8.5.10**
 
 - **CVE** : `CVE-2026-41305` (MEDIUM/XSS)
 - **Type** : XSS
@@ -60,7 +57,7 @@
 - **Source** : `pnpm-lock.yaml`
 - **Fix** : `pnpm up postcss` (jusqu'à >= `8.5.10`)
 
-### 4. `ip-address` — 10.1.0 → **10.1.1**
+### 5. `ip-address` — 10.1.0 → **10.1.1**
 
 - **CVE** : `CVE-2026-42338` (MEDIUM/XSS)
 - **Type** : XSS
@@ -72,15 +69,15 @@
 
 ---
 
-## 🟢 NOISE filtré (6 CVE)
+## 🟢 NOISE filtré (4 CVE)
 
 <details>
 <summary>Liste complète (4 groupes — clique pour déplier)</summary>
 
 | Package | Installed | Fix | CVE count | Max score |
 |---|---|---|---|---|
-| `nodemailer` | 8.0.7 | 8.0.9 | 3 | 6 |
 | `qs` | 6.15.1 | 6.15.2 | 1 | 6 |
+| `@sigstore/core` | 2.0.0 | 3.2.1 | 1 | 6 |
 | `brace-expansion` | 2.0.2 | 5.0.5 | 1 | 6 |
 | `tar` | 7.5.11 | 7.5.16 | 1 | 6 |
 
