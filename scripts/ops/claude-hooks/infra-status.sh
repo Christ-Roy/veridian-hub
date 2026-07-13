@@ -614,12 +614,15 @@ saas_container_resources() {
 # ─── Backups DB (R2 → local sync) ────────────────────────────────────────────
 # DBs surveillées et leur container prod / fréquence attendue
 # Source de vérité : /etc/cron.d/veridian-backups + /etc/cron.d/cms-backup
+# NB : verger-shop retiré 2026-07-01 — sa DB a migré sur Neon (serverless,
+# backups/PITR gérés par Neon) le 2026-06-27, cron local commenté (MIGRÉ EDGE
+# CLOUD). Plus de backup Docker local à surveiller → l'alerte "CRON DOWN" était
+# un faux positif. Les 30 dumps R2 historiques restent (archive, non purgés).
 SAAS_BACKUP_DBS=(
     "cms"
     "notifuse"
     "prospection"
     "veridian-core"
-    "verger-shop"
 )
 
 # Backups locaux (sync depuis R2 quotidien 07:00 via crontab brunon5@mail)
@@ -1295,4 +1298,16 @@ render_section_saas_overview
 echo ""
 echo ""
 render_section_current_repo
+
+# --- Crypto : constantes établies + verdict gas du jour — non bloquant ---
+echo ""
+echo ""
+echo "# CRYPTO — constantes à garder en tête (détail : crypto facts)"
+if [ -x "$HOME/.local/bin/crypto" ]; then
+    "$HOME/.local/bin/crypto" facts --line 2>/dev/null
+    timeout 8 "$HOME/.local/bin/crypto" gas --line 2>/dev/null || echo "  ⛽ gas indisponible (réseau) — lancer 'crypto gas' plus tard"
+else
+    echo "  (CLI crypto absent)"
+fi
+
 exit 0
