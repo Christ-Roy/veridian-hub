@@ -54,6 +54,7 @@ jobs:
       - uses: actions/checkout@v6
         with:
           submodules: recursive
+          token: ${{ secrets.CR_PAT }}  # PAT cross-repo (veridian-infra privé depuis 2026-07-10)
 
       - name: Compute image tag
         id: tag
