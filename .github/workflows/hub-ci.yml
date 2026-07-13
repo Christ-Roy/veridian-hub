@@ -207,198 +207,128 @@ jobs:
       severity: 'CRITICAL,HIGH'
       ignore-unfixed: true
 
-  # ─── Prisma migrate deploy AVANT deploy-prod ───
-  # Le Dockerfile runner (standalone Next.js) n'embarque ni `pnpm` ni le
-  # CLI Prisma, donc on ne peut pas lancer `prisma migrate deploy` au boot
-  # du container Hub sans alourdir l'image + risquer un fail boot (DB lag).
-  # À la place : container éphémère `node:22-alpine` sur le network
-  # `dokploy-network` qui résout `veridian-core-db:5432` et applique les
-  # migrations idempotentes (exit 0 si DB déjà à jour).
+  # ─── Deploy PROD via GitOps Nomad (SSH bastion) ───
+  # Remplace l'ancien deploy Dokploy (décommissionné 2026-07-10). Canon de
+  # référence : veridian-prospection/deploy/README.md. Le NOMAD_TOKEN ne quitte
+  # JAMAIS le bastion (sourcé in situ). Secrets app = Nomad Variable nomad/jobs/hub.
   #
-  # Doit tourner AVANT deploy-prod : ainsi quand le nouveau code prod
-  # démarre, sa DB matche déjà son schema.prisma. Si la migration fail
-  # (constraint conflict, etc.) → deploy-prod ne tourne pas (dependency)
-  # → la prod actuelle reste en place → pas de breaking change.
+  # ⚠️ PLUS de job `migrate-prod` : le container Hub migre AU BOOT (Dockerfile CMD
+  # `prisma migrate deploy && … && server.js`, CLI isolé dans /opt/prisma-cli,
+  # idempotent + advisory lock Postgres). Quand Nomad démarre le nouvel alloc, le
+  # migrate-on-boot tourne contre veridian-core-db (127.0.0.1:5432, schema hub_app)
+  # → puis server.js. Un migrate qui échoue = container jamais healthy → l'update
+  # stanza `auto_revert = true` du job restaure automatiquement la version saine.
   #
-  # Pattern documenté dans memory `reference_hub_prod_no_auto_migrate.md`
-  # (section "Comment migrer manuellement Hub staging").
-  migrate-prod:
-    needs: [docker, trivy]
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    environment:
-      name: production
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v6
-      - name: Apply Prisma migrations on prod DB
-        env:
-          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          VPS_HOST: ${{ vars.VPS_HOST }}
-          VPS_USER: ${{ vars.VPS_USER }}
-          RUN_ID: ${{ github.run_id }}
-        run: |
-          set -euo pipefail
-          if [ -z "$SSH_KEY" ] || [ -z "$VPS_HOST" ]; then
-            echo "::warning::Prod migrate skipped (no SSH credentials configured)"
-            exit 0
-          fi
-          mkdir -p ~/.ssh
-          echo "$SSH_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "$VPS_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-
-          # Workdir unique par run pour éviter les résidus root des runs
-          # précédents (les node_modules sont créés par root via docker run,
-          # ubuntu ne peut pas les rm — donc on isole par run_id).
-          REMOTE_DIR="/tmp/hub-prisma-migrate-${RUN_ID}"
-          REMOTE_TAR="/tmp/hub-prisma-migrate-${RUN_ID}.tar.gz"
-
-          # 1) Bundle prisma/ + package.json + pnpm-lock + prisma.config.ts
-          tar -czf /tmp/prisma-migrate.tar.gz prisma/ package.json pnpm-lock.yaml prisma.config.ts
-
-          # 2) Upload + extract sur prod-pub dans dir unique
-          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            /tmp/prisma-migrate.tar.gz "$VPS_USER@$VPS_HOST:$REMOTE_TAR"
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no "$VPS_USER@$VPS_HOST" \
-            "mkdir -p $REMOTE_DIR && tar -xzf $REMOTE_TAR -C $REMOTE_DIR"
-
-          # 3) Run prisma migrate deploy dans un container éphémère sur le
-          #    réseau dokploy-network (où vit veridian-core-db). Récupère
-          #    DATABASE_URL depuis le container Hub prod en cours (le
-          #    password n'est PAS dans ~/credentials/.all-creds.env mais
-          #    bien dans l'ENV du container Hub injectée par Dokploy).
-          #    `prisma migrate deploy` est idempotent : exit 0 si à jour,
-          #    applique séquentiellement les pending migrations sinon.
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no \
-            "$VPS_USER@$VPS_HOST" "REMOTE_DIR='$REMOTE_DIR' REMOTE_TAR='$REMOTE_TAR' bash -s" <<'REMOTE'
-          set -euo pipefail
-
-          # Récupération du DATABASE_URL depuis le container Hub prod
-          # (Dokploy injecte l'ENV à partir de la config compose). Pattern
-          # robuste : aucun couplage avec ~/credentials/.all-creds.env.
-          HUB_CONTAINER=$(docker ps --filter 'name=hub' --filter 'status=running' --format '{{.Names}}' | grep -E 'compose-back-up-online-pixel.*-hub-' | head -1)
-          if [ -z "$HUB_CONTAINER" ]; then
-            echo "ERROR: container Hub prod introuvable (filter compose-back-up-online-pixel.*-hub-)"
-            docker ps --format '{{.Names}}' | head -20
-            exit 1
-          fi
-          echo "Hub container: $HUB_CONTAINER"
-
-          DB_URL=$(docker exec "$HUB_CONTAINER" env | grep '^DATABASE_URL=' | head -1 | cut -d= -f2-)
-          if [ -z "$DB_URL" ]; then
-            echo "ERROR: DATABASE_URL not found in $HUB_CONTAINER env"
-            exit 1
-          fi
-          echo "DATABASE_URL resolved (length=${#DB_URL})"
-
-          echo "Running prisma migrate deploy on veridian-core-db (hub_app schema)..."
-          docker run --rm \
-            --network dokploy-network \
-            -v "$REMOTE_DIR":/app \
-            -w /app \
-            -e DATABASE_URL="$DB_URL" \
-            -e DEBUG="prisma:migrate*" \
-            node:22-alpine \
-            sh -c '
-              corepack enable >/dev/null 2>&1 && \
-              corepack prepare pnpm@10.33.0 --activate >/dev/null 2>&1 && \
-              pnpm install --frozen-lockfile --ignore-scripts >/dev/null 2>&1 && \
-              pnpm exec prisma migrate deploy
-            '
-          echo "✓ Prisma migrations applied (or already up to date)"
-
-          # Cleanup — best-effort total. Les fichiers dans node_modules ont
-          # été créés par root via docker run, donc ubuntu ne peut pas les
-          # supprimer directement. On utilise un container alpine root pour
-          # vider le volume, puis on rm le dir vide.
-          set +e
-          docker run --rm -v "$REMOTE_DIR":/cleanup alpine \
-            sh -c 'rm -rf /cleanup/* /cleanup/.[!.]* 2>/dev/null' >/dev/null 2>&1
-          rmdir "$REMOTE_DIR" 2>/dev/null
-          rm -f "$REMOTE_TAR" 2>/dev/null
-          # Best-effort cleanup des anciens runs (si des résidus traînent
-          # depuis avant ce fix). N'affecte jamais le résultat du step.
-          for old in $(ls -d /tmp/hub-prisma-migrate-* 2>/dev/null | grep -v "$REMOTE_DIR" || true); do
-            docker run --rm -v "$old":/cleanup alpine \
-              sh -c 'rm -rf /cleanup/* /cleanup/.[!.]* 2>/dev/null' >/dev/null 2>&1 || true
-            rmdir "$old" 2>/dev/null || true
-          done
-          # Compatibilité ascendante : supprimer l'ancien dossier non-versionné
-          # s'il existe (résidu des runs avant ce fix).
-          if [ -d /tmp/hub-prisma-migrate ]; then
-            docker run --rm -v /tmp/hub-prisma-migrate:/cleanup alpine \
-              sh -c 'rm -rf /cleanup/* /cleanup/.[!.]* 2>/dev/null' >/dev/null 2>&1
-            rmdir /tmp/hub-prisma-migrate 2>/dev/null || true
-          fi
-          rm -f /tmp/prisma-migrate.tar.gz 2>/dev/null || true
-          exit 0
-          REMOTE
-
-      - name: Cleanup runner secrets
-        if: always()
-        run: |
-          rm -f ~/.ssh/deploy_key ~/.ssh/known_hosts /tmp/prisma-migrate.tar.gz
-
+  # ⚠️ PLUS de job `rollback-prod` Dokploy : Nomad `auto_revert` couvre le cas
+  # "deploy jamais healthy" ; un échec post-deploy (e2e-prod-smoke rouge sur un
+  # alloc healthy) = rollback MANUEL §20 (mot-clé `rollback` = git revert + push
+  # main → re-deploy du SHA d'avant + monitoring). Cf deploy/README (canon §7).
   deploy-prod:
-    needs: [docker, trivy, migrate-prod]
+    name: Deploy Nomad prod (SSH bastion)
+    needs: [docker, trivy]
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
-    # GitHub Environment `production` — permet :
-    # - Tracking centralisé des deploys (Settings → Environments → production)
-    # - Ajout futur de protection rules (manual approval si changement structurel)
-    # - Scoping des secrets prod (DEPLOY_SSH_KEY, VPS_HOST, etc. à scope env)
+    # GitHub Environment `production` — tracking centralisé des deploys prod.
     environment:
       name: production
       url: https://app.veridian.site
+    env:
+      NOMAD_JOB: hub
+      JOB_FILE: deploy/hub.nomad.hcl
+      REMOTE_HCL: /tmp/hub-${{ github.run_id }}.nomad.hcl
+      PROD_URL: https://app.veridian.site
     steps:
-      - name: Trigger Dokploy redeploy (custom-git mode pulls main automatically)
-        env:
-          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          VPS_HOST: ${{ vars.VPS_HOST }}
-          VPS_USER: ${{ vars.VPS_USER }}
-          DOKPLOY_COMPOSE_ID: ${{ vars.DOKPLOY_COMPOSE_ID }}
-        run: |
-          if [ -z "$SSH_KEY" ] || [ -z "$VPS_HOST" ] || [ -z "$DOKPLOY_COMPOSE_ID" ]; then
-            echo "Prod deploy not fully configured — skipping (set vars/secrets)"
-            exit 0
-          fi
-          mkdir -p ~/.ssh
-          echo "$SSH_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H $VPS_HOST >> ~/.ssh/known_hosts 2>/dev/null
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST bash -s << DEPLOY
-            CURRENT_ID=\$(docker images ghcr.io/christ-roy/veridian-hub:latest --format '{{.ID}}' 2>/dev/null)
-            if [ -n "\$CURRENT_ID" ]; then
-              docker tag "\$CURRENT_ID" ghcr.io/christ-roy/veridian-hub:rollback
-              echo "Tagged current image as :rollback (\$CURRENT_ID)"
-            fi
-            docker pull ghcr.io/christ-roy/veridian-hub:latest
-            DKEY=\$(grep '^DOKPLOY_API_KEY=' ~/credentials/.all-creds.env | cut -d= -f2)
-            # compose.deploy clone Git puis up. compose.redeploy juste up sans
-            # re-clone => le compose Git ne se met jamais à jour. Pour GitOps
-            # custom-git il faut compose.deploy.
-            curl -sf -X POST \
-              -H "x-api-key: \$DKEY" \
-              -H "Content-Type: application/json" \
-              -d '{"json":{"composeId":"$DOKPLOY_COMPOSE_ID"}}' \
-              http://localhost:3000/api/trpc/compose.deploy && echo "Hub prod deploy triggered"
-          DEPLOY
-          echo "Waiting for hub health (up to 2min)..."
-          for i in $(seq 1 12); do
-            if curl -sf https://app.veridian.site/api/health | grep -q '"status":"ok"'; then
-              echo "Hub prod healthy after ${i}0s"
-              exit 0
-            fi
-            sleep 10
-          done
-          echo "ERROR: hub health check failed after 2min — deploy probably broken"
-          exit 1
+      - uses: actions/checkout@v6
+        # Le HCL vit dans le repo (deploy/) — pas besoin du submodule ici.
 
-      - name: Cleanup runner secrets
+      - name: Install SSH key (bastion Nomad)
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.NOMAD_DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.NOMAD_BASTION_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      # ⚠️ On copie le HCL DU REPO (qui déclare `variable "image_tag"`), jamais la
+      # copie bastion ~/nomad-veridian/jobs/ (plus vieille, sans le bloc variable).
+      - name: Copy HCL to bastion
+        run: |
+          scp -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new \
+            "$JOB_FILE" \
+            "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}:$REMOTE_HCL"
+
+      - name: nomad job plan (dry-run) + run -detach
+        env:
+          IMAGE_TAG: ${{ needs.docker.outputs.version }}
+          REMOTE_HCL: ${{ env.REMOTE_HCL }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 \
+            "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}" \
+            "IMAGE_TAG='${IMAGE_TAG}' REMOTE_HCL='${REMOTE_HCL}' bash -s" <<'REMOTE'
+          set -euo pipefail
+          # NOMAD_MGMT_TOKEN sourcé ici, sur le bastion, exporté en NOMAD_TOKEN.
+          source ~/credentials/nomad-bastion.env
+          export NOMAD_ADDR NOMAD_TOKEN="$NOMAD_MGMT_TOKEN"
+
+          # ── PRÉ-PULL authentifié sur le nœud cible (prod = LE BASTION, provider=contabo) ──
+          # Nomad ne pull pas les images PRIVÉES ghcr (plugin sans bloc auth → 401,
+          # alloc pending jusqu'au healthy_deadline). On pré-pull EN LOCAL sur le
+          # bastion (auth ghcr en place) → image déjà présente quand la task démarre.
+          echo "== pré-pull image prod sur le bastion (auth ghcr local) =="
+          docker pull "ghcr.io/christ-roy/veridian-hub:${IMAGE_TAG}"
+
+          echo "== nomad job validate =="
+          /usr/bin/nomad job validate -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL"
+
+          echo "== nomad job plan (diff, inoffensif) =="
+          # plan renvoie exit 1 quand il y a des allocs à créer : by design → `|| true`.
+          /usr/bin/nomad job plan -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL" || true
+
+          # Déploiement + vérification CIBLÉE (ni race, ni 404) : run -detach →
+          # résout le Deployment de cet eval → `deployment status -monitor <id>`
+          # (bloque jusqu'à terminal, exit ≠0 si échec/auto-revert). Évite le faux
+          # positif du poll (lit l'ancien deploy) ET le faux négatif du `job run`
+          # bloquant (404 transitoire). Incident 2026-07-11.
+          # ⚠️ Job prod STATEFUL (DB co-localisée, count=1) → un run recrée l'alloc
+          # (bref redémarrage DB, attendu, pas zéro-downtime).
+          echo "== nomad job run -detach + monitoring du déploiement ciblé (image_tag=${IMAGE_TAG}) =="
+          EVAL=$(/usr/bin/nomad job run -detach -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL" | grep -oP 'Evaluation ID:\s+\K\S+')
+          echo "eval: ${EVAL:-none}"
+          DEP=""
+          for i in $(seq 1 15); do
+            DEP=$(/usr/bin/nomad eval status -json "$EVAL" 2>/dev/null | python3 -c 'import sys,json;print(json.load(sys.stdin).get("DeploymentID") or "")' 2>/dev/null || true)
+            [ -n "$DEP" ] && break
+            sleep 2
+          done
+          if [ -z "$DEP" ]; then
+            echo "Pas de déploiement créé (job inchangé = no-op) → OK"
+          else
+            echo "deployment: $DEP — monitoring jusqu'à terminal…"
+            /usr/bin/nomad deployment status -monitor "$DEP"
+          fi
+          REMOTE
+
+      - name: Cleanup remote HCL
         if: always()
         run: |
-          rm -f ~/.ssh/deploy_key ~/.ssh/known_hosts
+          ssh -i ~/.ssh/id_ed25519 \
+            "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}" \
+            "rm -f '$REMOTE_HCL'" || true
+
+      # Smoke public (le monitor Nomad a déjà garanti que le NOUVEL alloc est
+      # healthy ; ce curl est une double-vérif via l'ingress public).
+      - name: Smoke /api/health (retry 6x/10s)
+        run: |
+          for i in $(seq 1 6); do
+            CODE=$(curl -sS -o /dev/null -w "%{http_code}" "$PROD_URL/api/health" || echo "000")
+            echo "[$i/6] /api/health → $CODE"
+            if [ "$CODE" = "200" ]; then exit 0; fi
+            [ "$i" = "6" ] && { echo "::error::Smoke /api/health failed"; exit 1; }
+            sleep 10
+          done
+
+      - name: Cleanup local runner
+        if: always()
+        run: rm -f ~/.ssh/id_ed25519
 
   e2e-prod-smoke:
     needs: deploy-prod
@@ -427,57 +357,3 @@ jobs:
           name: hub-prod-smoke-trace
           path: test-results/
           retention-days: 7
-
-  # Rollback : déclenché uniquement si deploy-prod OU e2e-prod-smoke a explicitement
-  # fail (pas si skipped). Évite le faux rollback quand Trivy bloque le deploy.
-  rollback-prod:
-    needs: [deploy-prod, e2e-prod-smoke]
-    if: |
-      github.ref == 'refs/heads/main' &&
-      (needs.deploy-prod.result == 'failure' || needs.e2e-prod-smoke.result == 'failure')
-    runs-on: ubuntu-latest
-    steps:
-      - name: Rollback to previous image
-        env:
-          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          VPS_HOST: ${{ vars.VPS_HOST }}
-          VPS_USER: ${{ vars.VPS_USER }}
-          DOKPLOY_COMPOSE_ID: ${{ vars.DOKPLOY_COMPOSE_ID }}
-        run: |
-          if [ -z "$SSH_KEY" ] || [ -z "$VPS_HOST" ] || [ -z "$DOKPLOY_COMPOSE_ID" ]; then
-            echo "Rollback skipped (no prod credentials)"
-            exit 0
-          fi
-          mkdir -p ~/.ssh
-          echo "$SSH_KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H $VPS_HOST >> ~/.ssh/known_hosts 2>/dev/null
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no $VPS_USER@$VPS_HOST bash -s << ROLLBACK
-            ROLLBACK_ID=\$(docker images ghcr.io/christ-roy/veridian-hub:rollback --format '{{.ID}}' 2>/dev/null)
-            if [ -z "\$ROLLBACK_ID" ]; then
-              echo "No :rollback image found — cannot rollback"
-              exit 1
-            fi
-            docker tag ghcr.io/christ-roy/veridian-hub:rollback ghcr.io/christ-roy/veridian-hub:latest
-            DKEY=\$(grep '^DOKPLOY_API_KEY=' ~/credentials/.all-creds.env | cut -d= -f2)
-            curl -sf -X POST \
-              -H "x-api-key: \$DKEY" \
-              -H "Content-Type: application/json" \
-              -d '{"json":{"composeId":"$DOKPLOY_COMPOSE_ID"}}' \
-              http://localhost:3000/api/trpc/compose.redeploy
-            echo "Rolled back to previous image"
-          ROLLBACK
-          for i in $(seq 1 9); do
-            if curl -sf https://app.veridian.site/api/health | grep -q '"status":"ok"'; then
-              echo "Rollback healthy after ${i}0s"
-              exit 0
-            fi
-            sleep 10
-          done
-          echo "WARNING: rollback health check timed out — manual intervention needed"
-          exit 1
-
-      - name: Cleanup runner secrets
-        if: always()
-        run: |
-          rm -f ~/.ssh/deploy_key ~/.ssh/known_hosts

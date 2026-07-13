@@ -4,7 +4,8 @@ name: Hub Staging (dev server)
 #   - 1 stack staging fixe sur hub.staging.veridian.site
 #   - Trigger : push sur branche `staging`
 #   - Pas d'éphémère par PR, pas de teardown auto
-#   - Deploy via SSH dev-pub → docker compose up
+#   - Deploy GITOPS NOMAD via SSH bastion (canon Prospection deploy/README.md).
+#     L'ancien deploy compose Dokploy dev-pub est retiré (migration Nomad 2026-07).
 #
 # Pour valider une PR sur staging avant merge main :
 #   1. Push la branche feature/fix → travailler dessus
@@ -26,27 +27,29 @@ on:
 
 concurrency:
   group: hub-staging-deploy
-  cancel-in-progress: true
+  cancel-in-progress: false  # un deploy Nomad en cours ne doit pas être interrompu
 
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: christ-roy/veridian-hub
-  STAGING_DIR: /opt/staging/hub
   STAGING_URL: https://hub.staging.veridian.site
 
 jobs:
   deploy:
+    name: Build + deploy Nomad staging (SSH bastion)
     runs-on: ubuntu-latest
-    if: |
-      vars.STAGING_HOST != '' && vars.STAGING_USER != ''
-    # GitHub Environment `staging` — permet tracking centralisé des deploys
-    # staging et scoping futur des secrets STAGING_* à scope env.
+    # GitHub Environment `staging` — tracking centralisé des deploys staging.
     environment:
       name: staging
       url: https://hub.staging.veridian.site
     permissions:
       contents: read
       packages: write
+    env:
+      # Job Nomad staging (== `job "hub-staging"` du HCL) — placé sur ovh-dev.
+      NOMAD_JOB: hub-staging
+      JOB_FILE: deploy/hub-staging.nomad.hcl
+      REMOTE_HCL: /tmp/hub-staging-${{ github.run_id }}.nomad.hcl
     steps:
       - uses: actions/checkout@v6
         with:
@@ -81,143 +84,89 @@ jobs:
               -f ./Dockerfile \
               .
 
-      - name: Setup SSH
-        env:
-          SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
-          DEV_HOST: ${{ vars.STAGING_HOST }}
+      # ── DEPLOY NOMAD (SSH bastion) — remplace l'ancien deploy compose dev-pub ──
+      # Canon : veridian-prospection/deploy/README.md. Le NOMAD_TOKEN ne quitte
+      # JAMAIS le bastion (sourcé in situ). Les secrets app vivent dans la Nomad
+      # Variable nomad/jobs/hub-staging (injectés cluster-side par template{env}).
+      # ⚠️ Adaptation Hub : PAS de step `prisma migrate deploy` — le container Hub
+      # migre AU BOOT (Dockerfile CMD : `prisma migrate deploy && … && server.js`,
+      # idempotent + advisory lock). Nomad démarre le nouvel alloc → migrate-on-boot
+      # tourne contre le leader Patroni (via le sidecar HAProxy) → puis server.
+      - name: Install SSH key (bastion Nomad)
         run: |
-          MISSING=""
-          [ -z "$SSH_KEY" ] && MISSING="$MISSING STAGING_SSH_KEY"
-          [ -z "$DEV_HOST" ] && MISSING="$MISSING STAGING_HOST"
-          if [ -n "$MISSING" ]; then
-            echo "::error::Staging credentials missing:$MISSING"
-            exit 1
-          fi
           mkdir -p ~/.ssh
-          echo "$SSH_KEY" > ~/.ssh/staging_key
-          chmod 600 ~/.ssh/staging_key
-          ssh-keyscan -H "$DEV_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          echo "${{ secrets.NOMAD_DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.NOMAD_BASTION_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
 
-      - name: Deploy stack
-        env:
-          DEV_HOST: ${{ vars.STAGING_HOST }}
-          DEV_USER: ${{ vars.STAGING_USER }}
-          IMAGE_TAG: ${{ steps.tag.outputs.image-tag }}
-          HUB_AUTH_SECRET: ${{ secrets.STAGING_HUB_AUTH_SECRET }}
-          POSTGRES_PASSWORD: ${{ secrets.STAGING_POSTGRES_PASSWORD }}
-          # Secrets cross-app : doivent être identiques aux containers
-          # prospection-staging (TENANT_API_SECRET) et notifuse-staging
-          # (HUB_API_SECRET / HUB_WEBHOOK_SECRET). Sans ça, le compose
-          # fallback sur "staging-secret" → 401 Invalid signature sur tous
-          # les appels Hub → Prospection / Notifuse.
-          PROSPECTION_TENANT_API_SECRET_STAGING: ${{ secrets.PROSPECTION_TENANT_API_SECRET_STAGING }}
-          NOTIFUSE_HUB_API_SECRET_STAGING: ${{ secrets.NOTIFUSE_HUB_API_SECRET_STAGING }}
-          NOTIFUSE_HUB_WEBHOOK_SECRET_STAGING: ${{ secrets.NOTIFUSE_HUB_WEBHOOK_SECRET_STAGING }}
-          # Bearer tokens v1.4 — utilisés par les apps downstream quand elles
-          # POST sur /api/webhooks/<app>. Côté Hub on AUTHENTIFIE l'app en
-          # comparant le Bearer reçu à ces tokens. Sans ça, les routes
-          # /api/webhooks/notifuse (v1.4) et /api/webhooks/prospection
-          # répondent 500 "<APP>_WEBHOOK_TOKEN not configured" — le receiver
-          # `lib/webhooks/receiver.ts` bloque dès le préambule auth.
-          NOTIFUSE_WEBHOOK_TOKEN: ${{ secrets.NOTIFUSE_WEBHOOK_TOKEN }}
-          PROSPECTION_WEBHOOK_TOKEN: ${{ secrets.PROSPECTION_WEBHOOK_TOKEN }}
-          # Stripe TEST (compte preprod, sans risque sur LIVE). Sans ces clés
-          # le compose tombe sur les fallbacks pk_test_fake/sk_test_fake et
-          # AUCUN flow Stripe ne peut être testé sur staging (checkout, refill,
-          # webhook). Cf incident 2026-05-23.
-          STRIPE_SECRET_KEY_TEST: ${{ secrets.STAGING_STRIPE_SECRET_KEY_TEST }}
-          STRIPE_PUBLISHABLE_KEY_TEST: ${{ secrets.STAGING_STRIPE_PUBLISHABLE_KEY_TEST }}
-          STRIPE_WEBHOOK_SECRET_TEST: ${{ secrets.STAGING_STRIPE_WEBHOOK_SECRET_TEST }}
-          STRIPE_REFILL_PRODUCT_ID_TEST: ${{ secrets.STAGING_STRIPE_REFILL_PRODUCT_ID_TEST }}
-          # Bypass rate-limit admin pour E2E staging (cf. lib/auth/rate-limit.ts
-          # → shouldBypassRateLimit). Côté Hub, le bypass est ignoré dès que
-          # DEPLOY_ENV='prod', donc aucun risque de fuite via ce secret en prod.
-          # Le secret est partagé avec le runner E2E via ~/credentials/.all-creds.env.
-          E2E_RATELIMIT_BYPASS_SECRET: ${{ secrets.STAGING_E2E_RATELIMIT_BYPASS_SECRET }}
-          # ADMIN_SECRET staging — doit matcher la valeur HUB_ADMIN_SECRET
-          # utilisée par les runners E2E (depuis ~/credentials/.all-creds.env).
-          # Sans alignement, tous les calls admin renvoient 401 alors que le
-          # rate-limit bypass marche (cf incident 2026-05-23 post-fix bypass).
-          ADMIN_SECRET_STAGING: ${{ secrets.STAGING_HUB_ADMIN_SECRET }}
-          # Mail Gateway v1 — OAuth Client 2 "Veridian Mail Sender" (cf.
-          # ticket 2026-05-25-gmail-send-implementation-hub.md). Mêmes
-          # valeurs que prod (1 Client OAuth, 3 redirect URIs déclarés
-          # côté Console : prod + staging + localhost). Sans ça la route
-          # /api/gmail/connect répond 503 mail_oauth_not_configured.
-          STAGING_GOOGLE_MAIL_CLIENT_ID: ${{ secrets.STAGING_GOOGLE_MAIL_CLIENT_ID }}
-          STAGING_GOOGLE_MAIL_CLIENT_SECRET: ${{ secrets.STAGING_GOOGLE_MAIL_CLIENT_SECRET }}
-          # ⚠️ OAuth Sign-in (Google/Microsoft) PAS configuré côté staging
-          # à cause de la privatisation Tailscale (hub.staging.veridian.site
-          # → IP Tailscale 100.92.215.42 non résolvable publiquement). Si on
-          # déclarait cette redirect URI côté Google/Microsoft, les providers
-          # feraient un check public qui échouerait → red flag réputation
-          # potentiel pour le Client OAuth Veridian Hub partagé avec prod.
-          #
-          # Décision 2026-05-20 (cf. memory reference_staging_tailscale_privatisation.md) :
-          # - Staging = test du flow non-OAuth (credentials + magic link)
-          # - Test OAuth = en local-dev (avec Client dev → localhost:3000) ou
-          #   en prod direct
-          # - LoginForm.tsx + SignupForm.tsx cachent les boutons OAuth si
-          #   DEPLOY_ENV=staging via NEXT_PUBLIC_DEPLOY_ENV
+      # ⚠️ On copie le HCL DU REPO (qui déclare `variable "image_tag"`), jamais la
+      # copie bastion ~/nomad-veridian/jobs/ (plus vieille, sans le bloc variable).
+      - name: Copy HCL to bastion
         run: |
+          scp -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new \
+            "$JOB_FILE" \
+            "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}:$REMOTE_HCL"
+
+      - name: nomad job plan (dry-run) + run -detach
+        env:
+          IMAGE_TAG: ${{ steps.tag.outputs.image-tag }}
+          REMOTE_HCL: ${{ env.REMOTE_HCL }}
+        run: |
+          ssh -i ~/.ssh/id_ed25519 \
+            "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}" \
+            "IMAGE_TAG='${IMAGE_TAG}' REMOTE_HCL='${REMOTE_HCL}' bash -s" <<'REMOTE'
           set -euo pipefail
+          # NOMAD_MGMT_TOKEN sourcé ici, sur le bastion, exporté en NOMAD_TOKEN.
+          source ~/credentials/nomad-bastion.env
+          export NOMAD_ADDR NOMAD_TOKEN="$NOMAD_MGMT_TOKEN"
 
-          # SCP composes (base + staging uniquement, pas prod.yml).
-          ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" "mkdir -p ${{ env.STAGING_DIR }}/compose"
-          scp -i ~/.ssh/staging_key compose/base.yml "$DEV_USER@$DEV_HOST:${{ env.STAGING_DIR }}/compose/"
-          scp -i ~/.ssh/staging_key compose/staging.yml "$DEV_USER@$DEV_HOST:${{ env.STAGING_DIR }}/compose/"
+          # ── PRÉ-PULL authentifié sur le nœud cible (staging = ovh-dev == dev-pub) ──
+          # Nomad ne pull pas les images PRIVÉES ghcr (plugin sans bloc auth → 401,
+          # alloc pending jusqu'au healthy_deadline, incident 2026-07-11). On pré-pull
+          # AVEC l'auth ghcr du nœud. -n IMPÉRATIF : sinon ce ssh avale le stdin du
+          # heredoc REMOTE et mange les commandes nomad suivantes → faux vert.
+          echo "== pré-pull image sur ovh-dev (auth ghcr du nœud) =="
+          ssh -n -o BatchMode=yes -o ConnectTimeout=15 dev-pub \
+            "docker pull ghcr.io/christ-roy/veridian-hub:${IMAGE_TAG}"
 
-          # .env de la stack (chargé automatiquement par compose dans le CWD)
-          ENVFILE="$(mktemp)"
-          {
-            printf 'HUB_IMAGE_TAG=%s\n' "$IMAGE_TAG"
-            printf 'HUB_AUTH_SECRET=%s\n' "$HUB_AUTH_SECRET"
-            printf 'POSTGRES_PASSWORD=%s\n' "$POSTGRES_PASSWORD"
-            printf 'PROSPECTION_TENANT_API_SECRET_STAGING=%s\n' "$PROSPECTION_TENANT_API_SECRET_STAGING"
-            printf 'NOTIFUSE_HUB_API_SECRET_STAGING=%s\n' "$NOTIFUSE_HUB_API_SECRET_STAGING"
-            printf 'NOTIFUSE_HUB_WEBHOOK_SECRET_STAGING=%s\n' "$NOTIFUSE_HUB_WEBHOOK_SECRET_STAGING"
-            printf 'NOTIFUSE_WEBHOOK_TOKEN=%s\n' "$NOTIFUSE_WEBHOOK_TOKEN"
-            printf 'PROSPECTION_WEBHOOK_TOKEN=%s\n' "$PROSPECTION_WEBHOOK_TOKEN"
-            printf 'STRIPE_SECRET_KEY_TEST=%s\n' "$STRIPE_SECRET_KEY_TEST"
-            printf 'STRIPE_PUBLISHABLE_KEY_TEST=%s\n' "$STRIPE_PUBLISHABLE_KEY_TEST"
-            printf 'STRIPE_WEBHOOK_SECRET_TEST=%s\n' "$STRIPE_WEBHOOK_SECRET_TEST"
-            printf 'STRIPE_REFILL_PRODUCT_ID_TEST=%s\n' "$STRIPE_REFILL_PRODUCT_ID_TEST"
-            printf 'E2E_RATELIMIT_BYPASS_SECRET=%s\n' "$E2E_RATELIMIT_BYPASS_SECRET"
-            printf 'ADMIN_SECRET_STAGING=%s\n' "$ADMIN_SECRET_STAGING"
-            printf 'GOOGLE_MAIL_CLIENT_ID_STAGING=%s\n' "$STAGING_GOOGLE_MAIL_CLIENT_ID"
-            printf 'GOOGLE_MAIL_CLIENT_SECRET_STAGING=%s\n' "$STAGING_GOOGLE_MAIL_CLIENT_SECRET"
-          } > "$ENVFILE"
-          scp -i ~/.ssh/staging_key "$ENVFILE" "$DEV_USER@$DEV_HOST:${{ env.STAGING_DIR }}/.env"
-          rm -f "$ENVFILE"
-          ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" "chmod 600 ${{ env.STAGING_DIR }}/.env"
+          echo "== nomad job validate =="
+          /usr/bin/nomad job validate -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL"
 
-          # Pull + up (1 seule stack fixe, recycle des containers existants)
-          ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" \
-            "cd ${{ env.STAGING_DIR }} && docker compose -p hub-staging --env-file .env -f compose/base.yml -f compose/staging.yml pull"
-          ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" \
-            "cd ${{ env.STAGING_DIR }} && docker compose -p hub-staging --env-file .env -f compose/base.yml -f compose/staging.yml up -d --remove-orphans"
+          echo "== nomad job plan (diff, inoffensif) =="
+          # plan renvoie exit 1 quand il y a des allocs à créer : by design → `|| true`.
+          /usr/bin/nomad job plan -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL" || true
 
-          # Attendre healthcheck OK
-          echo "Waiting for hub-staging to become healthy..."
-          for i in $(seq 1 30); do
-            STATUS=$(ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" \
-              "docker inspect hub-staging --format '{{.State.Health.Status}}' 2>/dev/null" || echo "starting")
-            if [ "$STATUS" = "healthy" ]; then
-              echo "Healthy after $((i*10))s"
-              exit 0
-            fi
-            sleep 10
+          # Déploiement + vérification CIBLÉE (ni race, ni 404) : run -detach →
+          # résout le Deployment de cet eval → `deployment status -monitor <id>`
+          # (bloque jusqu'à terminal, exit ≠0 si échec/auto-revert). Évite le faux
+          # positif du poll `job status | grep successful` (lit l'ancien deploy) ET
+          # le faux négatif du `job run` bloquant (404 transitoire). Incident 2026-07-11.
+          echo "== nomad job run -detach + monitoring du déploiement ciblé (image_tag=${IMAGE_TAG}) =="
+          EVAL=$(/usr/bin/nomad job run -detach -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL" | grep -oP 'Evaluation ID:\s+\K\S+')
+          echo "eval: ${EVAL:-none}"
+          DEP=""
+          for i in $(seq 1 15); do
+            DEP=$(/usr/bin/nomad eval status -json "$EVAL" 2>/dev/null | python3 -c 'import sys,json;print(json.load(sys.stdin).get("DeploymentID") or "")' 2>/dev/null || true)
+            [ -n "$DEP" ] && break
+            sleep 2
           done
-          echo "::error::Container hub-staging not healthy after 5min"
-          ssh -i ~/.ssh/staging_key "$DEV_USER@$DEV_HOST" \
-            "docker logs hub-staging --tail 100" || true
-          exit 1
+          if [ -z "$DEP" ]; then
+            echo "Pas de déploiement créé (job inchangé = no-op) → OK"
+          else
+            echo "deployment: $DEP — monitoring jusqu'à terminal…"
+            /usr/bin/nomad deployment status -monitor "$DEP"
+          fi
+          REMOTE
 
-      # Staging accessible UNIQUEMENT via le tailnet Veridian depuis 2026-05-19
-      # (cf docs/CONTRAT-HUB.md §8.6). DNS *.staging.veridian.site → IP
-      # Tailscale 100.92.215.42, Traefik écoute uniquement cette interface.
-      # Le runner GitHub Actions rejoint le tailnet via OAuth (tag:ci-github)
-      # avant de hit l'URL staging.
+      - name: Cleanup remote HCL
+        if: always()
+        run: |
+          ssh -i ~/.ssh/id_ed25519 \
+            "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}" \
+            "rm -f '$REMOTE_HCL'" || true
+
+      # Staging accessible UNIQUEMENT via le tailnet Veridian (internal-only@nomad,
+      # ipAllowList 100.64/10 → 403 hors tailnet). Le runner rejoint le tailnet.
       - name: Tailscale (connect runner to tailnet for staging smoke)
         uses: tailscale/github-action@v3
         with:
@@ -229,7 +178,7 @@ jobs:
       - name: Smoke test staging URL
         run: |
           echo "Smoke test: ${{ env.STAGING_URL }}/api/health (via Tailscale)"
-          for i in $(seq 1 6); do
+          for i in $(seq 1 12); do
             if curl -sf --max-time 10 "${{ env.STAGING_URL }}/api/health" | grep -q '"status":"ok"'; then
               echo "✓ Staging healthy: ${{ env.STAGING_URL }}"
               exit 0
@@ -237,15 +186,13 @@ jobs:
             echo "Attempt $i: not ready, retry in 10s..."
             sleep 10
           done
-          echo "::error::Smoke failed after 60s on ${{ env.STAGING_URL }}"
+          echo "::error::Smoke failed after 120s on ${{ env.STAGING_URL }}"
           exit 1
 
       - name: Cleanup local runner
         if: always()
         run: |
-          docker container prune -f || true
-          docker image prune -f --filter "until=1h" || true
-          rm -f ~/.ssh/staging_key
+          rm -f ~/.ssh/id_ed25519
 
   # Auto-promote staging → main — UNIQUEMENT pour les commits tier 🟢 BAS.
   # Cf. CI-ARCHITECTURE.md §20 "Promotion graduée par risque" (2026-05-20).
