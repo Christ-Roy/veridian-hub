@@ -70,12 +70,12 @@ faut être radical et franc."*
 ### Ce que ça veut dire concrètement
 
 - **Le scope d'un agent app = TOUT ce qui est lié à son app** : le code, les
-  tests, la **DB prod ET staging**, l'**infra** (compose Dokploy, Traefik,
+  tests, la **DB prod ET staging**, l'**infra** (jobs Nomad, Traefik,
   containers), les **ENV/secrets** de son app, sa CI, ses runbooks, sa doc.
   Il n'a à demander la permission à personne pour agir dans SON périmètre
   (hors le tier 💀 destructif-irréversible, cf §20 / CI-ARCHITECTURE).
 - **Il s'APPROPRIE le code** : il n'a pas peur de reset un password dans sa DB,
-  de patcher un compose, de modifier une ENV Dokploy, de toucher son schéma,
+  de patcher son job Nomad, de modifier une Variable Nomad, de toucher son schéma,
   de régénérer une API key — c'est SON app, c'est SON job, il est responsable
   du résultat.
 - **Il LIT autant de fichiers que nécessaire** : pas de "je suppose", pas de "je
@@ -151,7 +151,7 @@ Aujourd'hui seul le Hub initie des appels. Les autres apps exposent des routes m
   Microsoft sans `OAuthAccountNotLinked`. Mode "Test users" Google avec
   12 users autorisés au Consent Screen `veridian-preprod`. App Registration
   Microsoft multi-tenant créée via `az ad app create` — secrets dans
-  `~/credentials/.all-creds.env` + Dokploy compose Hub prod.
+  `~/credentials/.all-creds.env` + Variables Nomad du job `hub` (`nomad/jobs/hub`).
 
 **OAuth désactivé en staging** : `hub.staging.veridian.site` est derrière
 Tailscale (IP privée), déclarer cette redirect URI chez les providers =
@@ -379,7 +379,7 @@ L'agent **ne quitte pas la session** tant que :
 2. **Promotion main exécutée** : `git fetch origin && git checkout main && git merge --ff-only origin/staging && git push origin main`
 3. **Prod verte** : `gh run watch` sur `hub-ci.yml` jusqu'à `deploy-prod` + `e2e-prod-smoke` success + `curl https://<app>.veridian.site/api/health` retourne 200
 4. **Si rollback déclenché** : confirmer que prod est revenue stable + ouvrir un fix immédiat sur staging
-5. **Si CI plante imprévu** : `ssh prod-pub` + `docker logs` ou Dokploy API `docker.getContainerLogs` → diagnostic clair à Robert
+5. **Si CI plante imprévu** : `nomad-v logs <job>` (ou `ssh prod-pub` + `docker logs`) → diagnostic clair à Robert
 
 ### 🚨 RÈGLE TEAM LEAD — E2E lourd OBLIGATOIRE avant promo main
 
@@ -507,54 +507,46 @@ Sur `dev-pub` : `~/traefik-staging/` (README inclus). Service systemd `traefik-s
 - **Pas de Dokploy sur dev** : si tu vois une procédure qui dit "déployer le compose Dokploy sur dev server", c'est obsolète depuis 2026-05-14. Le compose est dans le repo de l'app, le CI le déploie.
 - **Resources** : dev = 7.6G RAM / 72G disk. Si tu satures, dégrade le profil (mode singleton, pas de replicas, builds sur runner self-hosted plutôt qu'en local).
 
-## Dokploy — accès API pour les agents (prod uniquement)
+## Nomad — orchestration de TOUT ce qui tourne (prod, staging, démos, infra)
 
-Dokploy orchestre les containers de **production** Veridian. **Tu peux interagir directement via l'API REST** pour debug, redéployer, lire des logs, inspecter un compose, sans passer par l'UI.
+> **Dokploy est DÉCOMMISSIONNÉ (2026-07-10).** Toute la prod SaaS, le staging, les démos e-commerce
+> Medusa et l'infra (ingress Traefik HA, Sablier, Patroni) tournent sur un **cluster HashiCorp Nomad**
+> (control-plane sur le bastion Contabo, + nœud résidentiel `mail`). Oublie l'API Dokploy et les
+> `composeId` — ils n'existent plus.
 
-### Endpoints
+### Le CLI `nomad-v` — LA source de vérité
+`~/bin/nomad-v` (dans le PATH) est le wrapper Veridian du cluster. Il charge tout seul `NOMAD_ADDR`/
+`NOMAD_TOKEN` depuis `~/credentials/nomad-bastion.env`. **Tout passe par lui** (jamais `nomad job` brut
+pour muter). Commandes clés :
 
-- **API publique** : `https://dokploy.veridian.site/api/*` — accessible depuis n'importe où en HTTPS
-- **Token** : `$DOKPLOY_API_KEY` dans `~/credentials/.all-creds.env` (header `x-api-key`)
-- **UI** : `https://dokploy.veridian.site` (même mot de passe que les autres dashboards Veridian)
-
-### Ce que tu peux faire sans passer par Robert
-
-| Action | Endpoint | Usage |
-|---|---|---|
-| Lister tous les composes | `GET /api/compose.all` | Voir l'état de la stack |
-| Détail d'un compose | `GET /api/compose.one?composeId=<id>` | Lire env, domains, source type |
-| Lire les logs | `GET /api/docker.getContainerLogs?containerId=<id>&lines=200` | Debug sans SSH |
-| Redéployer un compose | `POST /api/compose.deploy` body `{composeId}` | Force redeploy après modif |
-| Modifier un compose | `POST /api/compose.update` body `{composeId, ...fields}` | ENV, domaines, source type |
-| Lister les domaines | `GET /api/domain.byComposeId?composeId=<id>` | Voir les routes Traefik injectées |
-| Supprimer un domaine | `POST /api/domain.delete` body `{domainId}` | Fix dual-router Traefik |
-| Status containers | `GET /api/docker.getContainers` | Liste tous les containers + state |
-
-### Convention d'usage
-
-- **Pour debug d'un container qui plante** : `docker.getContainerLogs` plutôt que `ssh prod-pub 'docker logs'` — plus rapide, scriptable, pas de quote-hell
-- **Pour redéployer après bump deps/CVE** : `compose.deploy` direct, pas besoin de toucher à l'UI
-- **Pour modifier un compose en mode GitOps** : `compose.update` puis `compose.deploy` — voir [[session_2026-05-13_notifuse_gitops_extraction]] pour les pièges (manifest digest vs `.Image`, Domains injectent labels Traefik = dual-router, etc.)
-- **Pour les actions destructives** (suppression compose, rollback prod) : confirmer avec Robert avant
-- **Tous les `composeId` documentés** dans les memories sessions correspondantes
-
-Liens utiles dans memory : [[project_dokploy_improvements]], [[project_dokploy_gitops_migration]], [[project_infra_pieges]].
-
-### ComposeIds Veridian (référence rapide)
-
-| App / Stack | composeId Dokploy |
+| Action | Commande |
 |---|---|
-| Hub prod (compose-back-up-online-pixel-nl2k9p) | `_kxAHDCv1LhvsdwNRX3Vk` |
-| Notifuse prod | `WN0jglLj5bDIrXUFZHNmw` |
-| CMS prod | `275o-9E3ZWWi0X32wY8hM` |
-| Analytics prod | `Ri8lnog40Jgxn5xWOhaQg` |
-| Supabase prod (legacy) | `xhlNGckdeiH1ZdSqZv2HT` |
-| Twenty prod (sortie de stack 2026-05-18) | `8zdqAAD1lkZFVAwuZ5USv` |
-| Crowdsec prod | `-yhkpTC6N_zh0FxNwAKJa` |
+| Où on en est (dashboard live) | `nomad-v state` |
+| Jobs groupés par tier | `nomad-v tiers` |
+| Compute libre par nœud (réservé vs réel) | `nomad-v free` |
+| Drift IaC (job non versionné/non commité) | `nomad-v drift` |
+| Logs d'un job / shell dans un container | `nomad-v logs <job>` / `nomad-v exec <alloc>` |
+| Déployer / redéployer | `nomad-v deploy <fichier>` / `nomad-v run <job>` |
+| Workloads batch ODH (scraping) | `nomad-v odh template|validate|plan|submit` |
 
-Pour patcher une ENV : `POST /api/compose.update` body `{composeId, env}`
-puis `POST /api/compose.deploy` body `{composeId}`. Cf. session OAuth
-Microsoft 2026-05-20 (mémo `reference_microsoft_entra_oauth.md`).
+### Garde-fous (n'importe quel agent bosse sans casser la prod)
+`nomad-v deploy`/`run` **refusent** un job non commité ou sans `resources`/`datacenters`, affichent une
+checklist, et **confirment** stop/purge (double barrière sur les jobs critiques ingress/DB). Après tout
+déploiement : `nomad-v drift` doit être à exit 0. Règles complètes : **skill `/nomad`** (encadré "GARDE-FOUS").
+
+### IaC — jobs versionnés
+Tout job vit dans **`~/nomad-veridian/`** (`jobs/<tier>/` : saas-prod, saas-staging, medusa-demo, internal,
+infra ; runbooks, tickets, configs des nœuds), poussé sur **github.com/Christ-Roy/nomad-veridian**. Un agent
+qui touche l'infra lit ce repo et charge `/nomad`.
+
+### Scale-to-zero (Sablier)
+Le job `sablier` (fork maison + provider Nomad écrit par nous + plugin Traefik sur les 2 ingress) endort
+les démos/staging web inactifs et les réveille sur requête HTTP (page d'attente Veridian). NE PAS confondre
+avec l'orchestration batch ODH (`nomad-v odh`, scheduler préemptible multi-nœud).
+
+### Debug / actions
+`nomad-v logs <job>` ou `nomad-v exec <alloc> /bin/sh` (plus d'API Dokploy, plus de `ssh prod-pub 'docker logs'`).
+État : `nomad-v state`. Actions destructives (purge, rollback prod) : confirmer avec Robert.
 
 ## Outils CLI installés sur la machine locale (2026-05-20)
 
