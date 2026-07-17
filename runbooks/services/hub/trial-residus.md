@@ -37,8 +37,8 @@ du paiement.
 ### 3. Le webhook a-t-il bien été processé côté Hub ?
 
 ```bash
-# Sur la machine locale ou via Dokploy logs
-ssh prod-pub 'docker logs <hub-container> --tail 500 | grep stripe-sync'
+# Logs du job Hub (Nomad) — depuis le bastion ou en local
+nomad-v logs hub | grep stripe-sync
 ```
 
 Cherche une ligne du type :

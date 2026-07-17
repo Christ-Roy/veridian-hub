@@ -45,3 +45,4 @@ sur le monorepo (`Christ-Roy/veridian-platform`), pas ici.
 Les secrets GitHub Actions sont **par repo**. veridian-hub a sa propre
 copie de `DEPLOY_SSH_KEY` + `DOKPLOY_API_KEY` (poussés le 2026-05-13).
 Si la clé SSH OVH est rotée, il faut mettre à jour les 2 repos.
+> Note : `DOKPLOY_API_KEY` est OBSOLÈTE depuis le décommissionnement Dokploy (2026-07-10) — le deploy passe par Nomad (SSH-bastion, `nomad-v`).

@@ -107,7 +107,7 @@ prisma.$use(async (params, next) => {
 });
 ```
 
-- **Purge définitive après 30 jours** via un cron Dokploy (Schedule Jobs), pas de
+- **Purge définitive après 30 jours** via un job Nomad `periodic`, pas de
   cron système ad hoc. Script purge SQL simple :
 
 ```sql
@@ -501,7 +501,7 @@ model AuditLog {
 ```
 
 - **Pas de soft delete** : le log est immutable et read-only.
-- **Rétention minimum 365 jours**. Purge au-delà via cron Dokploy (optionnel,
+- **Rétention minimum 365 jours**. Purge au-delà via job Nomad `periodic` (optionnel,
   storage est cheap, garder autant que possible).
 
 ### 7.2 Actions à logger obligatoirement
@@ -578,7 +578,7 @@ Règles :
   - `503` si `status === 'down'` (=  DB down, rien ne peut fonctionner)
 - **`degraded`** = DB ok mais au moins une dépendance externe `ko` (ex : Stripe
   API injoignable). L'app continue à servir les routes qui n'en dépendent pas.
-- **Utilisé par** Dokploy health check (container healthcheck) et le rollback
+- **Utilisé par** le healthcheck Nomad (bloc `check`) et le rollback
   auto CI (si health fail post-deploy → rollback image précédente).
 
 ### 8.1 Exemple de référence
@@ -638,9 +638,9 @@ le scénario complet d'un utilisateur, avant ET après deploy prod. Si un test p
 push main
   → job test       (unit + build + lint, cloud ubuntu-latest)
   → job docker     (build image, push GHCR, self-hosted runner)
-  → job deploy-staging (Dokploy redeploy stack staging)
+  → job deploy-staging (nomad-v deploy — job staging)
   → job e2e-staging (Playwright navigateur, scénario complet, BLOQUANT)
-  → job deploy-prod (Dokploy redeploy stack prod — uniquement si e2e-staging vert)
+  → job deploy-prod (nomad-v deploy — job prod, uniquement si e2e-staging vert)
   → job e2e-prod (Playwright navigateur, scénario complet sur URL prod, BLOQUANT)
   → job rollback   (auto si e2e-prod fail : retag :rollback → :latest + redeploy)
 ```
@@ -675,7 +675,7 @@ seul chromium est bloquant (firefox/webkit en warning).
 Si `e2e-prod` fail après un deploy prod, le job `rollback` :
 1. Tag l'image actuelle `:broken-<sha>` pour debug
 2. Retag `:rollback` → `:latest` sur GHCR
-3. Redeploy la stack prod via Dokploy API
+3. Redéploie le job prod via `nomad-v deploy`
 4. Post-check health prod `/api/health`
 5. Notification Telegram (`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`)
 
@@ -688,7 +688,7 @@ d'être écrasée.
 Le staging **n'est pas un mini-prod**. C'est juste un environnement où on
 peut casser sans impact client. Il doit tourner sur la **même version de
 code** que la prochaine prod, avec les **mêmes env vars** (sauf secrets
-distincts), et la **même stack Dokploy** (même image, même compose). Si
+distincts), et le **même job Nomad** (même image, même spec). Si
 le staging passe vert, la prod doit passer vert — sinon la CI a un trou.
 
 ### Référence existante
@@ -700,53 +700,50 @@ verra les tests plus tard".
 
 ---
 
-## 10. Workflow déploiement & Dokploy
+## 10. Workflow déploiement & Nomad
 
-**Règle absolue** : l'infra Veridian staging + prod est pilotée par **Dokploy**.
-Les fichiers `infra/docker-compose.*.yml` du repo sont la **trace versionnée**
-(source de vérité en code, reviews Git, historique) mais ne sont **PAS** appliqués
-directement sur les serveurs. La source d'exécution c'est Dokploy.
+> ⚠️ OBSOLÈTE (Dokploy décommissionné 2026-07-10) → déploiement = nomad-v / skill /nomad. Bloc historique.
+
+**Règle absolue** : l'infra Veridian staging + prod est pilotée par **HashiCorp Nomad**
+(CLI `nomad-v`, control-plane sur le bastion Contabo). Les jobs HCL versionnés dans
+`~/nomad-veridian/jobs/<tier>/` sont la **source de vérité** (reviews Git, historique) ET
+la source d'exécution : `nomad-v deploy <fichier>` applique le job.
 
 Cette règle est opposable lors des reviews. Toute app/service Veridian déployé
-suit ce workflow — pas d'exception. C'est déjà documenté dans `infra/CLAUDE.md`
-(section "Workflow deploiement") ; on le reprend ici pour en faire une règle
-standard du SaaS.
+suit ce workflow — pas d'exception. Voir le skill `/nomad` et le `CLAUDE.md` de
+`~/nomad-veridian` pour les conventions détaillées.
 
 ### 9.1 Workflow obligatoire pour toute modif d'infra
 
-1. **Éditer le compose en local** (`infra/docker-compose.*.yml`)
-2. **Valider le YAML** : `docker compose -f infra/docker-compose.<env>.yml config`
+1. **Éditer le job HCL** dans `~/nomad-veridian/jobs/<tier>/`
+2. **Valider** : `nomad job plan <fichier>` (dry-run, montre le diff)
 3. **Commit + push** (trace versionnée, code review)
-4. **Ouvrir Dokploy** → stack concernée → reporter la modif :
-   - Coller le YAML mis à jour dans l'éditeur Dokploy
-   - Configurer / mettre à jour les secrets dans l'UI Dokploy
-5. **Déployer depuis Dokploy** (bouton Deploy, pas de SSH)
-6. **Vérifier** : logs Dokploy + health check `/api/health` (voir §8) + alertes
-   monitoring (`/opt/veridian/monitoring/`)
+4. **Déployer** : `nomad-v deploy <fichier>` (garde-fous : refuse un job non commité
+   ou sans `resources`/`datacenters`)
+5. **Vérifier** : `nomad-v logs <job>` + `nomad-v drift` (doit être à exit 0) +
+   health check `/api/health` (voir §8)
 
 ### 9.2 Interdits absolus
 
-- **`docker compose up` direct en SSH sur le VPS** → court-circuite Dokploy et
-  désynchronise son état. Interdit, même pour un "petit test rapide".
-- **Cron système ad hoc** (`crontab -e`, `/etc/cron.d/...`) → toujours passer
-  par **Dokploy Schedule Jobs**. Cela inclut les purges soft delete 30j (§1.4).
-- **Secrets en clair dans un compose commité** → interpolation `${VAR_NAME}`
-  uniquement, valeurs dans l'UI Dokploy + miroir local dans
-  `~/credentials/.all-creds.env`.
-- **Modifier la prod Dokploy sans accord explicite de Robert** (règle racine
+- **`docker compose up` / `docker run` direct en SSH sur un nœud** → court-circuite
+  Nomad et désynchronise l'état du cluster. Interdit, même pour un "petit test rapide".
+- **Cron système ad hoc** (`crontab -e`, `/etc/cron.d/...`) → toujours un job Nomad
+  `periodic`. Cela inclut les purges soft delete 30j (§1.4).
+- **Secrets en clair dans un job commité** → Nomad Variable `nomad/jobs/<job>` +
+  `template{env=true}`, miroir local dans `~/credentials/.all-creds.env`.
+- **Modifier la prod sans accord explicite de Robert** (règle racine
   `.claude/rules/git-workflow.md` et `CLAUDE.md`).
 
 ### 9.3 Cas particulier : nouveau service / nouvelle app
 
 Quand on ajoute une app au monorepo (fork Notifuse, Analytics, etc.) :
 
-1. Créer `<app>/Dockerfile` et le bloc compose correspondant (dans
-   `infra/docker-compose.*.yml` ou un fichier dédié).
+1. Créer `<app>/Dockerfile` et le job HCL correspondant dans
+   `~/nomad-veridian/jobs/<tier>/` (partir de `jobs/_TEMPLATE.nomad.hcl`).
 2. Commit + push de la trace versionnée.
-3. Créer la stack correspondante dans Dokploy (UI), coller le YAML, configurer
-   les secrets.
-4. Ajouter le health check au compose (voir §8) pour permettre le rollback auto CI.
-5. Ajouter l'app au monitoring (`/opt/veridian/monitoring/config.json` côté VPS).
+3. Déployer via `nomad-v deploy <fichier>`, secrets en Nomad Variable.
+4. Ajouter le bloc `check` au job (voir §8) pour permettre le rollback auto CI.
+5. Vérifier le placement (`constraint ${meta.provider}` + node pool cible).
 
 ---
 
@@ -760,7 +757,7 @@ Le lead du sprint valide.
 - [ ] Toutes les tables tenant-scoped ont `deleted_at TIMESTAMPTZ NULL`
 - [ ] Un schema Prisma dédié à l'app (pas de mélange cross-app)
 - [ ] Les nouvelles tables écrivent sur `veridian-core-db` (ou documenté pourquoi non)
-- [ ] Purge cron 30j déclarée dans Dokploy Schedule (ou trackée dans TODO)
+- [ ] Purge cron 30j déclarée comme job Nomad `periodic` (ou trackée dans TODO)
 
 ### Auth
 - [ ] Chaque app a son propre mécanisme d'auth (pas de dépendance hard au Hub)
@@ -807,12 +804,12 @@ Le lead du sprint valide.
 - [ ] Déclaré dans le Dockerfile / docker-compose healthcheck
 - [ ] Utilisé par le rollback auto CI
 
-### Déploiement & Dokploy
-- [ ] Compose validé en local (`docker compose ... config`) + commit de la trace versionnée
-- [ ] Modif d'infra reportée dans Dokploy (pas seulement commit repo)
-- [ ] Secrets configurés via l'UI Dokploy (aucun secret en clair dans le repo)
-- [ ] Cron/purges passent par Dokploy Schedule Jobs (pas de cron système)
-- [ ] Aucun `docker compose up` direct en SSH sur le VPS
+### Déploiement & Nomad
+- [ ] Job HCL validé en local (`nomad job plan <fichier>`) + commit de la trace versionnée
+- [ ] Déploiement via `nomad-v deploy <fichier>` + `nomad-v drift` à exit 0
+- [ ] Secrets en Nomad Variable `nomad/jobs/<job>` (aucun secret en clair dans le repo)
+- [ ] Cron/purges passent par un job Nomad `periodic` (pas de cron système)
+- [ ] Aucun `docker compose up` / `docker run` direct en SSH sur un nœud
 
 ### Docs & TODO
 - [ ] README de l'app référence ce document

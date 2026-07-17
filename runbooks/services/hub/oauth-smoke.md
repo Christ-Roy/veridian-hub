@@ -62,7 +62,7 @@ Le script :
 | `redirect_uri_mismatch` côté Google | Le callback déclaré dans GCP Console diffère de ce qu'Auth.js envoie. Vérifier `console.cloud.google.com/auth/clients` projet `veridian-preprod`. |
 | `invalid_client` côté Microsoft | Le secret a expiré (vérifier `az ad app credential list --id 44621507-2ab6-4cb4-8f90-2e6a9cc9e8d8 --query "[].endDateTime"`). Rotation : cf. `reference_microsoft_entra_oauth.md` §"Procédure rotation secret". |
 | `supabaseUserId` NULL en DB | Régression du fix 2026-05-21. Vérifier que l'event `createUser` dans `auth.ts` est toujours câblé. |
-| User pas trouvé en DB | Le flow OAuth n'a pas abouti (browser session interrompue, ou erreur côté Auth.js callback). Voir logs Dokploy compose Hub. |
+| User pas trouvé en DB | Le flow OAuth n'a pas abouti (browser session interrompue, ou erreur côté Auth.js callback). Voir les logs du job Hub : `nomad-v logs hub`. |
 
 ## Lien avec la CI
 

@@ -1,8 +1,23 @@
 # Hub — stack Dokploy (mode GitOps)
 
+> ⚠️ OBSOLÈTE (Dokploy décommissionné 2026-07-10) → déploiement = nomad-v / skill /nomad. Bloc historique.
+
 > Migration GitOps : 2026-05-13 (sprint SPRINT-GITOPS-VERIDIAN.md).
 > Avant : provider Raw, compose collé dans Dokploy UI.
 > Maintenant : provider Git, ce fichier est la source de vérité.
+
+## Aujourd'hui (Nomad)
+
+Le hub tourne comme job Nomad. Source de vérité = `~/nomad-veridian/jobs/saas-prod/hub.nomad.hcl`
+(repo github.com/Christ-Roy/nomad-veridian), plus le skill `/nomad`.
+
+- **Déployer / bump** : `nomad-v deploy jobs/saas-prod/hub.nomad.hcl` (ou `nomad-v run hub`).
+- **Rollback** : `git revert` du commit HCL fautif dans nomad-veridian, puis `nomad-v deploy …`
+  (ou redéployer un tag d'image antérieur). Nomad garde l'historique des versions du job.
+- **Secrets** : Nomad Variable `nomad/jobs/hub` (`template { env = true }`).
+- **Logs / état** : `nomad-v logs hub`, `nomad-v state`.
+
+Le reste de ce fichier décrit l'ancien flux Dokploy et n'est conservé qu'à titre historique.
 
 ## Identité
 
