@@ -1,8 +1,8 @@
 # 🔒 Veille CVE automatique — veridian-hub
 
 > **Généré par** : `veridian-infra/.github/workflows/cron-trivy.yml`
-> **Dernier run** : 2026-07-15 04:06 UTC
-> **Run URL** : local-cron@mail.mybigserveur.local:2026-07-15
+> **Dernier run** : 2026-07-18 04:06 UTC
+> **Run URL** : local-cron@mail.mybigserveur.local:2026-07-18
 > **Image scannée** : `ghcr.io/christ-roy/veridian-hub:latest`
 > **CVE bruts détectés** : 12 (avant filtrage)
 > **Scoring** : `veridian-infra/ci/trivy-scoring.yml`
@@ -44,7 +44,7 @@
 - **CVE** : `CVE-2026-48815` (HIGH/Unclassified)
 - **Type** : Unclassified
 - **Score max** : 15
-- **Title** : sigstore's `certificateOIDs` verification constraints are silently dropped and never enforced
+- **Title** : sigstore: Sigstore: Unauthorized certificates accepted due to ignored `certificateOIDs` verification option
 - **Source** : `Node.js`
 - **Fix** : `pnpm up sigstore` (jusqu'à >= `4.1.1`)
 
