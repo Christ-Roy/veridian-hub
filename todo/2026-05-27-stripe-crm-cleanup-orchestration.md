@@ -21,7 +21,7 @@ Le billing Twenty natif est **actif en prod** avec Stripe LIVE. Le webhook Strip
 - Container : `compose-parse-optical-array-lvh5md-crm-server-1`
 - DB : Postgres avec 7 tables `core.billing*` créées via TypeORM migration
 - Stripe : LIVE (`sk_live_51SRJNz...`)
-- Webhook Stripe → Twenty : `we_1Tbi7mRgvfRggzUNIsLDJmBp` actif, 16 events, secret `whsec_AeMD6tdz...`
+- Webhook Stripe → Twenty : `we_1Tbi7mRgvfRggzUNIsLDJmBp` actif, 16 events, secret `[REDACTED]...`
 
 ### Products Stripe LIVE taggés Twenty
 
@@ -213,7 +213,7 @@ Déjà dans `~/credentials/.all-creds.env` :
 - `STRIPE_SECRET_KEY` (test) + `STRIPE_SECRET_KEY_LIVE`
 - `STRIPE_WEBHOOK_SECRET` (test, Hub) + `STRIPE_WEBHOOK_SECRET_LIVE` (Hub)
 - `TWENTY_STRIPE_WEBHOOK_SECRET` (test) + `TWENTY_STRIPE_WEBHOOK_SECRET_LIVE` (ancien legacy, plus utilisé)
-- **NOUVEAU** : `BILLING_STRIPE_WEBHOOK_SECRET_CRM_LIVE = whsec_AeMD6tdzIfnkBrDXExVNjx3DSi1TUq2t` (à ajouter au vault)
+- **NOUVEAU** : `BILLING_STRIPE_WEBHOOK_SECRET_CRM_LIVE = [REDACTED]` (à ajouter au vault)
 
 ## Référence implémentation existante
 
