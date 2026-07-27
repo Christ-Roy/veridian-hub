@@ -612,6 +612,14 @@ saas_container_resources() {
 }
 
 # ─── Backups DB (R2 → local sync) ────────────────────────────────────────────
+# 2026-07-27 : rclone vit dans ~/bin, qui n'est PAS dans le PATH quand ce hook
+# tourne au SessionStart. Resultat : chaque appel rclone echouait en silence, le
+# comptage tombait a 0 et le tableau de bord annoncait « AUCUN DUMP » sur les 4
+# bases alors que R2 contenait bien 10 dumps par base. Un indicateur qui crie au
+# loup finit par masquer une vraie panne : on resout le binaire explicitement.
+RCLONE_BIN="$(command -v rclone 2>/dev/null || true)"
+[ -z "$RCLONE_BIN" ] && [ -x "$HOME/bin/rclone" ] && RCLONE_BIN="$HOME/bin/rclone"
+[ -z "$RCLONE_BIN" ] && RCLONE_BIN="rclone"   # dernier recours : message d'erreur explicite
 # DBs surveillées et leur container prod / fréquence attendue
 # Source de vérité : /etc/cron.d/veridian-backups + /etc/cron.d/cms-backup
 # NB : verger-shop retiré 2026-07-01 — sa DB a migré sur Neon (serverless,
@@ -640,7 +648,7 @@ saas_backup_local_age_h() {
 # Compte de dumps R2 pour une DB (= rétention réelle)
 saas_backup_r2_count() {
     local db="$1"
-    rclone ls "r2:veridian-backups/${db}/" 2>/dev/null | wc -l
+    "$RCLONE_BIN" ls "r2:veridian-backups/${db}/" 2>/dev/null | wc -l
 }
 
 # Map un nom de container prod (long) vers le repo SaaS qu'il appartient (court)
@@ -874,7 +882,7 @@ render_section_global() {
 
         # R2 storage usage vs free tier (10 GB)
         local r2_size_bytes r2_size_mb r2_pct
-        r2_size_bytes=$(rclone size r2:veridian-backups 2>/dev/null | grep -oP 'Total size: [^(]+\(\K[0-9]+' | head -1)
+        r2_size_bytes=$("$RCLONE_BIN" size r2:veridian-backups 2>/dev/null | grep -oP 'Total size: [^(]+\(\K[0-9]+' | head -1)
         if [ -n "$r2_size_bytes" ]; then
             r2_size_mb=$(( r2_size_bytes / 1024 / 1024 ))
             r2_pct=$(( r2_size_bytes * 100 / 10737418240 ))   # 10 GB en bytes
