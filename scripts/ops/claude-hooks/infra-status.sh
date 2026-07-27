@@ -1307,6 +1307,29 @@ echo ""
 echo ""
 render_section_current_repo
 
+# --- Fusibles API réseaux sociaux : coupures volontaires en cours ---------
+# Un fusible pose a la main est invisible tant qu'on ne va pas le chercher.
+# S'il traine, on croit que l'integration est cassee alors qu'elle est en pause.
+render_social_api_pauses() {
+    local any=0
+    for flag in "$HOME"/credentials/social/*-EN-PAUSE; do
+        [ -e "$flag" ] || continue
+        if [ "$any" -eq 0 ]; then
+            echo ""
+            echo ""
+            echo "# 🔴 API SOCIALES EN PAUSE (fusible pose volontairement)"
+            any=1
+        fi
+        local nom; nom=$(basename "$flag" | sed 's/-EN-PAUSE//')
+        local depuis; depuis=$(date -r "$flag" '+%Y-%m-%d %H:%M' 2>/dev/null)
+        echo "  ⛔ ${nom} — depuis ${depuis}"
+        sed -n '3,6p' "$flag" 2>/dev/null | sed 's/^/     /'
+        echo "     état complet : ~/réseaux/tiktok/ETAT.md"
+        echo "     lever le fusible : rm ${flag}"
+    done
+}
+render_social_api_pauses
+
 # --- Crypto : constantes établies + verdict gas du jour — non bloquant ---
 echo ""
 echo ""
