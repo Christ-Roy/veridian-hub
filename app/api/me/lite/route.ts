@@ -35,7 +35,9 @@ import { RateLimiter, extractClientIp } from '@/lib/auth/rate-limit';
 import {
   readSessionHintFromRequest,
   setSessionHintCookie,
+  clearSessionHintCookie,
 } from '@/lib/auth/session-hint-cookie';
+import { hasAuthSessionCookie } from '@/lib/auth/cookie-scope';
 
 // Limiter dédié — instance module-level partagée entre tous les calls.
 // 100/min/IP : généreux pour la landing (1 call/page) tout en étouffant un
@@ -79,19 +81,38 @@ export async function GET(request: NextRequest) {
   //  - résilience : marche même si Auth.js temporairement KO
   //  - cross-subdomain : le hint cookie a scope .veridian.site donc il
   //    arrive bien sur les requêtes cross-origin depuis la landing
+  //
+  // ⚠️ Le fast path exige AUSSI la présence du cookie session Auth.js.
+  // Sans cette condition il était auto-confirmant : un hint qui survit à une
+  // déconnexion (ou à une révocation de session côté serveur) se faisait
+  // valider par l'API censée le corriger, et la landing restait "connectée"
+  // jusqu'à 30 jours. Le hint est un cache d'affichage, pas une autorité —
+  // le cookie session reste le seul porteur de la session.
+  //
+  // Hint sans session ⇒ hint périmé : on répond non authentifié ET on le
+  // supprime, ce qui auto-répare les navigateurs déjà empoisonnés dès leur
+  // prochaine visite, sans attendre l'expiration des 30 jours.
   try {
     const hint = await readSessionHintFromRequest(request);
     if (hint) {
-      return NextResponse.json(
-        {
-          authenticated: true,
-          email: hint.email,
-          name: hint.name ?? null,
-          image: hint.image ?? null,
-          source: 'hint',
-        },
+      if (hasAuthSessionCookie(request)) {
+        return NextResponse.json(
+          {
+            authenticated: true,
+            email: hint.email,
+            name: hint.name ?? null,
+            image: hint.image ?? null,
+            source: 'hint',
+          },
+          { status: 200, headers: corsHeaders },
+        );
+      }
+      const staleResponse = NextResponse.json(
+        { authenticated: false },
         { status: 200, headers: corsHeaders },
       );
+      clearSessionHintCookie(staleResponse);
+      return staleResponse;
     }
   } catch {
     // Lecture hint silencieuse — on retombe en fallback Auth.js.

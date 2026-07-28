@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { signOut } from 'next-auth/react';
+import { signOutWithHintClear } from '@/lib/auth/sign-out-with-hint-clear';
 import { usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import {
@@ -92,7 +92,9 @@ export default function AuthMenu({ user }: AuthMenuProps) {
               e.preventDefault();
               // Auth.js v5 — signOut côté client redirige vers / par défaut.
               // On préserve l'ancienne UX (retour à la page courante si possible).
-              void signOut({ callbackUrl: pathname || '/' });
+              // Efface aussi le hint cross-subdomain, sinon la landing
+              // veridian.site continue d'afficher l'utilisateur connecté.
+              void signOutWithHintClear({ callbackUrl: pathname || '/' });
             }}
           >
             <LogOut className="mr-2 h-4 w-4" />

@@ -162,6 +162,93 @@ describe('Rate-limit wrapper Auth.js — POST', () => {
   });
 });
 
+// ─── Suppression du cookie hint au signOut ───────────────────────────────
+// Non-régression : le signOut Auth.js ne supprimait QUE son propre cookie
+// session. Le hint cross-subdomain `veridian-session-hint` (TTL 30j) lui
+// survivait → landing veridian.site connectée pendant un mois après la
+// déconnexion. Le wrapper doit greffer le Set-Cookie de suppression sur la
+// réponse Auth.js, sans jamais abîmer les cookies qu'elle pose déjà.
+describe('Wrapper Auth.js — clear du cookie hint au signOut', () => {
+  const ORIG_DEPLOY_ENV = process.env.DEPLOY_ENV;
+  const ORIG_NODE_ENV = process.env.NODE_ENV;
+
+  beforeEach(() => {
+    process.env.DEPLOY_ENV = 'prod';
+    process.env.NODE_ENV = 'production';
+  });
+
+  afterAll(() => {
+    if (ORIG_DEPLOY_ENV === undefined) delete process.env.DEPLOY_ENV;
+    else process.env.DEPLOY_ENV = ORIG_DEPLOY_ENV;
+    process.env.NODE_ENV = ORIG_NODE_ENV;
+  });
+
+  const hintCookieOf = (res: Response) =>
+    res.headers.getSetCookie().find((c) => c.startsWith('veridian-session-hint='));
+
+  it('POST /api/auth/signout → Set-Cookie hint Max-Age=0 sur le bon domaine', async () => {
+    const { POST } = await import('@/app/api/auth/[...nextauth]/route');
+    const res = await POST(buildReq('/api/auth/signout', '11.11.11.11', 'POST'));
+    const hint = hintCookieOf(res);
+    expect(hint).toBeTruthy();
+    expect(hint).toContain('veridian-session-hint=;');
+    expect(hint).toContain('Max-Age=0');
+    expect(hint).toContain('Domain=.veridian.site');
+  });
+
+  it('réponse 302 : le Set-Cookie survit à la redirection et le status est intact', async () => {
+    // Cas réel : signOut({callbackUrl}) → Auth.js répond 302 + Set-Cookie de
+    // suppression de sa session. Un navigateur applique bien les Set-Cookie
+    // d'une 302 — encore faut-il ne pas écraser ceux d'Auth.js.
+    upstreamPostMock.mockImplementationOnce(async () => {
+      const upstream = new Response(null, {
+        status: 302,
+        headers: { location: 'https://app.veridian.site/' },
+      });
+      // Set-Cookie posé APRÈS construction : happy-dom (env de test) perd les
+      // set-cookie fournis à l'init de Response. Node/undici, lui, les garde.
+      upstream.headers.append(
+        'set-cookie',
+        '__Secure-authjs.session-token=; Path=/; Max-Age=0',
+      );
+      return upstream;
+    });
+    const { POST } = await import('@/app/api/auth/[...nextauth]/route');
+    const res = await POST(buildReq('/api/auth/signout', '11.11.11.12', 'POST'));
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('https://app.veridian.site/');
+    const cookies = res.headers.getSetCookie();
+    // Les DEUX cookies doivent être présents, chacun sur sa propre ligne.
+    expect(cookies.some((c) => c.startsWith('__Secure-authjs.session-token='))).toBe(true);
+    expect(cookies.some((c) => c.startsWith('veridian-session-hint='))).toBe(true);
+  });
+
+  it('GET /api/auth/signout (page de confirmation) → PAS de clear', async () => {
+    // Rien n'est encore déconnecté à ce stade : supprimer le hint ici
+    // délogguerait la landing pour un simple affichage de page.
+    const { GET } = await import('@/app/api/auth/[...nextauth]/route');
+    const res = await GET(buildReq('/api/auth/signout', '11.11.11.13'));
+    expect(hintCookieOf(res)).toBeUndefined();
+  });
+
+  it('POST sur une autre route Auth.js (/session) → PAS de clear', async () => {
+    const { POST } = await import('@/app/api/auth/[...nextauth]/route');
+    const res = await POST(buildReq('/api/auth/session', '11.11.11.14', 'POST'));
+    expect(hintCookieOf(res)).toBeUndefined();
+  });
+
+  it('POST /api/auth/signout rate-limité (429) reste possible sans crash', async () => {
+    // /api/auth/signout n'a pas de limiter, mais le wrapper doit rester
+    // robuste si l'upstream renvoie autre chose qu'un 200.
+    upstreamPostMock.mockImplementationOnce(async () => new Response('boom', { status: 500 }));
+    const { POST } = await import('@/app/api/auth/[...nextauth]/route');
+    const res = await POST(buildReq('/api/auth/signout', '11.11.11.15', 'POST'));
+    expect(res.status).toBe(500);
+    expect(hintCookieOf(res)).toBeTruthy();
+  });
+});
+
 // ─── Bypass E2E rate-limit (passage à enforceWithBypass) ─────────────────
 // withRateLimit() utilise désormais `limiter.enforceWithBypass(ip, headers)`
 // pour permettre aux specs e2e/staging-full de traverser sans cap.

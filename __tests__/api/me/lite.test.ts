@@ -24,6 +24,7 @@ vi.mock('@/auth', () => ({ auth: (...args: unknown[]) => authMock(...args) }));
 
 import { GET, OPTIONS } from '@/app/api/me/lite/route';
 import { SESSION_HINT_COOKIE_NAME } from '@/lib/auth/session-hint-cookie';
+import { resolveSessionCookieName } from '@/lib/auth/cookie-scope';
 
 const TEST_HINT_SECRET = 'h'.repeat(48);
 
@@ -44,6 +45,7 @@ function makeReq(
   origin?: string,
   ip = '203.0.113.1',
   hintCookieValue?: string,
+  opts: { sessionCookie?: boolean } = {},
 ): NextRequest {
   const headers = new Headers({ 'x-forwarded-for': ip });
   if (origin) headers.set('origin', origin);
@@ -54,6 +56,14 @@ function makeReq(
   // l'API `req.cookies.set()` qui fonctionne en test.
   if (hintCookieValue) {
     req.cookies.set(SESSION_HINT_COOKIE_NAME, hintCookieValue);
+  }
+  // Un navigateur réellement connecté envoie TOUJOURS le cookie session avec
+  // le hint (même site) — c'est la situation par défaut dès qu'un hint est
+  // présent. Passer `sessionCookie: false` simule le hint orphelin qui
+  // survit à une déconnexion.
+  const wantsSessionCookie = opts.sessionCookie ?? Boolean(hintCookieValue);
+  if (wantsSessionCookie) {
+    req.cookies.set(resolveSessionCookieName(), 'fake-session-jwe');
   }
   return req;
 }
@@ -93,6 +103,62 @@ describe('GET /api/me/lite — fast path hint cookie', () => {
     const body = await res.json();
     expect(body).toEqual({ authenticated: false });
     expect(authMock).toHaveBeenCalled();
+  });
+});
+
+// ─── Non-régression : le hint ne doit plus être auto-confirmant ───────────
+// Bug : le signOut Auth.js ne supprimait pas le hint (TTL 30j). Le fast path
+// le validait sans autre vérification → la landing veridian.site affichait
+// "Mon compte" pendant un mois après déconnexion, et One Tap ne se déclenchait
+// plus jamais. Le hint n'est qu'un cache d'affichage : sans cookie session, il
+// est périmé par définition.
+describe('GET /api/me/lite — hint orphelin (sans cookie session)', () => {
+  it('hint valide MAIS aucun cookie session → {authenticated:false}', async () => {
+    authMock.mockResolvedValue(null);
+    const jwt = await makeHintJwt('robert@veridian.site', { name: 'Robert' });
+    const res = await GET(
+      makeReq('https://veridian.site', '203.0.113.2', jwt, { sessionCookie: false }),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ authenticated: false });
+  });
+
+  it('auto-répare : supprime le hint orphelin (Max-Age=0, bon scope)', async () => {
+    authMock.mockResolvedValue(null);
+    const jwt = await makeHintJwt('robert@veridian.site');
+    const res = await GET(
+      makeReq('https://veridian.site', '203.0.113.3', jwt, { sessionCookie: false }),
+    );
+    const setCookie = res.headers.get('set-cookie');
+    expect(setCookie).toContain('veridian-session-hint=;');
+    expect(setCookie).toContain('Max-Age=0');
+    expect(setCookie).toContain('Domain=.veridian.site');
+  });
+
+  it('garde les headers CORS sur la réponse de correction', async () => {
+    authMock.mockResolvedValue(null);
+    const jwt = await makeHintJwt('robert@veridian.site');
+    const res = await GET(
+      makeReq('https://veridian.site', '203.0.113.4', jwt, { sessionCookie: false }),
+    );
+    // Sans Allow-Credentials, le navigateur ignorerait le Set-Cookie de
+    // suppression sur une réponse cross-origin → hint jamais nettoyé.
+    expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://veridian.site');
+    expect(res.headers.get('Access-Control-Allow-Credentials')).toBe('true');
+  });
+
+  it('cookie session chunké (.0/.1) → le fast path reste valide', async () => {
+    const jwt = await makeHintJwt('robert@veridian.site');
+    const req = makeReq('https://veridian.site', '203.0.113.5', jwt, {
+      sessionCookie: false,
+    });
+    // Auth.js éclate le cookie au-delà de 4 ko : ne matcher que le nom exact
+    // déconnecterait à tort les grosses sessions.
+    req.cookies.set(`${resolveSessionCookieName()}.0`, 'chunk-0');
+    req.cookies.set(`${resolveSessionCookieName()}.1`, 'chunk-1');
+    const res = await GET(req);
+    expect(await res.json()).toMatchObject({ authenticated: true, source: 'hint' });
+    expect(authMock).not.toHaveBeenCalled();
   });
 });
 

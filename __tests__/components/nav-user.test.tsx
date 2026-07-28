@@ -11,11 +11,15 @@
  * NavUser consomme usePathname (next/navigation), signOut (next-auth/react)
  * et le contexte sidebar — les deux premiers sont mockés, le 3e fourni via
  * SidebarProvider.
+ *
+ * La déconnexion passe par `signOutWithHintClear` (et non `signOut` nu) :
+ * on garde le mock de next-auth/react, le helper étant traversé pour de vrai
+ * afin de vérifier qu'il tape bien la route de suppression du hint.
  */
 
 import React from 'react';
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 vi.mock('next/navigation', () => ({
   usePathname: () => '/dashboard',
@@ -25,6 +29,12 @@ const signOutMock = vi.fn();
 vi.mock('next-auth/react', () => ({
   signOut: (...args: unknown[]) => signOutMock(...args),
 }));
+
+const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true })));
+beforeEach(() => {
+  fetchMock.mockClear();
+  vi.stubGlobal('fetch', fetchMock);
+});
 
 import { NavUser } from '@/components/nav-user';
 import { SidebarProvider } from '@/components/ui/sidebar';
@@ -83,11 +93,36 @@ describe('NavUser', () => {
     expect(screen.getByText('Déconnexion')).toBeInTheDocument();
   });
 
-  it('le clic sur "Déconnexion" déclenche signOut', () => {
+  it('le clic sur "Déconnexion" déclenche signOut', async () => {
     signOutMock.mockClear();
     renderNavUser();
     openMenu();
     fireEvent.click(screen.getByText('Déconnexion'));
-    expect(signOutMock).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(signOutMock).toHaveBeenCalledTimes(1));
+    expect(signOutMock).toHaveBeenCalledWith({ callbackUrl: '/dashboard' });
+  });
+
+  it('la déconnexion efface aussi le cookie hint cross-subdomain', async () => {
+    // Sans ça, la landing veridian.site affiche encore "Mon compte" (le hint
+    // a un TTL de 30 jours et survit au signOut Auth.js).
+    signOutMock.mockClear();
+    renderNavUser();
+    openMenu();
+    fireEvent.click(screen.getByText('Déconnexion'));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe('/api/auth/session-hint/clear');
+    expect(init.method).toBe('POST');
+  });
+
+  it("un échec du clear n'empêche pas la déconnexion", async () => {
+    // Le hint est du confort d'affichage — jamais un motif de bloquer un
+    // utilisateur qui veut se déconnecter.
+    signOutMock.mockClear();
+    fetchMock.mockRejectedValueOnce(new Error('network down'));
+    renderNavUser();
+    openMenu();
+    fireEvent.click(screen.getByText('Déconnexion'));
+    await waitFor(() => expect(signOutMock).toHaveBeenCalledTimes(1));
   });
 });

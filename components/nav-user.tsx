@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import { signOut } from "next-auth/react"
+import { signOutWithHintClear } from "@/lib/auth/sign-out-with-hint-clear"
 import {
   BellIcon,
   CreditCardIcon,
@@ -124,7 +124,9 @@ export function NavUser({
               className="cursor-pointer"
               onSelect={(e) => {
                 e.preventDefault();
-                void signOut({ callbackUrl: pathname || '/' });
+                // Efface aussi le hint cross-subdomain, sinon la landing
+                // veridian.site continue d'afficher l'utilisateur connecté.
+                void signOutWithHintClear({ callbackUrl: pathname || '/' });
               }}
             >
               <LogOutIcon />
