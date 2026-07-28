@@ -73,7 +73,9 @@ async function loadRoute() {
 }
 
 async function resetLimiters() {
-  const mod = await loadRoute();
+  // Les limiters vivent dans leur propre module : un route.ts Next.js ne peut
+  // pas exporter autre chose que ses handlers sans casser le build de prod.
+  const mod = await import('@/lib/auth/reset-password-rate-limit');
   mod.resetRequestIpLimiter.reset();
   mod.resetRequestEmailLimiter.reset();
   mod.resetConsumeLimiter.reset();
