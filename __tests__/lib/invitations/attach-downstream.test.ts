@@ -99,9 +99,32 @@ describe('resolveDownstreamBaseUrl', () => {
   });
 
   it('falls back to <app>.app.veridian.site when env absent', () => {
-    expect(resolveDownstreamBaseUrl('analytics', {} as NodeJS.ProcessEnv)).toBe(
-      'https://analytics.app.veridian.site',
+    expect(resolveDownstreamBaseUrl('notifuse', {} as NodeJS.ProcessEnv)).toBe(
+      'https://notifuse.app.veridian.site',
     );
+    expect(resolveDownstreamBaseUrl('prospection', {} as NodeJS.ProcessEnv)).toBe(
+      'https://prospection.app.veridian.site',
+    );
+    expect(resolveDownstreamBaseUrl('cms', {} as NodeJS.ProcessEnv)).toBe(
+      'https://cms.app.veridian.site',
+    );
+  });
+
+  it('fallback analytics = engine, JAMAIS le domaine legacy mort', () => {
+    // `analytics.app.veridian.site` répond 404 depuis la bascule vers le fork
+    // staminads (vérifié en live le 2026-07-28). Le fallback générique
+    // `<app>.app.veridian.site` envoyait donc les clients sur une page morte.
+    expect(resolveDownstreamBaseUrl('analytics', {} as NodeJS.ProcessEnv)).toBe(
+      'https://analytics-engine.app.veridian.site',
+    );
+  });
+
+  it('NEXT_PUBLIC_ANALYTICS_URL reste prioritaire sur le défaut', () => {
+    expect(
+      resolveDownstreamBaseUrl('analytics', {
+        NEXT_PUBLIC_ANALYTICS_URL: 'https://analytics-engine.staging.veridian.site',
+      } as NodeJS.ProcessEnv),
+    ).toBe('https://analytics-engine.staging.veridian.site');
   });
 });
 

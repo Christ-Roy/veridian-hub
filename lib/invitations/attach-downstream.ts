@@ -171,8 +171,26 @@ export function resolveDownstreamBaseUrl(
   };
   const explicit = byApp[app];
   if (explicit && explicit.length > 0) return explicit.replace(/\/+$/, '');
-  return `https://${app}.app.veridian.site`;
+  return DEFAULT_APP_BASE_URL[app];
 }
+
+/**
+ * Domaine par défaut de chaque app downstream, utilisé quand la variable
+ * `NEXT_PUBLIC_<APP>_URL` n'est pas déployée.
+ *
+ * ⚠️ `analytics` ne suit PAS la convention `<app>.app.veridian.site` : l'app
+ * historique servie sur `analytics.app.veridian.site` est **morte** (vérifié
+ * le 2026-07-28 : HTTP 404) et remplacée par le fork staminads servi sur
+ * `analytics-engine.app.veridian.site` (HTTP 200). Le fallback générique
+ * envoyait donc les clients sur une 404 — pas même un écran de login.
+ * Cf. `todo/2026-07-28-autologin-analytics-contrat-et-etat-reel.md`.
+ */
+const DEFAULT_APP_BASE_URL: Record<SupportedApp, string> = {
+  notifuse: 'https://notifuse.app.veridian.site',
+  prospection: 'https://prospection.app.veridian.site',
+  analytics: 'https://analytics-engine.app.veridian.site',
+  cms: 'https://cms.app.veridian.site',
+};
 
 /**
  * Appelle l'endpoint `attach-member` de l'app downstream pour propager
