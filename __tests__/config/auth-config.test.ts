@@ -109,4 +109,45 @@ describe('auth.config.ts — authorized callback (middleware edge gate)', () => 
   it('bloque /admin sans session', () => {
     expect(authorized?.({ auth: null, request: makeReq('/admin') } as Parameters<NonNullable<typeof authorized>>[0])).toBe(false);
   });
+
+  // ─── Fail-open GHSA-8fpg-xm3f-6cx3 (critical) ─────────────────────────────
+  //
+  // Quand la config Auth.js part en erreur côté serveur, l'objet rendu par
+  // `auth()` n'est PAS `null` : il est peuplé d'un objet d'erreur. Un garde-fou
+  // écrit `!!auth` passe donc à `true` et s'OUVRE au lieu de se fermer. Ces
+  // tests verrouillent le sens du fail : sans session utilisateur réelle, on
+  // refuse, quelle que soit la forme de l'objet reçu.
+  describe('fail-closed sur objet auth sans user', () => {
+    const asAuth = (v: unknown) => v as Parameters<NonNullable<typeof authorized>>[0]['auth'];
+    const call = (auth: unknown, path: string) =>
+      authorized?.({ auth: asAuth(auth), request: makeReq(path) } as Parameters<
+        NonNullable<typeof authorized>
+      >[0]);
+
+    // Forme exacte remontée par Auth.js quand la config échoue.
+    const configError = { message: 'There was a problem with the server configuration.' };
+
+    it('refuse /dashboard quand auth porte une erreur de config au lieu d’une session', () => {
+      expect(call(configError, '/dashboard')).toBe(false);
+    });
+
+    it('refuse /admin quand auth porte une erreur de config au lieu d’une session', () => {
+      expect(call(configError, '/admin')).toBe(false);
+    });
+
+    it('refuse un objet auth non vide mais sans user', () => {
+      expect(call({}, '/dashboard')).toBe(false);
+      expect(call({ expires: '2030-01-01' }, '/dashboard')).toBe(false);
+    });
+
+    it('refuse un auth dont user est null ou undefined', () => {
+      expect(call({ user: null }, '/dashboard')).toBe(false);
+      expect(call({ user: undefined }, '/admin')).toBe(false);
+    });
+
+    it('accepte toujours une session légitime (le correctif ne casse pas le flow)', () => {
+      expect(call({ user: { email: 'client@veridian.site' } }, '/dashboard')).toBe(true);
+      expect(call({ user: { email: 'client@veridian.site' } }, '/admin')).toBe(true);
+    });
+  });
 });
