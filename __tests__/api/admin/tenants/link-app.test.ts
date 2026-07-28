@@ -278,4 +278,67 @@ describe('POST /api/admin/tenants/link-app', () => {
       expect.objectContaining({ action: 'admin.tenant.link', targetType: 'app_link' })
     );
   });
+
+  // ─── Garde-fous autologin Notifuse (ticket 2026-07-06) ─────────────────
+
+  it('400 si app=notifuse avec un slug impossible côté Notifuse', async () => {
+    // Un workspace_id Notifuse est `[a-z0-9]{1,20}`. Accepter un slug à
+    // hyphens créait un lien qui ne pouvait JAMAIS produire d'auto-login,
+    // et l'échec n'apparaissait qu'au premier clic du client.
+    const { POST } = await import('@/app/api/admin/tenants/link-app/route');
+    const res = await POST(
+      makeReq(
+        { ...validPayload, app: 'notifuse', external_tenant_slug: 'cesar-et-brutus' },
+        auth,
+      ) as never,
+    );
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('invalid_notifuse_workspace_id');
+    expect(linkAppMock).not.toHaveBeenCalled();
+  });
+
+  it("transmet l'email du user Hub comme ownerEmail par défaut", async () => {
+    findUniqueMock.mockResolvedValueOnce({ id: 'u1', supabaseUserId: 'uuid-1' });
+    linkAppMock.mockResolvedValueOnce({
+      tenantId: 't1', userUuid: 'uuid-1', app: 'notifuse',
+      metadataPath: 'tenants.metadata.notifuse', created: false,
+    });
+
+    const { POST } = await import('@/app/api/admin/tenants/link-app/route');
+    await POST(
+      makeReq({ ...validPayload, app: 'notifuse', external_tenant_slug: 'avse' }, auth) as never,
+    );
+
+    expect(linkAppMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ ownerEmail: 'a@x.com' }),
+    );
+  });
+
+  it("respecte owner_email explicite quand l'owner Notifuse diffère du compte Hub", async () => {
+    findUniqueMock.mockResolvedValueOnce({ id: 'u1', supabaseUserId: 'uuid-1' });
+    linkAppMock.mockResolvedValueOnce({
+      tenantId: 't1', userUuid: 'uuid-1', app: 'notifuse',
+      metadataPath: 'tenants.metadata.notifuse', created: false,
+    });
+
+    const { POST } = await import('@/app/api/admin/tenants/link-app/route');
+    await POST(
+      makeReq(
+        {
+          ...validPayload,
+          app: 'notifuse',
+          external_tenant_slug: 'avse',
+          owner_email: 'Owner@Client.TEST',
+        },
+        auth,
+      ) as never,
+    );
+
+    expect(linkAppMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ ownerEmail: 'owner@client.test' }),
+    );
+  });
 });

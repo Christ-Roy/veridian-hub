@@ -20,6 +20,7 @@ import { linkApp, type AppLinkApp } from '@/lib/admin/link-app';
 import { writeAuditLog, resolveActor } from '@/lib/admin/audit-log';
 import { authenticateAdmin } from '@/lib/admin/authenticate';
 import { isPublicHttpUrl } from '@/lib/security/safe-url';
+import { validateWorkspaceId } from '@/lib/notifuse/workspace-id';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -66,6 +67,11 @@ const bodySchema = z.object({
     })
     .optional(),
   magic_link_capable: z.boolean().optional(),
+  // Owner du workspace côté app downstream. Alimente `notifuse_user_email`,
+  // requis par l'auto-login Notifuse. Si omis → email du user Hub (cas
+  // nominal). Cf. `lib/admin/link-app.ts` : cette valeur était auparavant
+  // devinée dans `notes`, d'où l'autologin cassé.
+  owner_email: z.string().email().max(254).optional(),
   provisioning_source: z
     .string()
     .max(120)
@@ -92,6 +98,24 @@ export async function POST(request: NextRequest) {
       { error: 'invalid_payload', issues: parsed.error.issues },
       { status: 400 }
     );
+  }
+
+  // Garde-fou Notifuse : `external_tenant_slug` accepte hyphens + 120 chars,
+  // alors qu'un workspace_id Notifuse est `[a-z0-9]{1,20}`. Sans ce contrôle,
+  // on enregistrait des liens qui ne pouvaient structurellement JAMAIS
+  // produire d'auto-login — l'échec n'apparaissait qu'au premier clic du
+  // client sur « Ouvrir Veridian Mail ». On refuse le lien à la source.
+  if (parsed.data.app === 'notifuse') {
+    const slugCheck = validateWorkspaceId(parsed.data.external_tenant_slug);
+    if (!slugCheck.ok) {
+      return NextResponse.json(
+        {
+          error: 'invalid_notifuse_workspace_id',
+          message: `external_tenant_slug doit être un workspace_id Notifuse valide : ${slugCheck.error}`,
+        },
+        { status: 400 }
+      );
+    }
   }
 
   const email = parsed.data.user_email.trim().toLowerCase();
@@ -122,6 +146,10 @@ export async function POST(request: NextRequest) {
     magicLinkCapable: parsed.data.magic_link_capable,
     provisioningSource: parsed.data.provisioning_source,
     notes: parsed.data.notes,
+    // Défaut = email du user Hub qu'on est en train de lier. C'est le cas
+    // nominal (le client est owner de son propre workspace) ; `owner_email`
+    // couvre les workspaces dont l'owner Notifuse diffère du compte Hub.
+    ownerEmail: parsed.data.owner_email?.trim().toLowerCase() ?? email,
   });
 
   const actor = resolveActor(request.headers, authResult.sessionEmail);
