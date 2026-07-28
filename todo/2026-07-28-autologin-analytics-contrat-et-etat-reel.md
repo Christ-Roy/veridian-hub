@@ -3,8 +3,10 @@
 > **Sévérité** : 🟠 P1 (bloque la livraison d'un client Analytics ; pas de régression, ça n'a jamais marché)
 > **Créé** : 2026-07-28 par agent hub (suite du chantier autologin cross-app)
 > **Remplace/précise** : `todo/2026-06-22-brancher-analytics-au-broker-sso-autologin.md`
-> **Destinataire principal** : agent `veridian-analytics-engine` (§3 est son cahier des charges)
-> **Statut** : aucun code écrit côté Hub — volontairement, voir §2.
+> **Destinataire principal** : agent `analytics-sso-engine` (§3 est son cahier des charges)
+> **Repo engine** : `/home/brunon5/Bureau/veridian-platform/veridian-analytics`
+> (`api/`, `console/`, `veridian-bridge/`, `deploy/analytics-engine*.nomad.hcl`)
+> **Statut** : aucun code Hub écrit contre ces routes tant qu'elles répondent 404 — voir §2.
 
 ---
 
@@ -20,9 +22,13 @@
    `lib/analytics/client.ts` appelle les chemins de l'app **legacy morte**, et sa
    variable d'environnement `ANALYTICS_ADMIN_KEY` **n'est déployée nulle part**.
    La page `/dashboard/admin/analytics` ne peut donc rien faire aujourd'hui.
-4. **La clé M2M staging est rejetée (401)** alors qu'elle passe en prod : aucun test
-   bout en bout Analytics n'est possible sur staging tant que ce n'est pas réparé.
+4. ~~La clé M2M staging est rejetée (401)~~ — **résolu** par `analytics-sso-engine` :
+   la clé staging a divergé de la prod depuis le passage à Nomad et vit dans la
+   Nomad var `nomad/jobs/analytics-engine-staging` → `PLATFORM_ADMIN_API_KEY`.
+   Le mapping en dur du CLI (`~/bin/analytics`, `KEY_VARS`) datait de l'ère Dokploy.
 5. **Le mécanisme livré pour Notifuse n'est pas transposable** — raison en §2.
+6. **`workspace_id` n'est connu du Hub que dans un cas sur trois** — c'est ce qui
+   décide du scope du jeton côté engine. Détail et proposition en §3.3bis.
 
 ---
 
@@ -96,7 +102,9 @@ POST /api/sso/issue-magic-link
 Headers : X-Veridian-Timestamp: <unix_ms>
           X-Veridian-Hub-Signature: <hex(hmac_sha256(secret, "{timestamp}.{raw_body}"))>
           Content-Type: application/json
-Body    : { "hub_user_id": "<uuid>", "email": "<string>" }
+Body    : { "hub_user_id": "<uuid v4>", "email": "<string>",
+            "workspace_id": "<string>"   // OPTIONNEL — cf. §3.3bis
+          }
 ```
 
 **Réponse 200** :
@@ -109,23 +117,60 @@ Body    : { "hub_user_id": "<uuid>", "email": "<string>" }
 { "error": "user_not_in_app", "hint": "no workspace for this hub_user_id" }
 ```
 
+**Réponse 409** — `workspace_id` absent du body et l'engine refuse d'émettre un
+jeton non scopé (cf. §3.3bis) :
+```json
+{ "error": "workspace_required", "workspaces": [{ "id": "...", "name": "..." }] }
+```
+
+**Réponse 403** — `workspace_id` fourni mais l'user n'y a pas accès :
+```json
+{ "error": "workspace_mismatch" }
+```
+
 **Réponse 5xx** — app HS ; le Hub affiche une page d'erreur.
 
-### 3.2 Vérification HMAC (contrat §6.1, identique à Notifuse/Prospection)
+**Consommation du jeton — attention, la console n'est PAS en cookie.**
+L'authentification de la console Analytics repose sur **localStorage**, pas sur un
+cookie de session : une route qui se contenterait d'un `Set-Cookie` + 302 ne
+connecterait personne. Il faut une page qui reçoit le jeton, écrit la session en
+localStorage, puis redirige — exactement le pattern
+`/veridian/auto-login?token=` de Notifuse (self-contained, TTL 60 s).
+La forme exacte et l'URL finale sont à la main de l'agent engine : le Hub se cale
+dessus, il ne fait que rediriger l'utilisateur vers l'URL rendue.
 
-1. Rejeter si `|now - timestamp| > 5 min` (anti-replay).
-2. Recalculer `hmac_sha256(secret, timestamp + "." + raw_body)` sur le **corps brut**,
-   pas sur le JSON re-sérialisé.
-3. Comparer en **temps constant** (`hmac.Equal` en Go, `crypto.timingSafeEqual` en
-   Node, `hmac.compare_digest` en Python).
+### 3.2 Vérification HMAC — **déjà implémentée, rien à écrire**
 
-**Nom du secret — point d'attention** : le ticket de juin parlait de
-`HUB_HMAC_SECRET`, **qui n'existe sous ce nom ni côté Hub ni dans les credentials**.
-Le nom réel côté Hub est **`ANALYTICS_HUB_API_SECRET`**, déjà injectée en prod
-(`jobs/saas-prod/hub.nomad.hcl:148`) et en staging (`hub-staging.nomad.hcl:183`).
-Côté engine, la convention du contrat est de la recevoir sous `HUB_API_SECRET`.
-**À aligner explicitement avant de coder**, sinon on livre deux moitiés qui ne se
-parlent pas.
+La couche HMAC **existe et tourne en prod** côté Analytics :
+`veridian-bridge/src/hub-hmac.ts` (comparaison en temps constant, fenêtre
+anti-rejeu de 5 min, signature sur le corps brut, refus de démarrer si le
+contournement est activé hors développement, tests dédiés dans
+`veridian-bridge/tests/hub/`). Trois routes l'utilisent déjà.
+
+**La nouvelle route se branche dessus telle quelle.** Il n'y a pas de mécanisme
+à spécifier, et surtout pas un second dialecte à introduire. Le format, pour
+mémoire, est identique à celui de Notifuse/Prospection (contrat §6.1) :
+
+1. `|now - timestamp| > 5 min` → rejet (timestamp en **millisecondes**).
+2. `hmac_sha256(secret, timestamp + "." + raw_body)` sur le **corps brut**,
+   jamais sur le JSON re-sérialisé.
+3. Comparaison en **temps constant**.
+
+**Nom du secret — deux noms légitimes, une seule valeur.** Aucun renommage à faire
+de part ni d'autre :
+
+| Côté | Variable | Où |
+|---|---|---|
+| Hub | `ANALYTICS_HUB_API_SECRET` (+ `_STAGING`) | `jobs/saas-prod/hub.nomad.hcl:148`, `hub-staging.nomad.hcl:183` |
+| Engine / bridge | `HUB_HMAC_SECRET` | jobs Nomad engine, lu par `veridian-bridge/src/index.ts` |
+
+Égalité des valeurs vérifiée sur staging par l'agent `analytics-sso-engine`
+(Nomad var `HUB_HMAC_SECRET` == `ANALYTICS_HUB_API_SECRET_STAGING`).
+
+> **Correction 2026-07-28** : une version antérieure de ce ticket affirmait que
+> `HUB_HMAC_SECRET` était une erreur du ticket de juin et qu'il fallait
+> s'aligner sur le nom Hub. C'est **faux** — les deux noms coexistent
+> légitimement. Ne demandez aucun renommage.
 
 ### 3.3 Sémantique imposée
 
@@ -137,6 +182,43 @@ parlent pas.
   **dernier actif**, l'utilisateur switche ensuite dans l'UI.
 - `GET /auth/token?t=<token>` consomme le token, pose la session et redirige vers
   le dashboard. À vérifier : ce chemin répond 404 aujourd'hui côté engine.
+
+### 3.3bis Quelle identité le Hub peut réellement fournir (décide le scope du jeton)
+
+**Identités utilisateur — toujours disponibles, les deux :**
+- `email` : `User.email` est `@unique` et NOT NULL côté Hub.
+- `hub_user_id` : c'est **`User.supabaseUserId` (UUID v4)**, PAS `User.id` qui est
+  un cuid. C'est le pont cross-app déjà en service pour Notifuse/Prospection
+  (`lib/invitations/attach-downstream.ts:231`). Confondre les deux a cassé
+  l'attach cross-app le 2026-05-21 : les apps l'utilisent comme PK Postgres et
+  crashent en `invalid input syntax for type uuid`.
+
+**Workspace cible — connu dans un cas sur trois seulement.** Le Hub stocke
+`external_tenant_slug` / `external_tenant_id` dans `tenants.metadata.analytics`,
+mais ce bloc n'est écrit **que** par `hub link --app analytics`. Or la card
+Analytics s'affiche pour trois raisons (`app/dashboard/page.tsx`) :
+
+```ts
+showActiveAnalytics = isAnalyticsEnabled || hasLifetimeSiteVitrine || hasServiceAnalytics
+```
+
+| Déclencheur | Origine | Workspace connu du Hub ? |
+|---|---|---|
+| `hasServiceAnalytics` | `metadata.analytics.fallback_url` (posé par `hub link`) | ✅ oui |
+| `isAnalyticsEnabled` | flag `TenantApp(app_key='analytics')`, sans métadonnée | ❌ non |
+| `hasLifetimeSiteVitrine` | déduit du plan (`notifuse_plan_source`) | ❌ non |
+
+**Conséquence pour le contrat** : `workspace_id` est **optionnel** dans le body.
+Le Hub le fournit chaque fois qu'il l'a.
+
+- **Fourni** → l'engine scope le jeton à ce workspace et **refuse**
+  (403 `workspace_mismatch`) si l'user n'y a pas accès. Chemin nominal, scope strict.
+- **Absent** → l'engine répond **409 `workspace_required`** avec la liste des
+  workspaces de l'user (`{ error, workspaces: [{id, name}] }`) plutôt que d'émettre
+  un jeton non scopé. Le Hub rappelle en nommant le workspace (un seul → immédiat ;
+  plusieurs → choix utilisateur). **Aucun jeton non scopé n'est jamais émis** :
+  la complexité du multi-workspace remonte côté Hub, où il y a une UI pour la
+  résoudre, et l'engine garde son invariant anti-fuite entre tenants.
 
 ### 3.4 Résolution de l'utilisateur
 
@@ -152,7 +234,17 @@ pour la v1.
 
 ## 4. Blocages d'environnement à débloquer (ne pas les poser soi-même)
 
-### 4.1 🔴 Clé M2M staging rejetée
+### 4.1 ✅ Clé M2M staging rejetée — RÉSOLU (2026-07-28)
+
+> **Résolution** apportée par `analytics-sso-engine` : la clé staging a bien
+> divergé de la prod **depuis le passage de Dokploy à Nomad**. La vraie clé vit
+> dans la Nomad var `nomad/jobs/analytics-engine-staging` →
+> `PLATFORM_ADMIN_API_KEY` (`nomad var get -out=json nomad/jobs/analytics-engine-staging`).
+> Vérifiée en live : elle sort 400 sur `tenants.provision` là où la clé prod sort 401.
+> Le CLI est corrigé et la clé publiée sous `ANALYTICS_ENGINE_STAGING_PLATFORM_ADMIN_KEY`.
+> **Le test bout en bout Analytics sur staging est donc redevenu possible.**
+
+Diagnostic d'origine conservé ci-dessous pour mémoire.
 
 `ANALYTICS_ENGINE_PLATFORM_ADMIN_KEY` est **acceptée en prod** et **rejetée en
 staging (401)**. Le CLI `analytics` documente pourtant en dur, commentaire daté du
@@ -230,8 +322,8 @@ pour Notifuse.
 
 ## 6. Ordre de traitement recommandé
 
-1. Aligner le nom du secret HMAC (§3.2) — 5 minutes, évite de livrer deux moitiés
-   incompatibles.
+1. ~~Aligner le nom du secret HMAC~~ — **sans objet** : les deux noms sont
+   légitimes et les valeurs identiques (§3.2). Rien à faire.
 2. Réparer la clé M2M staging (§4.1) — sans ça, rien n'est testable.
 3. Livrer `POST /api/sso/issue-magic-link` + `GET /auth/token` côté engine (§3).
 4. Brancher le Hub (§5) + test bout en bout staging.
