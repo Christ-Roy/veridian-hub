@@ -5,6 +5,8 @@ import pkg from '../../../package.json';
 export const dynamic = 'force-dynamic';
 
 const DATABASE_TIMEOUT_MS = 2_000;
+const appVersion =
+  'version' in pkg && typeof pkg.version === 'string' ? pkg.version : 'unknown';
 
 async function checkDatabase(): Promise<'ok' | 'ko'> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -38,7 +40,7 @@ export async function GET() {
   return NextResponse.json(
     {
       status,
-      version: pkg.version,
+      version: appVersion,
       db,
       dependencies: {},
       timestamp: new Date().toISOString(),

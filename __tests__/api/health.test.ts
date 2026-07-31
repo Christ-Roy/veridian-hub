@@ -52,6 +52,7 @@ describe('GET /api/health', () => {
     const response = await GET();
     expect(response.body).toMatchObject({
       status: 'ok',
+      version: 'unknown',
       db: 'ok',
       dependencies: {},
     });
