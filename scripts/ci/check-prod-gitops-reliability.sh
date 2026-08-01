@@ -4,6 +4,7 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 hcl="$root/deploy/hub.nomad.hcl"
 ci="$root/.github/workflows/hub-ci.yml"
+staging_ci="$root/.github/workflows/hub-staging.yml"
 
 fail() {
   printf 'ERREUR GitOps prod: %s\n' "$*" >&2
@@ -41,10 +42,30 @@ reject_fixed "$ci" 'nomad job plan -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL" |
 require_fixed "$ci" 'RUN_INDEX_ARGS=(-check-index "$MODIFY_INDEX")' 'protection TOCTOU check-index absente'
 require_fixed "$ci" '/home/brunon5/all-cron/backups/prod-r2-backup.sh' 'backup R2 pré-déploiement absent'
 
+# Staging doit appliquer les mêmes garanties plan/run, sans le backup DB :
+# l'app redémarre, mais PostgreSQL reste dans le cluster Patroni séparé.
+require_fixed "$staging_ci" 'PLAN_STATUS=$?' 'code retour du plan staging non capturé'
+require_fixed "$staging_ci" '*) echo "::error::nomad job plan staging a échoué' 'erreur de plan staging non bloquante'
+reject_fixed "$staging_ci" 'nomad job plan -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL" || true' 'erreur de plan staging masquée'
+require_fixed "$staging_ci" 'RUN_INDEX_ARGS=(-check-index "$MODIFY_INDEX")' 'protection TOCTOU staging absente'
+
+# Actions Node 20 dépréciées : les versions majeures actuelles utilisent le
+# runtime supporté par GitHub et évitent des warnings qui masquent les vrais signaux.
+for workflow in "$ci" "$staging_ci"; do
+  reject_fixed "$workflow" 'docker/setup-buildx-action@v3' 'setup-buildx Node 20 obsolète'
+  reject_fixed "$workflow" 'docker/login-action@v3' 'docker login Node 20 obsolète'
+  reject_fixed "$workflow" 'nick-fields/retry@v3' 'retry Node 20 obsolète'
+done
+reject_fixed "$staging_ci" 'tailscale/github-action@v3' 'Tailscale Node 20 obsolète'
+
 plan_line=$(grep -nF 'PLAN_OUTPUT=$(/usr/bin/nomad job plan' "$ci" | cut -d: -f1)
 backup_line=$(grep -nF '/home/brunon5/all-cron/backups/prod-r2-backup.sh' "$ci" | cut -d: -f1)
 run_line=$(grep -nF 'EVAL=$(/usr/bin/nomad job run' "$ci" | cut -d: -f1)
 [ "$plan_line" -lt "$backup_line" ] || fail 'backup lancé avant validation du plan'
 [ "$backup_line" -lt "$run_line" ] || fail 'backup non bloquant avant nomad job run'
+
+staging_plan_line=$(grep -nF 'PLAN_OUTPUT=$(/usr/bin/nomad job plan' "$staging_ci" | cut -d: -f1)
+staging_run_line=$(grep -nF 'EVAL=$(/usr/bin/nomad job run' "$staging_ci" | cut -d: -f1)
+[ "$staging_plan_line" -lt "$staging_run_line" ] || fail 'run staging placé avant le plan'
 
 echo 'OK: invariants GitOps Hub prod fail-closed'
