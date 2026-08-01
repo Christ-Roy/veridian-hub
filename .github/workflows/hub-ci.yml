@@ -271,12 +271,13 @@ jobs:
           source ~/credentials/nomad-bastion.env
           export NOMAD_ADDR NOMAD_TOKEN="$NOMAD_MGMT_TOKEN"
 
-          # ── PRÉ-PULL authentifié sur le nœud cible (prod = LE BASTION, provider=contabo) ──
+          # ── PRÉ-PULL authentifié sur le nœud cible (prod = ovh-prod) ──
           # Nomad ne pull pas les images PRIVÉES ghcr (plugin sans bloc auth → 401,
-          # alloc pending jusqu'au healthy_deadline). On pré-pull EN LOCAL sur le
-          # bastion (auth ghcr en place) → image déjà présente quand la task démarre.
-          echo "== pré-pull image prod sur le bastion (auth ghcr local) =="
-          docker pull "ghcr.io/christ-roy/veridian-hub:${IMAGE_TAG}"
+          # alloc pending jusqu'au healthy_deadline). On pré-pull via SSH sur le
+          # nœud cible (auth ghcr en place) → image déjà présente quand la task démarre.
+          echo "== pré-pull image prod sur ovh-prod =="
+          ssh -n -o BatchMode=yes -o StrictHostKeyChecking=accept-new prod-pub \
+            "docker pull 'ghcr.io/christ-roy/veridian-hub:${IMAGE_TAG}'"
 
           echo "== nomad job validate =="
           /usr/bin/nomad job validate -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL"

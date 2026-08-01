@@ -11,7 +11,7 @@
 
 | Fichier | Rôle |
 |---|---|
-| `deploy/hub.nomad.hcl` | **PROD** — job `hub`, `provider=contabo` (bastion), DB `veridian-core-db` postgres:16 co-localisée, sert `app.veridian.site`. `variable image_tag` (défaut `latest`). |
+| `deploy/hub.nomad.hcl` | **PROD** — job `hub`, `provider=ovh-prod`, DB `veridian-core-db` postgres:16 co-localisée, sert `app.veridian.site`. `variable image_tag` (défaut `latest`). |
 | `deploy/hub-staging.nomad.hcl` | **STAGING** — job `hub-staging`, `provider=ovh-dev`, **DB en cluster Patroni HA** (sidecar HAProxy `pgproxy` → leader dynamique), privé `internal-only@nomad`, sert `hub.staging.veridian.site`. `variable image_tag` (défaut `staging-latest`). |
 | `.github/workflows/hub-staging.yml` | Pipeline staging (push `staging`) : build+push GHCR → deploy Nomad SSH-bastion → smoke tailnet. |
 | `.github/workflows/hub-ci.yml` | Pipeline prod (push `main`) : test → audit → trivy → docker → deploy-prod (Nomad SSH-bastion) → e2e-prod-smoke. |
@@ -53,7 +53,7 @@ Posés 2026-07-13 (mêmes valeurs partagées cross-app, clé SSH **dédiée Hub*
 | Secret | Contenu |
 |---|---|
 | `NOMAD_DEPLOY_SSH_KEY` | Clé SSH privée ed25519 dédiée CI Hub (`hub-ci-deploy@github`). Publique dans `~brunon5/.ssh/authorized_keys` du bastion. |
-| `NOMAD_BASTION_HOST` | IP publique du bastion Contabo (`75.119.158.217`). |
+| `NOMAD_BASTION_HOST` | Adresse du bastion Nomad utilisée comme control-plane. |
 | `NOMAD_BASTION_USER` | `brunon5`. |
 | `TS_OAUTH_CLIENT_ID` / `TS_OAUTH_SECRET` | (déjà présents) Le smoke staging rejoint le tailnet (staging privé). |
 
@@ -84,9 +84,9 @@ curl -s -o /dev/null -w '%{http_code}\n' https://app.veridian.site/api/health   
 ## Pièges Hub (en plus des 11 du canon Prospection)
 
 - **Pré-pull staging = sur ovh-dev** (`ssh -n dev-pub docker pull …`) car le job
-  `hub-staging` est `provider=ovh-dev`. Pré-pull prod = **local au bastion**
-  (`provider=contabo`). Auth ghcr root + user SSH requise sur les DEUX nœuds
-  (vérifiée 2026-07-13 : root + brunon5 sur le bastion, ubuntu sur dev-pub).
+  `hub-staging` est `provider=ovh-dev`. Pré-pull prod = **sur ovh-prod**
+  (`ssh -n prod-pub docker pull …`). L'auth GHCR doit rester valide sur les deux
+  nœuds cibles.
 - **Migrate-on-boot + Patroni staging** : au démarrage, le container Hub attend
   que le sidecar `pgproxy` route vers un leader. Si l'ordre de démarrage fait
   booter Hub avant pgproxy, le migrate échoue → le `restart` stanza (10×/15s)
