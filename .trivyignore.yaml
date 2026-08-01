@@ -8,30 +8,7 @@
 #
 # Ce fichier remplace .trivyignore plat (toujours présent pour backward compat).
 
-vulnerabilities:
-  - id: CVE-2026-33671
-    paths:
-      - "usr/local/lib/node_modules/npm/node_modules/picomatch/**"
-    statement: |
-      picomatch 4.0.3 DoS regex via extglob patterns, bundled dans npm de
-      node:22-alpine et node:24-alpine.
-      Non exploitable : npm n'est pas exécuté au runtime du container Next.js.
-      Vérification : docker run --rm node:22-alpine npm ls -g picomatch
-    expired_at: 2026-08-01
-
-  - id: CVE-2026-48815
-    paths:
-      - "usr/local/lib/node_modules/npm/node_modules/sigstore/**"
-    statement: |
-      sigstore 3.1.0 (certificateOIDs verification constraints) bundlé dans le
-      npm de node:22-alpine (npm l'utilise pour vérifier les signatures de
-      packages au `npm install`, fixed 4.1.1).
-      Non exploitable : npm n'est JAMAIS exécuté au runtime du container Next.js
-      (CMD = migrate-on-boot + `node server.js` ; aucun `npm install` au runtime).
-      Même classe que la picomatch ci-dessus (dépendance bundlée du npm de base).
-      Vérification : docker run --rm node:22-alpine cat \
-        /usr/local/lib/node_modules/npm/node_modules/sigstore/package.json | grep version
-    expired_at: 2026-08-01
+vulnerabilities: []
 
 licenses:
   - id: LGPL-3.0-or-later

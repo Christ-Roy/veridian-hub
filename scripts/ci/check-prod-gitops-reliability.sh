@@ -5,6 +5,8 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 hcl="$root/deploy/hub.nomad.hcl"
 ci="$root/.github/workflows/hub-ci.yml"
 staging_ci="$root/.github/workflows/hub-staging.yml"
+dockerfile="$root/Dockerfile"
+trivyignore="$root/.trivyignore.yaml"
 
 fail() {
   printf 'ERREUR GitOps prod: %s\n' "$*" >&2
@@ -57,6 +59,14 @@ for workflow in "$ci" "$staging_ci"; do
   reject_fixed "$workflow" 'nick-fields/retry@v3' 'retry Node 20 obsolète'
 done
 reject_fixed "$staging_ci" 'tailscale/github-action@v3' 'Tailscale Node 20 obsolète'
+
+# Le runner n'exécute jamais npm/corepack : migrations et serveur partent via
+# node directement. On retire donc leurs paquets bundlés de l'image finale et
+# on refuse de réintroduire les anciennes exceptions CVE arrivées à expiration.
+require_fixed "$dockerfile" '/usr/local/lib/node_modules/npm' 'suppression npm runtime absente'
+require_fixed "$dockerfile" '/usr/local/lib/node_modules/corepack' 'suppression corepack runtime absente'
+reject_fixed "$trivyignore" 'CVE-2026-33671' 'ancienne exception picomatch encore active'
+reject_fixed "$trivyignore" 'CVE-2026-48815' 'ancienne exception sigstore encore active'
 
 plan_line=$(grep -nF 'PLAN_OUTPUT=$(/usr/bin/nomad job plan' "$ci" | cut -d: -f1)
 backup_line=$(grep -nF '/home/brunon5/all-cron/backups/prod-r2-backup.sh' "$ci" | cut -d: -f1)
