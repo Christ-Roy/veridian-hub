@@ -87,9 +87,16 @@ export const authConfig = {
         return true;
       }
 
-      // Routes protégées : dashboard + admin → nécessitent une session
+      // Routes protégées : dashboard + admin → nécessitent une session.
+      //
+      // On teste `auth?.user`, PAS `!!auth` (GHSA-8fpg-xm3f-6cx3, critical).
+      // Quand la config Auth.js produit une erreur côté serveur, l'objet
+      // exposé par `auth()` n'est pas `null` : il est peuplé avec un objet
+      // d'erreur. Un `!!auth` passe donc à `true` et le garde-fou s'ouvre
+      // au lieu de se fermer — exactement le mauvais sens pour un fail.
+      // `auth?.user` n'est renseigné que sur une vraie session.
       if (pathname.startsWith('/dashboard') || pathname.startsWith('/admin')) {
-        return !!auth;
+        return !!auth?.user;
       }
 
       return true;

@@ -28,7 +28,7 @@ concurrency:
 
 # Permissions par défaut au niveau workflow : nécessaire pour que les workflows
 # réutilisables (_trivy-fs, _trivy-image) puissent uploader SARIF dans le
-# GitHub Security tab via codeql-action/upload-sarif@v3.
+# GitHub Security tab via codeql-action/upload-sarif@v4.
 # Sans ça, sur pull_request depuis fork le job calling reçoit
 # 'security-events: none' et le startup fail.
 permissions:
@@ -43,6 +43,7 @@ env:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
         with:
@@ -51,7 +52,7 @@ jobs:
           fetch-depth: 0
           submodules: recursive  # shared/ submodule veridian-infra
           token: ${{ secrets.CR_PAT }}  # PAT cross-repo (veridian-infra privé depuis 2026-07-10)
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 10
       - uses: actions/setup-node@v6
@@ -75,6 +76,8 @@ jobs:
         run: ./scripts/ci/check-migration-safety.sh
         env:
           BASE_REF: origin/${{ github.base_ref || 'main' }}
+      - name: GitOps prod reliability invariants
+        run: ./scripts/ci/check-prod-gitops-reliability.sh
       - name: Tests
         run: pnpm test
         env:
@@ -271,19 +274,42 @@ jobs:
           source ~/credentials/nomad-bastion.env
           export NOMAD_ADDR NOMAD_TOKEN="$NOMAD_MGMT_TOKEN"
 
-          # ── PRÉ-PULL authentifié sur le nœud cible (prod = LE BASTION, provider=contabo) ──
-          # Nomad ne pull pas les images PRIVÉES ghcr (plugin sans bloc auth → 401,
-          # alloc pending jusqu'au healthy_deadline). On pré-pull EN LOCAL sur le
-          # bastion (auth ghcr en place) → image déjà présente quand la task démarre.
-          echo "== pré-pull image prod sur le bastion (auth ghcr local) =="
-          docker pull "ghcr.io/christ-roy/veridian-hub:${IMAGE_TAG}"
-
           echo "== nomad job validate =="
           /usr/bin/nomad job validate -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL"
 
           echo "== nomad job plan (diff, inoffensif) =="
-          # plan renvoie exit 1 quand il y a des allocs à créer : by design → `|| true`.
-          /usr/bin/nomad job plan -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL" || true
+          set +e
+          PLAN_OUTPUT=$(/usr/bin/nomad job plan -no-color \
+            -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL" 2>&1)
+          PLAN_STATUS=$?
+          set -e
+          printf '%s\n' "$PLAN_OUTPUT"
+          case "$PLAN_STATUS" in
+            0) echo "plan sans création ou destruction d'allocation" ;;
+            1) echo "plan avec remplacement d'allocation attendu" ;;
+            *) echo "::error::nomad job plan a échoué (code=$PLAN_STATUS)"; exit "$PLAN_STATUS" ;;
+          esac
+
+          # Lie le run au Modify Index observé par le plan. Si un autre acteur
+          # modifie le job entre les deux, Nomad refuse le run au lieu d'écraser
+          # silencieusement ce changement concurrent.
+          MODIFY_INDEX=$(printf '%s\n' "$PLAN_OUTPUT" \
+            | sed -n 's/^Job Modify Index: \([0-9][0-9]*\)$/\1/p' | tail -1)
+          RUN_INDEX_ARGS=()
+          [ -n "$MODIFY_INDEX" ] && RUN_INDEX_ARGS=(-check-index "$MODIFY_INDEX")
+
+          # Le groupe est stateful et redémarre PostgreSQL. Le runner canonique
+          # crée et vérifie une sauvegarde R2 des six bases avant toute mutation.
+          echo "== sauvegarde PostgreSQL pré-déploiement vers R2 =="
+          /home/brunon5/all-cron/backups/prod-r2-backup.sh
+
+          # ── PRÉ-PULL authentifié sur le nœud cible (prod = ovh-prod) ──
+          # Nomad ne pull pas les images PRIVÉES ghcr (plugin sans bloc auth → 401,
+          # alloc pending jusqu'au healthy_deadline). On pré-pull via SSH sur le
+          # nœud cible (auth ghcr en place) → image déjà présente quand la task démarre.
+          echo "== pré-pull image prod sur ovh-prod =="
+          ssh -n -o BatchMode=yes -o StrictHostKeyChecking=accept-new prod-pub \
+            "docker pull 'ghcr.io/christ-roy/veridian-hub:${IMAGE_TAG}'"
 
           # Déploiement + vérification CIBLÉE (ni race, ni 404) : run -detach →
           # résout le Deployment de cet eval → `deployment status -monitor <id>`
@@ -293,7 +319,9 @@ jobs:
           # ⚠️ Job prod STATEFUL (DB co-localisée, count=1) → un run recrée l'alloc
           # (bref redémarrage DB, attendu, pas zéro-downtime).
           echo "== nomad job run -detach + monitoring du déploiement ciblé (image_tag=${IMAGE_TAG}) =="
-          EVAL=$(/usr/bin/nomad job run -detach -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL" | grep -oP 'Evaluation ID:\s+\K\S+')
+          EVAL=$(/usr/bin/nomad job run -detach "${RUN_INDEX_ARGS[@]}" \
+            -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL" \
+            | grep -oP 'Evaluation ID:\s+\K\S+')
           echo "eval: ${EVAL:-none}"
           DEP=""
           for i in $(seq 1 15); do
@@ -341,7 +369,7 @@ jobs:
         with:
           submodules: recursive  # shared/ submodule veridian-infra
           token: ${{ secrets.CR_PAT }}  # PAT cross-repo (veridian-infra privé)
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 10
       - uses: actions/setup-node@v6
