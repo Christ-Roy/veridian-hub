@@ -28,7 +28,7 @@ concurrency:
 
 # Permissions par défaut au niveau workflow : nécessaire pour que les workflows
 # réutilisables (_trivy-fs, _trivy-image) puissent uploader SARIF dans le
-# GitHub Security tab via codeql-action/upload-sarif@v3.
+# GitHub Security tab via codeql-action/upload-sarif@v4.
 # Sans ça, sur pull_request depuis fork le job calling reçoit
 # 'security-events: none' et le startup fail.
 permissions:
@@ -52,7 +52,7 @@ jobs:
           fetch-depth: 0
           submodules: recursive  # shared/ submodule veridian-infra
           token: ${{ secrets.CR_PAT }}  # PAT cross-repo (veridian-infra privé depuis 2026-07-10)
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 10
       - uses: actions/setup-node@v6
@@ -343,7 +343,7 @@ jobs:
         with:
           submodules: recursive  # shared/ submodule veridian-infra
           token: ${{ secrets.CR_PAT }}  # PAT cross-repo (veridian-infra privé)
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 10
       - uses: actions/setup-node@v6
