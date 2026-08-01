@@ -39,6 +39,7 @@ CURL_TIMEOUT=5
 HOSTNAME_SHORT="$(hostname -s)"
 SAAS_ROOT="/home/brunon5/Bureau/veridian-platform"
 SSH_KEY="$HOME/.ssh/id_rsa_ovh"
+NOMAD_V="${NOMAD_V:-/home/brunon5/bin/nomad-v}"
 
 ###############################################################################
 # SaaS repo mapping (single source of truth)
@@ -215,51 +216,6 @@ local_services() {
         status="$(systemctl is-active ${svc}.service 2>/dev/null || echo 'missing')"
         echo "${svc}: ${status}"
     done
-}
-
-remote_traefik_routes() {
-    local ssh_cmd
-    if [ "$1" = "--alias" ]; then
-        ssh_cmd="timeout $SSH_TIMEOUT ssh -o ConnectTimeout=5 -o BatchMode=yes $2"
-    else
-        local host="$1" key="${2:-$SSH_KEY}" user="${3:-ubuntu}"
-        ssh_cmd="timeout $SSH_TIMEOUT ssh -i $key -o ConnectTimeout=3 -o StrictHostKeyChecking=no -o BatchMode=yes ${user}@${host}"
-    fi
-    $ssh_cmd '
-        docker ps --format "{{.Names}}" | while read name; do
-            host=$(docker inspect "$name" --format "{{range .Config.Labels}}{{println .}}{{end}}" 2>/dev/null | grep -oP "Host\(\`\K[^\`]+" | head -1)
-            if [ -z "$host" ]; then continue; fi
-            health=$(docker inspect "$name" --format "{{if .State.Health}}{{.State.Health.Status}}{{else}}-{{end}}" 2>/dev/null)
-            echo "${host}|${name}|${health}"
-        done | sort -u
-    ' 2>/dev/null
-}
-
-format_traefik_routes() {
-    local lines; lines="$(cat)"
-    [ -z "$lines" ] && { echo "  (aucune route détectée)"; return; }
-    local maxw=0 w
-    while IFS="|" read -r host _ _; do
-        w=${#host}
-        [ "$w" -gt "$maxw" ] && maxw=$w
-    done <<< "$lines"
-    local tmpdir; tmpdir="$(mktemp -d)"
-    local i=0
-    while IFS="|" read -r host name health; do
-        (
-            code="$(curl -s -k -o /dev/null -w '%{http_code}' --max-time "$CURL_TIMEOUT" "https://${host}" 2>/dev/null)" || code="000"
-            if [[ "$code" =~ ^[23] ]] || [[ "$code" == "401" ]] || [[ "$code" == "403" ]]; then mark="✓"
-            elif [[ "$code" =~ ^4 ]]; then mark="?"
-            else mark="✗"; fi
-            printf "  %-${maxw}s  [%s] → %s %s\n" "$host" "$health" "$code" "$mark" > "${tmpdir}/${i}"
-        ) &
-        i=$((i+1))
-    done <<< "$lines"
-    wait
-    for j in $(seq 0 $((i-1))); do
-        [ -f "${tmpdir}/${j}" ] && cat "${tmpdir}/${j}"
-    done
-    rm -rf "$tmpdir"
 }
 
 ###############################################################################
@@ -556,76 +512,10 @@ detect_current_saas_repo() {
     fi
 }
 
-# ─── Container resources (politique fusible 60% VM) ──────────────────────────
-# Récupère l'état mémoire/CPU des containers prod + détecte ceux sans fusible.
-#
-# Politique Veridian (décision Robert 2026-05-19) :
-#   Chaque container app doit avoir un mem_limit >= 60% de la RAM VM,
-#   pour qu'une fuite dans une app tue cette app seule (OOM-killer) sans
-#   prendre toute la stack. Les containers sans limite (mem_limit=0) sont
-#   un risque cascade.
-#
-# Output: lignes "container|mem_used_mb|mem_limit_mb|mem_pct|cpu_pct|status"
-# status = OK | WARN_HIGH (>80% lim) | NO_FUSE (mem_limit=0) | TOO_LOW (<60% VM)
-saas_container_resources() {
-    timeout "$SSH_TIMEOUT" ssh -i "$SSH_KEY" -o ConnectTimeout=3 -o StrictHostKeyChecking=no -o BatchMode=yes \
-        "ubuntu@100.88.202.29" '
-        # VM total RAM (bytes) — seuil 55% pour tolérer les variations
-        # docker-compose mem_limit: 6600m = 6.291 GiB ≈ 6604 MB → safe vs 60% des 12.24 GB VM = 7.34 GB
-        # 55% = 6.73 GB → tolérance suffisante pour considérer 6600m comme conforme.
-        vm_ram_bytes=$(free -b | awk "/^Mem/ {print \$2}")
-        threshold_60=$(( vm_ram_bytes * 55 / 100 ))
-        # Use docker stats once + inspect for limits
-        docker stats --no-stream --format "{{.Name}}|{{.MemUsage}}|{{.CPUPerc}}" 2>/dev/null | \
-        while IFS="|" read -r name mem_usage cpu_pct; do
-            [ -z "$name" ] && continue
-            # MemUsage = "33.14MiB / 6.5GiB" — parse used
-            used_str=$(echo "$mem_usage" | awk -F" / " "{print \$1}")
-            used_mb=$(echo "$used_str" | awk "{
-                v=\$0; sub(/[A-Za-z]+$/,\"\",v);
-                u=\$0; sub(/^[0-9.]+/,\"\",u);
-                if (u==\"GiB\") printf \"%d\", v*1024
-                else if (u==\"MiB\") printf \"%d\", v
-                else if (u==\"KiB\") printf \"%d\", v/1024
-                else printf \"%d\", v
-            }")
-            # mem_limit from inspect
-            lim_bytes=$(docker inspect "$name" --format "{{.HostConfig.Memory}}" 2>/dev/null)
-            if [ "$lim_bytes" = "0" ] || [ -z "$lim_bytes" ]; then
-                lim_mb=0
-                status="NO_FUSE"
-            else
-                lim_mb=$(( lim_bytes / 1024 / 1024 ))
-                if [ "$lim_bytes" -lt "$threshold_60" ]; then
-                    status="TOO_LOW"
-                else
-                    # Usage actuel vs limite
-                    pct=$(( used_mb * 100 / lim_mb ))
-                    if [ "$pct" -gt 80 ]; then status="WARN_HIGH"
-                    else status="OK"; fi
-                fi
-            fi
-            cpu_clean=$(echo "$cpu_pct" | tr -d "%")
-            echo "${name}|${used_mb}|${lim_mb}|${cpu_clean}|${status}"
-        done
-    ' 2>/dev/null
-}
-
-# ─── Backups DB (R2 → local sync) ────────────────────────────────────────────
-# 2026-07-27 : rclone vit dans ~/bin, qui n'est PAS dans le PATH quand ce hook
-# tourne au SessionStart. Resultat : chaque appel rclone echouait en silence, le
-# comptage tombait a 0 et le tableau de bord annoncait « AUCUN DUMP » sur les 4
-# bases alors que R2 contenait bien 10 dumps par base. Un indicateur qui crie au
-# loup finit par masquer une vraie panne : on resout le binaire explicitement.
+# ─── Rétention R2 complémentaire au snapshot cross-nœud de nomad-v ───────────
 RCLONE_BIN="$(command -v rclone 2>/dev/null || true)"
 [ -z "$RCLONE_BIN" ] && [ -x "$HOME/bin/rclone" ] && RCLONE_BIN="$HOME/bin/rclone"
-[ -z "$RCLONE_BIN" ] && RCLONE_BIN="rclone"   # dernier recours : message d'erreur explicite
-# DBs surveillées et leur container prod / fréquence attendue
-# Source de vérité : /etc/cron.d/veridian-backups + /etc/cron.d/cms-backup
-# NB : verger-shop retiré 2026-07-01 — sa DB a migré sur Neon (serverless,
-# backups/PITR gérés par Neon) le 2026-06-27, cron local commenté (MIGRÉ EDGE
-# CLOUD). Plus de backup Docker local à surveiller → l'alerte "CRON DOWN" était
-# un faux positif. Les 30 dumps R2 historiques restent (archive, non purgés).
+[ -z "$RCLONE_BIN" ] && RCLONE_BIN="rclone"
 SAAS_BACKUP_DBS=(
     "cms"
     "notifuse"
@@ -633,47 +523,18 @@ SAAS_BACKUP_DBS=(
     "veridian-core"
 )
 
-# Backups locaux (sync depuis R2 quotidien 07:00 via crontab brunon5@mail)
-BACKUP_LOCAL_DIR="/home/brunon5/backups/veridian"
-
-# Age d'un dump local (en heures) — basé sur mtime du fichier le plus récent
-saas_backup_local_age_h() {
-    local db="$1"
-    local last; last=$(ls -t "${BACKUP_LOCAL_DIR}/${db}"/*.sql* 2>/dev/null | head -1)
-    [ -z "$last" ] && { echo ""; return; }
-    local age_s=$(( $(date +%s) - $(stat -c %Y "$last") ))
-    echo $(( age_s / 3600 ))
+saas_backup_r2_inventory() {
+    "$RCLONE_BIN" lsf --recursive r2:veridian-backups/ 2>/dev/null \
+        | awk -F/ 'NF > 1 { count[$1]++ } END { for (db in count) print db "=" count[db] }'
 }
 
-# Compte de dumps R2 pour une DB (= rétention réelle)
-saas_backup_r2_count() {
-    local db="$1"
-    "$RCLONE_BIN" ls "r2:veridian-backups/${db}/" 2>/dev/null | wc -l
-}
-
-# Map un nom de container prod (long) vers le repo SaaS qu'il appartient (court)
-container_to_repo() {
-    local cname="$1"
-    case "$cname" in
-        *nl2k9p-hub*)        echo "veridian-hub" ;;
-        *l5fmki-prospection*) echo "veridian-prospection" ;;
-        *i9bv43-analytics*)   echo "veridian-analytics" ;;
-        *e9xlnn-cms*)         echo "veridian-cms" ;;
-        *k9lvap-notifuse*)    echo "notifuse-veridian" ;;
-        *)                    echo "" ;;
-    esac
-}
-
-# Localise le fichier compose à éditer pour un repo donné
-repo_compose_file() {
-    case "$1" in
-        veridian-hub)          echo "compose/base.yml" ;;
-        veridian-prospection)  echo "infra/docker-compose.base.yml" ;;
-        veridian-analytics)    echo "docker-compose.yml" ;;
-        veridian-cms)          echo "docker-compose.yml" ;;
-        notifuse-veridian)     echo "infra/compose/prod.yml" ;;
-        *)                     echo "?" ;;
-    esac
+nomad_state_section() {
+    local start="$1" stop="$2"
+    awk -v start="$start" -v stop="$stop" '
+        index($0, start) { visible=1; next }
+        visible && index($0, stop) { exit }
+        visible { print }
+    '
 }
 
 ###############################################################################
@@ -691,6 +552,17 @@ render_section_global() {
         OBS_OUT_FILE="$(mktemp)"
         ( obs check 2>/dev/null | sed -n '1,15p' > "$OBS_OUT_FILE" 2>/dev/null ) &
     fi
+
+    # Nomad est la source de vérité des routes, allocations, réservations et
+    # snapshots cross-nœud. Le hook ne réimplémente plus ces contrôles depuis
+    # les labels Docker ou d'anciens répertoires de sync.
+    local NOMAD_STATE NOMAD_FREE NOMAD_STATE_FILE NOMAD_FREE_FILE NOMAD_STATE_PID NOMAD_FREE_PID
+    NOMAD_STATE_FILE="$(mktemp)"
+    NOMAD_FREE_FILE="$(mktemp)"
+    ( timeout 20 "$NOMAD_V" state > "$NOMAD_STATE_FILE" 2>/dev/null || true ) &
+    NOMAD_STATE_PID=$!
+    ( timeout 12 "$NOMAD_V" free > "$NOMAD_FREE_FILE" 2>/dev/null || true ) &
+    NOMAD_FREE_PID=$!
 
     case "$HOSTNAME_SHORT" in
         mail)
@@ -716,12 +588,19 @@ render_section_global() {
             ;;
     esac
 
+    wait "$NOMAD_STATE_PID" 2>/dev/null || true
+    wait "$NOMAD_FREE_PID" 2>/dev/null || true
+    NOMAD_STATE="$(cat "$NOMAD_STATE_FILE")"
+    NOMAD_FREE="$(cat "$NOMAD_FREE_FILE")"
+    rm -f "$NOMAD_STATE_FILE" "$NOMAD_FREE_FILE"
+
     echo ""
-    echo "## Routes Traefik PROD (extraites depuis labels Docker live)"
-    remote_traefik_routes 100.88.202.29 | format_traefik_routes
-    echo ""
-    echo "## Routes Traefik DEV (staging — privatisé via Tailscale)"
-    remote_traefik_routes --alias dev-pub | format_traefik_routes
+    echo "## Santé HTTP Nomad (routes PROD + STAGING live)"
+    if [ -n "$NOMAD_STATE" ]; then
+        printf '%s\n' "$NOMAD_STATE" | nomad_state_section "▓▓ SANTÉ HTTP" "▓▓ BACKUPS" | sed '/^[[:space:]]*$/d; s/^/  /'
+    else
+        echo "  ⚠ nomad-v state indisponible : état des routes inconnu"
+    fi
 
     if [ -n "$OBS_OUT_FILE" ]; then
         echo ""
@@ -735,182 +614,31 @@ render_section_global() {
         rm -f "$OBS_OUT_FILE"
     fi
 
-    # ─── Container resources (fusible 60% VM) ────────────────────────────
     echo ""
-    echo "## Container resources prod (politique fusible 60% VM)"
-    local res; res=$(saas_container_resources)
-    if [ -z "$res" ]; then
-        echo "  ⚠ Impossible de récupérer les stats containers prod."
-        echo "    Que fait la commande qui a échoué :"
-        echo "      ssh ubuntu@100.88.202.29 'docker stats --no-stream + docker inspect'"
-        echo "      → liste tous containers prod avec leur usage RAM/CPU et leur"
-        echo "        mem_limit configuré (HostConfig.Memory)."
-        echo "    Causes possibles :"
-        echo "      1. SSH vers prod inaccessible (clé ~/.ssh/id_rsa_ovh manquante,"
-        echo "         Tailscale down, prod-pub absent de ~/.ssh/config)"
-        echo "      2. ubuntu n'a pas les droits docker (group docker manquant)"
-        echo "      3. Docker daemon arrêté sur prod"
-        echo "    Pour tester en manuel : ssh prod-pub 'docker stats --no-stream | head -5'"
-        echo "    Si la commande répond → bug dans saas_container_resources (signale)"
-        echo "    Si elle échoue → fix l'accès SSH/docker d'abord, le hook réessaiera"
-        return
-    fi
-    # Compte par status
-    local nb_ok=0 nb_warn=0 nb_low=0 nb_nofuse=0
-    local lines_nofuse=() lines_low=() lines_warn=()
-    while IFS='|' read -r name used lim cpu status; do
-        [ -z "$name" ] && continue
-        case "$status" in
-            OK)         nb_ok=$((nb_ok+1)) ;;
-            WARN_HIGH)  nb_warn=$((nb_warn+1)); lines_warn+=("$name|$used|$lim|$cpu") ;;
-            TOO_LOW)    nb_low=$((nb_low+1)); lines_low+=("$name|$used|$lim|$cpu") ;;
-            NO_FUSE)    nb_nofuse=$((nb_nofuse+1)); lines_nofuse+=("$name|$used|$cpu") ;;
-        esac
-    done <<< "$res"
-    local total=$((nb_ok + nb_warn + nb_low + nb_nofuse))
-    printf "  Bilan: %d containers — ✓%d OK · ⚠%d HIGH-usage · 🔧%d limit-too-low · 🚨%d NO-FUSE\n" \
-        "$total" "$nb_ok" "$nb_warn" "$nb_low" "$nb_nofuse"
-
-    # Containers > 80 % de leur propre limite
-    if [ "$nb_warn" -gt 0 ]; then
-        echo ""
-        echo "  ⚠ Containers proches de leur limite (>80%):"
-        for l in "${lines_warn[@]}"; do
-            IFS='|' read -r n used lim cpu <<< "$l"
-            pct=$(( used * 100 / lim ))
-            printf "    %-65s %5d/%d MB (%d%%) · cpu:%s%%\n" "${n:0:65}" "$used" "$lim" "$pct" "$cpu"
-        done
-    fi
-
-    # Containers avec fusible sous-dimensionné (< 60 % VM)
-    if [ "$nb_low" -gt 0 ]; then
-        echo ""
-        echo "  🔧 Containers avec limite < 60% VM (à remonter à 6600m):"
-        for l in "${lines_low[@]}"; do
-            IFS='|' read -r n used lim cpu <<< "$l"
-            printf "    %-65s lim=%d MB (devrait être ≥6600 MB)\n" "${n:0:65}" "$lim"
-        done
-    fi
-
-    # Containers SANS fusible — le pire cas
-    if [ "$nb_nofuse" -gt 0 ]; then
-        echo ""
-        echo "  🚨 Containers SANS fusible (mem_limit=0, risque cascade OOM-VM):"
-        local repos_to_fix=()
-        for l in "${lines_nofuse[@]}"; do
-            IFS='|' read -r n used cpu <<< "$l"
-            local repo; repo=$(container_to_repo "$n")
-            if [ -n "$repo" ]; then
-                printf "    %-65s used=%d MB cpu:%s%% → repo:%s\n" "${n:0:65}" "$used" "$cpu" "$repo"
-                # Tracker repos uniques à fix
-                if [[ ! " ${repos_to_fix[*]} " == *" $repo "* ]]; then
-                    repos_to_fix+=("$repo")
-                fi
-            else
-                printf "    %-65s used=%d MB cpu:%s%% → infra (Dokploy/Traefik/CrowdSec)\n" "${n:0:65}" "$used" "$cpu"
-            fi
-        done
-
-        # Action pour l'agent : commande explicite à exécuter pour chaque repo
-        echo ""
-        echo "  → Pour chaque repo concerné, l'agent doit câbler mem_limit/cpus"
-        echo "    dans son docker-compose, puis push pour redéployer :"
-        echo ""
-        for repo in "${repos_to_fix[@]}"; do
-            local cf; cf=$(repo_compose_file "$repo")
-            local d="$SAAS_ROOT/$repo"
-            echo "    [${repo}]"
-            echo "      Fichier: ${d}/${cf}"
-            echo "      Ajouter sous le service principal:"
-            echo "        mem_limit: 6600m   # 60% des 11 GB VM"
-            echo "        cpus: 3.6          # 60% des 6 CPU"
-            echo "      Workflow: edit → git add → git commit → git push (CI deploy auto)"
-            # Si Hub a déjà déposé un commit cross-repo, le signaler
-            if [ -d "$d/.git" ]; then
-                local cross_commit
-                cross_commit=$(git -C "$d" log --grep='fusible 60' --grep='via Claude.*Hub' --all-match --since='3 days ago' --format='%h %s' 2>/dev/null | head -1)
-                if [ -z "$cross_commit" ]; then
-                    cross_commit=$(git -C "$d" log --grep='fusible 60' --since='3 days ago' --format='%h %s' 2>/dev/null | head -1)
-                fi
-                if [ -n "$cross_commit" ]; then
-                    echo "      ✓ Commit déjà préparé localement par Hub-agent: ${cross_commit}"
-                    echo "        → l'agent ${repo} n'a qu'à git push (après revue)"
-                fi
-            fi
-            echo ""
-        done
-    fi
-
-    # ─── DB Backups (sauvegardes journalières R2 + sync local) ────────────
-    echo ""
-    echo "## DB Backups (cron prod → R2 04:00 UTC, sync local 07:00 Europe/Paris)"
-    if [ ! -d "$BACKUP_LOCAL_DIR" ]; then
-        echo "  ⚠ Dossier ${BACKUP_LOCAL_DIR} introuvable — sync local jamais exécuté"
-        echo "    Pour tester : rclone sync r2:veridian-backups/ ${BACKUP_LOCAL_DIR}/"
+    echo "## Capacité Nomad (réservations scheduler vs usage réel)"
+    if [ -n "$NOMAD_FREE" ]; then
+        printf '%s\n' "$NOMAD_FREE" | sed '1d; s/^/  /'
     else
-        local bk_alerts=()
-        local bk_total_ok=0
-        for db in "${SAAS_BACKUP_DBS[@]}"; do
-            local age_h r2_count age_str status
-            age_h=$(saas_backup_local_age_h "$db")
-            r2_count=$(saas_backup_r2_count "$db")
-            if [ -z "$age_h" ]; then
-                age_str="N/A"
-                status="🚨 AUCUN DUMP"
-                bk_alerts+=("$db: aucun dump local + ${r2_count} dumps R2")
-            elif [ "$age_h" -lt 25 ]; then
-                age_str="${age_h}h"
-                status="✓"
-                bk_total_ok=$((bk_total_ok+1))
-            elif [ "$age_h" -lt 72 ]; then
-                age_str="${age_h}h"
-                status="⚠ retard"
-                bk_alerts+=("$db: dernier dump ${age_h}h (cron prod peut-être down)")
-            else
-                local age_d=$(( age_h / 24 ))
-                age_str="${age_d}j"
-                status="🚨 CRON DOWN"
-                bk_alerts+=("$db: dernier dump ${age_d}j — cron probablement cassé")
-            fi
-            # Rétention faible = peu de dumps R2
-            local retention_warn=""
-            if [ "${r2_count:-0}" -lt 7 ] && [ "${r2_count:-0}" -gt 0 ]; then
-                retention_warn=" ⚠rétention:${r2_count}"
-            fi
-            printf "  %s %-15s last:%-5s · R2:%2d dumps%s\n" "$status" "$db" "$age_str" "${r2_count:-0}" "$retention_warn"
-        done
-
-        # R2 storage usage vs free tier (10 GB)
-        local r2_size_bytes r2_size_mb r2_pct
-        r2_size_bytes=$("$RCLONE_BIN" size r2:veridian-backups 2>/dev/null | grep -oP 'Total size: [^(]+\(\K[0-9]+' | head -1)
-        if [ -n "$r2_size_bytes" ]; then
-            r2_size_mb=$(( r2_size_bytes / 1024 / 1024 ))
-            r2_pct=$(( r2_size_bytes * 100 / 10737418240 ))   # 10 GB en bytes
-            local r2_status="✓"
-            [ "$r2_pct" -gt 70 ] && r2_status="⚠"
-            [ "$r2_pct" -gt 90 ] && r2_status="🚨"
-            echo ""
-            printf "  R2 free tier: %s %d MB / 10240 MB (%d%%) — Class A/B ops illimité côté monitoring\n" \
-                "$r2_status" "$r2_size_mb" "$r2_pct"
-        fi
-
-        # Si des alertes, expliquer la commande de fix
-        if [ ${#bk_alerts[@]} -gt 0 ]; then
-            echo ""
-            echo "  🔧 Actions si backup cassé :"
-            echo "    1. Vérifier que le cron tourne sur prod :"
-            echo "       ssh prod-pub 'sudo cat /etc/cron.d/veridian-backups'"
-            echo "    2. Vérifier les logs cron :"
-            echo "       ssh prod-pub 'tail -20 /var/log/veridian-backups.log'"
-            echo "    3. Test manuel pour identifier l'erreur précise :"
-            echo "       ssh prod-pub 'set -a; . /home/ubuntu/.backup-env; set +a;"
-            echo "         bash -x /home/ubuntu/backup-postgres.sh <db> <container> <user> <dbname>'"
-            echo "    4. Causes connues :"
-            echo "       • Container renommé → fix /etc/cron.d/veridian-backups (sudo sed)"
-            echo "       • Cron manquant pour une nouvelle DB → ajouter ligne au fichier"
-            echo "       • Log /var/log/veridian-backups.log non writable → chown ubuntu:ubuntu"
-        fi
+        echo "  ⚠ nomad-v free indisponible : capacité inconnue"
     fi
+
+    echo ""
+    echo "## Backups (snapshot cross-nœud all-cron + copie froide R2)"
+    if [ -n "$NOMAD_STATE" ]; then
+        printf '%s\n' "$NOMAD_STATE" | nomad_state_section "▓▓ BACKUPS" "▓▓ BACKLOG" | sed '/^[[:space:]]*$/d; s/^/  /'
+    else
+        echo "  ⚠ état du snapshot cross-nœud inconnu"
+    fi
+    local db r2_count r2_bad=0 r2_inventory
+    r2_inventory="$(saas_backup_r2_inventory)"
+    printf "  R2:"
+    for db in "${SAAS_BACKUP_DBS[@]}"; do
+        r2_count=$(printf '%s\n' "$r2_inventory" | awk -F= -v db="$db" '$1 == db { print $2; exit }')
+        case "$r2_count" in ''|*[!0-9]*) r2_count=0 ;; esac
+        [ "$r2_count" -ge 7 ] || r2_bad=1
+        printf " %s=%s" "$db" "$r2_count"
+    done
+    [ "$r2_bad" = 0 ] && printf " ✓\n" || printf " ⚠ rétention <7\n"
 }
 
 ###############################################################################
