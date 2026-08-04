@@ -11,6 +11,7 @@ import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
 import { APPS } from '@/lib/pricing/plans';
 import { getEnabledGatedApps } from '@/lib/tenant-apps';
+import { resolveDownstreamBaseUrl } from '@/lib/invitations/attach-downstream';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 /**
@@ -148,6 +149,13 @@ export default async function DashboardPage({
     ? `${prospectionBaseUrl}/api/auth/token?t=${tenant.prospectionLoginToken}`
     : null;
 
+  // URL de l'app Analytics servie au client. Le domaine historique
+  // `analytics.app.veridian.site` est MORT (404 vérifié le 2026-07-28) —
+  // l'app vivante est le fork staminads sur `analytics-engine.*`. On passe
+  // par le résolveur partagé pour ne pas re-coder un défaut en dur ici.
+  // Cf. `todo/2026-07-28-autologin-analytics-contrat-et-etat-reel.md`.
+  const analyticsBaseUrl = resolveDownstreamBaseUrl('analytics');
+
   const notifuseUrl = process.env.NOTIFUSE_API_URL || '';
   const notifuseAvailable = !notifuseUrl.includes('localhost') && notifuseUrl.length > 0;
 
@@ -216,7 +224,7 @@ export default async function DashboardPage({
                   : APPS.analytics.display_name
               }
               description={APPS.analytics.tagline}
-              url={analyticsMeta?.fallback_url ?? 'https://analytics.app.veridian.site'}
+              url={analyticsMeta?.fallback_url ?? analyticsBaseUrl}
               icon="BarChart3"
               appKey="analytics"
               badge="BETA"

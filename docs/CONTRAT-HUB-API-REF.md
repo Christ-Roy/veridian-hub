@@ -2433,8 +2433,10 @@ P1 par le ticket trial-state-machine pour gérer le flow complet.
 { "status": "ok", "timestamp": "2026-05-21T14:00:00.000Z", "service": "web-dashboard" }
 ```
 
-200 obligatoire (gate Docker healthcheck + smoke CI). Cache 5min côté
-ALB / Cloudflare.
+La réponse inclut aussi `version`, `db` et `dependencies` selon le standard
+SaaS. HTTP 200 si la base répond, HTTP 503 avec `status: "down"` si la base
+est indisponible ou dépasse 2 secondes. La route est dynamique et ne doit
+jamais être mise en cache.
 
 ##### CONFIG — GET /api/config
 

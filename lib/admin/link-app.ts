@@ -33,6 +33,18 @@ export type LinkAppInput = {
   magicLinkCapable?: boolean;
   provisioningSource?: string;
   notes?: string;
+  /**
+   * Email de l'owner du workspace côté app downstream (Notifuse). Alimente
+   * `tenants.notifuse_user_email`, indispensable à l'auto-login.
+   *
+   * ⚠️ Avant le 2026-07-28, cette valeur était DEVINÉE en cherchant un `@`
+   * dans `notes` (texte libre) : une note sans arobase laissait la colonne à
+   * NULL, une note avec arobase y écrivait la note entière. D'où l'autologin
+   * Notifuse cassé pour tout tenant rattaché par `hub link`
+   * (`todo/2026-07-06-autologin-cross-app-casse.md`). La valeur est désormais
+   * explicite ; la route appelante retombe sur l'email du user Hub.
+   */
+  ownerEmail?: string;
 };
 
 export type LinkAppResult = {
@@ -141,7 +153,10 @@ function dedicatedColumnsForApp(
     case 'notifuse':
       return {
         notifuseWorkspaceSlug: input.externalTenantSlug,
-        notifuseUserEmail: input.notes?.includes('@') ? input.notes : undefined,
+        // `undefined` (et non `null`) quand l'email est absent : Prisma ignore
+        // alors le champ au lieu d'écraser une valeur déjà correcte lors d'un
+        // re-link idempotent.
+        notifuseUserEmail: input.ownerEmail ?? undefined,
         notifusePlan: input.plan ?? 'free',
       };
     case 'prospection':

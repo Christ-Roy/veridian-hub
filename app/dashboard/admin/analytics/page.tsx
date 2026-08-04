@@ -14,6 +14,7 @@ import {
   analyticsClient,
   AnalyticsApiError,
 } from '@/lib/analytics/client';
+import { resolveDownstreamBaseUrl } from '@/lib/invitations/attach-downstream';
 import { BarChart3 } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
@@ -221,7 +222,7 @@ export default async function AdminAnalyticsPage() {
         <p>
           Une fois un site créé, récupère son <code>siteKey</code>, va dans{' '}
           <a
-            href="https://analytics.app.veridian.site/dashboard"
+            href={`${resolveDownstreamBaseUrl('analytics')}/dashboard`}
             className="text-primary hover:underline"
           >
             Analytics → Dashboard

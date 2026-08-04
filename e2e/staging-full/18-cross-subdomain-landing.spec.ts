@@ -137,4 +137,37 @@ test.describe('Journey 18 — Landing cross-subdomain', () => {
     expect(setCookie).toContain('veridian-session-hint=;');
     expect(setCookie).toMatch(/Max-Age=0/i);
   });
+
+  // Non-régression : le signOut Auth.js ne supprimait que son propre cookie
+  // session. Le hint (TTL 30j, scope cross-subdomain) survivait, et la landing
+  // affichait un utilisateur connecté pendant un mois. Le wrapper de
+  // app/api/auth/[...nextauth]/route.ts doit greffer la suppression sur la
+  // réponse Auth.js — y compris sur la 302 vers callbackUrl.
+  //
+  // NB : le pendant "hint orphelin refusé par /api/me/lite" n'est pas testable
+  // ici (forger un hint valide demanderait SESSION_HINT_SECRET) — il est
+  // couvert en unit dans __tests__/api/me/lite.test.ts.
+  test('POST /api/auth/signout supprime aussi le cookie hint', async ({ request }) => {
+    const csrf = await request.get('/api/auth/csrf');
+    expect(csrf.status()).toBe(200);
+    const { csrfToken } = await csrf.json();
+
+    const res = await request.post('/api/auth/signout', {
+      form: { csrfToken, callbackUrl: '/' },
+      maxRedirects: 0,
+    });
+    // 302 (redirect vers callbackUrl) ou 200 selon la version Auth.js.
+    expect([200, 302]).toContain(res.status());
+    const setCookie = res.headers()['set-cookie'] ?? '';
+    expect(setCookie).toContain('veridian-session-hint=;');
+    expect(setCookie).toMatch(/Max-Age=0/i);
+  });
+
+  test('GET /api/auth/signout (page de confirmation) ne touche PAS au hint', async ({
+    request,
+  }) => {
+    const res = await request.get('/api/auth/signout', { maxRedirects: 0 });
+    const setCookie = res.headers()['set-cookie'] ?? '';
+    expect(setCookie).not.toContain('veridian-session-hint=;');
+  });
 });

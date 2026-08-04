@@ -143,10 +143,9 @@ Source de vérité de l'avancement billing/trial :
 
 - `.github/workflows/hub-ci.yml` : test → audit (npm) → docker → **trivy** → deploy-staging → deploy-prod → e2e-prod-smoke → rollback-prod (si fail)
 - `.github/workflows/hub-security-cron.yml` : Trivy cron quotidien 3h UTC sur image deployed
-- Stack Dokploy : `compose-back-up-online-pixel-nl2k9p`
-  - Bascule UI Raw → Git planifiée mais pas encore faite côté Dokploy au 2026-05-13.
-    Le compose Git source de vérité existe dans `infra/services/hub/`. Quand
-    Robert bascule la stack en mode Git provider + webhook, les changements
-    du compose sur main déclenchent un redeploy auto zero-downtime.
+- Déploiement : **job Nomad** (Dokploy décommissionné 2026-07-10). Job HCL
+  versionné dans `~/nomad-veridian/jobs/saas-prod/` (staging dans `saas-staging/`).
+  Debug/logs `nomad-v logs hub`, redeploy `nomad-v run hub` / `nomad-v deploy <fichier>`,
+  état `nomad-v state`. Secrets = Nomad Variable `nomad/jobs/hub`. Skill `/nomad`.
 
 Cf `runbooks/services/hub/deploy.md` pour les détails opérationnels.

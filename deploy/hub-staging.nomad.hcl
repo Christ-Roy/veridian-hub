@@ -30,6 +30,10 @@ job "hub-staging" {
   group "stack" {
     count = 1
 
+    # Le routeur permanent Sablier de l'ingress pointe sur le port fixe 19096.
+    # Cette meta autorise Sablier à endormir/réveiller uniquement l'app.
+    meta = { "sablier.enable" = "true" }
+
     # Stratégie de déploiement (canon Prospection). healthy_deadline large
     # (1er pull image sans cache) + auto_revert (restaure la dernière version
     # saine si le deploy n'atteint jamais healthy).
@@ -58,6 +62,7 @@ job "hub-staging" {
       # host_network tailscale : le port CNI bind sur l'IP Tailscale du nœud uniquement
       # → app injoignable en public (bypass ipAllowList impossible), Traefik route via Tailscale.
       port "http" {
+        static       = 19096
         to           = 3000
         host_network = "tailscale"
       }
@@ -67,22 +72,13 @@ job "hub-staging" {
       name     = "hub-staging"
       provider = "nomad"
       port     = "http"
-      tags = [
-        "traefik.enable=true",
-        "traefik.http.middlewares.internal-only.ipallowlist.sourcerange=100.64.0.0/10,127.0.0.1/32",
-        "traefik.http.routers.hub-staging.rule=Host(`hub.staging.veridian.site`)",
-        "traefik.http.routers.hub-staging.entrypoints=web",
-        "traefik.http.routers.hub-staging.middlewares=internal-only@nomad",
-        "traefik.http.routers.hub-stagingsec.rule=Host(`hub.staging.veridian.site`)",
-        "traefik.http.routers.hub-stagingsec.entrypoints=websecure",
-        "traefik.http.routers.hub-stagingsec.tls=true",
-        "traefik.http.routers.hub-stagingsec.tls.certresolver=letsencrypt",
-        "traefik.http.routers.hub-stagingsec.middlewares=internal-only@nomad",
-      ]
+      # Le routing vit dans ingress.nomad.hcl avec un service @file permanent.
+      # Un second routeur @nomad contournerait Sablier et recréerait du drift.
+      tags = ["traefik.enable=false"]
       check {
         type     = "http"
         path     = "/api/health"
-        interval = "15s"
+        interval = "5s"
         timeout  = "5s"
       }
     }

@@ -75,6 +75,37 @@ describe('linkApp — création de Tenant', () => {
     expect(createData.metadata.notifuse).toBeDefined();
   });
 
+  it("pose notifuseUserEmail depuis ownerEmail (et JAMAIS depuis notes)", async () => {
+    // Régression `todo/2026-07-06-autologin-cross-app-casse.md` : l'email
+    // owner était deviné en cherchant un `@` dans `notes`, ce qui écrivait la
+    // note entière dans la colonne — et laissait NULL sans arobase. Sans cet
+    // email, l'auto-login Notifuse était impossible.
+    findFirstMock.mockResolvedValueOnce(null);
+    createMock.mockResolvedValueOnce({ id: 't-new' });
+
+    await linkApp(prisma, {
+      ...baseInput,
+      app: 'notifuse',
+      ownerEmail: 'client@exemple.test',
+      notes: 'contact commercial : jean@exemple.test, suivi trimestriel',
+    });
+
+    const createData = createMock.mock.calls[0][0].data;
+    expect(createData.notifuseUserEmail).toBe('client@exemple.test');
+  });
+
+  it("laisse notifuseUserEmail intact lors d'un re-link sans ownerEmail", async () => {
+    // `undefined` → Prisma ignore le champ. Un re-link idempotent ne doit pas
+    // effacer un email owner déjà correct.
+    findFirstMock.mockResolvedValueOnce({ id: 't-1', metadata: {} });
+    updateMock.mockResolvedValueOnce({ id: 't-1' });
+
+    await linkApp(prisma, { ...baseInput, app: 'notifuse', notes: 'note@avec-arobase.test' });
+
+    const updateData = updateMock.mock.calls[0][0].data;
+    expect(updateData.notifuseUserEmail).toBeUndefined();
+  });
+
   it('utilise prospectionPlan pour app=prospection', async () => {
     findFirstMock.mockResolvedValueOnce(null);
     createMock.mockResolvedValueOnce({ id: 't-new' });

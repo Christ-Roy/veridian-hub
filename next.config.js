@@ -1,9 +1,20 @@
 const path = require('path');
 
+// Ateliers UI (`app/dev/**`) : les fichiers `page.dev.tsx` / `layout.dev.tsx`
+// ne sont reconnus comme routes que hors production. En build prod, ces
+// extensions ne sont PAS déclarées → la route n'existe pas dans le bundle.
+// Second verrou (runtime) dans `lib/dev/harness-guard.ts`.
+const isProdBuild = process.env.NODE_ENV === 'production';
+const pageExtensions = isProdBuild
+  ? ['tsx', 'ts', 'jsx', 'js']
+  : ['dev.tsx', 'dev.ts', 'tsx', 'ts', 'jsx', 'js'];
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   // Enable standalone output for Docker
   output: 'standalone',
+
+  pageExtensions,
 
   // Image optimization — WHITELIST STRICTE pour bloquer SSRF (CVE-2024-34351)
   // et abuse de bande passante via /_next/image?url=<anything>.
@@ -34,7 +45,13 @@ const nextConfig = {
   },
 
   // Allow cross-origin requests in dev mode (behind Traefik reverse proxy)
-  allowedDevOrigins: ['https://dev.veridian.site'],
+  // `100.108.136.89` = IP Tailscale du bastion : le dev server des ateliers UI
+  // s'y bind (jamais sur 0.0.0.0, rien ne sort sur l'IP publique Contabo).
+  allowedDevOrigins: [
+    'https://dev.veridian.site',
+    '100.108.136.89',
+    'contabo-bastion',
+  ],
 
   // Routes auth dépréciées — anciennement des pages stub `redirect('/login')`.
   // Supprimées au profit de redirects 308 gérés par Next (pas de bundle React

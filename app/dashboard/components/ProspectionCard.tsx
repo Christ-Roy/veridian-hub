@@ -39,26 +39,39 @@ export function ProspectionCard({
   const handleOpen = async () => {
     setLoading(true);
     try {
-      if (tokenValid && loginUrl) {
-        // Token still valid — open directly
-        window.open(loginUrl, '_blank');
-      } else {
-        // Token expired or used — regenerate
-        const res = await fetch('/api/prospection/regenerate-login', {
-          method: 'POST',
-        });
-        const data = await res.json();
+      // On régénère TOUJOURS un token, même si `tokenValid` est true.
+      //
+      // POURQUOI (ticket `todo/2026-07-06-autologin-cross-app-casse.md`) : le
+      // token de login Prospection est à USAGE UNIQUE côté app, mais le Hub ne
+      // teste que son ÂGE (< 23h, cf. `app/dashboard/page.tsx`). La colonne
+      // `prospection_login_token_used` existe mais n'est jamais mise à jour —
+      // Prospection n'émet aucun webhook `token.used`. Le raccourci
+      // « token encore jeune → réutilise l'URL » rouvrait donc un token déjà
+      // consommé, et le client atterrissait sur `/login?error=token_used`
+      // (constaté en prod sur la démo Céline).
+      //
+      // Coût : un appel API (~200 ms) par clic. Négligeable face à un client
+      // qui se fait rejeter sur l'écran de login de son propre outil.
+      const res = await fetch('/api/prospection/regenerate-login', {
+        method: 'POST',
+      });
+      const data = await res.json();
 
-        if (!res.ok || !data.login_url) {
-          toast.error('Impossible de générer le lien de connexion', {
-            description: data.error || 'Erreur inconnue',
-            duration: 5000,
-          });
+      if (!res.ok || !data.login_url) {
+        // Dernier recours : si le token en base est encore jeune, il a une
+        // chance de n'avoir jamais été consommé. Mieux que ne rien ouvrir.
+        if (tokenValid && loginUrl) {
+          window.open(loginUrl, '_blank');
           return;
         }
-
-        window.open(data.login_url, '_blank');
+        toast.error('Impossible de générer le lien de connexion', {
+          description: data.error || 'Erreur inconnue',
+          duration: 5000,
+        });
+        return;
       }
+
+      window.open(data.login_url, '_blank');
     } catch (error: any) {
       console.error('Error opening Prospection:', error);
       toast.error('Erreur', {
@@ -104,15 +117,12 @@ export function ProspectionCard({
             <Alert variant="info" className="mt-4">
               <Info className="h-4 w-4" />
               <AlertDescription className="text-xs">
-                {tokenValid ? (
-                  <span>
-                    <strong>Connexion automatique activée</strong> — clique pour ouvrir ton tableau de bord
-                  </span>
-                ) : (
-                  <span>
-                    <strong>Un nouveau lien de connexion sera généré</strong> — clique ci-dessous pour accéder à ton tableau de bord
-                  </span>
-                )}
+                {/* Message unique : depuis le fix du token usage-unique, chaque
+                    clic régénère un lien frais — il n'y a plus deux états à
+                    distinguer pour le client. */}
+                <span>
+                  <strong>Connexion automatique activée</strong> — clique pour ouvrir ton tableau de bord
+                </span>
               </AlertDescription>
             </Alert>
           </div>

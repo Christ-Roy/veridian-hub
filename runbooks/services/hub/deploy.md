@@ -1,7 +1,25 @@
 # Hub — runbook deploy (post-GitOps)
 
+> ⚠️ OBSOLÈTE (Dokploy décommissionné 2026-07-10) → déploiement = nomad-v / skill /nomad. Bloc historique.
+
 > Créé pendant le sprint SPRINT-GITOPS-VERIDIAN (2026-05-13).
 > Décrit comment redéployer le hub maintenant que la stack Dokploy est en mode Git.
+
+## Aujourd'hui (Nomad) — quick reference
+
+Le hub tourne sur le cluster Nomad Veridian. Job IaC versionné dans
+`~/nomad-veridian/jobs/saas-prod/hub.nomad.hcl` (repo github.com/Christ-Roy/nomad-veridian).
+
+```bash
+nomad-v deploy jobs/saas-prod/hub.nomad.hcl   # déployer/mettre à jour depuis le fichier HCL
+nomad-v run hub                               # relancer le job existant
+nomad-v logs hub                              # logs
+nomad-v state                                 # dashboard live (où en est le job)
+```
+
+Secrets : Nomad Variable `nomad/jobs/hub` (injectés via `template { env = true }`), plus
+`~/credentials/.all-creds.env`. Plus aucune UI ni API Dokploy. Le reste de ce doc décrit
+l'ancien flux Dokploy/GitOps et n'est conservé qu'à titre historique.
 
 ## Architecture deploy
 
@@ -132,12 +150,20 @@ ssh prod-pub 'docker logs --since 60s compose-back-up-online-pixel-nl2k9p-hub-pr
 
 ## Secrets — où ils sont
 
-**Dokploy UI → Stack hub → Environment.** Liste des noms attendus : `infra/services/hub/.env.example`.
+**Nomad Variable `nomad/jobs/hub`** (injectée dans le job via `template { env = true }`).
+Liste des noms attendus : `infra/services/hub/.env.example`.
 
 Aucun secret dans le repo Git. Aucun secret dans le `.env.example` (juste les noms).
 
-Pour les ajouter/modifier : Dokploy UI uniquement. Après chaque modif d'ENV → Redeploy
-manuel ou push no-op pour déclencher le webhook.
+Pour les ajouter/modifier : éditer la Nomad Variable `nomad/jobs/hub`, puis
+`nomad-v run hub` (ou `nomad-v deploy jobs/saas-prod/hub.nomad.hcl`) pour appliquer.
+
+<details><summary>Ancien flux Dokploy (historique)</summary>
+
+Dokploy UI → Stack hub → Environment. Après chaque modif d'ENV → Redeploy manuel ou
+push no-op pour déclencher le webhook.
+
+</details>
 
 ## Monitoring CVE
 

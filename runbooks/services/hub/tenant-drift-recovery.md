@@ -191,7 +191,7 @@ Trop bas en ce moment vu la baseline de 53 drifts non-actionnables
 (analytics/cms unreachable + notifuse body vide). Tant que ces drifts
 de configuration ne sont pas fixés :
 
-- Soit augmenter `RECONCILE_ALERT_THRESHOLD` côté Dokploy ENV à 60
+- Soit augmenter `RECONCILE_ALERT_THRESHOLD` dans la Nomad Variable `nomad/jobs/hub` à 60 (puis `nomad-v run hub`)
 - Soit ajouter le filtre `?apps=prospection,notifuse` au workflow pour
   exclure analytics/cms — **mais Notifuse reste 17 drifts faux positifs
   tant que son endpoint by-email ne répond pas correctement**

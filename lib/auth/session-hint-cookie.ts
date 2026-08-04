@@ -28,7 +28,8 @@
  */
 
 import { SignJWT, jwtVerify, errors as joseErrors } from 'jose';
-import type { NextResponse, NextRequest } from 'next/server';
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 
 import { resolveHintCookieDomain, type SessionCookieDomainEnv } from '@/lib/auth/cookie-scope';
 
@@ -168,6 +169,32 @@ export function clearSessionHintCookie(
     domain,
     maxAge: 0,
   });
+}
+
+/**
+ * Même suppression que `clearSessionHintCookie`, mais rendue sous forme de
+ * valeur `Set-Cookie` brute.
+ *
+ * Sert aux endroits où l'on n'a PAS la main sur la construction de la
+ * réponse et où l'on doit greffer le header sur une `Response` déjà forgée
+ * par une lib tierce — typiquement la réponse du signOut Auth.js (cf.
+ * `app/api/auth/[...nextauth]/route.ts`).
+ *
+ * Passe par une NextResponse jetable plutôt que par une sérialisation
+ * maison : le format du cookie reste garanti identique à celui posé par
+ * `clearSessionHintCookie` (mêmes domaine, path, flags), donc le navigateur
+ * matche bien le cookie à supprimer.
+ */
+export function buildClearedSessionHintSetCookie(
+  env: SessionCookieDomainEnv = process.env,
+): string {
+  const holder = new NextResponse(null);
+  clearSessionHintCookie(holder, env);
+  const [cookie] = holder.headers.getSetCookie();
+  if (!cookie) {
+    throw new Error('Impossible de sérialiser le Set-Cookie de suppression du hint');
+  }
+  return cookie;
 }
 
 /**

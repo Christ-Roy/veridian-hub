@@ -28,7 +28,15 @@ function ForgotPasswordContent() {
     });
 
     if (!res.ok) {
-      setError('Erreur. Réessayez.');
+      // 429 : plafond anti mail-bombing côté route. On affiche le message
+      // serveur plutôt qu'un « Erreur » générique, sinon l'utilisateur
+      // relance en boucle sans comprendre pourquoi rien n'arrive.
+      const data = await res.json().catch(() => null);
+      setError(
+        res.status === 429
+          ? (data?.error ?? 'Trop de tentatives. Patientez avant de réessayer.')
+          : 'Erreur. Réessayez.'
+      );
       setIsSubmitting(false);
       return;
     }

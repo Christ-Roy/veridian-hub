@@ -3392,7 +3392,7 @@ Hub a livré l'infrastructure complète des 3 niveaux du
 | Boutons OAuth si non loggué + redirect post-accept | ❌ TODO | — |
 | Email MJML "Invitation" via Notifuse | ❌ TODO | étape 7 |
 | E2E Playwright invite→email→click→accept→redirect | ❌ TODO | étape 8 |
-| Secrets ENV `HUB_INVITATION_SECRET_{NOTIFUSE,PROSPECTION,ANALYTICS,CMS}` | 🟡 à provisionner Dokploy | — |
+| Secrets ENV `HUB_INVITATION_SECRET_{NOTIFUSE,PROSPECTION,ANALYTICS,CMS}` | 🟡 à provisionner via Nomad Variable nomad/jobs/hub | — |
 
 **Apps downstream** :
 

@@ -429,7 +429,7 @@ Si `structural == true` sur PR vers `main` : commit identique mergé dans `stagi
 | Lint, tsc, unit, audit, route↔test, Trivy FS+config, gitleaks, size-limit | `ubuntu-latest` | Léger, gratuit, parallèle |
 | Integration Postgres, docker build, Trivy image | `self-hosted [dev, <app>]` | Cache layers BuildKit local |
 | E2E Playwright | `self-hosted [dev, <app>]` | Navigateurs préinstallés |
-| Deploy webhook Dokploy | `ubuntu-latest` | Juste un curl, endpoint public, pas de réseau privé requis |
+| Deploy `nomad-v` | `self-hosted [dev, <app>]` | Control-plane Nomad Tailscale-only, accès réseau privé requis |
 
 Scope : 1 runner dev server, 1 label par app (`runs-on: [self-hosted, hub]`). Crash isolé à 1 app.
 
@@ -624,45 +624,44 @@ EOF
 
 ---
 
-## 10. Deploy production — Webhook Dokploy API (endpoint public ouvert)
+## 10. Deploy production — Nomad (`nomad-v`)
 
-**Setup actuel** : depuis 2026-05-13, l'endpoint `https://dokploy.veridian.site/api/compose.deploy` est ouvert sur le public via Traefik, protégé par Bearer token (`DOKPLOY_API_KEY` dans GitHub Secrets). Le reste de Dokploy reste Tailscale-only.
+> ⚠️ OBSOLÈTE (Dokploy décommissionné 2026-07-10) → déploiement = nomad-v / skill /nomad. Bloc historique.
+
+**Setup actuel** : le déploiement passe par le CLI `nomad-v` (control-plane HashiCorp Nomad sur le bastion Contabo). Les jobs HCL sont versionnés dans `~/nomad-veridian/jobs/<tier>/` et appliqués via `nomad-v deploy <fichier>`. Plus de webhook HTTP public : le control-plane Nomad est Tailscale-only.
 
 ### Flow deploy
 
 1. Build + push image GHCR depuis runner self-hosted étage 2
-2. Étage 3 (ubuntu-latest) : `curl POST https://dokploy.veridian.site/api/compose.deploy` avec `composeId` + Bearer
-3. Dokploy pull la nouvelle image GHCR + redéploie le compose
+2. Étage 3 (self-hosted, accès Tailscale) : `nomad-v deploy jobs/<tier>/<app>.nomad.hcl` (ou `nomad-v run <job>`)
+3. Nomad pull la nouvelle image GHCR + reschedule l'allocation
 4. Smoke HTTP sur URL publique (Playwright API mode)
 5. Si smoke KO :
-   - `curl POST .../api/compose.update` avec l'ancien tag image
-   - `curl POST .../api/compose.deploy` à nouveau (rollback)
+   - redéployer le job avec l'ancien tag image (`nomad-v deploy` sur la version précédente)
    - Trigger `emergency-revert.yml` (cf. §17.1)
 
-### Avantages vs SSH
+### Avantages
 
-- **Pas de clé SSH à rotater** sur chaque runner
-- **Étage 3 sur ubuntu-latest** (pas besoin de runner self-hosted pour deploy, juste curl)
-- **Surface d'attaque réduite** à 1 POST scopé sur 1 endpoint Bearer-protégé
-- **Cohérent avec l'archi Dokploy** (API officielle, pas de bash custom)
-- **Logs deploy centralisés** côté Dokploy (visible dans UI + API `compose.logs`)
+- **Source de vérité unique** : le job HCL versionné EST ce qui tourne (`nomad-v drift` détecte tout écart)
+- **Garde-fous** : `nomad-v deploy` refuse un job non commité ou sans `resources`/`datacenters`
+- **Pas d'endpoint public** à protéger/whitelister — control-plane Tailscale-only
+- **Logs centralisés** : `nomad-v logs <job>`
 
 ### Sécurité
 
-- Token rotaté tous les 6 mois (cron rappel GitHub Issue)
-- Endpoint `/api/compose.deploy` whitelisté Traefik par IP GitHub Actions (mise à jour mensuelle via `https://api.github.com/meta`)
-- Tous les autres endpoints `/api/*` restent **Tailscale-only** (UI Dokploy, gestion users, etc.)
-- Log audit : chaque appel API loggé dans Loki via Alloy
+- Control-plane Nomad **Tailscale-only** (`NOMAD_ADDR`/`NOMAD_TOKEN` dans `~/credentials/nomad-bastion.env`)
+- ACL Nomad activée, token scopé
+- Secrets en Nomad Variable `nomad/jobs/<job>` (jamais en clair)
 
-### Composes IDs
+### Jobs versionnés
 
-| App | composeId Dokploy |
+| App | Job Nomad (`~/nomad-veridian/jobs/<tier>/`) |
 |---|---|
-| Hub | (à documenter, voir memory `session_2026-05-13_*`) |
-| Prospection | (idem) |
-| Analytics | (idem) |
-| CMS | `275o-9E3ZWWi0X32wY8hM` (cf. `session_2026-05-13_cms_extraction_gitops`) |
-| Notifuse | (cf. `session_2026-05-13_notifuse_gitops_extraction`) |
+| Hub | `jobs/saas-prod/` + `jobs/saas-staging/` |
+| Prospection | `jobs/saas-prod/` + `jobs/saas-staging/` |
+| Analytics | `jobs/saas-prod/` + `jobs/saas-staging/` |
+| CMS | `jobs/saas-prod/` + `jobs/saas-staging/` |
+| Notifuse | `jobs/saas-prod/` + `jobs/saas-staging/` |
 
 ---
 
@@ -833,8 +832,8 @@ Règles non négociables :
 4. **Path-based skip docs** : docs-only ne déclenchent pas la CI.
 5. **Changements structurels** (Dockerfile, schema.prisma, compose, package.json/go.mod)
    doivent passer staging 24 h avant prod. Promotion auto si smoke + synthetic verts.
-6. **Deploy via webhook Dokploy API** scopé Bearer (`/api/compose.deploy` ouvert public).
-   Le reste de Dokploy reste Tailscale-only. Token rotaté tous les 6 mois.
+6. **Deploy via `nomad-v deploy`** (control-plane Nomad Tailscale-only, ACL scopée).
+   Job HCL versionné dans `~/nomad-veridian`, garde-fous anti job non commité.
 7. **Renovate auto-merge total** : patch + minor + major + CVE auto-mergés si CI verte
    + smoke 24 h vert sur staging. Plus aucune review humaine.
 8. **Trivy 9 capacités** : vuln + misconfig + secret + license (étage 1),
@@ -881,9 +880,9 @@ Règles non négociables :
     éphémère (URL `<app>-<branch-slug>.dev.veridian.site`). Au merge/close PR, workflow
     teardown `always()` : `docker compose down -v` + suppression dossier + prune images.
     GC hebdo pour rattraper les orphelins. **Zéro accumulation de cruft sur dev.**
-24. **Compose pur sur dev, pas Dokploy.** Sur le dev server, Docker Compose + Traefik
-    standalone. La CI contrôle 100 % le lifecycle (spawn, smoke, teardown, GC). Dokploy
-    reste prod-only pour le SaaS qui tourne.
+24. **Tout sur Nomad (`nomad-v`), plus de Dokploy.** Prod + staging orchestrés par
+    HashiCorp Nomad (jobs HCL versionnés dans `~/nomad-veridian`). La CI contrôle le
+    lifecycle via `nomad-v deploy`/`run`/`stop`. Dokploy décommissionné (2026-07-10).
 ```
 
 ---
@@ -928,8 +927,8 @@ Règles non négociables :
 - [ ] Lint workflow YAML (custom) rejette jobs self-hosted sans cleanup step
 - [ ] Alertes Grafana câblées : `oom_killed`, `memory_creep`, `synthetic_failed_3x` (jour 1)
 - [ ] Alertes dormantes documentées : `error_rate_spike`, `latency_p95_doubled` (active si trafic ≥ 100 req/min)
-- [ ] `DOKPLOY_API_KEY` ajouté en GitHub Secrets de chaque repo
-- [ ] composeId Dokploy de l'app documenté dans son CLAUDE.md
+- [ ] `NOMAD_ADDR`/`NOMAD_TOKEN` disponibles côté runner deploy (via `~/credentials/nomad-bastion.env`)
+- [ ] Job Nomad de l'app documenté dans son CLAUDE.md (`jobs/<tier>/<app>.nomad.hcl`)
 - [ ] `docker-compose.dev.template.yml` créé avec variables `${APP}`, `${BRANCH_SLUG}`
 - [ ] Workflow `staging-ephemeral.yml` créé (spawn + smoke + teardown `always()`)
 - [ ] URL pattern documenté : `<app>-<branch-slug>.dev.veridian.site`
@@ -1273,6 +1272,8 @@ Chaque app expose `GET /api/version` qui retourne :
 le SHA prod corresponde exactement au commit pushé.
 
 ### 18.2 Dokploy webhook GitHub silently failing
+
+> ⚠️ OBSOLÈTE (Dokploy décommissionné 2026-07-10) → déploiement = nomad-v / skill /nomad. Bloc historique.
 
 **Scénario constaté** : 2026-05-19, le webhook GitHub→Dokploy n'a pas pull la
 nouvelle image après 2 push consécutifs (P1 puis P2.1). Aucune erreur visible.
@@ -1841,7 +1842,7 @@ règle "tier X = outil Y obligatoire" — c'est du jugement.
 | `mcp__claude-in-chrome__read_network_requests` | qq sec | Vérifier que l'app n'appelle pas une URL morte ou ne fuite pas un endpoint |
 | Test DB clone prod → staging | 10-30 min | Migration DB sensible, valider que le `prisma migrate` ne casse rien sur de la vraie data |
 | Dry-run sur compte test prod | variable | Rotation secret, modif Stripe pricing, refactor flow webhook — valider sur un compte isolé |
-| Tail logs prod 30 min post-deploy via Dokploy API | passif | Détection de patterns d'erreurs qui n'apparaissent que sous trafic réel |
+| Tail logs prod 30 min post-deploy via `nomad-v logs <job>` | passif | Détection de patterns d'erreurs qui n'apparaissent que sous trafic réel |
 | `docker logs prod-hub --since 5m \| grep -E "ERR|WARN"` | qq sec | Spot-check ad hoc |
 | Comparaison HTML/JS hash prod vs staging via curl | qq sec | Vérifier que le déploiement a vraiment poussé le code attendu (cf §18.1) |
 
@@ -1928,7 +1929,7 @@ Puis :
 2. **Exécuter la promo**.
 3. **Monitoring renforcé 10-30 min post-deploy** :
    - Smoke prod toutes les 1-2 min.
-   - Tail logs Hub via Dokploy API.
+   - Tail logs Hub via `nomad-v logs hub`.
    - Si Grafana alert / 5xx > 1% / health 500 → **auto-rollback** sans demander.
 4. Fermer la reco à T+30min avec "✅ prod stable" ou "✗ rollback effectué".
 

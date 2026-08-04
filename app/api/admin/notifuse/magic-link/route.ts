@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { isPlatformAdmin } from '@/lib/admin/check-admin';
 import { NotifuseClient } from '@/lib/notifuse/client';
-import { NotifuseError } from '@/lib/notifuse/types';
+import { resolveNotifuseAutoLogin } from '@/lib/notifuse/resolve-autologin';
 import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
@@ -59,13 +59,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  if (!tenant.notifuseApiKey || !tenant.notifuseUserEmail) {
-    return NextResponse.json(
-      { error: 'Tenant Notifuse workspace not provisioned' },
-      { status: 409 },
-    );
-  }
-
   const apiUrl = process.env.NOTIFUSE_API_URL;
   const hubSecret = process.env.NOTIFUSE_HUB_API_SECRET;
   if (!apiUrl || !hubSecret) {
@@ -77,26 +70,25 @@ export async function POST(request: NextRequest) {
 
   const client = new NotifuseClient({ apiUrl, hubSecret });
 
-  try {
-    const result = await client.generateMagicLink({
-      apiKey: tenant.notifuseApiKey,
-      userEmail: tenant.notifuseUserEmail,
-    });
-    // Préférer auto_login_url (auto-connect via localStorage, sans saisie code).
-    // Fallback magic_link garde l'ancien flow si le frontend a besoin de le tester.
-    return NextResponse.json({
-      autoLoginUrl: result.auto_login_url,
-      magicLink: result.magic_link,
-      expiresAt: result.expires_at,
-    });
-  } catch (err) {
-    if (err instanceof NotifuseError) {
-      return NextResponse.json(
-        { error: err.message, code: err.code },
-        { status: err.code >= 400 && err.code < 600 ? err.code : 502 },
-      );
-    }
-    const message = err instanceof Error ? err.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+  // La résolution de l'URL d'auto-login vit dans `lib/notifuse/resolve-autologin.ts`.
+  // Elle gère les deux chemins (clé API tenant, sinon réparation HMAC via
+  // provision idempotent) — c'est ce qui débloque les tenants rattachés par
+  // `hub link`, qui n'ont ni `notifuseApiKey` ni `notifuseUserEmail` en base.
+  const result = await resolveNotifuseAutoLogin(tenant, { prisma, client });
+
+  if (!result.ok) {
+    return NextResponse.json(
+      { error: result.message, reason: result.reason },
+      { status: result.status },
+    );
   }
+
+  // Préférer auto_login_url (auto-connect via localStorage, sans saisie code).
+  // Fallback magic_link garde l'ancien flow si le frontend a besoin de le tester.
+  return NextResponse.json({
+    autoLoginUrl: result.autoLoginUrl,
+    magicLink: result.magicLink,
+    expiresAt: result.expiresAt,
+    source: result.source,
+  });
 }

@@ -12,6 +12,11 @@
 //
 // Volontairement neutre sur les erreurs côté "demande de reset" : on ne
 // révèle pas si l'email existe (anti-énumération).
+//
+// Rate-limit (2026-07-28) : la route était la seule route d'auth publique du
+// Hub sans plafond, alors que chaque appel « demande » déclenche un envoi
+// Brevo. Deux risques réels : mail-bombing d'un client visé, et cramage du
+// quota transactionnel Brevo. Trois limiters, cf. commentaires ci-dessous.
 
 import { NextRequest, NextResponse } from 'next/server';
 import { randomBytes } from 'crypto';
@@ -21,6 +26,12 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { sendMail } from '@/lib/email/send';
 import { getURL } from '@/utils/helpers';
+import { extractClientIp } from '@/lib/auth/rate-limit';
+import {
+  resetRequestIpLimiter,
+  resetRequestEmailLimiter,
+  resetConsumeLimiter,
+} from '@/lib/auth/reset-password-rate-limit';
 
 const requestSchema = z.object({
   email: z.string().email(),
@@ -28,10 +39,34 @@ const requestSchema = z.object({
 
 const consumeSchema = z.object({
   token: z.string().min(16),
-  password: z.string().min(8),
+  // max(72) : bcrypt tronque silencieusement à 72 bytes — au-delà n'apporte
+  // rien et ouvre un DoS CPU (hash d'un payload XXL). Même borne que signup.
+  password: z.string().min(8).max(72),
 });
 
 const RESET_TTL_MS = 60 * 60 * 1000; // 1h
+
+function tooManyResponse(retryAfterSeconds: number): NextResponse {
+  return NextResponse.json(
+    {
+      error: 'Trop de tentatives. Patientez avant de réessayer.',
+      code: 'rate_limited',
+    },
+    { status: 429, headers: { 'Retry-After': String(retryAfterSeconds) } }
+  );
+}
+
+function logRateLimit(tag: string, key: string, retryAfterSeconds: number) {
+  console.warn(
+    JSON.stringify({
+      tag,
+      level: 'warn',
+      key,
+      retry_after_s: retryAfterSeconds,
+      ts: new Date().toISOString(),
+    })
+  );
+}
 
 export async function POST(request: NextRequest) {
   let payload: unknown;
@@ -41,16 +76,39 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
+  const ip = extractClientIp(request.headers);
+
   // Cas 2 : consommation token
   const consume = consumeSchema.safeParse(payload);
   if (consume.success) {
+    const rate = resetConsumeLimiter.enforceWithBypass(ip, request.headers);
+    if (!rate.ok) {
+      logRateLimit('[reset-password-consume-ratelimit]', ip, rate.retryAfterSeconds);
+      return tooManyResponse(rate.retryAfterSeconds);
+    }
     return handleConsume(consume.data);
   }
 
   // Cas 1 : demande de reset
   const req = requestSchema.safeParse(payload);
   if (req.success) {
-    return handleRequest(req.data.email);
+    const email = req.data.email.toLowerCase().trim();
+
+    // IP d'abord (frein anti-flood générique), puis email visé (anti
+    // mail-bombing d'une cible). Les deux comptent la tentative même refusée.
+    const ipRate = resetRequestIpLimiter.enforceWithBypass(ip, request.headers);
+    if (!ipRate.ok) {
+      logRateLimit('[reset-password-request-ratelimit]', ip, ipRate.retryAfterSeconds);
+      return tooManyResponse(ipRate.retryAfterSeconds);
+    }
+
+    const emailRate = resetRequestEmailLimiter.enforceWithBypass(email, request.headers);
+    if (!emailRate.ok) {
+      logRateLimit('[reset-password-request-ratelimit]', email, emailRate.retryAfterSeconds);
+      return tooManyResponse(emailRate.retryAfterSeconds);
+    }
+
+    return handleRequest(email);
   }
 
   return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
@@ -88,23 +146,31 @@ async function handleRequest(emailRaw: string): Promise<NextResponse> {
 
   const resetUrl = `${getURL()}/auth/reset?token=${encodeURIComponent(token)}`;
 
-  try {
-    await sendMail({
-      to: user.email,
-      subject: 'Veridian — Réinitialisation du mot de passe',
-      html: `
+  // Envoi NON awaité, volontairement.
+  //
+  // L'anti-énumération annoncée en tête de fichier était incomplète : un email
+  // inexistant répondait 200 en quelques ms, un email existant attendait l'appel
+  // HTTP Brevo (~centaines de ms). Cet écart, mesurable au chrono, révélait
+  // l'existence du compte aussi sûrement qu'un message d'erreur explicite.
+  // En détachant l'envoi, les deux branches répondent au même coût (un lookup
+  // + les écritures token). Le Hub tourne en process Node long (pas de
+  // fonction serverless coupée après la réponse) → la promesse va au bout.
+  void sendMail({
+    to: user.email,
+    subject: 'Veridian — Réinitialisation du mot de passe',
+    html: `
         <p>Bonjour,</p>
         <p>Une demande de réinitialisation de mot de passe a été effectuée pour votre compte Veridian.</p>
         <p><a href="${resetUrl}">Cliquez ici pour définir un nouveau mot de passe</a></p>
         <p>Ce lien est valable 1 heure. Si vous n'êtes pas à l'origine de cette demande, ignorez ce mail.</p>
         <p>— L'équipe Veridian</p>
       `,
-      text: `Réinitialisez votre mot de passe Veridian : ${resetUrl}\n\nValable 1 heure.`,
-    });
-  } catch (err) {
+    text: `Réinitialisez votre mot de passe Veridian : ${resetUrl}\n\nValable 1 heure.`,
+  }).catch((err) => {
+    // Catch obligatoire : sans lui, un échec Brevo devient une unhandled
+    // rejection qui peut tuer le process Node.
     console.error('[reset_password] Failed to send mail:', err);
-    // On retourne quand même 200 pour ne pas leak l'existence du compte.
-  }
+  });
 
   return NextResponse.json({ ok: true });
 }

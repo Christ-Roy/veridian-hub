@@ -28,7 +28,7 @@
  *     un cookie session (one-tap callback).
  */
 
-import type { NextResponse } from 'next/server';
+import type { NextRequest, NextResponse } from 'next/server';
 
 export type SessionCookieDomainEnv = {
   DEPLOY_ENV?: string;
@@ -52,6 +52,39 @@ export function resolveSessionCookieName(env: SessionCookieDomainEnv = process.e
   return env.NODE_ENV === 'production'
     ? '__Secure-authjs.session-token'
     : 'authjs.session-token';
+}
+
+/**
+ * Le cookie session Auth.js est-il présent sur cette requête ?
+ *
+ * Test volontairement **syntaxique** (présence du cookie), pas
+ * cryptographique : à zéro coût, il suffit à disqualifier un cookie hint
+ * orphelin — un hint qui survit à une déconnexion arrive forcément sans le
+ * cookie session, que celui-ci ait été supprimé par Auth.js ou qu'il ait
+ * simplement expiré. Utilisé par `/api/me/lite` pour que son fast path
+ * cesse d'être auto-confirmant.
+ *
+ * Gère le **chunking** : quand le JWE dépasse 4 ko, Auth.js éclate le
+ * cookie en `<nom>.0`, `<nom>.1`… Ne matcher que le nom exact raterait ces
+ * sessions-là et déconnecterait à tort de gros comptes.
+ *
+ * NB : le cookie session est scope host courant (app.veridian.site) mais il
+ * arrive bien sur les appels de la landing — veridian.site et
+ * app.veridian.site partagent le même site au sens SameSite, et le fetch
+ * passe en `credentials: 'include'`.
+ */
+export function hasAuthSessionCookie(
+  request: Pick<NextRequest, 'cookies'>,
+  env: SessionCookieDomainEnv = process.env,
+): boolean {
+  const baseName = resolveSessionCookieName(env);
+  return request.cookies
+    .getAll()
+    .some(
+      (cookie) =>
+        Boolean(cookie.value) &&
+        (cookie.name === baseName || cookie.name.startsWith(`${baseName}.`)),
+    );
 }
 
 /**

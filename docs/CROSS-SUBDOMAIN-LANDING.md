@@ -324,7 +324,7 @@ fetch('https://app.veridian.site/api/me/lite', { credentials: 'include' })
 ## Checklist déploiement landing (futur)
 
 1. **Générer le secret hint** : `openssl rand -base64 48` → poser
-   `SESSION_HINT_SECRET` dans Dokploy ENV prod + `~/credentials/.all-creds.env`
+   `SESSION_HINT_SECRET` dans la Nomad Variable nomad/jobs/hub (template env) + `~/credentials/.all-creds.env`
 2. **DNS** : ajouter `veridian.site` → CF Pages
 3. **CF Pages** : déployer le repo landing
 4. **OAuth Google Cloud Console** : ajouter `https://veridian.site` dans les

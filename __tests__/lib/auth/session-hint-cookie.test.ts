@@ -26,6 +26,7 @@ import {
   decodeSessionHintJwt,
   setSessionHintCookie,
   clearSessionHintCookie,
+  buildClearedSessionHintSetCookie,
   readSessionHintFromRequest,
 } from '@/lib/auth/session-hint-cookie';
 
@@ -177,6 +178,32 @@ describe('clearSessionHintCookie', () => {
     expect(setCookie).toContain(`${SESSION_HINT_COOKIE_NAME}=;`);
     expect(setCookie).toContain('Max-Age=0');
     expect(setCookie).toContain('Domain=.veridian.site');
+  });
+});
+
+// Utilisé pour greffer la suppression sur une réponse qu'on ne construit pas
+// (celle du signOut Auth.js). Le format DOIT rester identique à celui posé
+// par clearSessionHintCookie, sinon le navigateur ne matche pas le cookie à
+// supprimer (domaine ou path différent = nouveau cookie, l'ancien survit).
+describe('buildClearedSessionHintSetCookie', () => {
+  it('rend une valeur Set-Cookie de suppression exploitable telle quelle', () => {
+    const cookie = buildClearedSessionHintSetCookie();
+    expect(cookie).toContain(`${SESSION_HINT_COOKIE_NAME}=;`);
+    expect(cookie).toContain('Max-Age=0');
+    expect(cookie).toContain('Domain=.veridian.site');
+    expect(cookie).toContain('Path=/');
+  });
+
+  it('produit exactement le même cookie que clearSessionHintCookie', () => {
+    const res = NextResponse.json({});
+    clearSessionHintCookie(res);
+    expect(buildClearedSessionHintSetCookie()).toBe(res.headers.get('set-cookie'));
+  });
+
+  it('suit le scope staging quand DEPLOY_ENV=staging', () => {
+    expect(buildClearedSessionHintSetCookie({ ...process.env, DEPLOY_ENV: 'staging' })).toContain(
+      'Domain=.staging.veridian.site',
+    );
   });
 });
 

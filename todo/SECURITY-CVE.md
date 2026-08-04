@@ -1,85 +1,67 @@
 # 🔒 Veille CVE automatique — veridian-hub
 
 > **Généré par** : `veridian-infra/.github/workflows/cron-trivy.yml`
-> **Dernier run** : 2026-07-13 04:06 UTC
-> **Run URL** : local-cron@mail.mybigserveur.local:2026-07-13
+> **Dernier run** : 2026-08-04 04:08 UTC
+> **Run URL** : local-cron@mail.mybigserveur.local:2026-08-04
 > **Image scannée** : `ghcr.io/christ-roy/veridian-hub:latest`
-> **CVE bruts détectés** : 12 (avant filtrage)
+> **CVE bruts détectés** : 6 (avant filtrage)
 > **Scoring** : `veridian-infra/ci/trivy-scoring.yml`
 
 ## TL;DR
 
 - 🚨 **0 RED** — fix prioritaire
-- 🔴 **0 HIGH** — action recommandée cette semaine
-- 🟡 **6 MEDIUM** — récap, pas urgent
-- 🟢 **4 NOISE** — annexe collapse
-
-✅ **Rien d'urgent.** Quelques items MEDIUM à voir quand t'as 5 min.
+- 🔴 **1 HIGH** — action recommandée cette semaine
+- 🟡 **3 MEDIUM** — récap, pas urgent
+- 🟢 **1 NOISE** — annexe collapse
 
 
 ---
 
-## 🟡 MEDIUM — 6 CVE en 5 groupes
+## 🔴 HIGH — 1 CVE en 1 groupe
 
-### 1. `@hono/node-server` — 1.19.11 → **1.19.13**
+### 1. `fast-uri` — 4.1.1 → **4.1.2**
 
-- **CVE** : `CVE-2026-39406` (MEDIUM/Auth bypass)
-- **Type** : Auth bypass
+- **CVE** : `CVE-2026-18446` (HIGH/SSRF)
+- **Type** : SSRF
+- **Score max** : 45
+- **Title** : fast-uri before 4.1.2, 3.1.5, and 2.4.4 requires a literal double forw ...
+- **Source** : `pnpm-lock.yaml`
+- **Fix** : `pnpm up fast-uri` (jusqu'à >= `4.1.2`)
+
+
+---
+
+## 🟡 MEDIUM — 3 CVE en 2 groupes
+
+### 1. `@hono/node-server` — 1.19.11 → **2.0.5**
+
+- **CVE** : `CVE-2026-39406` (MEDIUM/Auth bypass), `GHSA-frvp-7c67-39w9` (MEDIUM/Data leak)
+- **Type** : Auth bypass, Data leak
 - **Score max** : 18
 - **Title** : @hono/node-server: Middleware bypass via repeated slashes in serveStatic
-- **Source** : `pnpm-lock.yaml`
-- **Fix** : `pnpm up @hono/node-server` (jusqu'à >= `1.19.13`)
-
-### 2. `picomatch` — 4.0.3 → **4.0.4**
-
-- **CVE** : `CVE-2026-33672` (MEDIUM/Auth bypass), `CVE-2026-33671` (HIGH/DoS)
-- **Type** : Auth bypass, DoS
-- **Score max** : 18
-- **Title** : picomatch: Picomatch: Data integrity compromised via method injection with crafted POSIX bracket expressions
 - **Source** : `Node.js`
-- **Fix** : `pnpm up picomatch` (jusqu'à >= `4.0.4`)
+- **Fix** : `pnpm up @hono/node-server` (jusqu'à >= `2.0.5`)
 
-### 3. `sigstore` — 3.1.0 → **4.1.1**
+### 2. `valibot` — 1.2.0 → **1.4.2**
 
-- **CVE** : `CVE-2026-48815` (HIGH/Unclassified)
-- **Type** : Unclassified
-- **Score max** : 15
-- **Title** : sigstore's `certificateOIDs` verification constraints are silently dropped and never enforced
-- **Source** : `Node.js`
-- **Fix** : `pnpm up sigstore` (jusqu'à >= `4.1.1`)
-
-### 4. `postcss` — 8.4.31 → **8.5.10**
-
-- **CVE** : `CVE-2026-41305` (MEDIUM/XSS)
-- **Type** : XSS
+- **CVE** : `CVE-2026-59952` (MEDIUM/Data leak)
+- **Type** : Data leak
 - **Score max** : 12
-- **Title** : postcss: PostCSS: Cross-Site Scripting (XSS) via improper escaping of style closing tags
-- **Source** : `pnpm-lock.yaml`
-- **Fix** : `pnpm up postcss` (jusqu'à >= `8.5.10`)
-
-### 5. `ip-address` — 10.1.0 → **10.1.1**
-
-- **CVE** : `CVE-2026-42338` (MEDIUM/XSS)
-- **Type** : XSS
-- **Score max** : 12
-- **Title** : ip-address: ip-address: Cross-site scripting via improper HTML escaping of untrusted input
+- **Title** : Valibot: record() issue paths can make flatten() throw for inherited Object property names
 - **Source** : `Node.js`
-- **Fix** : `pnpm up ip-address` (jusqu'à >= `10.1.1`)
+- **Fix** : `pnpm up valibot` (jusqu'à >= `1.4.2`)
 
 
 ---
 
-## 🟢 NOISE filtré (4 CVE)
+## 🟢 NOISE filtré (1 CVE)
 
 <details>
-<summary>Liste complète (4 groupes — clique pour déplier)</summary>
+<summary>Liste complète (1 groupe — clique pour déplier)</summary>
 
 | Package | Installed | Fix | CVE count | Max score |
 |---|---|---|---|---|
-| `qs` | 6.15.1 | 6.15.2 | 1 | 6 |
-| `@sigstore/core` | 2.0.0 | 3.2.1 | 1 | 6 |
-| `brace-expansion` | 2.0.2 | 5.0.5 | 1 | 6 |
-| `tar` | 7.5.11 | 7.5.16 | 1 | 6 |
+| `hono` | 4.12.32 | 4.12.34 | 1 | 6 |
 
 </details>
 

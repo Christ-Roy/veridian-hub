@@ -135,7 +135,11 @@ describe('POST /api/auth/signup', () => {
           `signup #${i} should succeed via bypass (got ${res.status})`
         ).toContain(res.status);
       }
-    });
+      // Timeout explicite : 12 signups × bcrypt 10 rounds dépassent les 5 s
+      // par défaut de Vitest dès que la machine est chargée (suite complète en
+      // parallèle). Sans ça le test tombe au hasard, et son échec laisse
+      // DEPLOY_ENV pollué pour le test suivant → faux positif en cascade.
+    }, 30_000);
 
     it('GARDE-FOU PROD : bypass header ignoré, 6e signup → 429 quand même', async () => {
       process.env.DEPLOY_ENV = 'prod';
@@ -153,7 +157,10 @@ describe('POST /api/auth/signup', () => {
       // Restore
       if (ORIG_DEPLOY_ENV === undefined) delete process.env.DEPLOY_ENV;
       else process.env.DEPLOY_ENV = ORIG_DEPLOY_ENV;
-    });
+      // Même timeout que le test précédent : il partage l'IP 10.55.0.99, donc
+      // un timeout du voisin laissait ses POST en vol continuer à consommer ce
+      // bucket APRÈS le reset du beforeEach → 429 prématuré ici.
+    }, 30_000);
 
     it('bypass refusé si header wrong (même longueur) → 429 normal', async () => {
       const wrong = 'b'.repeat(48);
