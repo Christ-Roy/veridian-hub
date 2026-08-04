@@ -1,20 +1,32 @@
 # 🔒 Veille CVE automatique — veridian-hub
 
 > **Généré par** : `veridian-infra/.github/workflows/cron-trivy.yml`
-> **Dernier run** : 2026-08-03 04:08 UTC
-> **Run URL** : local-cron@mail.mybigserveur.local:2026-08-03
+> **Dernier run** : 2026-08-04 04:08 UTC
+> **Run URL** : local-cron@mail.mybigserveur.local:2026-08-04
 > **Image scannée** : `ghcr.io/christ-roy/veridian-hub:latest`
-> **CVE bruts détectés** : 3 (avant filtrage)
+> **CVE bruts détectés** : 6 (avant filtrage)
 > **Scoring** : `veridian-infra/ci/trivy-scoring.yml`
 
 ## TL;DR
 
 - 🚨 **0 RED** — fix prioritaire
-- 🔴 **0 HIGH** — action recommandée cette semaine
+- 🔴 **1 HIGH** — action recommandée cette semaine
 - 🟡 **3 MEDIUM** — récap, pas urgent
-- 🟢 **0 NOISE** — annexe collapse
+- 🟢 **1 NOISE** — annexe collapse
 
-✅ **Rien d'urgent.** Quelques items MEDIUM à voir quand t'as 5 min.
+
+---
+
+## 🔴 HIGH — 1 CVE en 1 groupe
+
+### 1. `fast-uri` — 4.1.1 → **4.1.2**
+
+- **CVE** : `CVE-2026-18446` (HIGH/SSRF)
+- **Type** : SSRF
+- **Score max** : 45
+- **Title** : fast-uri before 4.1.2, 3.1.5, and 2.4.4 requires a literal double forw ...
+- **Source** : `pnpm-lock.yaml`
+- **Fix** : `pnpm up fast-uri` (jusqu'à >= `4.1.2`)
 
 
 ---
@@ -38,6 +50,20 @@
 - **Title** : Valibot: record() issue paths can make flatten() throw for inherited Object property names
 - **Source** : `Node.js`
 - **Fix** : `pnpm up valibot` (jusqu'à >= `1.4.2`)
+
+
+---
+
+## 🟢 NOISE filtré (1 CVE)
+
+<details>
+<summary>Liste complète (1 groupe — clique pour déplier)</summary>
+
+| Package | Installed | Fix | CVE count | Max score |
+|---|---|---|---|---|
+| `hono` | 4.12.32 | 4.12.34 | 1 | 6 |
+
+</details>
 
 
 ---
