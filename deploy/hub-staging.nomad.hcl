@@ -20,7 +20,7 @@
 variable "image_tag" {
   type        = string
   description = "Tag de l'image ghcr.io/christ-roy/veridian-hub staging (injecté par la CI ; défaut staging-latest)."
-  default     = "staging-latest"
+  default     = "staging-6b52ee0"
 }
 
 job "hub-staging" {
@@ -124,8 +124,10 @@ listen postgres-primary
 EOH
       }
       resources {
-        cpu    = 100
-        memory = 64
+        # Pics 7 j observés : 4 MHz / 11 MiB.
+        cpu        = 50
+        memory     = 64
+        memory_max = 128
       }
     }
 
@@ -205,8 +207,10 @@ HUB_INVITATION_SECRET_PROSPECTION={{ .HUB_INVITATION_SECRET_PROSPECTION }}
 EOH
       }
       resources {
-        cpu    = 400
-        memory = 600
+        # Pic 7 j observé : 201 MiB. La réserve garde 27 % de marge.
+        cpu        = 400
+        memory     = 256
+        memory_max = 1024
       }
     }
   }

@@ -56,6 +56,9 @@ jobs:
           submodules: recursive
           token: ${{ secrets.CR_PAT }}  # PAT cross-repo (veridian-infra privé depuis 2026-07-10)
 
+      - name: Plafonds ressources staging
+        run: python3 scripts/ci/check-staging-resources.py
+
       - name: Compute image tag
         id: tag
         run: |
