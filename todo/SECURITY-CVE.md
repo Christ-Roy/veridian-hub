@@ -1,25 +1,25 @@
 # 🔒 Veille CVE automatique — veridian-hub
 
 > **Généré par** : `veridian-infra/.github/workflows/cron-trivy.yml`
-> **Dernier run** : 2026-08-07 04:07 UTC
-> **Run URL** : local-cron@mail.mybigserveur.local:2026-08-07
+> **Dernier run** : 2026-08-08 04:07 UTC
+> **Run URL** : local-cron@mail.mybigserveur.local:2026-08-08
 > **Image scannée** : `ghcr.io/christ-roy/veridian-hub:latest`
-> **CVE bruts détectés** : 4 (avant filtrage)
+> **CVE bruts détectés** : 8 (avant filtrage)
 > **Scoring** : `veridian-infra/ci/trivy-scoring.yml`
 
 ## TL;DR
 
 - 🚨 **0 RED** — fix prioritaire
 - 🔴 **0 HIGH** — action recommandée cette semaine
-- 🟡 **3 MEDIUM** — récap, pas urgent
-- 🟢 **1 NOISE** — annexe collapse
+- 🟡 **5 MEDIUM** — récap, pas urgent
+- 🟢 **2 NOISE** — annexe collapse
 
 ✅ **Rien d'urgent.** Quelques items MEDIUM à voir quand t'as 5 min.
 
 
 ---
 
-## 🟡 MEDIUM — 3 CVE en 2 groupes
+## 🟡 MEDIUM — 5 CVE en 4 groupes
 
 ### 1. `@hono/node-server` — 1.19.11 → **2.0.5**
 
@@ -30,7 +30,25 @@
 - **Source** : `Node.js`
 - **Fix** : `pnpm up @hono/node-server` (jusqu'à >= `2.0.5`)
 
-### 2. `valibot` — 1.2.0 → **1.4.2**
+### 2. `nanoid` — 3.3.16 → **5.1.6**
+
+- **CVE** : `CVE-2026-67213` (HIGH/DoS)
+- **Type** : DoS
+- **Score max** : 15
+- **Title** : nanoid (Nano ID) before 5.1.6 contains an infinite loop in the customA ...
+- **Source** : `pnpm-lock.yaml`
+- **Fix** : `pnpm up nanoid` (jusqu'à >= `5.1.6`)
+
+### 3. `hono` — 4.12.32 → **4.12.34**
+
+- **CVE** : `CVE-2026-71850` (MEDIUM/CSRF)
+- **Type** : CSRF
+- **Score max** : 12
+- **Title** : Hono: `memo()` retains SSR output across requests, leading to cross-user data disclosure
+- **Source** : `pnpm-lock.yaml`
+- **Fix** : `pnpm up hono` (jusqu'à >= `4.12.34`)
+
+### 4. `valibot` — 1.2.0 → **1.4.2**
 
 - **CVE** : `CVE-2026-59952` (MEDIUM/Data leak)
 - **Type** : Data leak
@@ -42,14 +60,14 @@
 
 ---
 
-## 🟢 NOISE filtré (1 CVE)
+## 🟢 NOISE filtré (2 CVE)
 
 <details>
 <summary>Liste complète (1 groupe — clique pour déplier)</summary>
 
 | Package | Installed | Fix | CVE count | Max score |
 |---|---|---|---|---|
-| `hono` | 4.12.32 | 4.12.34 | 1 | 6 |
+| `hono` | 4.12.32 | 4.12.34 | 2 | 6 |
 
 </details>
 
