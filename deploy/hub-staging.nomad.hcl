@@ -208,7 +208,7 @@ EOH
       }
       resources {
         # Pic 7 j observé : 201 MiB. La réserve garde 27 % de marge.
-        cpu        = 400
+        cpu        = 300
         memory     = 256
         memory_max = 1024
       }
