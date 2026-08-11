@@ -5,7 +5,7 @@ from pathlib import Path
 import re
 
 JOB = Path("deploy/hub-staging.nomad.hcl")
-EXPECTED = {"pgproxy": (50, 64, 128), "hub": (400, 256, 1024)}
+EXPECTED = {"pgproxy": (50, 64, 128), "hub": (300, 256, 1024)}
 
 
 def block(text: str, start: int) -> str:
