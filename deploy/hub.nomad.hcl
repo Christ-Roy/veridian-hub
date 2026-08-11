@@ -7,7 +7,7 @@
 # migrate CI).
 #
 # Veridian Hub (orchestrateur auth/billing/provisioning, Next.js, port 3000).
-# Placement : bastion contabo (provider=contabo). DB = veridian-core-db
+# Placement : serveur PROD OVH (provider=ovh-prod). DB = veridian-core-db
 # (postgres:16-alpine) co-localisée dans le même group bridge → hub la joint en
 # 127.0.0.1:5432 (schema hub_app). TLS terminé par Traefik (certresolver
 # letsencrypt sur app.veridian.site). Secrets = Nomad Variable nomad/jobs/hub
@@ -26,26 +26,26 @@ variable "image_tag" {
 job "hub" {
   datacenters = ["veridian-eu"]
   type        = "service"
+  priority    = 80
 
   group "stack" {
     count = 1
 
-    # Stratégie de déploiement (canon Prospection). healthy_deadline LARGE : le
-    # 1er pull de l'image Next.js sur un nœud sans cache peut dépasser 5min.
     # auto_revert : un deploy prod qui n'atteint jamais healthy restaure la
     # dernière version saine (zéro trou prod). min_healthy_time : l'alloc doit
     # rester saine 15s avant d'être comptée healthy (anti-flap).
     update {
-      healthy_deadline  = "15m"
-      progress_deadline = "20m"
+      max_parallel      = 1
       min_healthy_time  = "15s"
+      healthy_deadline  = "5m"
+      progress_deadline = "10m"
       auto_revert       = true
     }
 
-    # Épinglé au bastion : core-db bind sur /opt/veridian-lab/hub du bastion uniquement.
+    # Épinglé au serveur PROD : le bind core-db est local et ne suit pas l'allocation.
     constraint {
       attribute = "${meta.provider}"
-      value     = "contabo"
+      value     = "ovh-prod"
     }
 
     restart {
@@ -68,8 +68,10 @@ job "hub" {
         "traefik.enable=true",
         "traefik.http.routers.hub.rule=Host(`hub-lab.veridian.site`)",
         "traefik.http.routers.hub.entrypoints=web",
+        "traefik.http.routers.hub.middlewares=internal-only@nomad",
         "traefik.http.routers.hubsec.rule=Host(`hub-lab.veridian.site`)",
         "traefik.http.routers.hubsec.entrypoints=websecure",
+        "traefik.http.routers.hubsec.middlewares=internal-only@nomad",
         "traefik.http.routers.hubsec.tls=true",
         "traefik.http.routers.hubprod.rule=Host(`app.veridian.site`)",
         "traefik.http.routers.hubprod.entrypoints=websecure",
@@ -106,16 +108,37 @@ POSTGRES_PASSWORD={{ .VERIDIAN_CORE_DB_PASSWORD }}
 EOH
       }
       resources {
-        cpu    = 300
-        memory = 256
+        cpu        = 100
+        memory     = 256
+        memory_max = 512
       }
     }
 
     # ---- hub (Next.js, port 3000) ----
     task "hub" {
-      driver = "docker"
+      driver         = "docker"
+      shutdown_delay = "10s"
+      kill_timeout   = "30s"
+      service {
+        name     = "hub-selfheal"
+        provider = "nomad"
+        port     = "http"
+        tags     = ["traefik.enable=false"]
+        check {
+          type     = "http"
+          path     = "/api/health"
+          interval = "15s"
+          timeout  = "5s"
+          check_restart {
+            limit           = 4
+            grace           = "120s"
+            ignore_warnings = false
+          }
+        }
+      }
       config {
         image = "ghcr.io/christ-roy/veridian-hub:${var.image_tag}"
+        init  = true
         ports = ["http"]
       }
       template {
@@ -161,6 +184,8 @@ CRM_VAULT_KEY={{ .CRM_VAULT_KEY }}
 SESSION_HINT_SECRET={{ .SESSION_HINT_SECRET }}
 GOOGLE_OAUTH_CLIENT_ID={{ .GOOGLE_OAUTH_CLIENT_ID }}
 GOOGLE_OAUTH_CLIENT_SECRET={{ .GOOGLE_OAUTH_CLIENT_SECRET }}
+GOOGLE_MAIL_CLIENT_ID={{ .GOOGLE_MAIL_CLIENT_ID }}
+GOOGLE_MAIL_CLIENT_SECRET={{ .GOOGLE_MAIL_CLIENT_SECRET }}
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY={{ .STRIPE_PUBLISHABLE_KEY_LIVE }}
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_LIVE={{ .STRIPE_PUBLISHABLE_KEY_LIVE }}
 STRIPE_SECRET_KEY={{ .STRIPE_SECRET_KEY_LIVE }}
@@ -182,8 +207,9 @@ NEXT_PUBLIC_GTM_ID={{ .GTM_ID_APP_VERIDIAN }}
 EOH
       }
       resources {
-        cpu    = 500
-        memory = 768
+        cpu        = 150
+        memory     = 384
+        memory_max = 512
       }
     }
   }

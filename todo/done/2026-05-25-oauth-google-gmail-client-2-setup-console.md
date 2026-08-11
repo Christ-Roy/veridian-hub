@@ -20,7 +20,7 @@
 - ✅ Scope `https://www.googleapis.com/auth/gmail.send` ajouté au consent screen `veridian-preprod` (warning Validation requise = attendu)
 - ✅ Client OAuth `Veridian Mail Sender` créé type Web :
   - **Client ID** : `nbmuq4gletbsqt1f3r185ab7la4kke4q.apps.googleusercontent.com`
-  - **Client Secret** : `GOCSPX-bDIxXIwcuQBPS_VWYHJQg_bbLgy`
+  - **Client Secret** : `<redacted, secret rotated>`
   - **Origins JS** : `https://app.veridian.site`, `https://hub.staging.veridian.site`, `http://localhost:3000`
   - **Redirect URIs** : `/api/gmail/connect/callback` pour les 3 hosts ci-dessus
 - ✅ Credentials persistés dans `~/credentials/.all-creds.env` (`GOOGLE_MAIL_CLIENT_ID`, `GOOGLE_MAIL_CLIENT_SECRET`)

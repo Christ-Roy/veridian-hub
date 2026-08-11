@@ -21,7 +21,7 @@
 La route `/api/webhooks` côté staging renvoie probablement un code ≠ 200 sur une signature pourtant valide. Possible causes :
 
 1. **`STRIPE_WEBHOOK_SECRET_TEST` désync** entre ce que j'ai posé dans `/opt/staging/hub/.env` (depuis `~/credentials/.all-creds.env`) et ce que les fixtures E2E signent. À investiguer en priorité.
-2. **`STRIPE_WEBHOOK_SECRET` vs `STRIPE_WEBHOOK_SECRET_TEST`** : le compose mappe les 2 sur la même valeur (`${STRIPE_WEBHOOK_SECRET_TEST:-whsec_fake}`), mais le code peut lire `STRIPE_WEBHOOK_SECRET_LIVE` selon `DEPLOY_ENV`. Vérifier la logique `lib/stripe/server.ts` ou `utils/stripe/server.ts` pour le bon secret à staging.
+2. **`STRIPE_WEBHOOK_SECRET` vs `STRIPE_WEBHOOK_SECRET_TEST`** : le compose mappe les 2 sur la même valeur (`${STRIPE_WEBHOOK_SECRET_TEST:-[REDACTED]}`), mais le code peut lire `STRIPE_WEBHOOK_SECRET_LIVE` selon `DEPLOY_ENV`. Vérifier la logique `lib/stripe/server.ts` ou `utils/stripe/server.ts` pour le bon secret à staging.
 3. **`STRIPE_REFILL_PRODUCT_ID_TEST`** posé mais peut-être pas lu correctement.
 
 ## Action attendue
@@ -43,9 +43,9 @@ La route `/api/webhooks` côté staging renvoie probablement un code ≠ 200 sur
 ## Résolution — 2026-05-23
 
 **Diagnostic** : confirmé hypothèse #1 (désync secret). Staging container avait
-`STRIPE_WEBHOOK_SECRET=whsec_tRojJslk0quc2VYZPHG7zyGJsPQiv72A` (vraie clé
+`STRIPE_WEBHOOK_SECRET=[REDACTED]` (vraie clé
 Stripe TEST persistée depuis 2026-05-23), mais les 3 fixtures signaient en
-dur avec `whsec_fake` → toutes les signatures rejetées → 400 au lieu de 200.
+dur avec `[REDACTED]` → toutes les signatures rejetées → 400 au lieu de 200.
 
 **Hypothèses 2 et 3 écartées** :
 - Hypothèse 2 : `utils/env.ts:getStripeWebhookSecret()` lit bien `STRIPE_WEBHOOK_SECRET`
@@ -55,7 +55,7 @@ dur avec `whsec_fake` → toutes les signatures rejetées → 400 au lieu de 200
 
 **Fix appliqué** :
 1. Résolution dynamique du secret dans les 3 fixtures (`STRIPE_WEBHOOK_SECRET_TEST`
-   env > `STRIPE_WEBHOOK_SECRET` env > fallback `whsec_fake`) :
+   env > `STRIPE_WEBHOOK_SECRET` env > fallback `[REDACTED]`) :
    - `e2e/staging-full/09-stripe-webhook-dispatcher.spec.ts`
    - `e2e/staging-full/14-stripe-webhook-dispatcher-flow.spec.ts`
    - `e2e/staging-full/16-stress-security.spec.ts`
