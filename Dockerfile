@@ -76,13 +76,6 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 
-# Note Trivy gate : node:22-alpine et node:24-alpine shippent un npm dont
-# picomatch transitif est 4.0.3 (CVE-2026-33671 DoS regex). Pas patchable
-# in-image sans casser npm (bug bump npm 10→11). Accepté via .trivyignore :
-# - npm n'est pas exécuté au runtime du container Next.js
-# - C'est un DoS regex via extglob, pas une RCE / auth bypass
-# - Upstream Node devra bump le npm bundled
-
 # Patch les paquets OS Alpine (openssl/libcrypto3/libssl3, etc.) sans attendre
 # que l'image node:22-alpine officielle rebuild. Sans ça, l'image hérite des
 # CVE OS publiées entre deux releases Node (ex CVE-2026-45447 openssl HIGH,
@@ -134,6 +127,23 @@ RUN mkdir -p /opt/prisma-cli && \
     npm install --omit=dev --no-package-lock \
       prisma@7.7.0 \
       dotenv@17.2.3
+
+# npm et corepack ne servent qu'à fabriquer les deux ensembles de dépendances
+# ci-dessus. Le runtime lance directement node et le CLI Prisma. Les retirer de
+# l'image finale réduit la surface d'attaque et supprime leurs dépendances
+# bundlées vulnérables sans altérer l'application.
+RUN rm -rf \
+      /usr/local/lib/node_modules/npm \
+      /usr/local/lib/node_modules/corepack \
+      /root/.npm && \
+    rm -f \
+      /usr/local/bin/npm \
+      /usr/local/bin/npx \
+      /usr/local/bin/corepack \
+      /usr/local/bin/pnpm \
+      /usr/local/bin/pnpx && \
+    test ! -e /usr/local/lib/node_modules/npm && \
+    test ! -e /usr/local/lib/node_modules/corepack
 
 # Set correct permissions
 RUN chown -R nextjs:nodejs /app

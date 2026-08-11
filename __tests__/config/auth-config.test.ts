@@ -106,6 +106,16 @@ describe('auth.config.ts — authorized callback (middleware edge gate)', () => 
     expect(authorized?.({ auth: fakeAuth, request: makeReq('/dashboard') } as Parameters<NonNullable<typeof authorized>>[0])).toBe(true);
   });
 
+  it('échoue fermé si Auth.js retourne un objet erreur sans vraie session', () => {
+    const errorAuth = { error: 'Configuration' } as unknown as Parameters<NonNullable<typeof authorized>>[0]['auth'];
+
+    for (const pathname of ['/dashboard', '/admin']) {
+      expect(
+        authorized?.({ auth: errorAuth, request: makeReq(pathname) } as Parameters<NonNullable<typeof authorized>>[0]),
+      ).toBe(false);
+    }
+  });
+
   it('bloque /admin sans session', () => {
     expect(authorized?.({ auth: null, request: makeReq('/admin') } as Parameters<NonNullable<typeof authorized>>[0])).toBe(false);
   });
