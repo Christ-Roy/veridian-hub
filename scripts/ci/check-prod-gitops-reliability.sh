@@ -33,7 +33,7 @@ require_fixed "$hcl" 'name     = "hub-selfheal"' 'service self-heal absent'
 require_fixed "$hcl" 'limit           = 4' 'check_restart applicatif absent'
 require_fixed "$hcl" 'init  = true' 'init Docker anti-zombies absent'
 require_fixed "$hcl" 'memory     = 384' 'réservation mémoire app inattendue'
-require_fixed "$hcl" 'memory_max = 7000' 'plafond mémoire app absent'
+require_fixed "$hcl" 'memory_max = 512' 'plafond mémoire app inattendu'
 
 # Nomad plan retourne 0 sans remplacement, 1 avec remplacement, puis un autre
 # code en erreur. Le workflow accepte explicitement 0/1 et bloque tout le reste.

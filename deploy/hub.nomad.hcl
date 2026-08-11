@@ -108,9 +108,9 @@ POSTGRES_PASSWORD={{ .VERIDIAN_CORE_DB_PASSWORD }}
 EOH
       }
       resources {
-        cpu        = 300
+        cpu        = 100
         memory     = 256
-        memory_max = 7000
+        memory_max = 512
       }
     }
 
@@ -207,9 +207,9 @@ NEXT_PUBLIC_GTM_ID={{ .GTM_ID_APP_VERIDIAN }}
 EOH
       }
       resources {
-        cpu        = 500
+        cpu        = 150
         memory     = 384
-        memory_max = 7000
+        memory_max = 512
       }
     }
   }
