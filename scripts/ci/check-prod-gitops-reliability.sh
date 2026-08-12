@@ -3,6 +3,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 hcl="$root/deploy/hub.nomad.hcl"
+db_hcl="$root/deploy/hub-db.nomad.hcl"
 ci="$root/.github/workflows/hub-ci.yml"
 staging_ci="$root/.github/workflows/hub-staging.yml"
 dockerfile="$root/Dockerfile"
@@ -34,6 +35,17 @@ require_fixed "$hcl" 'limit           = 4' 'check_restart applicatif absent'
 require_fixed "$hcl" 'init  = true' 'init Docker anti-zombies absent'
 require_fixed "$hcl" 'memory     = 384' 'réservation mémoire app inattendue'
 require_fixed "$hcl" 'memory_max = 512' 'plafond mémoire app inattendu'
+require_fixed "$hcl" 'canary            = 1' 'canary app prod absent'
+require_fixed "$hcl" 'reschedule {' 'reschedule app stateless absent'
+reject_fixed "$hcl" 'task "veridian-core-db"' 'PostgreSQL encore co-localisé avec le job app'
+reject_fixed "$hcl" '@127.0.0.1:5432/veridian' 'DATABASE_URL prod app encore couplée à localhost'
+require_fixed "$db_hcl" 'job "hub-db"' 'job DB stateful séparé absent'
+require_fixed "$db_hcl" 'host_network = "tailscale"' 'DB Hub non privée Tailscale'
+require_fixed "$db_hcl" '/opt/veridian-lab/hub/core-db:/var/lib/postgresql/data' 'volume DB Hub historique absent'
+reject_fixed "$db_hcl" 'reschedule {' 'reschedule interdit sur DB Hub locale'
+require_fixed "$ci" './scripts/ci/check-nomad-stateful-split.sh' 'garde-fou split Nomad non exécuté en CI'
+require_fixed "$ci" 'NOMAD_DB_JOB: hub-db' 'préflight hub-db absent du deploy prod'
+require_fixed "$ci" 'nc -z -w 5 100.88.202.29 5432' 'préflight TCP hub-db absent'
 
 # Nomad plan retourne 0 sans remplacement, 1 avec remplacement, puis un autre
 # code en erreur. Le workflow accepte explicitement 0/1 et bloque tout le reste.

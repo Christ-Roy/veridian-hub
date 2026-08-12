@@ -78,6 +78,8 @@ jobs:
           BASE_REF: origin/${{ github.base_ref || 'main' }}
       - name: GitOps prod reliability invariants
         run: ./scripts/ci/check-prod-gitops-reliability.sh
+      - name: Nomad stateful/stateless split invariants
+        run: ./scripts/ci/check-nomad-stateful-split.sh
       - name: Staging freshness gate behavior
         run: ./scripts/ci/test-check-staging-fresh.sh
       - name: Tests
@@ -241,6 +243,7 @@ jobs:
       url: https://app.veridian.site
     env:
       NOMAD_JOB: hub
+      NOMAD_DB_JOB: hub-db
       JOB_FILE: deploy/hub.nomad.hcl
       REMOTE_HCL: /tmp/hub-${{ github.run_id }}.nomad.hcl
       PROD_URL: https://app.veridian.site
@@ -270,11 +273,15 @@ jobs:
         run: |
           ssh -i ~/.ssh/id_ed25519 \
             "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}" \
-            "IMAGE_TAG='${IMAGE_TAG}' REMOTE_HCL='${REMOTE_HCL}' bash -s" <<'REMOTE'
+            "IMAGE_TAG='${IMAGE_TAG}' REMOTE_HCL='${REMOTE_HCL}' NOMAD_DB_JOB='${NOMAD_DB_JOB}' bash -s" <<'REMOTE'
           set -euo pipefail
           # NOMAD_MGMT_TOKEN sourcé ici, sur le bastion, exporté en NOMAD_TOKEN.
           source ~/credentials/nomad-bastion.env
           export NOMAD_ADDR NOMAD_TOKEN="$NOMAD_MGMT_TOKEN"
+
+          echo "== préflight hub-db séparé =="
+          /usr/bin/nomad job status "$NOMAD_DB_JOB" | grep -q 'Status[[:space:]]*=[[:space:]]*running'
+          nc -z -w 5 100.88.202.29 5432
 
           echo "== nomad job validate =="
           /usr/bin/nomad job validate -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL"
@@ -300,12 +307,12 @@ jobs:
           RUN_INDEX_ARGS=()
           [ -n "$MODIFY_INDEX" ] && RUN_INDEX_ARGS=(-check-index "$MODIFY_INDEX")
 
-          # Le groupe est stateful et redémarre PostgreSQL. Le runner canonique
-          # crée et vérifie une sauvegarde R2 des six bases avant toute mutation.
+          # Le deploy app ne redémarre plus PostgreSQL, mais on garde le backup
+          # pré-déploiement : migrate-on-boot peut encore modifier le schéma.
           echo "== sauvegarde PostgreSQL pré-déploiement vers R2 =="
           /home/brunon5/all-cron/backups/prod-r2-backup.sh
 
-          # ── PRÉ-PULL authentifié sur le nœud cible (prod = ovh-prod) ──
+          # ── PRÉ-PULL authentifié sur le nœud cible préféré (ovh-prod) ──
           # Nomad ne pull pas les images PRIVÉES ghcr (plugin sans bloc auth → 401,
           # alloc pending jusqu'au healthy_deadline). On pré-pull via SSH sur le
           # nœud cible (auth ghcr en place) → image déjà présente quand la task démarre.
@@ -318,8 +325,7 @@ jobs:
           # (bloque jusqu'à terminal, exit ≠0 si échec/auto-revert). Évite le faux
           # positif du poll (lit l'ancien deploy) ET le faux négatif du `job run`
           # bloquant (404 transitoire). Incident 2026-07-11.
-          # ⚠️ Job prod STATEFUL (DB co-localisée, count=1) → un run recrée l'alloc
-          # (bref redémarrage DB, attendu, pas zéro-downtime).
+          # Job prod stateless : PostgreSQL reste dans le job séparé hub-db.
           echo "== nomad job run -detach + monitoring du déploiement ciblé (image_tag=${IMAGE_TAG}) =="
           EVAL=$(/usr/bin/nomad job run -detach "${RUN_INDEX_ARGS[@]}" \
             -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL" \

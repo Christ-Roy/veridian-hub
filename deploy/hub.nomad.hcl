@@ -1,21 +1,10 @@
 # hub.nomad.hcl — SOURCE DE VÉRITÉ GITOPS du déploiement PROD du Hub.
 #
-# Miroir versionné (dans CE repo) du job Nomad réellement déployé. La CI injecte
-# le tag d'image promu (var image_tag) puis `nomad job plan`→`run`. Patron de
-# référence : veridian-prospection/deploy/README.md (canon SSH-bastion Robert
-# 2026-07-11). Adaptation Hub : cf deploy/README.md (migrate-on-boot, pas de step
-# migrate CI).
+# App stateless uniquement. PostgreSQL PROD vit dans deploy/hub-db.nomad.hcl
+# (job `hub-db`) sur le volume local ovh-prod /opt/veridian-lab/hub/core-db.
+# La CI ne redémarre plus PostgreSQL pour un bump image ou un rightsizing app.
 #
-# Veridian Hub (orchestrateur auth/billing/provisioning, Next.js, port 3000).
-# Placement : serveur PROD OVH (provider=ovh-prod). DB = veridian-core-db
-# (postgres:16-alpine) co-localisée dans le même group bridge → hub la joint en
-# 127.0.0.1:5432 (schema hub_app). TLS terminé par Traefik (certresolver
-# letsencrypt sur app.veridian.site). Secrets = Nomad Variable nomad/jobs/hub
-# (JAMAIS en clair). ⚠️ Stripe LIVE en prod (clés dans la Nomad var).
-#
-# ⚠️ DB PROD mono-instance postgres:16, volume bind /opt/veridian-lab/hub/core-db.
-# NE PAS reschedule (le volume local ne suit pas). Cible infra à terme = cluster
-# Patroni HA (le staging l'a déjà, cf deploy/hub-staging.nomad.hcl).
+# Secrets = Nomad Variable nomad/jobs/hub (JAMAIS en clair). Stripe LIVE en prod.
 
 variable "image_tag" {
   type        = string
@@ -28,24 +17,20 @@ job "hub" {
   type        = "service"
   priority    = 80
 
-  group "stack" {
+  group "app" {
     count = 1
 
-    # auto_revert : un deploy prod qui n'atteint jamais healthy restaure la
-    # dernière version saine (zéro trou prod). min_healthy_time : l'alloc doit
-    # rester saine 15s avant d'être comptée healthy (anti-flap).
+    # App stateless : un canary peut démarrer avant bascule, puis auto-revert si
+    # le nouvel alloc ne devient pas healthy. Le migrate-on-boot Hub est
+    # idempotent/advisory-lock côté Postgres.
     update {
       max_parallel      = 1
+      canary            = 1
+      auto_promote      = true
       min_healthy_time  = "15s"
-      healthy_deadline  = "5m"
-      progress_deadline = "10m"
+      healthy_deadline  = "10m"
+      progress_deadline = "15m"
       auto_revert       = true
-    }
-
-    # Épinglé au serveur PROD : le bind core-db est local et ne suit pas l'allocation.
-    constraint {
-      attribute = "${meta.provider}"
-      value     = "ovh-prod"
     }
 
     restart {
@@ -53,6 +38,13 @@ job "hub" {
       interval = "10m"
       delay    = "15s"
       mode     = "delay"
+    }
+
+    reschedule {
+      delay          = "15s"
+      delay_function = "exponential"
+      max_delay      = "2m"
+      unlimited      = true
     }
 
     network {
@@ -86,39 +78,36 @@ job "hub" {
       }
     }
 
-    # ---- veridian-core-db (postgres:16, frais, interne) ----
-    task "veridian-core-db" {
+    # Readiness DB avant migrate-on-boot. Le host est l'IP Tailscale ovh-prod :
+    # la DB stateful est volontairement épinglée au même nœud que son volume.
+    task "wait-for-db" {
       driver = "docker"
+
+      lifecycle {
+        hook    = "prestart"
+        sidecar = false
+      }
+
       config {
-        image = "postgres:16-alpine"
-        volumes = [
-          "/opt/veridian-lab/hub/core-db:/var/lib/postgresql/data",
+        image   = "postgres:16-alpine"
+        command = "sh"
+        args = [
+          "-ec",
+          "for i in $(seq 1 120); do pg_isready -h 100.88.202.29 -p 5432 -U veridian -d veridian && exit 0; sleep 2; done; echo 'hub-db not ready after 240s' >&2; exit 1",
         ]
       }
-      template {
-        destination = "secrets/pg.env"
-        env         = true
-        data        = <<EOH
-TZ=UTC
-POSTGRES_USER=veridian
-POSTGRES_DB=veridian
-{{ with nomadVar "nomad/jobs/hub" }}
-POSTGRES_PASSWORD={{ .VERIDIAN_CORE_DB_PASSWORD }}
-{{ end }}
-EOH
-      }
+
       resources {
-        cpu        = 100
-        memory     = 256
-        memory_max = 512
+        cpu    = 50
+        memory = 64
       }
     }
 
-    # ---- hub (Next.js, port 3000) ----
     task "hub" {
       driver         = "docker"
       shutdown_delay = "10s"
       kill_timeout   = "30s"
+
       service {
         name     = "hub-selfheal"
         provider = "nomad"
@@ -136,11 +125,13 @@ EOH
           }
         }
       }
+
       config {
         image = "ghcr.io/christ-roy/veridian-hub:${var.image_tag}"
         init  = true
         ports = ["http"]
       }
+
       template {
         destination = "secrets/hub.env"
         env         = true
@@ -175,7 +166,7 @@ CRM_REST_URL=https://crm.app.veridian.site/rest
 CRM_FRONTEND_URL=https://crm.app.veridian.site
 
 {{ with nomadVar "nomad/jobs/hub" }}
-DATABASE_URL=postgresql://veridian:{{ .VERIDIAN_CORE_DB_PASSWORD }}@127.0.0.1:5432/veridian?schema=hub_app
+DATABASE_URL=postgresql://veridian:{{ .VERIDIAN_CORE_DB_PASSWORD }}@100.88.202.29:5432/veridian?schema=hub_app&connect_timeout=10
 AUTH_SECRET={{ .HUB_AUTH_SECRET }}
 ADMIN_SECRET={{ .ADMIN_SECRET }}
 CRON_SECRET={{ .CRON_SECRET }}
@@ -206,7 +197,9 @@ NEXT_PUBLIC_GTM_ID={{ .GTM_ID_APP_VERIDIAN }}
 {{ end }}
 EOH
       }
+
       resources {
+        # p99 CPU 30 j = 35 MHz ; pic mémoire = 261 MiB.
         cpu        = 150
         memory     = 384
         memory_max = 512
