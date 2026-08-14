@@ -26,14 +26,17 @@ reject_fixed() {
 }
 
 # Invariants du job live: priorité, redémarrage borné, self-heal HTTP,
-# init anti-zombies et réservation applicative avec plafond de burst.
+# init anti-zombies, réservations scheduler et fusible mémoire large.
 require_fixed "$hcl" 'priority    = 80' 'priorité Nomad prod absente'
 require_fixed "$hcl" 'attempts = 10' 'restart Nomad prod non borné ou absent'
 require_fixed "$hcl" 'name     = "hub-selfheal"' 'service self-heal absent'
 require_fixed "$hcl" 'limit           = 4' 'check_restart applicatif absent'
 require_fixed "$hcl" 'init  = true' 'init Docker anti-zombies absent'
+require_fixed "$hcl" 'cpu        = 500' 'réservation CPU app inattendue'
+require_fixed "$hcl" 'cpu        = 300' 'réservation CPU DB inattendue'
 require_fixed "$hcl" 'memory     = 384' 'réservation mémoire app inattendue'
-require_fixed "$hcl" 'memory_max = 512' 'plafond mémoire app inattendu'
+[ "$(grep -Fc 'memory_max = 7000' "$hcl")" -eq 2 ] \
+  || fail 'fusibles mémoire app/DB inattendus'
 
 # Nomad plan retourne 0 sans remplacement, 1 avec remplacement, puis un autre
 # code en erreur. Le workflow accepte explicitement 0/1 et bloque tout le reste.
