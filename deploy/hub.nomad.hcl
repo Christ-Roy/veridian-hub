@@ -19,8 +19,8 @@
 
 variable "image_tag" {
   type        = string
-  description = "Tag de l'image ghcr.io/christ-roy/veridian-hub promue en prod (injecté par la CI ; défaut latest)."
-  default     = "latest"
+  description = "Tag de l'image ghcr.io/christ-roy/veridian-hub promue en prod (injecté par la CI)."
+  default     = "v0.5.24"
 }
 
 job "hub" {
@@ -108,9 +108,9 @@ POSTGRES_PASSWORD={{ .VERIDIAN_CORE_DB_PASSWORD }}
 EOH
       }
       resources {
-        cpu        = 100
+        cpu        = 300
         memory     = 256
-        memory_max = 512
+        memory_max = 7000
       }
     }
 
@@ -207,9 +207,9 @@ NEXT_PUBLIC_GTM_ID={{ .GTM_ID_APP_VERIDIAN }}
 EOH
       }
       resources {
-        cpu        = 150
+        cpu        = 500
         memory     = 384
-        memory_max = 512
+        memory_max = 7000
       }
     }
   }
