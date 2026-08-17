@@ -24,7 +24,7 @@ import { OnboardingScreen } from '@/components/onboarding/OnboardingScreen';
 import type {
   OnboardingInvite,
   OnboardingStateId,
-  OnboardingStep,
+  OnboardingStep
 } from '@/components/onboarding/types';
 
 const INVITE: OnboardingInvite = {
@@ -36,15 +36,15 @@ const INVITE: OnboardingInvite = {
       id: 'notifuse',
       label: 'Mail',
       suffix: '.mail',
-      tagline: 'Vos emails transactionnels et vos campagnes au même endroit.',
-    },
+      tagline: 'Vos emails transactionnels et vos campagnes au même endroit.'
+    }
   ],
-  expiresAt: '2026-08-15T18:00:00.000Z',
+  expiresAt: '2026-08-15T18:00:00.000Z'
 };
 
 const STEPS: OnboardingStep[] = [
   { id: 'compte', label: 'Création de votre compte', status: 'termine' },
-  { id: 'espace', label: 'Préparation de votre espace', status: 'en-cours' },
+  { id: 'espace', label: 'Préparation de votre espace', status: 'en-cours' }
 ];
 
 /** Titre <h1> attendu pour chaque état — la signature de l'écran affiché. */
@@ -54,7 +54,7 @@ const TITRES: Record<OnboardingStateId, RegExp> = {
   'en-cours': /On prépare votre espace/,
   termine: /Votre compte est prêt/,
   erreur: /Une erreur est survenue/,
-  'token-expire': /Ce lien a expiré/,
+  'token-expire': /Ce lien a expiré/
 };
 
 type Handlers = Partial<{
@@ -69,20 +69,27 @@ type Handlers = Partial<{
 
 function afficher(state: OnboardingStateId, handlers: Handlers = {}) {
   return render(
-    <OnboardingScreen state={state} invite={INVITE} steps={STEPS} {...handlers} />,
+    <OnboardingScreen
+      state={state}
+      invite={INVITE}
+      steps={STEPS}
+      {...handlers}
+    />
   );
 }
 
 describe('OnboardingScreen — un état, un écran', () => {
   for (const [state, titre] of Object.entries(TITRES) as [
     OnboardingStateId,
-    RegExp,
+    RegExp
   ][]) {
     it(`état « ${state} » : affiche l’écran attendu et lui seul`, () => {
       afficher(state);
 
       // L'écran attendu est là…
-      expect(screen.getByRole('heading', { level: 1, name: titre })).toBeInTheDocument();
+      expect(
+        screen.getByRole('heading', { level: 1, name: titre })
+      ).toBeInTheDocument();
 
       // …et aucun autre écran ne s'affiche en même temps. C'est le vrai test :
       // les rendus sont juxtaposés en `&&`, un état mal comparé en montrerait
@@ -97,16 +104,16 @@ describe('OnboardingScreen — un état, un écran', () => {
     expect(screen.getByText('Une erreur est survenue')).toBeInTheDocument();
     // Une panne de provisioning ne propose pas de renvoi de lien.
     expect(
-      screen.queryByRole('button', { name: /Recevoir un nouveau lien/i }),
+      screen.queryByRole('button', { name: /Recevoir un nouveau lien/i })
     ).toBeNull();
 
     rerender(
-      <OnboardingScreen state="token-expire" invite={INVITE} steps={STEPS} />,
+      <OnboardingScreen state="token-expire" invite={INVITE} steps={STEPS} />
     );
     expect(screen.getByText('Ce lien a expiré')).toBeInTheDocument();
     // Un lien expiré, lui, affiche l'adresse de renvoi issue de l'invitation.
     expect(
-      screen.getByText('claire.dubois@exemple-client.fr'),
+      screen.getByText('claire.dubois@exemple-client.fr')
     ).toBeInTheDocument();
   });
 
@@ -117,7 +124,10 @@ describe('OnboardingScreen — un état, un écran', () => {
     expect(screen.getByText('Préparation de votre espace')).toBeInTheDocument();
     // 1 terminée sur 2 → la barre doit refléter les étapes passées, pas un
     // pourcentage figé.
-    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '50');
+    expect(screen.getByRole('progressbar')).toHaveAttribute(
+      'aria-valuenow',
+      '50'
+    );
   });
 });
 
@@ -126,7 +136,9 @@ describe('OnboardingScreen — enchaînement des étapes', () => {
     const onActiver = vi.fn();
     afficher('activation', { onActiver });
 
-    fireEvent.click(screen.getByRole('button', { name: /Activer mon compte/i }));
+    fireEvent.click(
+      screen.getByRole('button', { name: /Activer mon compte/i })
+    );
     expect(onActiver).toHaveBeenCalledTimes(1);
   });
 
@@ -141,19 +153,19 @@ describe('OnboardingScreen — enchaînement des étapes', () => {
 
     // Un mot de passe faible ne remonte rien.
     fireEvent.change(screen.getByLabelText('Mot de passe'), {
-      target: { value: 'faible' },
+      target: { value: 'faible' }
     });
     fireEvent.change(screen.getByLabelText('Confirmation'), {
-      target: { value: 'faible' },
+      target: { value: 'faible' }
     });
     fireEvent.click(screen.getByRole('button', { name: /Créer mon accès/i }));
     expect(onDefinirMotDePasse).not.toHaveBeenCalled();
 
     fireEvent.change(screen.getByLabelText('Mot de passe'), {
-      target: { value: 'Motdepasse1' },
+      target: { value: 'Motdepasse1' }
     });
     fireEvent.change(screen.getByLabelText('Confirmation'), {
-      target: { value: 'Motdepasse1' },
+      target: { value: 'Motdepasse1' }
     });
     fireEvent.click(screen.getByRole('button', { name: /Créer mon accès/i }));
     expect(onDefinirMotDePasse).toHaveBeenCalledWith('Motdepasse1');
@@ -185,7 +197,7 @@ describe('OnboardingScreen — enchaînement des étapes', () => {
     afficher('token-expire', { onRenvoyerLien, onReessayer });
 
     fireEvent.click(
-      screen.getByRole('button', { name: /Recevoir un nouveau lien/i }),
+      screen.getByRole('button', { name: /Demander un nouveau lien/i })
     );
     expect(onRenvoyerLien).toHaveBeenCalledTimes(1);
     expect(onReessayer).not.toHaveBeenCalled();
@@ -203,7 +215,9 @@ describe('OnboardingScreen — enchaînement des étapes', () => {
     // facultatives et les appels optionnels.
     afficher('activation');
     expect(() =>
-      fireEvent.click(screen.getByRole('button', { name: /Activer mon compte/i })),
+      fireEvent.click(
+        screen.getByRole('button', { name: /Activer mon compte/i })
+      )
     ).not.toThrow();
   });
 });
@@ -228,7 +242,9 @@ describe('OnboardingScreen — l’état « terminé » n’est jamais un cul-de
     const onEntrer = vi.fn();
     afficher('termine', { onEntrer });
 
-    fireEvent.click(screen.getByRole('button', { name: /Entrer dans mon espace/i }));
+    fireEvent.click(
+      screen.getByRole('button', { name: /Entrer dans mon espace/i })
+    );
     expect(onEntrer).toHaveBeenCalledTimes(1);
   });
 
@@ -252,12 +268,12 @@ describe('OnboardingScreen — panneau de marque', () => {
       'en-cours': /Vos outils s’installent/,
       termine: /Bienvenue chez Veridian/,
       erreur: /On règle ça ensemble/,
-      'token-expire': /Votre compte, lui, reste là/,
+      'token-expire': /Votre compte, lui, reste là/
     };
 
     for (const [state, texte] of Object.entries(attendu) as [
       OnboardingStateId,
-      RegExp,
+      RegExp
     ][]) {
       const { unmount } = afficher(state);
       expect(screen.getByText(texte), state).toBeInTheDocument();

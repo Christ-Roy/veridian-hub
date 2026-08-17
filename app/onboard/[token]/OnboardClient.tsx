@@ -5,42 +5,46 @@ import { signIn } from 'next-auth/react';
 import { useEffect, useRef, useState } from 'react';
 
 import { OnboardingScreen } from '@/components/onboarding/OnboardingScreen';
-import type { OnboardingInvite, OnboardingStateId, OnboardingStep } from '@/components/onboarding/types';
+import type {
+  OnboardingInvite,
+  OnboardingStateId,
+  OnboardingStep
+} from '@/components/onboarding/types';
 import {
   QualificationFlow,
-  type EtatEnregistrement,
+  type EtatEnregistrement
 } from '@/components/onboarding/qualification/QualificationFlow';
 import type {
   OnboardingUser,
-  UserOnboardingRecord,
+  UserOnboardingRecord
 } from '@/components/onboarding/qualification/types';
 
-type Phase = 'activation' | 'qualification' | 'termine';
+type Phase = 'activation' | 'qualification';
 
 const INITIAL_STEPS: OnboardingStep[] = [
   {
     id: 'password',
     label: 'Sécurisation du compte',
     status: 'termine',
-    detail: 'Mot de passe enregistré côté Hub.',
+    detail: 'Mot de passe enregistré côté Hub.'
   },
   {
     id: 'session',
     label: 'Connexion à votre espace',
     status: 'en-cours',
-    detail: 'Création de la session client.',
+    detail: 'Création de la session client.'
   },
   {
     id: 'apps',
     label: 'Vérification des outils',
     status: 'a-venir',
-    detail: 'Les accès Veridian sont synchronisés.',
-  },
+    detail: 'Les accès Veridian sont synchronisés.'
+  }
 ];
 
 export function OnboardClient({
   token,
-  invite,
+  invite
 }: {
   token: string;
   invite: OnboardingInvite;
@@ -57,10 +61,14 @@ export function OnboardClient({
     useState<EtatEnregistrement>('idle');
   const saveQueueRef = useRef<Promise<boolean>>(Promise.resolve(true));
 
+  const prenomBrut = invite.email.split('@')[0]?.split(/[._-]/)[0] || 'vous';
   const onboardingUser: OnboardingUser = {
-    prenom: (invite.email.split('@')[0] ?? 'vous').split(/[._-]/)[0] ?? 'vous',
+    prenom:
+      prenomBrut === 'vous'
+        ? prenomBrut
+        : prenomBrut.charAt(0).toLocaleUpperCase('fr-FR') + prenomBrut.slice(1),
     email: invite.email,
-    workspaceName: invite.workspaceName,
+    workspaceName: invite.workspaceName
   };
 
   useEffect(() => {
@@ -81,7 +89,7 @@ export function OnboardClient({
 
   async function persistOnboardingRecord(
     record: UserOnboardingRecord,
-    completed: boolean,
+    completed: boolean
   ): Promise<boolean> {
     const save = saveQueueRef.current.then(async () => {
       setEnregistrement('en-cours');
@@ -95,8 +103,8 @@ export function OnboardClient({
           body: JSON.stringify({
             qualification,
             etapeCourante,
-            completed,
-          }),
+            completed
+          })
         });
         if (!res.ok) {
           setEnregistrement('erreur');
@@ -127,21 +135,32 @@ export function OnboardClient({
     setSteps(INITIAL_STEPS);
 
     try {
-      const res = await fetch(`/api/onboarding/${encodeURIComponent(token)}/activate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
-      });
+      const res = await fetch(
+        `/api/onboarding/${encodeURIComponent(token)}/activate`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password })
+        }
+      );
       const data = await res.json().catch(() => null);
 
       if (!res.ok || !data?.ok) {
         const code = data?.code ?? data?.error;
+        // Deux onglets peuvent soumettre le même lien presque simultanément.
+        // Le second perd proprement la course atomique côté serveur : son
+        // compte est déjà actif, donc le renvoyer vers le formulaire de mot
+        // de passe créerait une boucle de soumission impossible à résoudre.
+        if (code === 'activated') {
+          router.replace('/login');
+          router.refresh();
+          setSubmitting(false);
+          return;
+        }
         if (code === 'expired') setState('token-expire');
         else setState('mot-de-passe');
         setError(
-          code === 'activated'
-            ? 'Ce lien a déjà été utilisé. Connectez-vous avec votre mot de passe.'
-            : 'Impossible d’activer ce lien. Réessayez ou demandez un nouveau lien.',
+          'Impossible d’activer ce lien. Réessayez ou demandez un nouveau lien.'
         );
         setSubmitting(false);
         return;
@@ -150,30 +169,38 @@ export function OnboardClient({
       setSteps((current) =>
         current.map((step) =>
           step.id === 'session'
-            ? { ...step, status: 'en-cours', detail: 'Connexion automatique en cours.' }
+            ? {
+                ...step,
+                status: 'en-cours',
+                detail: 'Connexion automatique en cours.'
+              }
             : step.id === 'apps'
-              ? { ...step, status: 'en-cours', detail: 'Dernière synchronisation.' }
-              : step,
-        ),
+              ? {
+                  ...step,
+                  status: 'en-cours',
+                  detail: 'Dernière synchronisation.'
+                }
+              : step
+        )
       );
 
       const signInResult = await signIn('credentials', {
         email: invite.email,
         password,
-        redirect: false,
+        redirect: false
       });
 
       if (signInResult?.error) {
         setState('mot-de-passe');
         setError(
-          'Votre mot de passe est enregistré, mais la connexion automatique a échoué. Connectez-vous depuis la page de login.',
+          'Votre mot de passe est enregistré, mais la connexion automatique a échoué. Connectez-vous depuis la page de login.'
         );
         setSubmitting(false);
         return;
       }
 
       setSteps((current) =>
-        current.map((step) => ({ ...step, status: 'termine' })),
+        current.map((step) => ({ ...step, status: 'termine' }))
       );
       setOnboardingRecord(makeInitialOnboardingRecord(data.user_id));
       setPhase('qualification');
@@ -230,6 +257,6 @@ function makeInitialOnboardingRecord(userId: string): UserOnboardingRecord {
     memberInvitedAt: null,
     workspaceRenamedAt: null,
     completedAt: null,
-    metadata: { qualification: {}, etapeCourante: 'accueil' },
+    metadata: { qualification: {}, etapeCourante: 'accueil' }
   };
 }

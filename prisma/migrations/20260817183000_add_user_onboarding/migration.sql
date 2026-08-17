@@ -17,12 +17,15 @@ ALTER TABLE "hub_app"."user_onboarding"
     FOREIGN KEY ("user_id") REFERENCES "hub_app"."users"("id")
     ON DELETE CASCADE ON UPDATE CASCADE;
 
+-- @safe: table créée vide juste au-dessus, aucun trafic ni row existante à bloquer
 CREATE INDEX IF NOT EXISTS "user_onboarding_invited_at_idx"
     ON "hub_app"."user_onboarding" ("invited_at");
 
+-- @safe: table créée vide juste au-dessus, aucun trafic ni row existante à bloquer
 CREATE INDEX IF NOT EXISTS "user_onboarding_activated_at_idx"
     ON "hub_app"."user_onboarding" ("activated_at");
 
+-- @safe: table créée vide juste au-dessus, aucun trafic ni row existante à bloquer
 CREATE INDEX IF NOT EXISTS "user_onboarding_completed_at_idx"
     ON "hub_app"."user_onboarding" ("completed_at");
 
