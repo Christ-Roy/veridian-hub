@@ -17,18 +17,27 @@ import {
   type MockInstance,
 } from 'vitest';
 
-import { trackEvent, setUserId, clearUserId } from '@/lib/gtm';
+import {
+  trackEvent,
+  setUserId,
+  clearUserId,
+  estCheminSensible,
+} from '@/lib/gtm';
 
 let logSpy: MockInstance;
+let errorSpy: MockInstance;
 
 beforeEach(() => {
   // dataLayer mocké : array réel pour vérifier les push.
   (window as unknown as { dataLayer: unknown[] }).dataLayer = [];
   logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+  errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+  window.history.replaceState({}, '', '/dashboard');
 });
 
 afterEach(() => {
   logSpy.mockRestore();
+  errorSpy.mockRestore();
   delete (window as unknown as { dataLayer?: unknown[] }).dataLayer;
 });
 
@@ -54,6 +63,32 @@ describe('gtm — trackEvent', () => {
     // NODE_ENV n'est pas 'development' en test → aucun console.log attendu.
     // (Le seul console.log restant est gated NODE_ENV==='development'.)
     expect(logSpy).not.toHaveBeenCalled();
+  });
+
+  it('reste totalement silencieux sur une URL qui porte un secret', () => {
+    window.history.replaceState({}, '', '/onboard/token-ultra-secret');
+
+    trackEvent('button_click', {
+      button_location: window.location.pathname,
+    });
+
+    expect(estCheminSensible(window.location.pathname)).toBe(true);
+    expect(
+      (window as unknown as { dataLayer: unknown[] }).dataLayer,
+    ).toEqual([]);
+    expect(errorSpy).not.toHaveBeenCalled();
+    expect(logSpy).not.toHaveBeenCalled();
+  });
+
+  it('ne pousse pas non plus l’identité utilisateur sur une URL secrète', () => {
+    window.history.replaceState({}, '', '/auth/reset?token=secret');
+
+    setUserId('user-secret');
+    clearUserId();
+
+    expect(
+      (window as unknown as { dataLayer: unknown[] }).dataLayer,
+    ).toEqual([]);
   });
 });
 

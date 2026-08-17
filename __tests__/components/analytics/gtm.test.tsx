@@ -24,6 +24,10 @@ import {
   GoogleTagManagerNoScript,
   estCheminSensible,
 } from '@/components/analytics/gtm';
+import {
+  CHEMINS_SANS_GTM as CHEMINS_PROTEGES_PAR_LE_TRACKER,
+  estCheminSensible as estCheminRefuseParLeTracker,
+} from '@/lib/gtm';
 
 // Chemin courant simulé — les composants excluent GTM des écrans dont l'URL
 // porte un secret (reset password, MFA, futur /onboard).
@@ -157,6 +161,11 @@ describe('GTM — écrans dont l’URL porte un secret', () => {
     expect(CHEMINS_SANS_GTM).toContain('/auth/reset');
     expect(CHEMINS_SANS_GTM).toContain('/auth/mfa');
     expect(CHEMINS_SANS_GTM).toContain('/onboard');
+  });
+
+  it('partage exactement le garde-fou de la couche de tracking', () => {
+    expect(CHEMINS_SANS_GTM).toBe(CHEMINS_PROTEGES_PAR_LE_TRACKER);
+    expect(estCheminSensible).toBe(estCheminRefuseParLeTracker);
   });
 
   it('estCheminSensible reconnaît le chemin exact et ses sous-chemins', () => {

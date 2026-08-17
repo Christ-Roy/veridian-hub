@@ -3,6 +3,9 @@
 import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import Script from 'next/script';
+import { CHEMINS_SANS_GTM, estCheminSensible } from '@/lib/gtm';
+
+export { CHEMINS_SANS_GTM, estCheminSensible } from '@/lib/gtm';
 
 /**
  * Chemins dont l'URL porte un SECRET, et sur lesquels GTM ne doit jamais
@@ -22,16 +25,6 @@ import Script from 'next/script';
  * `/onboard` est listé par avance — le flow de première connexion prévoit un
  * lien à 30 jours, donc un secret bien plus juteux qu'un reset à 1 h.
  */
-export const CHEMINS_SANS_GTM = ['/auth/reset', '/auth/mfa', '/onboard'];
-
-/** Le chemin porte-t-il un secret dans son URL ? */
-export function estCheminSensible(pathname: string | null | undefined): boolean {
-  if (!pathname) return false;
-  return CHEMINS_SANS_GTM.some(
-    (prefixe) => pathname === prefixe || pathname.startsWith(`${prefixe}/`),
-  );
-}
-
 export function GoogleTagManager() {
   const gtmId = process.env.NEXT_PUBLIC_GTM_ID;
   const pathname = usePathname();
