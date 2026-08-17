@@ -23,6 +23,7 @@ describe('celebrate', () => {
 
   it('tire 2 salves de confettis quand le mouvement est autorisé', () => {
     vi.stubGlobal('window', {
+      innerWidth: 1440,
       matchMedia: () => ({ matches: false }),
     });
     celebrate();
@@ -31,10 +32,30 @@ describe('celebrate', () => {
     const origins = confettiMock.mock.calls.map((c) => c[0].origin);
     expect(origins).toContainEqual({ x: 0, y: 1 });
     expect(origins).toContainEqual({ x: 1, y: 1 });
+    expect(confettiMock.mock.calls[0][0]).toMatchObject({
+      particleCount: 80,
+      ticks: 150,
+      scalar: 1,
+    });
+  });
+
+  it('allège la célébration sur mobile pour préserver le récapitulatif', () => {
+    vi.stubGlobal('window', {
+      innerWidth: 375,
+      matchMedia: () => ({ matches: false }),
+    });
+
+    celebrate();
+
+    expect(confettiMock).toHaveBeenCalledTimes(2);
+    for (const [options] of confettiMock.mock.calls) {
+      expect(options).toMatchObject({ particleCount: 35, ticks: 90, scalar: 0.8 });
+    }
   });
 
   it('no-op si prefers-reduced-motion (accessibilité)', () => {
     vi.stubGlobal('window', {
+      innerWidth: 1440,
       matchMedia: (q: string) => ({ matches: q.includes('reduce') }),
     });
     celebrate();
