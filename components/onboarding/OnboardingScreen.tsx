@@ -100,14 +100,14 @@ export function OnboardingScreen({
       {state === 'termine' && <DoneScreen invite={invite} onEnter={onEntrer} />}
 
       {state === 'erreur' && (
-        <ErrorScreen variant="technique" onRetry={() => onReessayer?.()} />
+        <ErrorScreen variant="technique" onRetry={onReessayer} />
       )}
 
       {state === 'token-expire' && (
         <ErrorScreen
           variant="expire"
           email={invite.email}
-          onRetry={() => onRenvoyerLien?.()}
+          onRetry={onRenvoyerLien}
         />
       )}
     </OnboardingShell>

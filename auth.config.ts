@@ -89,6 +89,8 @@ export const authConfig = {
         '/signin',
         '/signup',
         '/auth',
+        '/onboard',
+        '/api/onboarding',
         '/api/auth',
         '/api/health',
         '/api/webhooks',

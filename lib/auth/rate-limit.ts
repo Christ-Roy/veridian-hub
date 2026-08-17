@@ -321,6 +321,31 @@ export const invitationVerifyLimiter = new RateLimiter({
   name: 'invitation-verify',
 });
 
+// Onboarding première connexion : vérification d'un token public durable.
+// Token 32 bytes random hashé en DB, donc brute-force irréaliste, mais on
+// borne quand même les scans et la pollution logs.
+export const onboardingVerifyLimiter = new RateLimiter({
+  capacity: 30,
+  windowMs: 60_000,
+  name: 'onboarding-verify',
+});
+
+// Activation du compte : coûte un bcrypt + peut déclencher du provisioning.
+// Cap bas pour freiner les attaques par replay/brute-force de token.
+export const onboardingConsumeLimiter = new RateLimiter({
+  capacity: 10,
+  windowMs: 60_000,
+  name: 'onboarding-consume',
+});
+
+// Qualification post-activation, sessionnée. Cap généreux pour permettre la
+// sauvegarde progressive à chaque étape sans ouvrir un endpoint de spam.
+export const onboardingQualificationLimiter = new RateLimiter({
+  capacity: 60,
+  windowMs: 60_000,
+  name: 'onboarding-qualification',
+});
+
 // Poll endpoint GET /api/tenants/[tenantId]/billing-state — réconciliation
 // CONTRAT-BILLING §6.3. Une app downstream câble un cron lent (~1×/jour par
 // tenant), mais on tolère un poll plus fréquent (jusqu'à 60/min/secret) pour

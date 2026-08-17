@@ -47,9 +47,10 @@ model User {
   // checkout via /api/billing/checkout, ou backfillé depuis Subscription.
   stripeCustomerId String? @unique @map("stripe_customer_id")
 
-  accounts Account[]
-  sessions Session[]
-  mfaCodes MfaCode[]
+  accounts   Account[]
+  sessions   Session[]
+  mfaCodes   MfaCode[]
+  onboarding UserOnboarding?
 
   crossAppInvitationsSent     CrossAppInvitation[] @relation("CrossAppInvitationsSent")
   crossAppInvitationsAccepted CrossAppInvitation[] @relation("CrossAppInvitationsAccepted")
@@ -60,6 +61,36 @@ model User {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("users")
+  @@schema("hub_app")
+}
+
+/// État serveur du parcours de première connexion client.
+///
+/// Le lien durable vit dans `verification_tokens`, stocké hashé avec
+/// identifier `onboard:<userId>`. Cette table garde les jalons requêtables
+/// et la qualification progressive sans ajouter de blob métier à `users`.
+model UserOnboarding {
+  userId String @id @map("user_id")
+
+  invitedAt          DateTime? @map("invited_at") @db.Timestamptz(6)
+  activatedAt        DateTime? @map("activated_at") @db.Timestamptz(6)
+  firstAppStartedAt  DateTime? @map("first_app_started_at") @db.Timestamptz(6)
+  memberInvitedAt    DateTime? @map("member_invited_at") @db.Timestamptz(6)
+  workspaceRenamedAt DateTime? @map("workspace_renamed_at") @db.Timestamptz(6)
+  completedAt        DateTime? @map("completed_at") @db.Timestamptz(6)
+
+  /// Qualification progressive et contexte expérimental.
+  metadata Json?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([invitedAt])
+  @@index([activatedAt])
+  @@index([completedAt])
+  @@map("user_onboarding")
   @@schema("hub_app")
 }
 
@@ -622,16 +653,16 @@ enum TrialState {
 }
 
 model TenantTrial {
-  tenantId             String     @map("tenant_id")
-  app                  String
-  state                TrialState
-  eligibleAt           DateTime?  @map("eligible_at") @db.Timestamptz(6)
-  trialStartedAt       DateTime?  @map("trial_started_at") @db.Timestamptz(6)
-  trialEndsAt          DateTime?  @map("trial_ends_at") @db.Timestamptz(6)
-  endingSoonNotified   Boolean    @default(false) @map("ending_soon_notified")
-  expiredAt            DateTime?  @map("expired_at") @db.Timestamptz(6)
-  createdAt            DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt            DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  tenantId           String     @map("tenant_id")
+  app                String
+  state              TrialState
+  eligibleAt         DateTime?  @map("eligible_at") @db.Timestamptz(6)
+  trialStartedAt     DateTime?  @map("trial_started_at") @db.Timestamptz(6)
+  trialEndsAt        DateTime?  @map("trial_ends_at") @db.Timestamptz(6)
+  endingSoonNotified Boolean    @default(false) @map("ending_soon_notified")
+  expiredAt          DateTime?  @map("expired_at") @db.Timestamptz(6)
+  createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime   @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@id([tenantId, app])
   @@index([state])
@@ -679,24 +710,24 @@ model AuditLog {
 // que Tenant.userId. Pas de FK physique car la colonne cible est nullable.
 
 model CrmTenant {
-  id                        String    @id @default(uuid()) @db.Uuid
+  id                      String    @id @default(uuid()) @db.Uuid
   // FK logique vers hub_app.users.id (cuid text, pas uuid). Pas de relation
   // Prisma typée pour rester aligné avec le pattern Tenant existant + éviter
   // les contraintes au moment où le user est en cours de création.
-  userId                    String    @map("user_id")
-  email                     String
-  workspaceDisplayName      String    @map("workspace_display_name")
-  twentyWorkspaceId         String    @unique @map("twenty_workspace_id") @db.Uuid
-  twentyWorkspaceUrl        String    @map("twenty_workspace_url")
-  twentyApiKeyId            String    @map("twenty_api_key_id") @db.Uuid
-  twentyApiKeyEncrypted     String    @map("twenty_api_key_encrypted")
-  twentyApiKeyExpiresAt     DateTime  @map("twenty_api_key_expires_at") @db.Timestamptz(6)
-  twentyPasswordEncrypted   String    @map("twenty_password_encrypted")
-  status                    String    @default("active") // active | suspended | deleted
-  metadata                  Json?
-  provisionedAt             DateTime? @map("provisioned_at") @db.Timestamptz(6)
-  createdAt                 DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt                 DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  userId                  String    @map("user_id")
+  email                   String
+  workspaceDisplayName    String    @map("workspace_display_name")
+  twentyWorkspaceId       String    @unique @map("twenty_workspace_id") @db.Uuid
+  twentyWorkspaceUrl      String    @map("twenty_workspace_url")
+  twentyApiKeyId          String    @map("twenty_api_key_id") @db.Uuid
+  twentyApiKeyEncrypted   String    @map("twenty_api_key_encrypted")
+  twentyApiKeyExpiresAt   DateTime  @map("twenty_api_key_expires_at") @db.Timestamptz(6)
+  twentyPasswordEncrypted String    @map("twenty_password_encrypted")
+  status                  String    @default("active") // active | suspended | deleted
+  metadata                Json?
+  provisionedAt           DateTime? @map("provisioned_at") @db.Timestamptz(6)
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   @@index([userId])
   @@index([status])
@@ -805,12 +836,12 @@ model MailRecipientRateLimit {
 // `GET /api/admin/mail-rate-limit/stats` pour le dashboard Robert.
 
 model MailRateLimitEvent {
-  id                 String   @id @default(cuid())
-  timestamp          DateTime @default(now()) @db.Timestamptz(6)
-  recipientEmail     String   @map("recipient_email")
-  senderUserId       String   @map("sender_user_id")
-  appCaller          String   @map("app_caller")
-  retryAfterSeconds  Int      @map("retry_after_seconds")
+  id                String   @id @default(cuid())
+  timestamp         DateTime @default(now()) @db.Timestamptz(6)
+  recipientEmail    String   @map("recipient_email")
+  senderUserId      String   @map("sender_user_id")
+  appCaller         String   @map("app_caller")
+  retryAfterSeconds Int      @map("retry_after_seconds")
 
   @@index([timestamp(sort: Desc)])
   @@index([recipientEmail, timestamp(sort: Desc)])
