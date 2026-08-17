@@ -9,6 +9,8 @@ import type { NextAuthConfig } from 'next-auth';
 import Google from 'next-auth/providers/google';
 import MicrosoftEntraID from 'next-auth/providers/microsoft-entra-id';
 
+import { isDevHarnessEnabled } from '@/lib/dev/harness-guard';
+
 export const authConfig = {
   // Cookies session : 90 jours (3 mois)
   // Décision P1.4 : éviter que les tenants perdent leur compte facilement.
@@ -66,6 +68,20 @@ export const authConfig = {
     // décider si la requête passe. Pas de Prisma ici.
     authorized({ auth, request }) {
       const { pathname } = request.nextUrl;
+
+      // ── Ateliers UI (`/dev/**`) ────────────────────────────────────────
+      // Troisième et dernier verrou de l'atelier, celui qui tient même si
+      // les deux autres sautent (cf. `lib/dev/harness-guard.ts`). Le
+      // middleware est compilé dans TOUS les builds : un `page.tsx` créé par
+      // mégarde sous `app/dev/` ne peut pas être servi en production, même
+      // sans layout de segment. Sans ce test, `/dev/*` tombait sur le
+      // `return true` final — donc public, sans session.
+      //
+      // `isDevHarnessEnabled()` ne lit que `process.env` (aucun Prisma,
+      // aucun Node builtin) : il est edge-safe, on peut l'appeler ici.
+      if (pathname === '/dev' || pathname.startsWith('/dev/')) {
+        return isDevHarnessEnabled();
+      }
 
       // Pages publiques Hub
       const publicPrefixes = [

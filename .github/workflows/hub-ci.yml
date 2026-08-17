@@ -66,6 +66,23 @@ jobs:
         run: ./scripts/ci/check-test-mapping.sh
         env:
           BASE_REF: origin/${{ github.base_ref || 'main' }}
+      - name: Atelier /dev — aucune route en extension standard
+        # Les ateliers UI doivent rester en `page.dev.tsx` / `route.dev.ts` :
+        # ces extensions ne sont déclarées dans `pageExtensions` que hors
+        # production, donc la route n'existe pas dans un bundle prod. Un
+        # `page.tsx` sous app/dev serait, lui, routé en prod. Le layout
+        # `app/dev/layout.tsx` et le middleware rattrapent le coup au runtime,
+        # mais on refuse le fichier dès la CI : c'est gratuit et sans faux
+        # positif. `app/dev/layout.tsx` est la SEULE exception attendue.
+        run: |
+          COUPABLES=$(find app/dev \( -name 'page.tsx' -o -name 'route.ts' -o -name 'page.jsx' -o -name 'route.js' \) 2>/dev/null || true)
+          if [ -n "$COUPABLES" ]; then
+            echo "::error::Route en extension standard sous app/dev (routée en PROD) :"
+            echo "$COUPABLES"
+            echo "→ renommer en *.dev.tsx / *.dev.ts (cf. lib/dev/harness-guard.ts)"
+            exit 1
+          fi
+          echo "✓ Aucune route d'atelier en extension standard"
       - name: Lint
         run: pnpm lint
       - name: Compose sync (base + prod + staging cohérents)

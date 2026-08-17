@@ -18,7 +18,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render } from '@testing-library/react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { GoogleTagManager, GoogleTagManagerNoScript } from '@/components/analytics/gtm';
+import {
+  CHEMINS_SANS_GTM,
+  GoogleTagManager,
+  GoogleTagManagerNoScript,
+  estCheminSensible,
+} from '@/components/analytics/gtm';
+
+// Chemin courant simulé — les composants excluent GTM des écrans dont l'URL
+// porte un secret (reset password, MFA, futur /onboard).
+let cheminCourant = '/dashboard';
+vi.mock('next/navigation', () => ({
+  usePathname: () => cheminCourant,
+}));
 
 // next/script rend une balise <script> en mode JSDOM
 vi.mock('next/script', () => ({
@@ -41,6 +53,7 @@ describe('GoogleTagManager', () => {
   let errorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
+    cheminCourant = '/dashboard';
     errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -111,5 +124,81 @@ describe('GoogleTagManager', () => {
     expect(warnSpy).not.toHaveBeenCalled();
     logSpy.mockRestore();
     warnSpy.mockRestore();
+  });
+});
+
+/**
+ * ── Fuite de jeton vers Google ────────────────────────────────────────────
+ *
+ * Le tag GA4 envoie `page_location = location.href`. Monté sur
+ * `/auth/reset?token=<32 octets hex>`, il expédiait le jeton de
+ * réinitialisation chez Google, où il restait consultable (rapports de
+ * pages, export BigQuery, DebugView). TTL 1 h et usage unique rendaient
+ * l'exploitation opportuniste ; le lien d'onboarding prévu à 30 jours, non
+ * consommé à l'affichage, en aurait fait une clé de prise de contrôle de
+ * compte stockée un mois chez un tiers.
+ */
+describe('GTM — écrans dont l’URL porte un secret', () => {
+  const originalGtmId = process.env.NEXT_PUBLIC_GTM_ID;
+
+  beforeEach(() => {
+    process.env.NEXT_PUBLIC_GTM_ID = 'GTM-XYZ';
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    cheminCourant = '/dashboard';
+    if (originalGtmId === undefined) delete process.env.NEXT_PUBLIC_GTM_ID;
+    else process.env.NEXT_PUBLIC_GTM_ID = originalGtmId;
+    vi.restoreAllMocks();
+  });
+
+  it('liste au minimum /auth/reset, /auth/mfa et /onboard', () => {
+    expect(CHEMINS_SANS_GTM).toContain('/auth/reset');
+    expect(CHEMINS_SANS_GTM).toContain('/auth/mfa');
+    expect(CHEMINS_SANS_GTM).toContain('/onboard');
+  });
+
+  it('estCheminSensible reconnaît le chemin exact et ses sous-chemins', () => {
+    expect(estCheminSensible('/auth/reset')).toBe(true);
+    expect(estCheminSensible('/onboard/abc123')).toBe(true);
+    expect(estCheminSensible('/auth/mfa')).toBe(true);
+  });
+
+  it('estCheminSensible ne déborde pas sur un chemin voisin', () => {
+    // `/onboarding` n'est pas `/onboard` : on ne veut pas éteindre GTM sur
+    // la moitié de l'app par un `startsWith` trop large.
+    expect(estCheminSensible('/onboarding')).toBe(false);
+    expect(estCheminSensible('/auth/resettings')).toBe(false);
+    expect(estCheminSensible('/dashboard')).toBe(false);
+    expect(estCheminSensible(null)).toBe(false);
+    expect(estCheminSensible(undefined)).toBe(false);
+  });
+
+  it('ne rend AUCUN script GTM sur /auth/reset, même avec un GTM_ID valide', () => {
+    cheminCourant = '/auth/reset';
+    const { container } = render(<GoogleTagManager />);
+    expect(container.innerHTML).toBe('');
+  });
+
+  it('ne rend PAS l’iframe noscript sur /auth/reset', () => {
+    cheminCourant = '/auth/reset';
+    const html = renderToStaticMarkup(<GoogleTagManagerNoScript />);
+    expect(html).toBe('');
+  });
+
+  it('ne rend rien non plus sur le futur /onboard/<token>', () => {
+    cheminCourant = '/onboard/9f2c1ab4';
+    expect(render(<GoogleTagManager />).container.innerHTML).toBe('');
+    expect(renderToStaticMarkup(<GoogleTagManagerNoScript />)).toBe('');
+  });
+
+  it('continue de rendre GTM sur une page sans secret', () => {
+    // Régression symétrique : le garde-fou ne doit pas éteindre l'analytics
+    // sur tout le reste du Hub.
+    cheminCourant = '/dashboard';
+    const { container } = render(<GoogleTagManager />);
+    expect(container.innerHTML).not.toBe('');
+    expect(renderToStaticMarkup(<GoogleTagManagerNoScript />)).toContain('GTM-XYZ');
   });
 });

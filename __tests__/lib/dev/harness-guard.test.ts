@@ -4,15 +4,17 @@
  * C'est le test le plus important du lot onboarding : `isDevHarnessEnabled()`
  * est le verrou RUNTIME qui empêche une zone de développement, peuplée de
  * données fictives et sans aucune authentification, d'être joignable en
- * production. Le verrou BUILD (`pageExtensions` conditionnel dans
- * `next.config.js`) est le premier rempart ; celui-ci couvre le cas où
- * quelqu'un renommerait un `page.dev.tsx` en `page.tsx`.
+ * production. Il est appelé depuis `app/dev/layout.tsx` (extension standard,
+ * donc compilé en prod) ET depuis `authorized()` du middleware : c'est ce qui
+ * lui permet de couvrir pour de vrai le cas où quelqu'un créerait un
+ * `page.tsx` sous `app/dev/`. L'ancien `layout.dev.tsx` ne le pouvait pas —
+ * `pageExtensions` l'effaçait en même temps que la page.
  *
- * La règle testée est volontairement asymétrique : le moindre signal de
- * production doit suffire à fermer, et aucun signal de développement ne doit
- * pouvoir rouvrir ce qu'un signal de production a fermé. On teste donc
- * surtout les combinaisons contradictoires, parce que c'est là qu'un
- * garde-fou mal écrit s'ouvre.
+ * La règle testée est une LISTE BLANCHE, défaut FERMÉ : il faut un signal
+ * positif d'environnement de travail pour ouvrir. Un environnement vide, une
+ * valeur `DEPLOY_ENV` non anticipée (`prod-eu`, `live`) ou un domaine
+ * inconnu ferment. Aucun signal de développement ne peut rouvrir ce qu'un
+ * signal de production a fermé.
  */
 
 import { describe, it, expect, beforeEach, afterAll } from 'vitest';
@@ -89,8 +91,23 @@ describe('isDevHarnessEnabled — verrou DEPLOY_ENV', () => {
   });
 
   it('laisse l’atelier ouvert en staging', () => {
+    // Un build staging a NODE_ENV=production (c'est un build Next de prod) :
+    // c'est DEPLOY_ENV qui doit le distinguer, et lui seul.
+    process.env.NODE_ENV = 'production';
     process.env.DEPLOY_ENV = 'staging';
+    process.env.DOMAIN = 'staging.veridian.site';
     expect(isDevHarnessEnabled()).toBe(true);
+  });
+
+  it('ferme sur une valeur DEPLOY_ENV non anticipée (liste blanche)', () => {
+    // Le trou de l'ancienne liste noire : elle ne testait que 'prod' et
+    // 'production'. Toute autre convention de nommage rouvrait l'atelier sur
+    // une vraie production.
+    for (const valeur of ['prod-eu', 'production-blue', 'live', 'preprod', 'prd']) {
+      clearEnv();
+      process.env.DEPLOY_ENV = valeur;
+      expect(isDevHarnessEnabled(), `DEPLOY_ENV=${valeur}`).toBe(false);
+    }
   });
 });
 
@@ -112,9 +129,20 @@ describe('isDevHarnessEnabled — verrou domaine', () => {
   it('laisse l’atelier ouvert sur les domaines de travail', () => {
     for (const domaine of ['localhost:3000', 'dev.veridian.site', 'staging.veridian.site']) {
       clearEnv();
+      process.env.NODE_ENV = 'development';
       process.env.DOMAIN = domaine;
       expect(isDevHarnessEnabled(), domaine).toBe(true);
     }
+  });
+
+  it('ferme sur un domaine Veridian inconnu, faute de signal d’ouverture', () => {
+    // `getEnvironment()` ne reconnaît que `app.veridian.site` comme prod :
+    // un futur `hub.veridian.site` retombe sur 'development'. Avec l'ancienne
+    // liste noire, l'atelier y était donc OUVERT. Avec la liste blanche, il
+    // faut un DEPLOY_ENV ou un NODE_ENV de travail — sinon fermé.
+    process.env.NODE_ENV = 'production';
+    process.env.DOMAIN = 'hub.veridian.site';
+    expect(isDevHarnessEnabled()).toBe(false);
   });
 });
 
@@ -149,12 +177,21 @@ describe('isDevHarnessEnabled — signaux contradictoires', () => {
 });
 
 describe('isDevHarnessEnabled — environnement vide', () => {
-  it('ouvre l’atelier quand rien n’est configuré (poste de dev nu)', () => {
-    // Sans aucune variable, `getEnvironment()` retombe sur 'development'.
-    // C'est le comportement attendu en local : l'atelier doit marcher sans
-    // configuration. Le risque prod est couvert par le verrou build, qui ne
-    // dépend d'aucune variable d'exécution.
+  it('FERME l’atelier quand rien n’est configuré', () => {
+    // Inversion volontaire de l'ancien comportement. Un garde-fou qui
+    // s'ouvre par défaut n'est pas un garde-fou : il délègue sa sécurité à
+    // une convention de déploiement (le job Nomad qui pense à injecter
+    // DEPLOY_ENV). Absence de signal = fermé, point.
+    expect(isDevHarnessEnabled()).toBe(false);
+  });
+
+  it('n’ouvre que sur un NODE_ENV explicitement de travail', () => {
+    process.env.NODE_ENV = 'development';
     expect(isDevHarnessEnabled()).toBe(true);
+    process.env.NODE_ENV = 'test';
+    expect(isDevHarnessEnabled()).toBe(true);
+    process.env.NODE_ENV = 'production';
+    expect(isDevHarnessEnabled()).toBe(false);
   });
 
   it('retourne toujours un booléen strict, jamais une valeur truthy', () => {
