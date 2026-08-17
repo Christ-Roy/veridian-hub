@@ -99,6 +99,10 @@ export function QuestionScreen({
         optionsRef.current?.querySelectorAll<HTMLButtonElement>('[role="radio"]');
       boutons?.[cible]?.focus();
       rovingRef.current = cible;
+
+      // Le motif radio ARIA sélectionne avec les flèches, comme des radios
+      // natives. Ici, cette sélection fait aussi avancer le questionnaire.
+      boutons?.[cible]?.click();
     };
 
   return (

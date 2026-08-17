@@ -20,8 +20,7 @@ module.exports = {
       // Breakpoints de hauteur pour préserver les réponses sur les petits
       // écrans. Les visuels ne s'affichent que lorsque la place existe.
       screens: {
-        haut: { raw: '(min-height: 640px)' },
-        'tres-haut': { raw: '(min-height: 760px)' }
+        haut: { raw: '(min-height: 640px)' }
       },
       colors: {
         border: 'var(--border)',

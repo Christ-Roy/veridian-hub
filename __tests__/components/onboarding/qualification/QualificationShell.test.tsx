@@ -92,7 +92,7 @@ describe('QualificationShell — en-tête, pied et progression', () => {
         <p>x</p>
       </QualificationShell>,
     );
-    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '140');
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100');
     const barre = screen.getByRole('progressbar').firstElementChild as HTMLElement;
     expect(barre.style.width).toBe('100%');
 
@@ -104,6 +104,7 @@ describe('QualificationShell — en-tête, pied et progression', () => {
     expect(
       (screen.getByRole('progressbar').firstElementChild as HTMLElement).style.width,
     ).toBe('0%');
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '0');
   });
 
   it('n’affiche le pied que lorsqu’il a quelque chose à porter', () => {

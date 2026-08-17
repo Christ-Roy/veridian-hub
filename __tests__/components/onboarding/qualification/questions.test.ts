@@ -164,4 +164,21 @@ describe('repondre — application d’une réponse', () => {
     repondre(emailing, avant, 'depuis-zero');
     expect(avant.emailing).toBe('plus-tard');
   });
+
+  it('supprime une échéance devenue orpheline après correction du chantier', () => {
+    const intention = ECRANS_QUESTIONS.find(
+      (e) => e.id === 'site-intention-existant',
+    )!;
+    const avant: Qualification = {
+      siteActuel: 'oui',
+      intentionSiteExistant: 'refonte',
+      echeance: 'urgent',
+    };
+
+    const apres = repondre(intention, avant, 'satisfait');
+
+    expect(apres.intentionSiteExistant).toBe('satisfait');
+    expect(apres.echeance).toBeUndefined();
+    expect(avant.echeance).toBe('urgent');
+  });
 });

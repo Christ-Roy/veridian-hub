@@ -159,3 +159,16 @@ describe('RecapScreen — échec de sauvegarde', () => {
     expect(screen.queryByRole('alert')).toBeNull();
   });
 });
+
+describe('RecapScreen — sauvegarde en cours', () => {
+  it('annonce la sauvegarde et empêche de quitter avant sa fin', () => {
+    const onEnter = vi.fn();
+    afficher(AVEC_CHANTIER, { enregistrement: 'en-cours', onEnter });
+
+    expect(screen.getByRole('status')).toHaveTextContent(/Enregistrement/);
+    const sortie = screen.getByRole('button', { name: /Enregistrement/i });
+    expect(sortie).toBeDisabled();
+    fireEvent.click(sortie);
+    expect(onEnter).not.toHaveBeenCalled();
+  });
+});
