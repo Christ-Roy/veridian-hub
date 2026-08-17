@@ -169,7 +169,15 @@ NEXT_PUBLIC_PROSPECTION_URL=https://prospection.app.veridian.site
 PROSPECTION_API_URL=https://prospection.app.veridian.site
 PROSPECTION_INTERNAL_URL=https://prospection.app.veridian.site
 
-ANALYTICS_API_URL=https://analytics-engine.app.veridian.site
+# Bascule vers le NOUVEAU moteur analytics (fork Rybbit rebrandé Veridian).
+# L'ancien n'exposait pas la route interrogée au login (GET /api/users/by-email,
+# vérifié : "Cannot GET") : la découverte analytics ne fonctionnait donc pas.
+ANALYTICS_API_URL=https://analytics.app.veridian.site
+# URL ouverte au CLIENT depuis la carte Analytics du tableau de bord. Lue au
+# runtime (composant serveur) : changer cette valeur ne demande PAS de
+# reconstruire l'image. Sans elle, le défaut en dur de attach-downstream.ts
+# s'applique — et il pointait encore sur l'ancien moteur.
+NEXT_PUBLIC_ANALYTICS_URL=https://analytics.app.veridian.site
 CRM_METADATA_URL=https://crm.app.veridian.site/metadata
 CRM_REST_URL=https://crm.app.veridian.site/rest
 CRM_FRONTEND_URL=https://crm.app.veridian.site
