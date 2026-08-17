@@ -1,0 +1,125 @@
+{
+  "$comment": "Manifeste des visuels d'applications Veridian pour l'onboarding client du Hub. Contrat avec l'agent qui code l'UI : les chemins listés ici sont stables. Toutes les images sont servies depuis /onboarding/apps/.",
+  "version": 1,
+  "generated_at": "2026-07-28",
+  "base_url": "/onboarding/apps",
+  "traitement": {
+    "recette": "Capture réelle de l'interface, recadrée sur la zone utile, coins arrondis 22 px, liseré 2 px très discret, ombre portée douce.",
+    "fond": "transparent (WebP avec canal alpha) — l'image se pose sur le décor de l'onboarding, ne pas rajouter de cadre ni d'ombre côté CSS",
+    "theme": "clair, appliqué uniformément aux quatre applications",
+    "variantes": {
+      "desktop": "1848 px de large, vue complète de l'écran",
+      "compact": "1068 px de large, cadrage resserré sur la zone de contenu (sans la barre latérale) — destiné aux petits écrans et aux mises en page en colonne"
+    },
+    "format": "WebP, qualité 82"
+  },
+  "donnees": {
+    "reelles": false,
+    "client_fictif": "Atelier Belleville",
+    "garanties": [
+      "Aucune donnée d'un client réel de Veridian n'apparaît sur ces images.",
+      "Toutes les captures proviennent des environnements de STAGING, jamais de la production.",
+      "Les adresses email utilisent les domaines example.com / example.net / example.org / .example, réservés par la RFC 2606 et donc jamais attribuables.",
+      "Les numéros de téléphone sont dans la plage 0X 99 00 XX XX, réservée par l'ARCEP à la fiction.",
+      "Les entreprises de la base de prospection sont inventées, avec des SIREN hors plage SIRENE (900000xxx)."
+    ]
+  },
+  "images": [
+    {
+      "slug": "hub-espace-client",
+      "app": "Veridian Hub",
+      "titre": "L'espace de travail du client",
+      "illustre": "Le tableau de bord Veridian que le client retrouve après son inscription : ses outils réunis au même endroit, activables un par un.",
+      "etape_onboarding": ["accueil", "conclusion"],
+      "recommande_pour": "accueil",
+      "source": "hub.staging.veridian.site/dashboard",
+      "desktop": { "file": "hub-espace-client-desktop.webp", "width": 1848, "height": 1188, "bytes": 80277 },
+      "compact": { "file": "hub-espace-client-compact.webp", "width": 1068, "height": 472, "bytes": 24074 }
+    },
+    {
+      "slug": "mail-contacts",
+      "app": "Veridian Mail (Notifuse)",
+      "titre": "La base de contacts",
+      "illustre": "Les contacts du client, leurs listes d'appartenance et leurs attributs — le socle d'une campagne d'emailing.",
+      "etape_onboarding": ["emailing"],
+      "recommande_pour": "emailing",
+      "source": "notifuse.staging.veridian.site — espace de démonstration demobelleville",
+      "desktop": { "file": "mail-contacts-desktop.webp", "width": 1848, "height": 1144, "bytes": 79279 },
+      "compact": { "file": "mail-contacts-compact.webp", "width": 1068, "height": 483, "bytes": 23107 }
+    },
+    {
+      "slug": "mail-listes",
+      "app": "Veridian Mail (Notifuse)",
+      "titre": "Les listes de diffusion",
+      "illustre": "La segmentation de l'audience : newsletter, clients fidèles, nouveaux inscrits, avec le décompte des abonnés actifs.",
+      "etape_onboarding": ["emailing"],
+      "source": "notifuse.staging.veridian.site — espace de démonstration demobelleville",
+      "desktop": { "file": "mail-listes-desktop.webp", "width": 1848, "height": 1100, "bytes": 49661 },
+      "compact": { "file": "mail-listes-compact.webp", "width": 1068, "height": 411, "bytes": 13235 }
+    },
+    {
+      "slug": "mail-modeles",
+      "app": "Veridian Mail (Notifuse)",
+      "titre": "Les modèles d'email",
+      "illustre": "La bibliothèque de modèles, marketing et transactionnels, prêts à être envoyés ou automatisés.",
+      "etape_onboarding": ["emailing"],
+      "source": "notifuse.staging.veridian.site — espace de démonstration demobelleville",
+      "desktop": { "file": "mail-modeles-desktop.webp", "width": 1848, "height": 726, "bytes": 48244 },
+      "compact": { "file": "mail-modeles-compact.webp", "width": 1068, "height": 494, "bytes": 21440 }
+    },
+    {
+      "slug": "prospection-base-b2b",
+      "app": "Veridian Prospection",
+      "titre": "La base de données B2B",
+      "illustre": "Des entreprises ciblées avec leurs coordonnées, leur taille, leur chiffre d'affaires et l'état de leur site web — le cœur de l'offre de prospection.",
+      "etape_onboarding": ["prospection"],
+      "recommande_pour": "prospection",
+      "source": "prospection.staging.veridian.site — espace de démonstration",
+      "desktop": { "file": "prospection-base-b2b-desktop.webp", "width": 1848, "height": 1034, "bytes": 98796 },
+      "compact": { "file": "prospection-base-b2b-compact.webp", "width": 1068, "height": 489, "bytes": 34600 }
+    },
+    {
+      "slug": "prospection-pipeline",
+      "app": "Veridian Prospection",
+      "titre": "Le pipeline commercial",
+      "illustre": "Le suivi des affaires en cours sous forme de tableau Kanban, du premier contact jusqu'à la signature et au récurrent.",
+      "etape_onboarding": ["prospection"],
+      "source": "prospection.staging.veridian.site — espace de démonstration",
+      "desktop": { "file": "prospection-pipeline-desktop.webp", "width": 1848, "height": 660, "bytes": 45411 },
+      "compact": { "file": "prospection-pipeline-compact.webp", "width": 1068, "height": 462, "bytes": 30017 }
+    },
+    {
+      "slug": "analytics-tableau-bord",
+      "app": "Veridian Analytics",
+      "titre": "Le tableau de bord d'audience",
+      "illustre": "Visiteurs, visites, temps passé, sources de trafic et objectifs atteints : ce que rapporte le site web du client.",
+      "etape_onboarding": ["site-web", "conclusion"],
+      "recommande_pour": "site-web",
+      "source": "analytics-engine.staging.veridian.site — espace de démonstration demobelleville",
+      "desktop": { "file": "analytics-tableau-bord-desktop.webp", "width": 1848, "height": 1081, "bytes": 58433 },
+      "compact": { "file": "analytics-tableau-bord-compact.webp", "width": 1068, "height": 422, "bytes": 15709 }
+    },
+    {
+      "slug": "analytics-explorer",
+      "app": "Veridian Analytics",
+      "titre": "L'explorateur de rapports",
+      "illustre": "Les modèles d'analyse disponibles, y compris l'assistant qui construit un rapport à partir d'une question posée en français.",
+      "etape_onboarding": ["site-web"],
+      "source": "analytics-engine.staging.veridian.site — espace de démonstration demobelleville",
+      "desktop": { "file": "analytics-explorer-desktop.webp", "width": 1848, "height": 1081, "bytes": 75776 },
+      "compact": { "file": "analytics-explorer-compact.webp", "width": 1068, "height": 384, "bytes": 19226 }
+    }
+  ],
+  "manques": [
+    {
+      "app": "Veridian CRM (Twenty)",
+      "raison": "Le job crm-staging n'est pas actif sur le cluster ; crm.staging.veridian.site ne répond pas. La production contient de vraies données clients, donc écartée.",
+      "alternative": "Réveiller crm-staging et y provisionner un espace de démonstration, ou composer une illustration."
+    },
+    {
+      "app": "Veridian CMS (Payload)",
+      "raison": "Aucun accès de connexion à l'interface d'administration du CMS de staging n'était disponible (seules des clés d'API existent).",
+      "alternative": "Créer un utilisateur de démonstration sur cms.staging.veridian.site permettrait de capturer l'édition de page."
+    }
+  ]
+}

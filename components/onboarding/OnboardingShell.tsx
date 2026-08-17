@@ -25,12 +25,21 @@ export function OnboardingShell({
   return (
     <div
       className={cn(
-        'auth-screen flex min-h-screen w-full flex-col lg:flex-row',
+        // `min-h-screen` valait `100vh`, exactement le piège que l'autre
+        // moitié de l'onboarding (la qualification) prend soin d'éviter :
+        // sur mobile, `100vh` compte la barre d'adresse rétractée, donc
+        // l'écran déborde et la page défile « sur du vide ». On aligne les
+        // deux moitiés sur `dvh` avec zone défilante interne, pour que le
+        // client qui enchaîne le mot de passe puis la qualification dans la
+        // même minute ne change pas d'univers en route.
+        'auth-screen flex h-screen w-full flex-col overflow-hidden supports-[height:100dvh]:h-[100dvh] lg:flex-row',
+        'pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]',
         className,
       )}
     >
-      {/* Colonne de gauche — le contenu de l'étape en cours */}
-      <div className="flex flex-1 items-center justify-center p-6 lg:p-12">
+      {/* Colonne de gauche — le contenu de l'étape en cours. `min-h-0` +
+          `overflow-y-auto` : le scroll vit ICI, jamais sur la page. */}
+      <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto overscroll-contain p-6 lg:p-12">
         <div className="w-full max-w-md">
           <div className="mb-6 flex justify-center lg:hidden">
             <VeridianHubLogo size="md" />

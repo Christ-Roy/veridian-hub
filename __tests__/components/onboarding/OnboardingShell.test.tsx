@@ -89,7 +89,42 @@ describe('OnboardingShell — mise en page', () => {
 
     const racine = container.firstElementChild as HTMLElement;
     expect(racine).toHaveClass('auth-screen');
-    expect(racine).toHaveClass('min-h-screen');
     expect(racine).toHaveClass('test-surcharge');
+  });
+
+  it('dimensionne en dvh, jamais en min-h-screen (100vh ment sur mobile)', () => {
+    // Régression verrouillée : l'activation était en `min-h-screen`, donc en
+    // `100vh`, qui compte la barre d'adresse rétractée d'un navigateur
+    // mobile. La page défilait « sur du vide » et le client enchaînait sur la
+    // qualification — plein écran en `100dvh` — sans transition, comme s'il
+    // changeait de site. Les deux moitiés de l'onboarding sont alignées.
+    const { container } = render(
+      <OnboardingShell>
+        <p>x</p>
+      </OnboardingShell>,
+    );
+
+    const racine = container.firstElementChild as HTMLElement;
+    expect(racine.className).not.toContain('min-h-screen');
+    expect(racine).toHaveClass('h-screen');
+    expect(racine.className).toContain('100dvh');
+  });
+
+  it('fait vivre le défilement DANS la colonne, jamais sur la page', () => {
+    // Corollaire du point précédent : si le scroll était sur la racine, le
+    // panneau de marque et les bords défileraient avec le contenu.
+    const { container } = render(
+      <OnboardingShell>
+        <p>x</p>
+      </OnboardingShell>,
+    );
+
+    const racine = container.firstElementChild as HTMLElement;
+    expect(racine).toHaveClass('overflow-hidden');
+
+    const colonne = racine.firstElementChild as HTMLElement;
+    expect(colonne).toHaveClass('overflow-y-auto');
+    // `min-h-0` : sans lui, un enfant flex refuse de rétrécir et déborde.
+    expect(colonne).toHaveClass('min-h-0');
   });
 });

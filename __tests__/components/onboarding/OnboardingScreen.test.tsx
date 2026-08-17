@@ -57,17 +57,19 @@ const TITRES: Record<OnboardingStateId, RegExp> = {
   'token-expire': /Ce lien a expiré/,
 };
 
-function afficher(
-  state: OnboardingStateId,
-  onAdvance?: (next: OnboardingStateId) => void,
-) {
+type Handlers = Partial<{
+  onActiver: () => void;
+  onDefinirMotDePasse: (password: string) => void;
+  onRenvoyerLien: () => void;
+  onReessayer: () => void;
+  onEntrer: () => void;
+  submitting: boolean;
+  error: string | null;
+}>;
+
+function afficher(state: OnboardingStateId, handlers: Handlers = {}) {
   return render(
-    <OnboardingScreen
-      state={state}
-      invite={INVITE}
-      steps={STEPS}
-      onAdvance={onAdvance}
-    />,
+    <OnboardingScreen state={state} invite={INVITE} steps={STEPS} {...handlers} />,
   );
 }
 
@@ -120,19 +122,24 @@ describe('OnboardingScreen — un état, un écran', () => {
 });
 
 describe('OnboardingScreen — enchaînement des étapes', () => {
-  it('activation → mot-de-passe', () => {
-    const onAdvance = vi.fn();
-    afficher('activation', onAdvance);
+  it('activation → appelle onActiver', () => {
+    const onActiver = vi.fn();
+    afficher('activation', { onActiver });
 
     fireEvent.click(screen.getByRole('button', { name: /Activer mon compte/i }));
-    expect(onAdvance).toHaveBeenCalledWith('mot-de-passe');
+    expect(onActiver).toHaveBeenCalledTimes(1);
   });
 
-  it('mot-de-passe → en-cours, seulement après un mot de passe valide', () => {
-    const onAdvance = vi.fn();
-    afficher('mot-de-passe', onAdvance);
+  it('REMONTE le mot de passe saisi, et seulement s’il est valide', () => {
+    // 🔴 La régression que ce test verrouille : le composant n'exposait qu'un
+    // `onAdvance(stateId)` et câblait `onSubmit={() => onAdvance('en-cours')}`.
+    // La signature réelle de PasswordScreen est `(password: string) => void` :
+    // l'argument était donc IGNORÉ, et la page réelle ne pouvait pas récupérer
+    // le mot de passe du client à travers OnboardingScreen.
+    const onDefinirMotDePasse = vi.fn();
+    afficher('mot-de-passe', { onDefinirMotDePasse });
 
-    // Un mot de passe faible ne fait pas avancer le flow.
+    // Un mot de passe faible ne remonte rien.
     fireEvent.change(screen.getByLabelText('Mot de passe'), {
       target: { value: 'faible' },
     });
@@ -140,7 +147,7 @@ describe('OnboardingScreen — enchaînement des étapes', () => {
       target: { value: 'faible' },
     });
     fireEvent.click(screen.getByRole('button', { name: /Créer mon accès/i }));
-    expect(onAdvance).not.toHaveBeenCalled();
+    expect(onDefinirMotDePasse).not.toHaveBeenCalled();
 
     fireEvent.change(screen.getByLabelText('Mot de passe'), {
       target: { value: 'Motdepasse1' },
@@ -149,46 +156,91 @@ describe('OnboardingScreen — enchaînement des étapes', () => {
       target: { value: 'Motdepasse1' },
     });
     fireEvent.click(screen.getByRole('button', { name: /Créer mon accès/i }));
-    expect(onAdvance).toHaveBeenCalledWith('en-cours');
+    expect(onDefinirMotDePasse).toHaveBeenCalledWith('Motdepasse1');
   });
 
-  it('erreur technique → relance le provisioning (en-cours)', () => {
-    const onAdvance = vi.fn();
-    afficher('erreur', onAdvance);
+  it('transmet submitting et error à l’écran de mot de passe', () => {
+    // Sans ces deux props, la page réelle ne pouvait afficher ni état d'envoi
+    // ni erreur serveur (« ce lien n'est plus valide ») : le client cliquait
+    // dans le vide.
+    afficher('mot-de-passe', { error: 'Ce lien n’est plus valide.' });
+    expect(screen.getByText('Ce lien n’est plus valide.')).toBeInTheDocument();
+
+    screen.getByRole('button', { name: /Créer mon accès/i });
+  });
+
+  it('erreur technique → appelle onReessayer', () => {
+    const onReessayer = vi.fn();
+    afficher('erreur', { onReessayer });
 
     fireEvent.click(screen.getByRole('button', { name: /Réessayer/i }));
-    expect(onAdvance).toHaveBeenCalledWith('en-cours');
+    expect(onReessayer).toHaveBeenCalledTimes(1);
   });
 
-  it('token expiré → repart du début (activation), pas du provisioning', () => {
-    // Erreur facile à commettre en copiant la branche `erreur` : relancer
-    // `en-cours` sur un lien expiré ferait provisionner sans lien valide.
-    const onAdvance = vi.fn();
-    afficher('token-expire', onAdvance);
+  it('token expiré → appelle onRenvoyerLien, pas onReessayer', () => {
+    // Erreur facile à commettre en copiant la branche `erreur` : relancer le
+    // provisioning sur un lien expiré ferait provisionner sans lien valide.
+    const onRenvoyerLien = vi.fn();
+    const onReessayer = vi.fn();
+    afficher('token-expire', { onRenvoyerLien, onReessayer });
 
     fireEvent.click(
       screen.getByRole('button', { name: /Recevoir un nouveau lien/i }),
     );
-    expect(onAdvance).toHaveBeenCalledWith('activation');
+    expect(onRenvoyerLien).toHaveBeenCalledTimes(1);
+    expect(onReessayer).not.toHaveBeenCalled();
   });
 
   it('l’écran « en cours » n’expose aucune action manuelle', () => {
     // Pendant le provisioning, rien ne doit être cliquable : le client
     // attend, la progression avance toute seule.
-    const onAdvance = vi.fn();
-    afficher('en-cours', onAdvance);
-
+    afficher('en-cours');
     expect(screen.queryAllByRole('button')).toHaveLength(0);
-    expect(onAdvance).not.toHaveBeenCalled();
   });
 
-  it('sans onAdvance, les écrans restent cliquables sans planter', () => {
-    // La page réelle branchera ses propres handlers ; la prop est facultative
-    // et l'appel est optionnel (`onAdvance?.(...)`).
+  it('sans handlers, les écrans restent cliquables sans planter', () => {
+    // La page réelle branchera ses propres handlers ; les props sont
+    // facultatives et les appels optionnels.
     afficher('activation');
     expect(() =>
       fireEvent.click(screen.getByRole('button', { name: /Activer mon compte/i })),
     ).not.toThrow();
+  });
+});
+
+describe('OnboardingScreen — l’état « terminé » n’est jamais un cul-de-sac', () => {
+  // 🔴 Régression verrouillée ici : `OnboardingScreen` passait
+  // `onEnter={() => undefined}` à DoneScreen. DoneScreen choisit entre un
+  // bouton et un lien selon `onEnter ? … : …`, et `() => undefined` est
+  // truthy : la branche BOUTON était rendue, et le clic ne faisait rien. Le
+  // client arrivait au bout de l'onboarding sans aucun moyen d'entrer dans
+  // son espace. Le test de DoneScreen documentait ce cul-de-sac, mais aucun
+  // test ne vérifiait l'état 'termine' À TRAVERS OnboardingScreen.
+
+  it('offre un lien vers le dashboard quand aucun onEntrer n’est fourni', () => {
+    afficher('termine');
+
+    const lien = screen.getByRole('link', { name: /Entrer dans mon espace/i });
+    expect(lien).toHaveAttribute('href', '/dashboard');
+  });
+
+  it('déclenche onEntrer quand la page réelle en fournit un', () => {
+    const onEntrer = vi.fn();
+    afficher('termine', { onEntrer });
+
+    fireEvent.click(screen.getByRole('button', { name: /Entrer dans mon espace/i }));
+    expect(onEntrer).toHaveBeenCalledTimes(1);
+  });
+
+  it('propose TOUJOURS une sortie : un lien OU un bouton actif', () => {
+    // Formulation volontairement générique : quelle que soit la façon dont la
+    // sortie est rendue demain, il doit y en avoir une.
+    for (const handlers of [{}, { onEntrer: vi.fn() }]) {
+      const { unmount } = afficher('termine', handlers);
+      const sorties = screen.queryAllByText(/Entrer dans mon espace/i);
+      expect(sorties.length).toBeGreaterThan(0);
+      unmount();
+    }
   });
 });
 

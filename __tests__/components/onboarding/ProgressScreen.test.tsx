@@ -83,15 +83,17 @@ describe('ProgressScreen — calcul de progression', () => {
   });
 
   it('ne produit pas NaN sur une liste d’étapes vide', () => {
-    // `done / steps.length` avec une liste vide donne NaN, qui part tel quel
-    // dans `aria-valuenow` et dans le `width` du style. On documente ici le
-    // comportement observé pour qu'une correction future soit visible dans ce
-    // test plutôt que découverte par un client.
+    // `done / steps.length` avec une liste vide donnait NaN, qui partait tel
+    // quel dans `aria-valuenow` et dans le `width` du style (déclaration CSS
+    // invalide → barre de largeur indéfinie). L'assertion précédente
+    // acceptait `'0' || 'NaN'` : elle passait donc que le composant soit
+    // correct OU cassé, sur le seul calcul réel du fichier. Elle est
+    // maintenant stricte.
     render(<ProgressScreen workspaceName="Atelier Dubois" steps={[]} />);
 
     const barre = screen.getByRole('progressbar');
-    const valeur = barre.getAttribute('aria-valuenow');
-    expect(valeur === '0' || valeur === 'NaN').toBe(true);
+    expect(barre).toHaveAttribute('aria-valuenow', '0');
+    expect(barre.querySelector('div')).toHaveStyle({ width: '0%' });
     expect(screen.getByText(/0 étape sur 0/)).toBeInTheDocument();
   });
 });

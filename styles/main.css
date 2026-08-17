@@ -91,6 +91,10 @@
     --input: oklch(0.9950 0.003 95 / 0.55);       /* Input background - translucide (glass) */
     --ring: oklch(0.8348 0.1302 160.9080);        /* Focus ring - Green */
 
+    /* Réponse sélectionnée dans l'onboarding qualifiant. */
+    --choice-selected: oklch(0.72 0.16 62);
+    --choice-selected-foreground: oklch(0.20 0.02 62);
+
     /* Chart colors (for data visualization) */
     --chart-1: oklch(0.8348 0.1302 160.9080);     /* Green */
     --chart-2: oklch(0.6231 0.1880 259.8145);     /* Purple */
@@ -196,6 +200,10 @@
     --border: oklch(0.32 0.015 285 / 0.7);        /* Border color - bleu-nuit translucide */
     --input: oklch(0.27 0.015 285 / 0.55);        /* Input background - bleu-nuit translucide (glass) */
     --ring: oklch(0.70 0.10 290);                 /* Focus ring - violet doux */
+
+    /* Réponse sélectionnée, plus lumineuse sur le fond nuit. */
+    --choice-selected: oklch(0.80 0.15 68);
+    --choice-selected-foreground: oklch(0.20 0.02 62);
 
     /* Chart colors */
     --chart-1: oklch(0.8003 0.1821 151.7110);     /* Bright green */
@@ -516,6 +524,19 @@
   }
   @media (prefers-reduced-motion: reduce) {
     .cta-gradient-animated { animation: none !important; }
+  }
+
+  /* État sélectionné du questionnaire : variable sémantique dédiée parce que
+     --primary est volontairement neutre dans le thème Hub. */
+  .choice-selected {
+    border-color: var(--choice-selected);
+    background-image: var(--page-gradient-soft);
+    box-shadow: 0 0 0 2px var(--choice-selected), 0 4px 14px -6px var(--choice-selected);
+  }
+
+  .choice-selected-pastille {
+    background-color: var(--choice-selected);
+    color: var(--choice-selected-foreground);
   }
 
   /* Icon button - Small icon-only button */

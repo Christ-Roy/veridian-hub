@@ -34,7 +34,12 @@ export function ProgressScreen({
   steps: OnboardingStep[];
 }) {
   const done = steps.filter((s) => s.status === 'termine').length;
-  const pourcentage = Math.round((done / steps.length) * 100);
+  // Garde sur la liste vide : `0 / 0` donne NaN, qui partait tel quel dans
+  // `aria-valuenow` ET dans `style={{ width: 'NaN%' }}` — déclaration CSS
+  // invalide, donc barre de largeur indéfinie. Le test qui « couvrait » ce
+  // cas acceptait `'0' || 'NaN'`, donc il passait aussi bien sur le
+  // composant correct que sur le composant cassé.
+  const pourcentage = steps.length === 0 ? 0 : Math.round((done / steps.length) * 100);
 
   return (
     <div className="flex flex-col gap-6">
