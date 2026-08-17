@@ -89,6 +89,15 @@ describe('auth.config.ts — authorized callback (middleware edge gate)', () => 
     expect(authorized?.({ auth: null, request: makeReq('/api/auth/csrf') } as Parameters<NonNullable<typeof authorized>>[0])).toBe(true);
   });
 
+  it('laisse passer /onboard/* sans session pour les liens de première connexion', () => {
+    expect(authorized?.({ auth: null, request: makeReq('/onboard/raw-token') } as Parameters<NonNullable<typeof authorized>>[0])).toBe(true);
+  });
+
+  it('laisse passer /api/onboarding/* sans session, les routes ont leur rate-limit/token', () => {
+    expect(authorized?.({ auth: null, request: makeReq('/api/onboarding/raw-token') } as Parameters<NonNullable<typeof authorized>>[0])).toBe(true);
+    expect(authorized?.({ auth: null, request: makeReq('/api/onboarding/raw-token/activate') } as Parameters<NonNullable<typeof authorized>>[0])).toBe(true);
+  });
+
   it('laisse passer / (landing) sans session', () => {
     expect(authorized?.({ auth: null, request: makeReq('/') } as Parameters<NonNullable<typeof authorized>>[0])).toBe(true);
   });

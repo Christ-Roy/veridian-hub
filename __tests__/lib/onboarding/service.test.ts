@@ -5,6 +5,8 @@ import type { PrismaClient } from '@prisma/client';
 import {
   activateOnboarding,
   createOnboardingInvitation,
+  getOnboardingInviteByToken,
+  getUserOnboardingRecord,
   saveOnboardingQualification,
 } from '@/lib/onboarding/service';
 import {
@@ -222,7 +224,7 @@ describe('onboarding service', () => {
 
     await expect(
       activateOnboarding(prisma, { token: rawToken, password: 'Motdepasse10' }),
-    ).rejects.toMatchObject({ code: 'invalid' });
+    ).rejects.toMatchObject({ code: 'activated' });
 
     expect(prisma.__accountCreates).toHaveLength(0);
     expect(prisma.__accountUpdates).toHaveLength(0);
@@ -247,5 +249,118 @@ describe('onboarding service', () => {
     expect(record.userId).toBe('u_1');
     expect(record.completedAt).toBe(row.completedAt.toISOString());
     expect(record.metadata?.qualification).toEqual(row.metadata.qualification);
+  });
+
+  it('résout une invitation publique depuis le token brut sans exposer le hash', async () => {
+    const invite = await createOnboardingInvitation(prisma, {
+      email: 'client@example.com',
+      apps: ['hub', 'analytics', 'unknown'],
+      actor: 'admin:robert@veridian.site',
+      invitedBy: 'Robert',
+      sendEmail: false,
+    });
+    const rawToken = invite.inviteUrl.split('/onboard/')[1];
+
+    const lookup = await getOnboardingInviteByToken(prisma, rawToken);
+
+    expect(lookup).toMatchObject({
+      ok: true,
+      userId: 'u_1',
+      invite: {
+        email: 'client@example.com',
+        workspaceName: 'Atelier Robert',
+        invitedBy: 'Robert',
+      },
+    });
+    if (lookup.ok) {
+      expect(lookup.invite.apps.map((app) => app.id)).toEqual(['hub', 'analytics']);
+      expect(JSON.stringify(lookup.invite)).not.toContain(hashOnboardingToken(rawToken));
+    }
+  });
+
+  it('supprime et signale expired quand le token onboarding a dépassé sa date', async () => {
+    const token = 'expired-token';
+    const tokenHash = hashOnboardingToken(token);
+    prisma.__tokens.set(tokenHash, {
+      identifier: onboardingIdentifier('u_1'),
+      token: tokenHash,
+      expires: new Date(Date.now() - 1000),
+    });
+
+    await expect(getOnboardingInviteByToken(prisma, token)).resolves.toEqual({
+      ok: false,
+      code: 'expired',
+    });
+    expect(prisma.__tokens.size).toBe(0);
+  });
+
+  it('renvoie activated si le user a déjà un compte credentials', async () => {
+    const token = 'already-activated-token';
+    const tokenHash = hashOnboardingToken(token);
+    prisma.__tokens.set(tokenHash, {
+      identifier: onboardingIdentifier('u_1'),
+      token: tokenHash,
+      expires: new Date(Date.now() + 60_000),
+    });
+    prisma.__users.get('u_1')!.accounts.push({
+      id: 'acc_credentials',
+      provider: 'credentials',
+    });
+
+    await expect(getOnboardingInviteByToken(prisma, token)).resolves.toEqual({
+      ok: false,
+      code: 'activated',
+    });
+  });
+
+  it('met à jour un compte credentials existant au lieu d’en créer un second', async () => {
+    prisma.__users.get('u_1')!.accounts.push({
+      id: 'acc_existing',
+      provider: 'credentials',
+      access_token: 'old-hash',
+    });
+    const invite = await createOnboardingInvitation(prisma, {
+      email: 'client@example.com',
+      apps: ['hub'],
+      actor: 'admin:robert@veridian.site',
+      sendEmail: false,
+    });
+
+    await activateOnboarding(prisma, {
+      token: invite.inviteUrl.split('/onboard/')[1],
+      password: 'NouveauMotdepasse10',
+    });
+
+    expect(prisma.__accountCreates).toHaveLength(0);
+    expect(prisma.__accountUpdates).toHaveLength(1);
+    expect(prisma.__accountUpdates[0].where).toEqual({ id: 'acc_existing' });
+    await expect(
+      bcrypt.compare('NouveauMotdepasse10', prisma.__accountUpdates[0].data.access_token),
+    ).resolves.toBe(true);
+  });
+
+  it('sérialise getUserOnboardingRecord avec dates ISO et metadata objet', async () => {
+    const completedAt = new Date('2026-08-17T12:00:00.000Z');
+    prisma.__onboarding.set('u_1', {
+      userId: 'u_1',
+      invitedAt: null,
+      activatedAt: completedAt,
+      firstAppStartedAt: null,
+      memberInvitedAt: null,
+      workspaceRenamedAt: null,
+      completedAt,
+      metadata: { qualification: { prospection: 'explorer' } },
+    });
+
+    await expect(getUserOnboardingRecord(prisma, 'u_1')).resolves.toEqual({
+      userId: 'u_1',
+      invitedAt: null,
+      activatedAt: '2026-08-17T12:00:00.000Z',
+      firstAppStartedAt: null,
+      memberInvitedAt: null,
+      workspaceRenamedAt: null,
+      completedAt: '2026-08-17T12:00:00.000Z',
+      metadata: { qualification: { prospection: 'explorer' } },
+    });
   });
 });

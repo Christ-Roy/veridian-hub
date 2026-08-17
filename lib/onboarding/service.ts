@@ -330,7 +330,11 @@ export async function activateOnboarding(
       },
     });
     if (claimed.count !== 1) {
-      throw Object.assign(new Error('invalid'), { code: 'invalid' });
+      // Le token existait et n'était pas expiré lors du lookup juste avant.
+      // S'il n'est plus claimable ici, une autre activation l'a consommé
+      // entre-temps. Distinguer ce cas d'un token forgé permet au second
+      // onglet de sortir vers la connexion au lieu de resoumettre en boucle.
+      throw Object.assign(new Error('activated'), { code: 'activated' });
     }
 
     const user = await tx.user.findUnique({

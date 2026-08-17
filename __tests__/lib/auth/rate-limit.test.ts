@@ -220,6 +220,40 @@ describe('exported limiter instances', () => {
     invitationVerifyLimiter.reset();
   });
 
+  it('exports onboardingVerifyLimiter avec capacity 30/min (anti scan token première connexion)', async () => {
+    const { onboardingVerifyLimiter } = await import('@/lib/auth/rate-limit');
+    onboardingVerifyLimiter.reset();
+    for (let i = 0; i < 30; i++) {
+      expect(onboardingVerifyLimiter.enforce('test-ip-onboard-verify').ok).toBe(true);
+    }
+    expect(onboardingVerifyLimiter.enforce('test-ip-onboard-verify').ok).toBe(false);
+    onboardingVerifyLimiter.reset();
+  });
+
+  it('exports onboardingConsumeLimiter avec capacity 10/min (bcrypt + provisioning)', async () => {
+    const { onboardingConsumeLimiter } = await import('@/lib/auth/rate-limit');
+    onboardingConsumeLimiter.reset();
+    for (let i = 0; i < 10; i++) {
+      expect(onboardingConsumeLimiter.enforce('test-ip-onboard-consume').ok).toBe(true);
+    }
+    expect(onboardingConsumeLimiter.enforce('test-ip-onboard-consume').ok).toBe(false);
+    expect(onboardingConsumeLimiter.enforce('other-ip-onboard-consume').ok).toBe(true);
+    onboardingConsumeLimiter.reset();
+  });
+
+  it('exports onboardingQualificationLimiter avec capacity 60/min par userId:IP', async () => {
+    const { onboardingQualificationLimiter } = await import('@/lib/auth/rate-limit');
+    onboardingQualificationLimiter.reset();
+    const key = 'user_1:203.0.113.50';
+    for (let i = 0; i < 60; i++) {
+      expect(onboardingQualificationLimiter.enforce(key).ok).toBe(true);
+    }
+    expect(onboardingQualificationLimiter.enforce(key).ok).toBe(false);
+    expect(onboardingQualificationLimiter.enforce('user_2:203.0.113.50').ok).toBe(true);
+    expect(onboardingQualificationLimiter.enforce('user_1:203.0.113.51').ok).toBe(true);
+    onboardingQualificationLimiter.reset();
+  });
+
   it('exports billingStatePollLimiter avec capacity 60/min (POLL billing-state par secret)', async () => {
     // Limiter introduit par l'agent billing (commit 49b18e8) pour
     // GET /api/tenants/[tenantId]/billing-state — réconciliation §6.3.
@@ -507,6 +541,9 @@ describe('RateLimiter.enforceWithBypass', () => {
       'oauthCallbackLimiter',
       'invitationCreateLimiter',
       'invitationVerifyLimiter',
+      'onboardingVerifyLimiter',
+      'onboardingConsumeLimiter',
+      'onboardingQualificationLimiter',
       'discoveryPreVerifyLimiter',
       'discoveryAppLimiter',
       'billingStatePollLimiter',
