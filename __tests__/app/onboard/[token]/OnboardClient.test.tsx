@@ -112,6 +112,7 @@ describe('<OnboardClient>', () => {
       password: 'Motdepasse10',
       redirect: false
     });
+    expect(routerRefresh).not.toHaveBeenCalled();
   });
 
   it('un second onglet qui perd la course atomique revient au login sans boucle', async () => {

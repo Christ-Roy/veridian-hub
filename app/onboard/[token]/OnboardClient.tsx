@@ -205,7 +205,11 @@ export function OnboardClient({
       setOnboardingRecord(makeInitialOnboardingRecord(data.user_id));
       setPhase('qualification');
       setSubmitting(false);
-      router.refresh();
+      // Ne surtout pas rafraîchir la Server Page ici : l'activation vient de
+      // consommer le token à usage unique. Un refresh relancerait son lookup,
+      // obtiendrait `invalid`, puis remplacerait ce flow client par la 404.
+      // La session Auth.js est déjà posée par signIn(); la qualification peut
+      // donc appeler son API authentifiée sans recharger la route secrète.
     } catch {
       setState('mot-de-passe');
       setError('Erreur réseau. Réessayez dans quelques secondes.');
