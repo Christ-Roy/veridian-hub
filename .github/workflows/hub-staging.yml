@@ -263,7 +263,15 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          submodules: recursive
+          # PAS de `submodules: recursive` ici. Ce job ne compile ni ne teste
+          # rien : il fait un ff-merge de refs git, puis déclenche hub-ci sur
+          # main. Le submodule `shared` (veridian-infra, PRIVÉ) lui est donc
+          # inutile — et le token retenu ci-dessous est le plus souvent le
+          # GITHUB_TOKEN, qui n'a pas accès à ce repo. Résultat jusqu'ici :
+          # `remote: Repository not found` au checkout, job rouge, et AUCUNE
+          # auto-promotion depuis des semaines (runs #110, #111, #115). La
+          # prod dérivait en silence pendant que staging avançait.
+          submodules: false
           fetch-depth: 0
           # PAT prioritaire pour bypass branch protection ;
           # GITHUB_TOKEN en fallback si pas de protection sur main.
