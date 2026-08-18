@@ -103,7 +103,9 @@ COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 # Install runtime dependencies for init-stripe script.
 # These are needed because init-stripe.mjs runs before Next.js and isn't in standalone
 # Install in /tmp then merge with standalone's node_modules (overwrites are OK - standalone doesn't need these)
-RUN echo '{"type":"module"}' > /tmp/package.json && \
+# Même remarque que pour /opt/prisma-cli plus bas : install hors lockfile pnpm,
+# donc les overrides doivent être rappelés ici.
+RUN echo '{"type":"module","overrides":{"deepmerge-ts":"8.0.1"}}' > /tmp/package.json && \
     cd /tmp && \
     npm install --omit=dev --no-package-lock \
       stripe@14.25.0 \
@@ -121,8 +123,14 @@ RUN echo '{"type":"module"}' > /tmp/package.json && \
 # (importé par prisma.config.ts). Permet `prisma migrate deploy` au boot (cf. CMD).
 # Empreinte ~227 Mo. Pinné sur la même version que le devDep du package.json
 # (prisma ^7.7.0) — bumper les deux ensemble.
+#
+# ⚠️ `overrides` : ces `npm install` vivent HORS du lockfile pnpm, donc hors du
+# champ `pnpm.overrides` de package.json. Sans le rappel ci-dessous, npm tire
+# `deepmerge-ts@7.1.5` via `@prisma/config` — CVE-2026-40345 (HIGH), qui fait
+# échouer le gate Trivy image et bloque tout déploiement prod. Le lockfile
+# racine, lui, résout bien 8.0.1. Garder les deux bornes alignées.
 RUN mkdir -p /opt/prisma-cli && \
-    echo '{"type":"module"}' > /opt/prisma-cli/package.json && \
+    echo '{"type":"module","overrides":{"deepmerge-ts":"8.0.1"}}' > /opt/prisma-cli/package.json && \
     cd /opt/prisma-cli && \
     npm install --omit=dev --no-package-lock \
       prisma@7.7.0 \
