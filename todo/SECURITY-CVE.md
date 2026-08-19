@@ -1,17 +1,17 @@
 # 🔒 Veille CVE automatique — veridian-hub
 
 > **Généré par** : `veridian-infra/.github/workflows/cron-trivy.yml`
-> **Dernier run** : 2026-08-18 04:07 UTC
-> **Run URL** : local-cron@mail.mybigserveur.local:2026-08-18
+> **Dernier run** : 2026-08-19 04:07 UTC
+> **Run URL** : local-cron@mail.mybigserveur.local:2026-08-19
 > **Image scannée** : `ghcr.io/christ-roy/veridian-hub:latest`
-> **CVE bruts détectés** : 5 (avant filtrage)
+> **CVE bruts détectés** : 3 (avant filtrage)
 > **Scoring** : `veridian-infra/ci/trivy-scoring.yml`
 
 ## TL;DR
 
 - 🚨 **0 RED** — fix prioritaire
 - 🔴 **0 HIGH** — action recommandée cette semaine
-- 🟡 **5 MEDIUM** — récap, pas urgent
+- 🟡 **3 MEDIUM** — récap, pas urgent
 - 🟢 **0 NOISE** — annexe collapse
 
 ✅ **Rien d'urgent.** Quelques items MEDIUM à voir quand t'as 5 min.
@@ -19,7 +19,7 @@
 
 ---
 
-## 🟡 MEDIUM — 5 CVE en 4 groupes
+## 🟡 MEDIUM — 3 CVE en 2 groupes
 
 ### 1. `@hono/node-server` — 1.19.11 → **2.0.5**
 
@@ -30,25 +30,7 @@
 - **Source** : `Node.js`
 - **Fix** : `pnpm up @hono/node-server` (jusqu'à >= `2.0.5`)
 
-### 2. `deepmerge-ts` — 7.1.5 → **8.0.0**
-
-- **CVE** : `CVE-2026-40345` (HIGH/Unclassified)
-- **Type** : Unclassified
-- **Score max** : 15
-- **Title** : DeepmergeTS has stack exhaustion when merging recursive object graphs
-- **Source** : `Node.js`
-- **Fix** : `pnpm up deepmerge-ts` (jusqu'à >= `8.0.0`)
-
-### 3. `nanoid` — 3.3.16 → **5.1.6**
-
-- **CVE** : `CVE-2026-67213` (HIGH/DoS)
-- **Type** : DoS
-- **Score max** : 15
-- **Title** : nanoid: nanoid: Denial of Service via infinite loop in random ID generation
-- **Source** : `Node.js`
-- **Fix** : `pnpm up nanoid` (jusqu'à >= `5.1.6`)
-
-### 4. `valibot` — 1.2.0 → **1.4.2**
+### 2. `valibot` — 1.2.0 → **1.4.2**
 
 - **CVE** : `CVE-2026-59952` (MEDIUM/Data leak)
 - **Type** : Data leak
