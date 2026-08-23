@@ -95,6 +95,8 @@ jobs:
           BASE_REF: origin/${{ github.base_ref || 'main' }}
       - name: GitOps prod reliability invariants
         run: ./scripts/ci/check-prod-gitops-reliability.sh
+      - name: Hub HA env contract
+        run: ./scripts/ci/check-hub-ha-env-contract.sh
       - name: Staging freshness gate behavior
         run: ./scripts/ci/test-check-staging-fresh.sh
       - name: Tests
@@ -239,9 +241,10 @@ jobs:
   # ⚠️ PLUS de job `migrate-prod` : le container Hub migre AU BOOT (Dockerfile CMD
   # `prisma migrate deploy && … && server.js`, CLI isolé dans /opt/prisma-cli,
   # idempotent + advisory lock Postgres). Quand Nomad démarre le nouvel alloc, le
-  # migrate-on-boot tourne contre veridian-core-db (127.0.0.1:5432, schema hub_app)
-  # → puis server.js. Un migrate qui échoue = container jamais healthy → l'update
-  # stanza `auto_revert = true` du job restaure automatiquement la version saine.
+  # migrate-on-boot tourne contre l'endpoint DB rendu par deploy/hub.nomad.hcl
+  # (contrat HUB_DATABASE_* ; fallback prod actuel = DB co-localisée) → puis
+  # server.js. Un migrate qui échoue = container jamais healthy → l'update stanza
+  # `auto_revert = true` du job restaure automatiquement la version saine.
   #
   # ⚠️ PLUS de job `rollback-prod` Dokploy : Nomad `auto_revert` couvre le cas
   # "deploy jamais healthy" ; un échec post-deploy (e2e-prod-smoke rouge sur un

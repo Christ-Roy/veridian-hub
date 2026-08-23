@@ -7,11 +7,17 @@
 # migrate CI).
 #
 # Veridian Hub (orchestrateur auth/billing/provisioning, Next.js, port 3000).
-# Placement : serveur PROD OVH (provider=ovh-prod). DB = veridian-core-db
-# (postgres:16-alpine) co-localisée dans le même group bridge → hub la joint en
-# 127.0.0.1:5432 (schema hub_app). TLS terminé par Traefik (certresolver
-# letsencrypt sur app.veridian.site). Secrets = Nomad Variable nomad/jobs/hub
-# (JAMAIS en clair). ⚠️ Stripe LIVE en prod (clés dans la Nomad var).
+# Placement : serveur PROD OVH (provider=ovh-prod). DB actuelle =
+# veridian-core-db (postgres:16-alpine) co-localisée dans le même group bridge.
+# Le contrat runtime ne hardcode plus l'URL complète : `DATABASE_URL` est
+# composée depuis les variables d'endpoint `HUB_DATABASE_*` et le secret
+# `VERIDIAN_CORE_DB_PASSWORD`. Aujourd'hui le fallback explicite pointe le
+# sidecar local (`HUB_DATABASE_MODE=local-colocated`, host 127.0.0.1:5432).
+# Demain, le cutover HA remplace seulement l'endpoint (`HUB_DATABASE_MODE`,
+# `HUB_DATABASE_SERVICE_NAME`, host/port ou proxy) sans changer le code Hub.
+# TLS terminé par Traefik (certresolver letsencrypt sur app.veridian.site).
+# Secrets = Nomad Variable nomad/jobs/hub (JAMAIS en clair).
+# ⚠️ Stripe LIVE en prod (clés dans la Nomad var).
 #
 # ⚠️ DB PROD mono-instance postgres:16, volume bind /opt/veridian-lab/hub/core-db.
 # NE PAS reschedule (le volume local ne suit pas). Cible infra à terme = cluster
@@ -20,9 +26,11 @@
 variable "image_tag" {
   type        = string
   description = "Tag de l'image ghcr.io/christ-roy/veridian-hub promue en prod (injecté par la CI)."
-  # Recale sur ce qui tourne reellement en prod : le defaut retardait de
-  # deux versions et un deploiement hors CI aurait retrograde le Hub.
-  default     = "v0.5.26"
+  # Recale sur ce qui tourne reellement en prod : le defaut retardait d'une
+  # version et un deploiement hors CI aurait retrograde le Hub. Ce defaut se
+  # perime a chaque promotion ; le verifier fait partie de tout deploiement
+  # hors CI de ce fichier.
+  default     = "v0.5.27"
 }
 
 job "hub" {
@@ -59,7 +67,13 @@ job "hub" {
 
     network {
       mode = "bridge"
-      port "http" { to = 3000 }
+      # Les ingress tournent sur plusieurs nœuds. Le port applicatif doit donc
+      # être annoncé sur le réseau Tailscale commun, pas sur l'IP publique du
+      # nœud d'allocation (qui est filtrée entre origines et provoque un 504).
+      port "http" {
+        to           = 3000
+        host_network = "tailscale"
+      }
     }
 
     service {
@@ -95,7 +109,7 @@ job "hub" {
         # Image officielle postgres:16-alpine + pgBackRest epingle. La BASE est
         # identique au bit pres : changer d'image de base changerait la
         # collation (musl/glibc) et fausserait silencieusement les index.
-        image = "ghcr.io/christ-roy/veridian-postgres-pgbackrest:16-alpine@sha256:0da89e301ddd14d3f576505ce57a9b92d2c0bf44b72bb31dbaeef18c63a207ee"
+        image = "ghcr.io/christ-roy/veridian-postgres-pgbackrest:16-alpine@sha256:ca672c3127d4e9e1fef42e813ecd751a6759ed4e7916e44a6ae7fb3a6862716e"
         args = [
           # --- Archivage continu des WAL vers le depot pgBackRest ---
           # C'est CE reglage, et non la sauvegarde nocturne, qui borne la perte
@@ -178,7 +192,7 @@ EOH
     task "pgbackrest" {
       driver = "docker"
       config {
-        image      = "ghcr.io/christ-roy/veridian-postgres-pgbackrest:16-alpine@sha256:0da89e301ddd14d3f576505ce57a9b92d2c0bf44b72bb31dbaeef18c63a207ee"
+        image      = "ghcr.io/christ-roy/veridian-postgres-pgbackrest:16-alpine@sha256:ca672c3127d4e9e1fef42e813ecd751a6759ed4e7916e44a6ae7fb3a6862716e"
         entrypoint = ["/usr/local/bin/pgbackrest-scheduler"]
         command    = ""
         volumes = [
@@ -317,7 +331,36 @@ CRM_REST_URL=https://crm.app.veridian.site/rest
 CRM_FRONTEND_URL=https://crm.app.veridian.site
 
 {{ with nomadVar "nomad/jobs/hub" }}
-DATABASE_URL=postgresql://veridian:{{ .VERIDIAN_CORE_DB_PASSWORD }}@127.0.0.1:5432/veridian?schema=hub_app
+{{ $dbMode := or .HUB_DATABASE_MODE "local-colocated" }}
+{{ $dbUser := or .HUB_DATABASE_USER "veridian" }}
+{{ $dbHost := or .HUB_DATABASE_HOST "127.0.0.1" }}
+{{ $dbPort := or .HUB_DATABASE_PORT "5432" }}
+{{ $dbName := or .HUB_DATABASE_NAME "veridian" }}
+{{ $dbSchema := or .HUB_DATABASE_SCHEMA "hub_app" }}
+{{ $dbPassword := .VERIDIAN_CORE_DB_PASSWORD }}
+{{ if eq $dbMode "nomad-service" }}
+{{ $dbServiceName := or .HUB_DATABASE_SERVICE_NAME "hub-postgres" }}
+{{ range nomadService $dbServiceName }}
+HUB_DATABASE_MODE={{ $dbMode }}
+HUB_DATABASE_SERVICE_NAME={{ $dbServiceName }}
+HUB_DATABASE_USER={{ $dbUser }}
+HUB_DATABASE_HOST={{ .Address }}
+HUB_DATABASE_PORT={{ .Port }}
+HUB_DATABASE_NAME={{ $dbName }}
+HUB_DATABASE_SCHEMA={{ $dbSchema }}
+DATABASE_URL=postgresql://{{ $dbUser }}:{{ $dbPassword }}@{{ .Address }}:{{ .Port }}/{{ $dbName }}?schema={{ $dbSchema }}
+{{ end }}
+{{ else }}
+{{ $dbServiceName := or .HUB_DATABASE_SERVICE_NAME "veridian-core-db" }}
+HUB_DATABASE_MODE={{ $dbMode }}
+HUB_DATABASE_SERVICE_NAME={{ $dbServiceName }}
+HUB_DATABASE_USER={{ $dbUser }}
+HUB_DATABASE_HOST={{ $dbHost }}
+HUB_DATABASE_PORT={{ $dbPort }}
+HUB_DATABASE_NAME={{ $dbName }}
+HUB_DATABASE_SCHEMA={{ $dbSchema }}
+DATABASE_URL=postgresql://{{ $dbUser }}:{{ $dbPassword }}@{{ $dbHost }}:{{ $dbPort }}/{{ $dbName }}?schema={{ $dbSchema }}
+{{ end }}
 AUTH_SECRET={{ .HUB_AUTH_SECRET }}
 ADMIN_SECRET={{ .ADMIN_SECRET }}
 CRON_SECRET={{ .CRON_SECRET }}
