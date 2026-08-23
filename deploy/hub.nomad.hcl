@@ -331,15 +331,15 @@ CRM_REST_URL=https://crm.app.veridian.site/rest
 CRM_FRONTEND_URL=https://crm.app.veridian.site
 
 {{ with nomadVar "nomad/jobs/hub" }}
-{{ $dbMode := or .HUB_DATABASE_MODE "local-colocated" }}
-{{ $dbUser := or .HUB_DATABASE_USER "veridian" }}
-{{ $dbHost := or .HUB_DATABASE_HOST "127.0.0.1" }}
-{{ $dbPort := or .HUB_DATABASE_PORT "5432" }}
-{{ $dbName := or .HUB_DATABASE_NAME "veridian" }}
-{{ $dbSchema := or .HUB_DATABASE_SCHEMA "hub_app" }}
+{{ $dbMode := or .HUB_DATABASE_MODE.Value "local-colocated" }}
+{{ $dbUser := or .HUB_DATABASE_USER.Value "veridian" }}
+{{ $dbHost := or .HUB_DATABASE_HOST.Value "127.0.0.1" }}
+{{ $dbPort := or .HUB_DATABASE_PORT.Value "5432" }}
+{{ $dbName := or .HUB_DATABASE_NAME.Value "veridian" }}
+{{ $dbSchema := or .HUB_DATABASE_SCHEMA.Value "hub_app" }}
 {{ $dbPassword := .VERIDIAN_CORE_DB_PASSWORD }}
 {{ if eq $dbMode "nomad-service" }}
-{{ $dbServiceName := or .HUB_DATABASE_SERVICE_NAME "hub-postgres" }}
+{{ $dbServiceName := or .HUB_DATABASE_SERVICE_NAME.Value "hub-postgres" }}
 {{ range nomadService $dbServiceName }}
 HUB_DATABASE_MODE={{ $dbMode }}
 HUB_DATABASE_SERVICE_NAME={{ $dbServiceName }}
@@ -351,7 +351,7 @@ HUB_DATABASE_SCHEMA={{ $dbSchema }}
 DATABASE_URL=postgresql://{{ $dbUser }}:{{ $dbPassword }}@{{ .Address }}:{{ .Port }}/{{ $dbName }}?schema={{ $dbSchema }}
 {{ end }}
 {{ else }}
-{{ $dbServiceName := or .HUB_DATABASE_SERVICE_NAME "veridian-core-db" }}
+{{ $dbServiceName := or .HUB_DATABASE_SERVICE_NAME.Value "veridian-core-db" }}
 HUB_DATABASE_MODE={{ $dbMode }}
 HUB_DATABASE_SERVICE_NAME={{ $dbServiceName }}
 HUB_DATABASE_USER={{ $dbUser }}
