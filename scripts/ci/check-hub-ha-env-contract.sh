@@ -64,8 +64,10 @@ require_fixed "$staging_hcl" 'HUB_DATABASE_MODE.Value "patroni-haproxy"' \
   "staging: mode Patroni/HAProxy absent"
 require_fixed "$staging_hcl" 'HUB_DATABASE_SERVICE_NAME={{ or .HUB_DATABASE_SERVICE_NAME.Value "hub-staging-db" }}' \
   "staging: nom du service DB staging absent"
-require_fixed "$staging_hcl" '{{ range nomadService "hub-staging-db" }}' \
+require_fixed "$staging_hcl" '{{ range $index, $service := nomadService "hub-staging-db" }}' \
   "staging: HAProxy ne résout pas les membres Patroni via Nomad service discovery"
+reject_regex "$staging_hcl" '[.]NodeID' \
+  "staging: les objets nomadService n'exposent pas NodeID au template Nomad"
 reject_regex "$staging_hcl" 'server[[:space:]]+patroni-[^[:space:]]+[[:space:]]+100[.][0-9]+[.][0-9]+[.][0-9]+:5433' \
   "staging: IP Tailscale hardcodée dans HAProxy"
 for old_ip in 100.108.136.89 100.88.202.29 100.92.215.42; do

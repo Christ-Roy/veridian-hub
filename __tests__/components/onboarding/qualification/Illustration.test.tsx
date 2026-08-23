@@ -13,9 +13,11 @@
  *     l'écran : la zone la plus lumineuse de la page, alors qu'elle ne porte
  *     aucune information, sur un onboarding qu'un client peut ouvrir le soir.
  */
-import React from 'react';
+import React, { act } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import { hydrateRoot } from 'react-dom/client';
+import { renderToString } from 'react-dom/server';
 
 import { Illustration } from '@/components/onboarding/qualification/Illustration';
 
@@ -67,6 +69,35 @@ describe('Illustration — thème sombre', () => {
     themeCourant = 'light';
     const { container } = render(<Illustration cle="prospection" />);
     expect(container.querySelector('img')).not.toBeNull();
+  });
+
+  it('hydrate sans mismatch quand le navigateur a mémorisé le thème sombre', async () => {
+    themeCourant = 'light';
+    const htmlServeur = renderToString(<Illustration cle="prospection" />);
+    const container = document.createElement('div');
+    container.innerHTML = htmlServeur;
+    document.body.appendChild(container);
+
+    themeCourant = 'dark';
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    let root: ReturnType<typeof hydrateRoot> | undefined;
+
+    await act(async () => {
+      root = hydrateRoot(container, <Illustration cle="prospection" />);
+    });
+
+    const erreursHydratation = consoleError.mock.calls
+      .flat()
+      .map(String)
+      .filter((message) => /hydration|didn't match/i.test(message));
+
+    expect(erreursHydratation).toEqual([]);
+    expect(container.querySelector('picture')).toBeNull();
+    expect(container.querySelector('svg')).not.toBeNull();
+
+    await act(async () => root?.unmount());
+    container.remove();
+    consoleError.mockRestore();
   });
 });
 

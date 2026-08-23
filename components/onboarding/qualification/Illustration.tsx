@@ -39,7 +39,17 @@ export function Illustration({
 }) {
   const spec = getIllustration(cle);
   const { resolvedTheme } = useTheme();
-  const sombre = resolvedTheme === 'dark';
+  const [themeHydrate, setThemeHydrate] = useState(false);
+
+  // `next-themes` ne connaît le thème mémorisé qu'une fois côté navigateur.
+  // Garder le rendu clair pendant l'hydratation garantit que le serveur et le
+  // premier rendu client ont exactement le même arbre, puis le visuel sombre
+  // prend le relais sans provoquer l'overlay React de mismatch.
+  useEffect(() => {
+    setThemeHydrate(true);
+  }, []);
+
+  const sombre = themeHydrate && resolvedTheme === 'dark';
 
   // En sombre, on n'utilise la capture QUE si sa variante sombre existe.
   const srcGrandEcran = sombre ? spec.srcSombre : spec.src;

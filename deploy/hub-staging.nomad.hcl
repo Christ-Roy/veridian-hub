@@ -118,8 +118,8 @@ listen postgres-primary
     option httpchk GET /master
     http-check expect status 200
     default-server inter 3s fall 2 rise 2 on-marked-down shutdown-sessions
-{{ range nomadService "hub-staging-db" }}
-    server patroni-{{ .NodeID }} {{ .Address }}:5433 check port {{ .Port }}
+{{ range $index, $service := nomadService "hub-staging-db" }}
+    server patroni-{{ $index }} {{ $service.Address }}:5433 check port {{ $service.Port }}
 {{ end }}
 EOH
       }
