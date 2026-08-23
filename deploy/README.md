@@ -11,7 +11,7 @@
 
 | Fichier | Rôle |
 |---|---|
-| `deploy/hub.nomad.hcl` | **PROD** — job `hub`, `provider=ovh-prod`, DB `veridian-core-db` postgres:16 co-localisée, sert `app.veridian.site`. `variable image_tag` (défaut `latest`). |
+| `deploy/hub.nomad.hcl` | **PROD** — job `hub`, `provider=ovh-prod`, DB `veridian-core-db` postgres:16 co-localisée aujourd'hui, sert `app.veridian.site`. `DATABASE_URL` est composée depuis `HUB_DATABASE_*` + le mot de passe, pour préparer le cutover HA sans réécrire l'app. `variable image_tag` (défaut `latest`). |
 | `deploy/hub-staging.nomad.hcl` | **STAGING** — job `hub-staging`, `provider=ovh-dev`, **DB en cluster Patroni HA** (sidecar HAProxy `pgproxy` → leader dynamique), privé `internal-only@nomad`, sert `hub.staging.veridian.site`. `variable image_tag` (défaut `staging-latest`). |
 | `.github/workflows/hub-staging.yml` | Pipeline staging (push `staging`) : build+push GHCR → deploy Nomad SSH-bastion → smoke tailnet. |
 | `.github/workflows/hub-ci.yml` | Pipeline prod (push `main`) : test → audit → trivy → docker → deploy-prod (Nomad SSH-bastion) → e2e-prod-smoke. |
@@ -22,18 +22,36 @@
    container (`Dockerfile` CMD : `prisma migrate deploy && node scripts/init-stripe.mjs
    && node server.js`, CLI Prisma isolé dans `/opt/prisma-cli`, idempotent +
    advisory lock Postgres). Quand Nomad démarre le nouvel alloc, le migrate
-   tourne tout seul contre la DB (prod : `veridian-core-db` en 127.0.0.1:5432 ;
-   staging : le leader Patroni via le sidecar HAProxy) puis lance le serveur.
+   tourne tout seul contre la DB (prod : endpoint `HUB_DATABASE_*`, fallback
+   actuel `local-colocated` ; staging : le leader Patroni via le sidecar
+   HAProxy) puis lance le serveur.
    → Le pipeline Hub est plus simple que Prospection (pas de container migrate
    éphémère, pas de hop dev-pub pour migrer). Un migrate qui échoue = container
    jamais healthy → `auto_revert` restaure la version saine.
 
 2. **STAGING en Patroni HA** (Prospection staging = postgres mono-instance). La
    DB `hub` vit dans le cluster `hub-staging-db` ; l'app la joint via le sidecar
-   HAProxy `pgproxy` (127.0.0.1:5432 → leader courant). DATABASE_URL inchangé.
+   HAProxy `pgproxy` (mode `patroni-haproxy` → leader courant). DATABASE_URL
+   reste générée par le contrat `HUB_DATABASE_*`.
    Sur failover, HAProxy bascule (shutdown-sessions → le pool Prisma reconnecte).
 
-3. **PLUS de job `rollback-prod` Dokploy.** Remplacé par :
+3. **Contrat DB prêt HA** : ne plus stocker ni recopier une URL Postgres opaque.
+   Le HCL rend :
+   - `HUB_DATABASE_MODE` : `local-colocated` aujourd'hui en prod,
+     `patroni-haproxy` en staging, futur `nomad-service`.
+   - `HUB_DATABASE_SERVICE_NAME` : nom logique du service DB. En mode
+     `nomad-service`, il est consommé par `nomadService $dbServiceName` pour
+     résoudre l'adresse et le port via le registry Nomad.
+   - `HUB_DATABASE_HOST`, `PORT`, `USER`, `NAME`, `SCHEMA` : visibles dans
+     l'environnement final pour debug, mais host/port sont rendus par Nomad en
+     mode service-discovery.
+   - `DATABASE_URL` : seulement la chaîne finale attendue par Prisma.
+
+   Le garde-fou `scripts/ci/check-hub-ha-env-contract.sh` bloque toute
+   régression vers `DATABASE_URL=...@127.0.0.1:5432`, un hostname de conteneur,
+   ou une URL opaque stockée telle quelle dans une Nomad Variable.
+
+4. **PLUS de job `rollback-prod` Dokploy.** Remplacé par :
    - `auto_revert = true` (update stanza du job) → restaure auto la dernière
      version saine si le deploy n'atteint jamais healthy.
    - Rollback post-deploy (e2e-prod-smoke rouge sur un alloc pourtant healthy) =
@@ -41,7 +59,7 @@
      re-déploie le SHA d'avant. Un rollback d'image est safe et quasi-instantané
      (images GHCR à rétention illimitée, re-pullables). Cf canon Prospection §7.
 
-4. **PROD sert `app.veridian.site`** (public, smoke direct) + `hub-lab.veridian.site`.
+5. **PROD sert `app.veridian.site`** (public, smoke direct) + `hub-lab.veridian.site`.
    La vérif "nouvelle version live" est garantie par le `nomad deployment status
    -monitor` (bloque jusqu'à ce que le NOUVEL alloc soit healthy) — pas besoin
    d'un poll anti-stale séparé comme l'ancien deploy Dokploy.
@@ -91,3 +109,8 @@ curl -s -o /dev/null -w '%{http_code}\n' https://app.veridian.site/api/health   
   que le sidecar `pgproxy` route vers un leader. Si l'ordre de démarrage fait
   booter Hub avant pgproxy, le migrate échoue → le `restart` stanza (10×/15s)
   retente jusqu'à ce que pgproxy soit prêt. Self-healing.
+- **Cutover prod HA DB** : ne pas merger une bascule de `HUB_DATABASE_MODE`
+  tant que le service/proxy cible n'est pas live, vérifié par `nomad service
+  info <service>`, et que les secrets DB ont été copiés dans la Nomad Variable
+  du workload cible. Le mot de passe reste un secret, l'endpoint reste un
+  contrat.

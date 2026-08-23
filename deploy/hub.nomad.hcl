@@ -7,11 +7,17 @@
 # migrate CI).
 #
 # Veridian Hub (orchestrateur auth/billing/provisioning, Next.js, port 3000).
-# Placement : serveur PROD OVH (provider=ovh-prod). DB = veridian-core-db
-# (postgres:16-alpine) co-localisée dans le même group bridge → hub la joint en
-# 127.0.0.1:5432 (schema hub_app). TLS terminé par Traefik (certresolver
-# letsencrypt sur app.veridian.site). Secrets = Nomad Variable nomad/jobs/hub
-# (JAMAIS en clair). ⚠️ Stripe LIVE en prod (clés dans la Nomad var).
+# Placement : serveur PROD OVH (provider=ovh-prod). DB actuelle =
+# veridian-core-db (postgres:16-alpine) co-localisée dans le même group bridge.
+# Le contrat runtime ne hardcode plus l'URL complète : `DATABASE_URL` est
+# composée depuis les variables d'endpoint `HUB_DATABASE_*` et le secret
+# `VERIDIAN_CORE_DB_PASSWORD`. Aujourd'hui le fallback explicite pointe le
+# sidecar local (`HUB_DATABASE_MODE=local-colocated`, host 127.0.0.1:5432).
+# Demain, le cutover HA remplace seulement l'endpoint (`HUB_DATABASE_MODE`,
+# `HUB_DATABASE_SERVICE_NAME`, host/port ou proxy) sans changer le code Hub.
+# TLS terminé par Traefik (certresolver letsencrypt sur app.veridian.site).
+# Secrets = Nomad Variable nomad/jobs/hub (JAMAIS en clair).
+# ⚠️ Stripe LIVE en prod (clés dans la Nomad var).
 #
 # ⚠️ DB PROD mono-instance postgres:16, volume bind /opt/veridian-lab/hub/core-db.
 # NE PAS reschedule (le volume local ne suit pas). Cible infra à terme = cluster
@@ -317,7 +323,36 @@ CRM_REST_URL=https://crm.app.veridian.site/rest
 CRM_FRONTEND_URL=https://crm.app.veridian.site
 
 {{ with nomadVar "nomad/jobs/hub" }}
-DATABASE_URL=postgresql://veridian:{{ .VERIDIAN_CORE_DB_PASSWORD }}@127.0.0.1:5432/veridian?schema=hub_app
+{{ $dbMode := or .HUB_DATABASE_MODE "local-colocated" }}
+{{ $dbUser := or .HUB_DATABASE_USER "veridian" }}
+{{ $dbHost := or .HUB_DATABASE_HOST "127.0.0.1" }}
+{{ $dbPort := or .HUB_DATABASE_PORT "5432" }}
+{{ $dbName := or .HUB_DATABASE_NAME "veridian" }}
+{{ $dbSchema := or .HUB_DATABASE_SCHEMA "hub_app" }}
+{{ $dbPassword := .VERIDIAN_CORE_DB_PASSWORD }}
+{{ if eq $dbMode "nomad-service" }}
+{{ $dbServiceName := or .HUB_DATABASE_SERVICE_NAME "hub-postgres" }}
+{{ range nomadService $dbServiceName }}
+HUB_DATABASE_MODE={{ $dbMode }}
+HUB_DATABASE_SERVICE_NAME={{ $dbServiceName }}
+HUB_DATABASE_USER={{ $dbUser }}
+HUB_DATABASE_HOST={{ .Address }}
+HUB_DATABASE_PORT={{ .Port }}
+HUB_DATABASE_NAME={{ $dbName }}
+HUB_DATABASE_SCHEMA={{ $dbSchema }}
+DATABASE_URL=postgresql://{{ $dbUser }}:{{ $dbPassword }}@{{ .Address }}:{{ .Port }}/{{ $dbName }}?schema={{ $dbSchema }}
+{{ end }}
+{{ else }}
+{{ $dbServiceName := or .HUB_DATABASE_SERVICE_NAME "veridian-core-db" }}
+HUB_DATABASE_MODE={{ $dbMode }}
+HUB_DATABASE_SERVICE_NAME={{ $dbServiceName }}
+HUB_DATABASE_USER={{ $dbUser }}
+HUB_DATABASE_HOST={{ $dbHost }}
+HUB_DATABASE_PORT={{ $dbPort }}
+HUB_DATABASE_NAME={{ $dbName }}
+HUB_DATABASE_SCHEMA={{ $dbSchema }}
+DATABASE_URL=postgresql://{{ $dbUser }}:{{ $dbPassword }}@{{ $dbHost }}:{{ $dbPort }}/{{ $dbName }}?schema={{ $dbSchema }}
+{{ end }}
 AUTH_SECRET={{ .HUB_AUTH_SECRET }}
 ADMIN_SECRET={{ .ADMIN_SECRET }}
 CRON_SECRET={{ .CRON_SECRET }}
