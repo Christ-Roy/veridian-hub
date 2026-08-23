@@ -67,7 +67,13 @@ job "hub" {
 
     network {
       mode = "bridge"
-      port "http" { to = 3000 }
+      # Les ingress tournent sur plusieurs nœuds. Le port applicatif doit donc
+      # être annoncé sur le réseau Tailscale commun, pas sur l'IP publique du
+      # nœud d'allocation (qui est filtrée entre origines et provoque un 504).
+      port "http" {
+        to           = 3000
+        host_network = "tailscale"
+      }
     }
 
     service {

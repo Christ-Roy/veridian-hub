@@ -23,6 +23,8 @@ reject_regex() {
 }
 
 for hcl in "$prod_hcl" "$staging_hcl"; do
+  require_fixed "$hcl" 'host_network = "tailscale"' \
+    "$hcl: port HTTP non publié sur le réseau inter-nœuds Tailscale"
   require_fixed "$hcl" 'HUB_DATABASE_MODE={{' \
     "$hcl: HUB_DATABASE_MODE explicite absent"
   require_fixed "$hcl" 'HUB_DATABASE_HOST={{ $dbHost }}' \
