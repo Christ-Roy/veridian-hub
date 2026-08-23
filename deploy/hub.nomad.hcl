@@ -30,7 +30,7 @@ variable "image_tag" {
   # version et un deploiement hors CI aurait retrograde le Hub. Ce defaut se
   # perime a chaque promotion ; le verifier fait partie de tout deploiement
   # hors CI de ce fichier.
-  default     = "v0.5.27"
+  default     = "v0.5.28"
 }
 
 job "hub" {
