@@ -26,9 +26,11 @@
 variable "image_tag" {
   type        = string
   description = "Tag de l'image ghcr.io/christ-roy/veridian-hub promue en prod (injecté par la CI)."
-  # Recale sur ce qui tourne reellement en prod : le defaut retardait de
-  # deux versions et un deploiement hors CI aurait retrograde le Hub.
-  default     = "v0.5.26"
+  # Recale sur ce qui tourne reellement en prod : le defaut retardait d'une
+  # version et un deploiement hors CI aurait retrograde le Hub. Ce defaut se
+  # perime a chaque promotion ; le verifier fait partie de tout deploiement
+  # hors CI de ce fichier.
+  default     = "v0.5.27"
 }
 
 job "hub" {
@@ -101,7 +103,7 @@ job "hub" {
         # Image officielle postgres:16-alpine + pgBackRest epingle. La BASE est
         # identique au bit pres : changer d'image de base changerait la
         # collation (musl/glibc) et fausserait silencieusement les index.
-        image = "ghcr.io/christ-roy/veridian-postgres-pgbackrest:16-alpine@sha256:0da89e301ddd14d3f576505ce57a9b92d2c0bf44b72bb31dbaeef18c63a207ee"
+        image = "ghcr.io/christ-roy/veridian-postgres-pgbackrest:16-alpine@sha256:ca672c3127d4e9e1fef42e813ecd751a6759ed4e7916e44a6ae7fb3a6862716e"
         args = [
           # --- Archivage continu des WAL vers le depot pgBackRest ---
           # C'est CE reglage, et non la sauvegarde nocturne, qui borne la perte
@@ -184,7 +186,7 @@ EOH
     task "pgbackrest" {
       driver = "docker"
       config {
-        image      = "ghcr.io/christ-roy/veridian-postgres-pgbackrest:16-alpine@sha256:0da89e301ddd14d3f576505ce57a9b92d2c0bf44b72bb31dbaeef18c63a207ee"
+        image      = "ghcr.io/christ-roy/veridian-postgres-pgbackrest:16-alpine@sha256:ca672c3127d4e9e1fef42e813ecd751a6759ed4e7916e44a6ae7fb3a6862716e"
         entrypoint = ["/usr/local/bin/pgbackrest-scheduler"]
         command    = ""
         volumes = [
