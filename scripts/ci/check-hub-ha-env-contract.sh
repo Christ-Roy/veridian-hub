@@ -44,21 +44,25 @@ for hcl in "$prod_hcl" "$staging_hcl"; do
     "$hcl: DATABASE_URL recopie un nom de conteneur/job en dur"
   reject_regex "$hcl" '^DATABASE_URL=.*{{[[:space:]]*\\.DATABASE_URL[[:space:]]*}}' \
     "$hcl: DATABASE_URL redevient une URL opaque stockée en secret"
+  reject_regex "$hcl" 'or \\.[A-Z_]+[[:space:]]' \
+    "$hcl: une NomadVarItem est passée à or sans .Value"
 done
 
+require_fixed "$prod_hcl" '{{ $dbMode := or .HUB_DATABASE_MODE.Value "local-colocated" }}' \
+  "prod: HUB_DATABASE_MODE n'est pas converti en chaîne Nomad"
 require_fixed "$prod_hcl" '{{ if eq $dbMode "nomad-service" }}' \
   "prod: mode service-discovery futur non rendu"
-require_fixed "$prod_hcl" '{{ $dbServiceName := or .HUB_DATABASE_SERVICE_NAME "hub-postgres" }}' \
+require_fixed "$prod_hcl" '{{ $dbServiceName := or .HUB_DATABASE_SERVICE_NAME.Value "hub-postgres" }}' \
   "prod: nom de service DB futur non paramétré"
 require_fixed "$prod_hcl" '{{ range nomadService $dbServiceName }}' \
   "prod: le futur endpoint DB ne passe pas par le registry Nomad"
-require_fixed "$prod_hcl" 'HUB_DATABASE_MODE "local-colocated"' \
+require_fixed "$prod_hcl" 'HUB_DATABASE_MODE.Value "local-colocated"' \
   "prod: fallback local-colocated absent"
-require_fixed "$prod_hcl" '{{ $dbServiceName := or .HUB_DATABASE_SERVICE_NAME "veridian-core-db" }}' \
+require_fixed "$prod_hcl" '{{ $dbServiceName := or .HUB_DATABASE_SERVICE_NAME.Value "veridian-core-db" }}' \
   "prod: nom logique DB historique absent"
-require_fixed "$staging_hcl" 'HUB_DATABASE_MODE "patroni-haproxy"' \
+require_fixed "$staging_hcl" 'HUB_DATABASE_MODE.Value "patroni-haproxy"' \
   "staging: mode Patroni/HAProxy absent"
-require_fixed "$staging_hcl" 'HUB_DATABASE_SERVICE_NAME={{ or .HUB_DATABASE_SERVICE_NAME "hub-staging-db" }}' \
+require_fixed "$staging_hcl" 'HUB_DATABASE_SERVICE_NAME={{ or .HUB_DATABASE_SERVICE_NAME.Value "hub-staging-db" }}' \
   "staging: nom du service DB staging absent"
 require_fixed "$staging_hcl" '{{ range nomadService "hub-staging-db" }}' \
   "staging: HAProxy ne résout pas les membres Patroni via Nomad service discovery"

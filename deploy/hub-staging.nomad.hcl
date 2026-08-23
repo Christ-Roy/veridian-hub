@@ -177,13 +177,13 @@ CRM_FRONTEND_URL=https://crm.staging.veridian.site
 # prod, DATABASE_URL est construite depuis un contrat d'endpoint stable et non
 # recopiée comme URL opaque. Le fallback garde le sidecar local actuel ; un futur
 # proxy/service HA se câble par `HUB_DATABASE_*` sans changer le code applicatif.
-{{ $dbUser := or .HUB_DATABASE_USER "hub" }}
-{{ $dbHost := or .HUB_DATABASE_HOST "127.0.0.1" }}
-{{ $dbPort := or .HUB_DATABASE_PORT "5432" }}
-{{ $dbName := or .HUB_DATABASE_NAME "hub" }}
-{{ $dbSchema := or .HUB_DATABASE_SCHEMA "hub_app" }}
-HUB_DATABASE_MODE={{ or .HUB_DATABASE_MODE "patroni-haproxy" }}
-HUB_DATABASE_SERVICE_NAME={{ or .HUB_DATABASE_SERVICE_NAME "hub-staging-db" }}
+{{ $dbUser := or .HUB_DATABASE_USER.Value "hub" }}
+{{ $dbHost := or .HUB_DATABASE_HOST.Value "127.0.0.1" }}
+{{ $dbPort := or .HUB_DATABASE_PORT.Value "5432" }}
+{{ $dbName := or .HUB_DATABASE_NAME.Value "hub" }}
+{{ $dbSchema := or .HUB_DATABASE_SCHEMA.Value "hub_app" }}
+HUB_DATABASE_MODE={{ or .HUB_DATABASE_MODE.Value "patroni-haproxy" }}
+HUB_DATABASE_SERVICE_NAME={{ or .HUB_DATABASE_SERVICE_NAME.Value "hub-staging-db" }}
 HUB_DATABASE_USER={{ $dbUser }}
 HUB_DATABASE_HOST={{ $dbHost }}
 HUB_DATABASE_PORT={{ $dbPort }}
