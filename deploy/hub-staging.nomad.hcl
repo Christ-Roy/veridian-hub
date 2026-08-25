@@ -19,13 +19,33 @@
 
 variable "image_tag" {
   type        = string
-  description = "Tag de l'image ghcr.io/christ-roy/veridian-hub staging (injecté par la CI ; défaut staging-latest)."
-  default     = "staging-6b52ee0"
+  description = "Tag immuable de l'image ghcr.io/christ-roy/veridian-hub staging (injecté par la CI)."
+  default     = "staging-59985dd"
 }
 
 job "hub-staging" {
   datacenters = ["veridian-eu"]
   type        = "service"
+  priority    = 50
+
+# veridian-contract:start
+  meta = {
+    "veridian.contract.version"  = "1"
+    "veridian.managed_by"        = "repo"
+    "veridian.environment"       = "staging"
+    "veridian.tier"              = "saas-staging"
+    "veridian.criticality"       = "C"
+    "veridian.owner"             = "platform"
+    "veridian.objective"         = "internal-99.0"
+    "veridian.rto_minutes"       = "30"
+    "veridian.rpo_minutes"       = "1440"
+    "veridian.state"             = "stateless"
+    "veridian.mobility"          = "sablier"
+    "veridian.preemptible"       = "true"
+    "veridian.production_job"    = "hub"
+    "veridian.promotion_policy"  = "non-production"
+  }
+# veridian-contract:end
 
   group "stack" {
     count = 1

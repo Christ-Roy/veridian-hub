@@ -92,4 +92,9 @@ else
   echo "⚠ scripts/ci/check-no-stripe-live-key.sh absent ou non exécutable"
 fi
 
+# ─── 8. Contrat GitOps Nomad co-localisé ────────────────────────────────
+# Les jobs saas-prod/staging doivent déclarer leur criticité, RTO/RPO,
+# politique de promotion et utiliser des images immuables.
+scripts/ci/check-nomad-contract.sh
+
 exit 0
