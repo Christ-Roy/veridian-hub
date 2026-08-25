@@ -29,22 +29,20 @@ job "hub-staging" {
   priority    = 50
 
 # veridian-contract:start
-  meta = {
-    "veridian.contract.version"  = "1"
-    "veridian.managed_by"        = "repo"
-    "veridian.environment"       = "staging"
-    "veridian.tier"              = "saas-staging"
-    "veridian.criticality"       = "C"
-    "veridian.owner"             = "platform"
-    "veridian.objective"         = "internal-99.0"
-    "veridian.rto_minutes"       = "30"
-    "veridian.rpo_minutes"       = "1440"
-    "veridian.state"             = "stateless"
-    "veridian.mobility"          = "sablier"
-    "veridian.preemptible"       = "true"
-    "veridian.production_job"    = "hub"
-    "veridian.promotion_policy"  = "non-production"
-  }
+# veridian.contract.version=1
+# veridian.managed_by=repo
+# veridian.environment=staging
+# veridian.tier=saas-staging
+# veridian.criticality=C
+# veridian.owner=platform
+# veridian.objective=internal-99.0
+# veridian.rto_minutes=30
+# veridian.rpo_minutes=1440
+# veridian.state=stateless
+# veridian.mobility=sablier
+# veridian.preemptible=true
+# veridian.production_job=hub
+# veridian.promotion_policy=non-production
 # veridian-contract:end
 
   group "stack" {
