@@ -92,4 +92,7 @@ else
   echo "⚠ scripts/ci/check-no-stripe-live-key.sh absent ou non exécutable"
 fi
 
+# ─── 8. Contrat GitOps Nomad co-localisé ────────────────────────────────
+scripts/ci/check-nomad-contract.sh
+
 exit 0

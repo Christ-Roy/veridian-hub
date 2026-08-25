@@ -30,13 +30,32 @@ variable "image_tag" {
   # version et un deploiement hors CI aurait retrograde le Hub. Ce defaut se
   # perime a chaque promotion ; le verifier fait partie de tout deploiement
   # hors CI de ce fichier.
-  default     = "v0.5.29"
+  default     = "v0.5.30"
 }
 
 job "hub" {
   datacenters = ["veridian-eu"]
   type        = "service"
   priority    = 80
+
+# veridian-contract:start
+  meta = {
+    "veridian.contract.version"  = "1"
+    "veridian.managed_by"        = "repo"
+    "veridian.environment"       = "production"
+    "veridian.tier"              = "saas-prod"
+    "veridian.criticality"       = "A"
+    "veridian.owner"             = "platform"
+    "veridian.objective"         = "availability-99.95"
+    "veridian.rto_minutes"       = "2"
+    "veridian.rpo_minutes"       = "5"
+    "veridian.state"             = "local-state"
+    "veridian.mobility"          = "local-gap"
+    "veridian.preemptible"       = "false"
+    "veridian.staging_job"       = "hub-staging"
+    "veridian.promotion_policy"  = "staging-required"
+  }
+# veridian-contract:end
 
   group "stack" {
     count = 1
