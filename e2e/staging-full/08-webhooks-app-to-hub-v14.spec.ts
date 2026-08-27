@@ -30,14 +30,16 @@ import { randomUUID } from 'node:crypto';
 const STAGING_URL = process.env.STAGING_URL || 'https://hub.staging.veridian.site';
 
 // Récupéré via `ssh dev-pub 'docker exec hub-staging env'` (cf. brief).
-// Ces valeurs sont injectées par la CI staging et restent stables d'un push
-// à l'autre. Si elles changent, ce spec saute en 401 → maintenance ici.
+// Ces valeurs sont injectées par la CI staging depuis les secrets GitHub.
+// Les fallbacks ci-dessous sont VOLONTAIREMENT factices : un secret réel ne
+// doit jamais figurer dans un fichier versionné (ce dépôt est public).
+// Sans injection, ces specs échouent en 401 — c'est le comportement voulu.
 const NOTIFUSE_TOKEN =
   process.env.NOTIFUSE_WEBHOOK_TOKEN ||
-  '6a68be1b9effd251386d0d25d04409cdda75575d79feee3de899c30dfa9b59f2';
+  'FAKE-e2e-notifuse-webhook-token-do-not-use-in-prod';
 const PROSPECTION_TOKEN =
   process.env.PROSPECTION_WEBHOOK_TOKEN ||
-  '9c9c97667cc7509e46d7004c81d4927073aae6490c3becb40f39aa82054b0f21';
+  'FAKE-e2e-prospection-webhook-token-do-not-use-in-prod';
 
 function v14Payload(
   event: string,

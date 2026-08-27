@@ -97,4 +97,18 @@ fi
 # politique de promotion et utiliser des images immuables.
 scripts/ci/check-nomad-contract.sh
 
+# ─── 9. Aucun secret en clair (toutes familles) ─────────────────────────
+# Généralise le check 7 au-delà de Stripe : motifs fournisseurs + littéraux
+# à forte entropie. Ce dépôt est PUBLIC — un secret poussé ici est publié
+# et l'historique le conserve, la seule remédiation restante est la rotation.
+# Né de l'incident du 2026-05-21 (3 jetons de webhook exposés 3 mois).
+# L'autotest tourne d'abord : un garde-fou qu'on n'a jamais vu refuser ne
+# prouve rien.
+if [ -x scripts/ci/check-no-secrets.sh ]; then
+  [ -x scripts/ci/check-no-secrets.selftest.sh ] && scripts/ci/check-no-secrets.selftest.sh
+  scripts/ci/check-no-secrets.sh
+else
+  echo "⚠ scripts/ci/check-no-secrets.sh absent ou non exécutable"
+fi
+
 exit 0

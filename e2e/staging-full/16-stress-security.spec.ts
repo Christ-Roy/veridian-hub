@@ -38,7 +38,7 @@ const STAGING_URL =
 // Tokens partagés avec spec 08 — déjà documenté dans le brief.
 const NOTIFUSE_TOKEN =
   process.env.NOTIFUSE_WEBHOOK_TOKEN ||
-  '6a68be1b9effd251386d0d25d04409cdda75575d79feee3de899c30dfa9b59f2';
+  'FAKE-e2e-notifuse-webhook-token-do-not-use-in-prod';
 
 // Webhook secret Stripe staging — résolution dynamique (cf. spec 09).
 // Priorité : STRIPE_WEBHOOK_SECRET_TEST > STRIPE_WEBHOOK_SECRET > fallback.

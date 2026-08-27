@@ -376,3 +376,98 @@ describe('lib/webhooks/receiver — dispatch & dedup', () => {
     expect(handler).toHaveBeenCalledTimes(2);
   });
 });
+
+// ============================================================================
+// Double acceptation pendant une fenêtre de rotation
+// ============================================================================
+//
+// Le receveur doit accepter l'ANCIENNE et la NOUVELLE valeur pendant la
+// bascule, sinon rotationner un secret coupe le trafic le temps que tous les
+// émetteurs soient redéployés. Ces tests exercent le vrai chemin (auth →
+// dédup → dispatch), pas seulement la comparaison de chaînes.
+//
+// Les deux moitiés comptent : accepter l'héritée pendant la fenêtre, et la
+// REFUSER une fois la fenêtre fermée. Sans la seconde, la rotation n'a rien
+// changé et le secret publié reste utilisable.
+
+describe('lib/webhooks/receiver — double acceptation (rotation)', () => {
+  const CURRENT = 'c'.repeat(64);
+  const PREVIOUS = 'p'.repeat(64);
+  const OPEN = { current: CURRENT, previous: PREVIOUS };
+  const CLOSED = { current: CURRENT, previous: null };
+
+  function payload(seed: string) {
+    return {
+      event: 'tenant.touched',
+      tenant_id: 't_rotation',
+      idempotency_key: uuid(seed),
+      occurred_at: new Date().toISOString(),
+      contract_version: '1.4',
+    };
+  }
+
+  it('accepte la valeur COURANTE pendant la fenêtre et dispatche', async () => {
+    const { handleWebhook } = await import('@/lib/webhooks/receiver');
+    const handler = vi.fn();
+    const res = await handleWebhook(
+      makeReq({ authHeader: `Bearer ${CURRENT}`, body: payload('rot-cur') }),
+      { app: 'test', expectedToken: OPEN, handlers: { 'tenant.touched': handler } },
+    );
+    expect(res.status).toBe(200);
+    expect(handler).toHaveBeenCalledTimes(1);
+    // L'effet métier doit avoir eu lieu, pas seulement l'authentification.
+    expect(rows).toHaveLength(1);
+    expect(rows[0].processedAt).not.toBeNull();
+  });
+
+  it('accepte la valeur HÉRITÉE pendant la fenêtre et dispatche', async () => {
+    const { handleWebhook } = await import('@/lib/webhooks/receiver');
+    const handler = vi.fn();
+    const res = await handleWebhook(
+      makeReq({ authHeader: `Bearer ${PREVIOUS}`, body: payload('rot-prev') }),
+      { app: 'test', expectedToken: OPEN, handlers: { 'tenant.touched': handler } },
+    );
+    expect(res.status).toBe(200);
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(rows).toHaveLength(1);
+  });
+
+  it('REFUSE la valeur héritée une fois la fenêtre fermée', async () => {
+    const { handleWebhook } = await import('@/lib/webhooks/receiver');
+    const handler = vi.fn();
+    const res = await handleWebhook(
+      makeReq({ authHeader: `Bearer ${PREVIOUS}`, body: payload('rot-closed') }),
+      { app: 'test', expectedToken: CLOSED, handlers: { 'tenant.touched': handler } },
+    );
+    expect(res.status).toBe(401);
+    // Rien ne doit avoir été persisté ni dispatché sur un refus.
+    expect(handler).not.toHaveBeenCalled();
+    expect(rows).toHaveLength(0);
+  });
+
+  it('refuse une valeur tierce même pendant la fenêtre', async () => {
+    const { handleWebhook } = await import('@/lib/webhooks/receiver');
+    const res = await handleWebhook(
+      makeReq({ authHeader: `Bearer ${'z'.repeat(64)}`, body: payload('rot-third') }),
+      { app: 'test', expectedToken: OPEN, handlers: {} },
+    );
+    expect(res.status).toBe(401);
+    expect(rows).toHaveLength(0);
+  });
+
+  it('reste compatible avec la forme string (rotation fermée)', async () => {
+    // Les appelants qui passent encore une string ne doivent pas casser.
+    const { handleWebhook } = await import('@/lib/webhooks/receiver');
+    const handler = vi.fn();
+    const ok = await handleWebhook(
+      makeReq({ authHeader: `Bearer ${TOKEN}`, body: payload('rot-str-ok') }),
+      { app: 'test', expectedToken: TOKEN, handlers: { 'tenant.touched': handler } },
+    );
+    expect(ok.status).toBe(200);
+    const ko = await handleWebhook(
+      makeReq({ authHeader: `Bearer ${PREVIOUS}`, body: payload('rot-str-ko') }),
+      { app: 'test', expectedToken: TOKEN, handlers: {} },
+    );
+    expect(ko.status).toBe(401);
+  });
+});
