@@ -61,12 +61,19 @@ HEX_RE='[0-9a-fA-F]{48,}'
 # passait la règle. Le cas réel à couvrir est hexadécimal, traité au-dessus ;
 # on ne sacrifie pas le taux de faux positifs pour une variante théorique.
 # Le mélange minuscule + majuscule + chiffre est exigé plus bas.
-B64_RE='[A-Za-z0-9+/]{40,}={0,2}'
+# Le `/` est EXCLU de l'alphabet : sans ça la règle attrape les URLs et les
+# chemins longs (`mailpit/blob/develop/docs/apiv1/README.md`). On perd les
+# secrets base64 contenant un `/`, mais le cas réel à couvrir est hexadécimal
+# et les mots de passe d'URL sont déjà pris par la règle 1. Un détecteur qui
+# refuse des choses saines finit désactivé — c'est le pire des états.
+B64_RE='[A-Za-z0-9+]{40,}={0,2}'
 
 # Faux positifs à écarter : placeholders et valeurs manifestement factices.
 # `deadbeef` et `0123456789` couvrent les vecteurs de test manifestement
 # construits à la main (signatures Stripe bidon, corps de test).
-BENIGN='CHANGE_ME|x0{6}|1x0{6}|dummy|example|placeholder|localhost|fake|not-real|notreal|whsec_fake|your-|deadbeef|0123456789|\$\{|\$\(|<[A-Za-z_-]+>|\.\.\.'
+# `\$VAR` / `\${VAR}` / `\$(cmd)` : une interpolation n'est pas une valeur.
+# `deadbeef` et `0123456789` : vecteurs de test construits à la main.
+BENIGN='CHANGE_ME|x0{6}|1x0{6}|dummy|example|placeholder|localhost|fake|not-real|notreal|whsec_fake|your-|deadbeef|0123456789|\$[A-Za-z_{(]|<[A-Za-z_-]+>|\.\.\.'
 
 # Hors périmètre : ce script et son autotest (ils contiennent les motifs), les
 # .example (placeholders par vocation), les lockfiles, la doc, et les
