@@ -8,6 +8,16 @@
 > lead, il ne se contourne pas. Détail : CLAUDE.md racine veridian-platform.
 
 
+> ## ⛔ Branche piège — `chore/nomad-gitops-ticket` (relevé C4, 2026-08-29)
+> **Ne pas fusionner, ne pas rouvrir la PR #24.** Cette branche fermée du 13
+> juillet porte une réécriture divergente de `hub-staging.yml` et `hub-ci.yml`
+> qui déploie par un heredoc `bash -s` sur le bastion. Depuis C4, la clé
+> `hub-ci-deploy@github` passe sous commande forcée
+> (`command="/usr/local/sbin/veridian-ci-deploy hub"`) : un heredoc y est refusé
+> avec le code 64. La fusionner **réintroduirait la faille et casserait le
+> déploiement du hub**. Contrat en vigueur :
+> `~/veridian/secrets-migration/C4-CONTRAT-CI.md`.
+
 > Ex Web-Dashboard. Application orchestratrice du SaaS.
 > Voir le CLAUDE.md racine (`../CLAUDE.md`) pour la vision globale.
 
