@@ -38,21 +38,34 @@ require_fixed "$hcl" 'memory     = 384' 'réservation mémoire app inattendue'
 [ "$(grep -Fc 'memory_max = 7000' "$hcl")" -eq 2 ] \
   || fail 'fusibles mémoire app/DB inattendus'
 
-# Nomad plan retourne 0 sans remplacement, 1 avec remplacement, puis un autre
-# code en erreur. Le workflow accepte explicitement 0/1 et bloque tout le reste.
-require_fixed "$ci" 'PLAN_STATUS=$?' 'code retour du plan Nomad non capturé'
-require_fixed "$ci" '1) echo "plan avec remplacement' 'remplacement Nomad normal non accepté'
-require_fixed "$ci" '*) echo "::error::nomad job plan a échoué' 'erreur de plan Nomad non bloquante'
-reject_fixed "$ci" 'nomad job plan -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL" || true' 'erreur de plan Nomad masquée'
-require_fixed "$ci" 'RUN_INDEX_ARGS=(-check-index "$MODIFY_INDEX")' 'protection TOCTOU check-index absente'
-require_fixed "$ci" '/home/brunon5/all-cron/backups/prod-r2-backup.sh' 'backup R2 pré-déploiement absent'
+# Déploiement via les VERBES CONTRAINTS du bastion (constat C4 de l'audit
+# d'exposition). La clé `hub-ci-deploy@github` porte désormais
+# `command="/usr/local/sbin/veridian-ci-deploy hub"` : elle n'ouvre plus de shell
+# et ne peut plus lire le jeton management Nomad. Le pré-pull, le `validate`, le
+# `plan` et son code retour, le `-check-index` anti-TOCTOU, le suivi du
+# DeploymentID et le backup R2 pré-déploiement vivent maintenant dans ce script
+# serveur. Les invariants côté dépôt sont donc devenus : on parle au bastion en
+# verbes, et on ne redéclare rien de ce que le serveur garantit déjà.
+require_fixed "$ci" '"put-job prod" < "$JOB_FILE"' 'dépôt du HCL prod par verbe put-job absent'
+require_fixed "$ci" '"deploy prod ${IMAGE_TAG}"' 'déploiement prod par verbe deploy absent'
+require_fixed "$ci" '"cleanup prod"' 'nettoyage prod par verbe cleanup absent'
+reject_fixed "$ci" 'bash -s' 'shell distant réintroduit dans le deploy prod'
+reject_fixed "$ci" 'nomad-bastion.env' 'jeton Nomad relu depuis la CI prod'
+reject_fixed "$ci" 'NOMAD_MGMT_TOKEN' 'jeton management Nomad exposé à la CI prod'
+reject_fixed "$ci" '/usr/bin/nomad' 'commande Nomad brute pilotée depuis la CI prod'
+reject_fixed "$ci" 'prod-r2-backup.sh' 'backup R2 dupliqué côté CI (il est pré-hook serveur)'
+require_fixed "$ci" '-o BatchMode=yes' 'BatchMode absent du deploy prod (clés en no-pty)'
 
-# Staging doit appliquer les mêmes garanties plan/run, sans le backup DB :
-# l'app redémarre, mais PostgreSQL reste dans le cluster Patroni séparé.
-require_fixed "$staging_ci" 'PLAN_STATUS=$?' 'code retour du plan staging non capturé'
-require_fixed "$staging_ci" '*) echo "::error::nomad job plan staging a échoué' 'erreur de plan staging non bloquante'
-reject_fixed "$staging_ci" 'nomad job plan -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL" || true' 'erreur de plan staging masquée'
-require_fixed "$staging_ci" 'RUN_INDEX_ARGS=(-check-index "$MODIFY_INDEX")' 'protection TOCTOU staging absente'
+# Staging applique le même contrat, sur son propre tier : la clé est la même, donc
+# le tier est le seul degré de liberté laissé au client, et il est validé serveur.
+require_fixed "$staging_ci" '"put-job staging" < "$JOB_FILE"' 'dépôt du HCL staging par verbe put-job absent'
+require_fixed "$staging_ci" '"deploy staging ${IMAGE_TAG}"' 'déploiement staging par verbe deploy absent'
+require_fixed "$staging_ci" '"cleanup staging"' 'nettoyage staging par verbe cleanup absent'
+reject_fixed "$staging_ci" 'bash -s' 'shell distant réintroduit dans le deploy staging'
+reject_fixed "$staging_ci" 'nomad-bastion.env' 'jeton Nomad relu depuis la CI staging'
+reject_fixed "$staging_ci" 'NOMAD_MGMT_TOKEN' 'jeton management Nomad exposé à la CI staging'
+reject_fixed "$staging_ci" '/usr/bin/nomad' 'commande Nomad brute pilotée depuis la CI staging'
+require_fixed "$staging_ci" '-o BatchMode=yes' 'BatchMode absent du deploy staging (clés en no-pty)'
 
 # Actions Node 20 dépréciées : les versions majeures actuelles utilisent le
 # runtime supporté par GitHub et évitent des warnings qui masquent les vrais signaux.
@@ -71,14 +84,15 @@ require_fixed "$dockerfile" '/usr/local/lib/node_modules/corepack' 'suppression 
 reject_fixed "$trivyignore" 'CVE-2026-33671' 'ancienne exception picomatch encore active'
 reject_fixed "$trivyignore" 'CVE-2026-48815' 'ancienne exception sigstore encore active'
 
-plan_line=$(grep -nF 'PLAN_OUTPUT=$(/usr/bin/nomad job plan' "$ci" | cut -d: -f1)
-backup_line=$(grep -nF '/home/brunon5/all-cron/backups/prod-r2-backup.sh' "$ci" | cut -d: -f1)
-run_line=$(grep -nF 'EVAL=$(/usr/bin/nomad job run' "$ci" | cut -d: -f1)
-[ "$plan_line" -lt "$backup_line" ] || fail 'backup lancé avant validation du plan'
-[ "$backup_line" -lt "$run_line" ] || fail 'backup non bloquant avant nomad job run'
+# Le HCL doit être déposé AVANT qu'on demande le déploiement : sans dépôt, le
+# script serveur refuse (« aucun HCL déposé »), et l'inverse déploierait le HCL
+# du run précédent.
+putjob_line=$(grep -nF '"put-job prod" < "$JOB_FILE"' "$ci" | cut -d: -f1)
+deploy_line=$(grep -nF '"deploy prod ${IMAGE_TAG}"' "$ci" | cut -d: -f1)
+[ "$putjob_line" -lt "$deploy_line" ] || fail 'deploy prod demandé avant le dépôt du HCL'
 
-staging_plan_line=$(grep -nF 'PLAN_OUTPUT=$(/usr/bin/nomad job plan' "$staging_ci" | cut -d: -f1)
-staging_run_line=$(grep -nF 'EVAL=$(/usr/bin/nomad job run' "$staging_ci" | cut -d: -f1)
-[ "$staging_plan_line" -lt "$staging_run_line" ] || fail 'run staging placé avant le plan'
+staging_putjob_line=$(grep -nF '"put-job staging" < "$JOB_FILE"' "$staging_ci" | cut -d: -f1)
+staging_deploy_line=$(grep -nF '"deploy staging ${IMAGE_TAG}"' "$staging_ci" | cut -d: -f1)
+[ "$staging_putjob_line" -lt "$staging_deploy_line" ] || fail 'deploy staging demandé avant le dépôt du HCL'
 
 echo 'OK: invariants GitOps Hub prod fail-closed'
