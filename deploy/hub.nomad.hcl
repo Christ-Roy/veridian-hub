@@ -159,6 +159,7 @@ job "hub" {
       }
       template {
         destination = "secrets/pg.env"
+        perms       = "600"   # secret: lisible du seul proprietaire
         env         = true
         data        = <<EOH
 TZ=UTC
@@ -225,6 +226,7 @@ EOH
 
       template {
         destination = "secrets/pgbackrest.env"
+        perms       = "600"   # secret: lisible du seul proprietaire
         env         = true
         data        = <<EOH
 TZ=UTC
@@ -313,6 +315,7 @@ EOH
       }
       template {
         destination = "secrets/hub.env"
+        perms       = "600"   # secret: lisible du seul proprietaire
         env         = true
         data        = <<EOH
 NODE_ENV=production
