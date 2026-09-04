@@ -178,17 +178,19 @@ export function resolveDownstreamBaseUrl(
  * Domaine par défaut de chaque app downstream, utilisé quand la variable
  * `NEXT_PUBLIC_<APP>_URL` n'est pas déployée.
  *
- * ⚠️ `analytics` ne suit PAS la convention `<app>.app.veridian.site` : l'app
- * historique servie sur `analytics.app.veridian.site` est **morte** (vérifié
- * le 2026-07-28 : HTTP 404) et remplacée par le fork staminads servi sur
- * `analytics-engine.app.veridian.site` (HTTP 200). Le fallback générique
- * envoyait donc les clients sur une 404 — pas même un écran de login.
- * Cf. `todo/2026-07-28-autologin-analytics-contrat-et-etat-reel.md`.
+ * ⚠️ Historique de `analytics`, à lire avant de « corriger » :
+ *   - jusqu'au 2026-07-28, `analytics.app.veridian.site` renvoyait 404 et le
+ *     fallback envoyait les clients dans le vide. D'où le report vers
+ *     `analytics-engine.*` (fork staminads).
+ *   - depuis le 2026-08-18, `analytics.app.veridian.site` sert le NOUVEAU
+ *     moteur (fork Rybbit rebrandé Veridian), et c'est lui qu'on ouvre aux
+ *     clients. L'ancien reste en ligne le temps de la bascule mais n'est plus
+ *     la destination.
  */
 const DEFAULT_APP_BASE_URL: Record<SupportedApp, string> = {
   notifuse: 'https://notifuse.app.veridian.site',
   prospection: 'https://prospection.app.veridian.site',
-  analytics: 'https://analytics-engine.app.veridian.site',
+  analytics: 'https://analytics.app.veridian.site',
   cms: 'https://cms.app.veridian.site',
 };
 
