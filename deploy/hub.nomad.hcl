@@ -128,6 +128,20 @@ job "hub" {
     task "veridian-core-db" {
       driver = "docker"
       config {
+        # Identification lisible du conteneur (2026-09-07). Nomad ne pose que
+        # `com.hashicorp.nomad.alloc_id` : rien ne disait a quelle application
+        # appartenait un conteneur. Les quatre premieres valeurs sont
+        # interpolees par Nomad a l'execution, les deux dernieres sont des
+        # proprietes du fichier (dossier jobs/<tier>/ et table du script
+        # scripts/poser-labels-conteneurs.py).
+        labels = {
+          "site.veridian.job"   = "${NOMAD_JOB_NAME}"
+          "site.veridian.group" = "${NOMAD_GROUP_NAME}"
+          "site.veridian.task"  = "${NOMAD_TASK_NAME}"
+          "site.veridian.node"  = "${node.unique.name}"
+          "site.veridian.tier"  = "saas-prod"
+          "site.veridian.app"   = "hub"
+        }
         # Image officielle postgres:16-alpine + pgBackRest epingle. La BASE est
         # identique au bit pres : changer d'image de base changerait la
         # collation (musl/glibc) et fausserait silencieusement les index.
@@ -215,6 +229,20 @@ EOH
     task "pgbackrest" {
       driver = "docker"
       config {
+        # Identification lisible du conteneur (2026-09-07). Nomad ne pose que
+        # `com.hashicorp.nomad.alloc_id` : rien ne disait a quelle application
+        # appartenait un conteneur. Les quatre premieres valeurs sont
+        # interpolees par Nomad a l'execution, les deux dernieres sont des
+        # proprietes du fichier (dossier jobs/<tier>/ et table du script
+        # scripts/poser-labels-conteneurs.py).
+        labels = {
+          "site.veridian.job"   = "${NOMAD_JOB_NAME}"
+          "site.veridian.group" = "${NOMAD_GROUP_NAME}"
+          "site.veridian.task"  = "${NOMAD_TASK_NAME}"
+          "site.veridian.node"  = "${node.unique.name}"
+          "site.veridian.tier"  = "saas-prod"
+          "site.veridian.app"   = "hub"
+        }
         image      = "ghcr.io/christ-roy/veridian-postgres-pgbackrest:16-alpine@sha256:ca672c3127d4e9e1fef42e813ecd751a6759ed4e7916e44a6ae7fb3a6862716e"
         entrypoint = ["/usr/local/bin/pgbackrest-scheduler"]
         command    = ""
@@ -309,6 +337,20 @@ EOH
         }
       }
       config {
+        # Identification lisible du conteneur (2026-09-07). Nomad ne pose que
+        # `com.hashicorp.nomad.alloc_id` : rien ne disait a quelle application
+        # appartenait un conteneur. Les quatre premieres valeurs sont
+        # interpolees par Nomad a l'execution, les deux dernieres sont des
+        # proprietes du fichier (dossier jobs/<tier>/ et table du script
+        # scripts/poser-labels-conteneurs.py).
+        labels = {
+          "site.veridian.job"   = "${NOMAD_JOB_NAME}"
+          "site.veridian.group" = "${NOMAD_GROUP_NAME}"
+          "site.veridian.task"  = "${NOMAD_TASK_NAME}"
+          "site.veridian.node"  = "${node.unique.name}"
+          "site.veridian.tier"  = "saas-prod"
+          "site.veridian.app"   = "hub"
+        }
         image = "ghcr.io/christ-roy/veridian-hub:${var.image_tag}"
         init  = true
         ports = ["http"]
