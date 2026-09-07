@@ -106,6 +106,12 @@ job "hub-staging" {
     task "pgproxy" {
       driver = "docker"
       config {
+        # Durcissement Unix : empeche un processus non privilegie d'elever ses
+        # droits via un binaire setuid. C'est le maillon entre « shell dans le
+        # conteneur » et « root sur l'hote ». N'affecte PAS un processus qui
+        # ABANDONNE ses droits au demarrage, seulement celui qui en gagne.
+        security_opt = ["no-new-privileges:true"]
+
         image   = "haproxy:3.0-alpine"
         command = "haproxy"
         args    = ["-f", "/local/haproxy.cfg"]
@@ -153,6 +159,12 @@ EOH
     task "hub" {
       driver = "docker"
       config {
+        # Durcissement Unix : empeche un processus non privilegie d'elever ses
+        # droits via un binaire setuid. C'est le maillon entre « shell dans le
+        # conteneur » et « root sur l'hote ». N'affecte PAS un processus qui
+        # ABANDONNE ses droits au demarrage, seulement celui qui en gagne.
+        security_opt = ["no-new-privileges:true"]
+
         image = "ghcr.io/christ-roy/veridian-hub:${var.image_tag}"
         ports = ["http"]
       }
