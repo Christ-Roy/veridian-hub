@@ -109,6 +109,26 @@ job "hub-staging" {
     task "pgproxy" {
       driver = "docker"
       config {
+        # Durcissement Unix : empeche un processus non privilegie d'elever ses
+        # droits via un binaire setuid. C'est le maillon entre « shell dans le
+        # conteneur » et « root sur l'hote ». N'affecte PAS un processus qui
+        # ABANDONNE ses droits au demarrage, seulement celui qui en gagne.
+        security_opt = ["no-new-privileges:true"]
+
+        # Identification lisible du conteneur (2026-09-07). Nomad ne pose que
+        # `com.hashicorp.nomad.alloc_id` : rien ne disait a quelle application
+        # appartenait un conteneur. Les quatre premieres valeurs sont
+        # interpolees par Nomad a l'execution, les deux dernieres sont des
+        # proprietes du fichier (dossier jobs/<tier>/ et table du script
+        # scripts/poser-labels-conteneurs.py).
+        labels = {
+          "site.veridian.job"   = "${NOMAD_JOB_NAME}"
+          "site.veridian.group" = "${NOMAD_GROUP_NAME}"
+          "site.veridian.task"  = "${NOMAD_TASK_NAME}"
+          "site.veridian.node"  = "${node.unique.name}"
+          "site.veridian.tier"  = "saas-staging"
+          "site.veridian.app"   = "hub"
+        }
         image   = "haproxy:3.0-alpine"
         command = "haproxy"
         args    = ["-f", "/local/haproxy.cfg"]
@@ -156,6 +176,26 @@ EOH
     task "hub" {
       driver = "docker"
       config {
+        # Durcissement Unix : empeche un processus non privilegie d'elever ses
+        # droits via un binaire setuid. C'est le maillon entre « shell dans le
+        # conteneur » et « root sur l'hote ». N'affecte PAS un processus qui
+        # ABANDONNE ses droits au demarrage, seulement celui qui en gagne.
+        security_opt = ["no-new-privileges:true"]
+
+        # Identification lisible du conteneur (2026-09-07). Nomad ne pose que
+        # `com.hashicorp.nomad.alloc_id` : rien ne disait a quelle application
+        # appartenait un conteneur. Les quatre premieres valeurs sont
+        # interpolees par Nomad a l'execution, les deux dernieres sont des
+        # proprietes du fichier (dossier jobs/<tier>/ et table du script
+        # scripts/poser-labels-conteneurs.py).
+        labels = {
+          "site.veridian.job"   = "${NOMAD_JOB_NAME}"
+          "site.veridian.group" = "${NOMAD_GROUP_NAME}"
+          "site.veridian.task"  = "${NOMAD_TASK_NAME}"
+          "site.veridian.node"  = "${node.unique.name}"
+          "site.veridian.tier"  = "saas-staging"
+          "site.veridian.app"   = "hub"
+        }
         image = "ghcr.io/christ-roy/veridian-hub:${var.image_tag}"
         ports = ["http"]
       }
