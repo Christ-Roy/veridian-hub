@@ -106,7 +106,7 @@ job "hub-staging" {
 
     # ---- pgproxy (HAProxy sidecar → toujours le LEADER Patroni) ----
     # Écoute 127.0.0.1:5432 dans le netns du groupe ; l'app tape localhost:5432.
-    task "pgproxy" {
+    task "hub-staging-pgproxy" {
       driver = "docker"
       config {
         # Durcissement Unix : empeche un processus non privilegie d'elever ses
@@ -159,7 +159,7 @@ EOH
     }
 
     # ---- hub (Next.js, port 3000) ----
-    task "hub" {
+    task "hub-staging" {
       driver = "docker"
       config {
         # Durcissement Unix : empeche un processus non privilegie d'elever ses
