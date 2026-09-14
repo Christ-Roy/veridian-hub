@@ -313,6 +313,10 @@ saas_image_lag() {
               | sort_by(.updated_at) | reverse | .[0]
               | (.metadata.container.tags | join(",")) + "|" + .updated_at' 2>/dev/null)
     [ -z "$latest_info" ] && return
+    # Un message d'erreur de l'API n'est pas un tag. Sans ce garde-fou, une
+    # portee de jeton manquante faisait afficher « nouvelle image pas encore
+    # deployee » sur les six depots, tous les jours, pour rien.
+    case "$latest_info" in *'"message"'*|*'Not Found'*|*'Bad credentials'*) return ;; esac
     local latest_tags="${latest_info%%|*}"
     local latest_at="${latest_info##*|}"
     local latest_tag
@@ -1062,6 +1066,15 @@ render_section_current_repo() {
             else
                 echo "    ⚠  staging EN AVANCE de prod (${STG_SHA} pas dans main)"
             fi
+        elif [ "$STG_TAG" = "n/a" ] || [ "$PRD_TAG" = "n/a" ] || [ -z "$STG_TAG" ]; then
+            # 🔴 FAUX VERT CORRIGE LE 2026-09-14. Quand les deux cotes rendent
+            # « n/a », ils sont EGAUX, et la branche ci-dessous annoncait donc
+            # « staging et prod alignees » alors que RIEN n'avait ete mesure.
+            # C'est le pire des trois etats deguise en meilleur. Cause vue ce
+            # jour-la : le jeton gh n'a plus la portee read:packages, donc
+            # l'API GHCR rend un message d'erreur au lieu des tags.
+            echo "    ⚠ MESURE NON ABOUTIE : image staging=${STG_TAG} prod=${PRD_TAG} — ce n'est PAS « alignées »"
+            echo "       verifier la portee du jeton : gh auth status (read:packages requis)"
         elif [ "$STG_TAG" = "$PRD_TAG" ] && [ -n "$STG_TAG" ]; then
             echo "    ✓ staging et prod alignées"
         fi
