@@ -612,6 +612,13 @@ render_section_global() {
             echo "  (obs check ne répond pas — vérifier ~/.config/obs/)"
         fi
         rm -f "$OBS_OUT_FILE"
+        # Aiguillage : ces trois outils existent et sont sous-utilisés parce que
+        # rien ne signalait leur existence. Coroot notamment, deploye le 2026-08-18
+        # en remplacement du cockpit maison, n'etait cite dans aucun hook.
+        echo "  ─────"
+        echo "  Creuser : erreurs/logs → obs check <topic>, obs errors, obs tail <container>"
+        echo "            capacite/OOM/pics → obs-nomad capacite|gras|pic <job>|oom"
+        echo "            carte des services et dependances → https://coroot.internal.veridian.site"
     fi
 
     echo ""
@@ -639,6 +646,54 @@ render_section_global() {
         printf " %s=%s" "$db" "$r2_count"
     done
     [ "$r2_bad" = 0 ] && printf " ✓\n" || printf " ⚠ rétention <7\n"
+
+    render_crons_failed
+}
+
+###############################################################################
+# Tâches planifiées en échec — avec LEUR CAUSE, pas seulement leur nom.
+#
+# Pourquoi ça existe : le 28/08/2026, deux sauvegardes (les huit bases Medusa
+# clientes, et ClickHouse qui porte l'analytics de tous les clients) étaient
+# muettes depuis trois nuits. `all-cron status` les affichait en `fail`, et
+# leurs journaux nommaient la cause en toutes lettres — « ssh: connection timed
+# out », « nœud inconnu de la table d'alias ». Mais rien ne remontait au
+# démarrage, et personne ne lance `all-cron status` chaque matin.
+#
+# Le nom d'un job en échec ne suffit pas à décider d'agir : c'est la cause qui
+# fait la différence entre « une IP a bougé, deux minutes » et « à creuser ».
+# D'où la dernière ligne du journal, affichée directement.
+###############################################################################
+render_crons_failed() {
+    command -v systemctl >/dev/null 2>&1 || return 0
+    local failed
+    failed=$(timeout 5 systemctl --user list-units --type=service --state=failed --no-legend --plain 2>/dev/null \
+             | awk '$1 ~ /^allcron-/ { print $1 }' | head -8)
+    [ -n "$failed" ] || return 0
+
+    echo ""
+    echo "## 🔴 Tâches planifiées en échec"
+    # Le nom d'unité est allcron-<dossier>-<job>, et le dossier contient lui-même
+    # des tirets (`acquisition-emailing`). Le découper au premier tiret donne un
+    # chemin faux et un « journal muet » trompeur : on cherche donc le fichier
+    # dont <dossier>/<job> reconstitue exactement le nom de l'unité.
+    local logs_root="$HOME/all-cron/_logs"
+    local unit job log rel cause
+    while IFS= read -r unit; do
+        [ -n "$unit" ] || continue
+        job="${unit#allcron-}"; job="${job%.service}"
+        log=""
+        while IFS= read -r f; do
+            rel="${f#"$logs_root"/}"; rel="${rel%.log}"
+            if [ "${rel/\//-}" = "$job" ]; then log="$f"; break; fi
+        done < <(find "$logs_root" -maxdepth 2 -name '*.log' 2>/dev/null)
+        cause=""
+        [ -n "$log" ] && cause=$(tail -n 40 "$log" 2>/dev/null \
+                                 | grep -vE '^──|OK container=|^[[:space:]]*$' \
+                                 | tail -1 | cut -c1-104)
+        printf '  ✗ %-46s %s\n' "${job:0:46}" "${cause:-(journal muet — systemctl --user status ${unit})}"
+    done <<< "$failed"
+    echo "  → réparer : all-cron logs <job> · relancer : systemctl --user start <unit>"
 }
 
 ###############################################################################
@@ -1024,20 +1079,16 @@ render_section_current_repo() {
 }
 
 ###############################################################################
-# Main render — 3 sections in order
-###############################################################################
-
-render_section_global
-echo ""
-echo ""
-render_section_saas_overview
-echo ""
-echo ""
-render_section_current_repo
-
-# --- Fusibles API réseaux sociaux : coupures volontaires en cours ---------
+# Fusibles API réseaux sociaux : coupures volontaires en cours
+#
 # Un fusible pose a la main est invisible tant qu'on ne va pas le chercher.
 # S'il traine, on croit que l'integration est cassee alors qu'elle est en pause.
+#
+# 🔴 CE BLOC RESTE MESURÉ À L'AFFICHAGE, PAS DÉPOSÉ. C'est une lecture de
+# fichiers locaux, mesurée à 0,0 s le 2026-09-14 : la déposer ne gagnerait rien
+# et ferait afficher un fusible périmé jusqu'à une heure. Un fusible qu'on vient
+# de poser doit se voir à la session suivante, pas au prochain relevé.
+###############################################################################
 render_social_api_pauses() {
     local any=0
     for flag in "$HOME"/credentials/social/*-EN-PAUSE; do
@@ -1056,17 +1107,336 @@ render_social_api_pauses() {
         echo "     lever le fusible : rm ${flag}"
     done
 }
-render_social_api_pauses
 
 # --- Crypto : constantes établies + verdict gas du jour — non bloquant ---
-echo ""
-echo ""
-echo "# CRYPTO — constantes à garder en tête (détail : crypto facts)"
-if [ -x "$HOME/.local/bin/crypto" ]; then
-    "$HOME/.local/bin/crypto" facts --line 2>/dev/null
-    timeout 8 "$HOME/.local/bin/crypto" gas --line 2>/dev/null || echo "  ⛽ gas indisponible (réseau) — lancer 'crypto gas' plus tard"
-else
-    echo "  (CLI crypto absent)"
-fi
+render_crypto() {
+    echo ""
+    echo ""
+    echo "# CRYPTO — constantes à garder en tête (détail : crypto facts)"
+    if [ -x "$HOME/.local/bin/crypto" ]; then
+        "$HOME/.local/bin/crypto" facts --line 2>/dev/null
+        timeout 8 "$HOME/.local/bin/crypto" gas --line 2>/dev/null || echo "  ⛽ gas indisponible (réseau) — lancer 'crypto gas' plus tard"
+    else
+        echo "  (CLI crypto absent)"
+    fi
+}
 
+###############################################################################
+# RELEVÉ / DÉPÔT — pourquoi ce hook ne mesure plus rien au démarrage
+#
+# CE QUE ÇA COÛTAIT. Ce hook est câblé en SessionStart. Il interroge la flotte
+# en ssh, GHCR et l'API GitHub, Nomad, R2 et joue un dry-run de pre-push :
+# 64,8 s · 63,5 s · 88,0 s sur trois relevés isolés le 2026-09-14, pour 167
+# lignes. Il y a eu 505 sessions en 7 jours sur cette machine. Environ dix
+# heures par semaine passées à regarder un curseur, sur le poste de travail
+# principal de la flotte. L'en-tête d'origine disait « pas de cache : Robert
+# remplit sa queue de messages pendant que le hook tourne, donc la latence n'est
+# pas bloquante ». C'était faux : elle l'est, et elle l'est 72 fois par jour.
+#
+# LE MOTIF, DÉJÀ PROUVÉ DEUX FOIS SUR CETTE MACHINE. `verifier-contexte.sh` et
+# `outillage.sh` séparent le RELEVÉ (lent, distant, à part) de l'AFFICHAGE
+# (local, instantané, il lit un dépôt). Ce script fait désormais pareil.
+#
+# POURQUOI DEUX DÉPÔTS ET PAS UN. §1 et §2 ne dépendent pas du répertoire
+# courant ; §3 décrit le repo dans lequel la session est lancée. Un dépôt unique
+# afficherait le §3 d'un autre repo, ce qui est pire qu'une absence : c'est un
+# faux vert sur le mauvais dépôt. D'où un dépôt global et un dépôt par repo.
+#
+# PAS DE TÂCHE PLANIFIÉE. Le rafraîchissement est porté par l'affichage
+# lui-même : quand un dépôt dépasse son seuil d'âge, un relevé part EN FOND
+# (setsid, jamais bloquant) et le dépôt existant est affiché avec son âge. Un
+# verrou par dépôt empêche dix sessions simultanées de lancer dix relevés.
+#
+# 🔴 TROIS ÉTATS, JAMAIS DEUX. Un dépôt absent ou vide n'affiche pas un blanc et
+# surtout pas un vert : il dit MESURE NON ABOUTIE et lance le relevé. Un relevé
+# qui échoue écrit son échec, il n'efface pas le dépôt précédent. Un tableau de
+# bord d'infra qui se tait parce qu'il n'a pas pu mesurer est exactement le
+# piège que tout ce parc combat.
+#
+# USAGE
+#   infra-status.sh                  lit les dépôts, n'exécute rien (c'est le hook)
+#   infra-status.sh --afficher       idem, explicite
+#   infra-status.sh --relever        relève tout (global + repo courant), en direct
+#   infra-status.sh --relever-global §1 + §2 + crypto
+#   infra-status.sh --relever-repo   §3 pour le repo du répertoire courant
+#   infra-status.sh --direct         ancien comportement : tout mesurer, tout afficher,
+#                                    sans toucher aux dépôts (debug / vérification)
+#   infra-status.sh --epreuve        se voir rendre MESURE NON ABOUTIE puis reverdir
+#
+# CODES DE SORTIE du relevé : 0 déposé · 2 le relevé n'a rien produit.
+###############################################################################
+
+DEPOT_DIR="${INFRA_STATUS_DEPOT_DIR:-$HOME/.claude/infra-status}"
+DEPOT_GLOBAL="$DEPOT_DIR/global.txt"
+DEPOT_CRYPTO="$DEPOT_DIR/crypto.txt"
+GLOBAL_AGE_MAX_MIN="${INFRA_STATUS_GLOBAL_AGE_MIN:-60}"
+REPO_AGE_MAX_MIN="${INFRA_STATUS_REPO_AGE_MIN:-30}"
+VERROU_MORT_S="${INFRA_STATUS_VERROU_MORT_S:-900}"
+
+# Clé du dépôt §3 : le repo SaaS courant, ou rien si la session n'est pas dans
+# un repo SaaS (dans ce cas §3 est instantané et se rend en direct).
+depot_repo_courant() {
+    local r; r="$(detect_current_saas_repo)"
+    [ -n "$r" ] && printf '%s/repo-%s.txt' "$DEPOT_DIR" "$r"
+}
+
+age_minutes() {
+    local f="$1" t
+    t=$(stat -c %Y "$f" 2>/dev/null) || { echo 999999; return; }
+    echo $(( ( $(date +%s) - t ) / 60 ))
+}
+
+age_lisible() {
+    local m="$1"
+    if [ "$m" -lt 60 ]; then printf '%s min' "$m"; return; fi
+    if [ "$m" -lt 2880 ]; then
+        if [ $((m%60)) -eq 0 ]; then printf '%s h' "$((m/60))"
+        else printf '%s h %s min' "$((m/60))" "$((m%60))"; fi
+        return
+    fi
+    printf '%s j' "$((m/1440))"
+}
+
+# Un verrou vivant veut dire « un relevé tourne » ; un verrou de plus de 15 min
+# est un relevé mort, pas un relevé en cours.
+verrou_pris() {
+    local v="$1"
+    if mkdir "$v" 2>/dev/null; then return 0; fi
+    local age=$(( $(date +%s) - $(stat -c %Y "$v" 2>/dev/null || echo 0) ))
+    if [ "$age" -gt "$VERROU_MORT_S" ]; then
+        rmdir "$v" 2>/dev/null && mkdir "$v" 2>/dev/null && return 0
+    fi
+    return 1
+}
+
+verrou_vivant() {
+    local v="$1"
+    [ -d "$v" ] || return 1
+    local age=$(( $(date +%s) - $(stat -c %Y "$v" 2>/dev/null || echo 0) ))
+    [ "$age" -lt "$VERROU_MORT_S" ]
+}
+
+# Le relevé n'écrase jamais un dépôt par du vide : il écrit à côté, vérifie
+# qu'il a produit quelque chose, et bascule d'un seul mv. Une coupure en cours
+# de route laisse donc le dépôt précédent intact, daté, honnête.
+deposer() {
+    local cible="$1" tmp="$1.tmp.$$"
+    cat > "$tmp"
+    if [ -s "$tmp" ]; then
+        mv "$tmp" "$cible"
+        return 0
+    fi
+    rm -f "$tmp"
+    return 2
+}
+
+relever_global() {
+    mkdir -p "$DEPOT_DIR"
+    local verrou="$DEPOT_GLOBAL.verrou"
+    verrou_pris "$verrou" || { echo "relevé global déjà en cours" >&2; return 3; }
+    trap 'rmdir "$verrou" 2>/dev/null' EXIT
+    local debut; debut=$(date +%s)
+    local rc=0
+    { render_section_global; echo ""; echo ""; render_section_saas_overview; } | deposer "$DEPOT_GLOBAL" || rc=2
+    render_crypto | deposer "$DEPOT_CRYPTO" || rc=2
+    if [ "$rc" != 0 ]; then
+        # Le relevé n'a rien produit. On le DIT, sans toucher au dépôt : un
+        # dépôt vieux et daté vaut mieux qu'un dépôt effacé.
+        printf '%s|%s\n' "$(date '+%Y-%m-%d %H:%M')" "le relevé global n'a produit aucune sortie" \
+            > "$DEPOT_DIR/global.echec"
+    else
+        rm -f "$DEPOT_DIR/global.echec"
+    fi
+    rmdir "$verrou" 2>/dev/null; trap - EXIT
+    [ "$rc" = 0 ] && echo "relevé global déposé en $(( $(date +%s) - debut ))s" >&2
+    return $rc
+}
+
+relever_repo() {
+    local cible; cible="$(depot_repo_courant)"
+    [ -n "$cible" ] || { echo "pas dans un repo SaaS : rien à relever" >&2; return 0; }
+    mkdir -p "$DEPOT_DIR"
+    local verrou="$cible.verrou"
+    verrou_pris "$verrou" || { echo "relevé repo déjà en cours" >&2; return 3; }
+    trap 'rmdir "$verrou" 2>/dev/null' EXIT
+    local debut; debut=$(date +%s)
+    local rc=0
+    render_section_current_repo | deposer "$cible" || rc=2
+    rmdir "$verrou" 2>/dev/null; trap - EXIT
+    [ "$rc" = 0 ] && echo "relevé §3 déposé en $(( $(date +%s) - debut ))s" >&2
+    return $rc
+}
+
+# Relance non bloquante. `setsid` détache du terminal de la session : le hook
+# rend la main immédiatement, le relevé survit à la fermeture de la session.
+#
+# INFRA_STATUS_RELANCE_SIMULEE=1 remplace le lancement par une trace. C'est le
+# levier qui permet à l'épreuve de vérifier QUE la relance est demandée, sans
+# déclencher 70 s de ssh à chaque fois qu'on éprouve le hook.
+relancer_en_fond() {
+    local quoi="$1" verrou="$2"
+    verrou_vivant "$verrou" && return 0
+    if [ "${INFRA_STATUS_RELANCE_SIMULEE:-0}" = "1" ]; then
+        echo "[relance SIMULÉE: $quoi]" >&2
+        return 0
+    fi
+    setsid nohup "$0" "$quoi" >/dev/null 2>&1 < /dev/null &
+    disown 2>/dev/null || true
+}
+
+# Rend une section depuis son dépôt, avec les trois états.
+afficher_depot() {
+    local fichier="$1" seuil="$2" quoi="$3" titre="$4"
+    local verrou="$fichier.verrou"
+    if [ ! -s "$fichier" ]; then
+        echo "# ⚠️ ${titre} — MESURE NON ABOUTIE : aucun relevé déposé"
+        echo "   Ce n'est PAS « rien à signaler » : personne n'a encore mesuré cette section."
+        if verrou_vivant "$verrou"; then
+            echo "   Un relevé tourne en ce moment. Revenir à la session suivante, ou : $0 ${quoi}"
+        else
+            echo "   Relevé lancé en fond. Pour l'avoir tout de suite : $0 ${quoi}"
+            relancer_en_fond "$quoi" "$verrou"
+        fi
+        return 0
+    fi
+    cat "$fichier"
+    local m; m=$(age_minutes "$fichier")
+    # L'age est TOUJOURS visible des qu'il depasse deux minutes. Sans ca, un
+    # §3 depose il y a vingt minutes se lit comme l'etat du dossier a
+    # l'instant, et un agent conclut sur un arbre de travail deja change.
+    if [ "$m" -ge "$seuil" ]; then
+        if verrou_vivant "$verrou"; then
+            echo "  ⚠ relevé vieux de $(age_lisible "$m") — il décrit le passé. Un rafraîchissement tourne déjà."
+        else
+            echo "  ⚠ relevé vieux de $(age_lisible "$m") — il décrit le passé. Rafraîchissement lancé en fond."
+            relancer_en_fond "$quoi" "$verrou"
+        fi
+    elif [ "$m" -ge 2 ]; then
+        echo "  ↳ releve d'il y a $(age_lisible "$m") (rafraichi au-dela de ${seuil} min · tout de suite : $0 ${quoi})"
+    fi
+}
+
+afficher() {
+    local depot_repo; depot_repo="$(depot_repo_courant)"
+
+    afficher_depot "$DEPOT_GLOBAL" "$GLOBAL_AGE_MAX_MIN" --relever-global "§1 GLOBAL INFRA + §2 SAAS OVERVIEW"
+    if [ -s "$DEPOT_DIR/global.echec" ]; then
+        echo "  🔴 dernier relevé global EN ÉCHEC ($(cut -d'|' -f1 "$DEPOT_DIR/global.echec")) : $(cut -d'|' -f2 "$DEPOT_DIR/global.echec")"
+        echo "     ce qui est affiché ci-dessus est ANTÉRIEUR à cet échec — relancer : $0 --relever-global"
+    fi
+
+    echo ""
+    echo ""
+    if [ -n "$depot_repo" ]; then
+        afficher_depot "$depot_repo" "$REPO_AGE_MAX_MIN" --relever-repo "§3 CURRENT REPO"
+    else
+        # Hors repo SaaS, §3 est une seule ligne et ne coûte rien : direct.
+        render_section_current_repo
+    fi
+
+    render_social_api_pauses
+
+    if [ -s "$DEPOT_CRYPTO" ]; then
+        cat "$DEPOT_CRYPTO"
+    else
+        echo ""
+        echo ""
+        echo "# ⚠️ CRYPTO — MESURE NON ABOUTIE : aucun relevé déposé (lancer : crypto facts)"
+    fi
+}
+
+# L'ancien comportement, intact : tout mesurer, tout afficher, ne rien déposer.
+direct() {
+    render_section_global
+    echo ""
+    echo ""
+    render_section_saas_overview
+    echo ""
+    echo ""
+    render_section_current_repo
+    render_social_api_pauses
+    render_crypto
+}
+
+###############################################################################
+# L'ÉPREUVE — se voir rendre MESURE NON ABOUTIE, puis reverdir.
+# Un contrôle qu'on n'a jamais vu se déclencher est une intention, pas une
+# mesure. Elle travaille dans un dépôt jetable : les vrais dépôts ne bougent pas.
+###############################################################################
+epreuve() {
+    local bac; bac=$(mktemp -d) || return 2
+    local verdict=0
+    # Aucune épreuve ne doit déclencher 70 s de ssh : la relance est simulée et
+    # tracée, ce qui permet en plus de VÉRIFIER qu'elle est bien demandée.
+    export INFRA_STATUS_RELANCE_SIMULEE=1
+
+    echo "── ÉPREUVE 1/5 : dépôt ABSENT → MESURE NON ABOUTIE + relance demandée, jamais un blanc"
+    local out1 err1
+    err1=$(INFRA_STATUS_DEPOT_DIR="$bac/vide" "$0" --afficher 2>&1 >"$bac/o1")
+    out1=$(cat "$bac/o1")
+    sed 's/^/    /' <<<"$out1" | head -6
+    grep -q 'MESURE NON ABOUTIE' <<<"$out1" || { echo "✗ ÉPREUVE RATÉE : dépôt absent n'a pas rendu MESURE NON ABOUTIE"; verdict=1; }
+    [ -n "$out1" ] || { echo "✗ ÉPREUVE RATÉE : sortie vide sur dépôt absent"; verdict=1; }
+    grep -q 'relance SIMULÉE: --relever-global' <<<"$err1" || { echo "✗ ÉPREUVE RATÉE : aucun relevé relancé sur dépôt absent"; verdict=1; }
+    echo "    relance demandée : $(tr '\n' ' ' <<<"$err1")"
+
+    echo "── ÉPREUVE 2/5 : dépôt PRÉSENT et frais → rend son contenu, sans avertissement d'âge ni relance"
+    mkdir -p "$bac/frais"
+    echo "# §1 CONTENU-TEMOIN-FRAIS" > "$bac/frais/global.txt"
+    echo "# CRYPTO temoin"          > "$bac/frais/crypto.txt"
+    local out2 err2
+    err2=$(INFRA_STATUS_DEPOT_DIR="$bac/frais" "$0" --afficher 2>&1 >"$bac/o2")
+    out2=$(cat "$bac/o2")
+    grep -q 'CONTENU-TEMOIN-FRAIS' <<<"$out2" || { echo "✗ ÉPREUVE RATÉE : le contenu du dépôt n'a pas été rendu"; verdict=1; }
+    grep -q 'relevé vieux de' <<<"$out2" && { echo "✗ ÉPREUVE RATÉE : un dépôt frais a été déclaré vieux"; verdict=1; }
+    grep -q 'relance SIMULÉE: --relever-global' <<<"$err2" && { echo "✗ ÉPREUVE RATÉE : relevé global relancé alors que le dépôt est frais"; verdict=1; }
+    echo "    contenu rendu, aucun avertissement d'âge, aucune relance globale ✓"
+
+    echo "── ÉPREUVE 3/5 : dépôt VIEUX → rend son contenu ET dit son âge ET relance"
+    mkdir -p "$bac/vieux"
+    echo "# §1 CONTENU-TEMOIN-VIEUX" > "$bac/vieux/global.txt"
+    echo "# CRYPTO temoin"           > "$bac/vieux/crypto.txt"
+    touch -d '9 hours ago' "$bac/vieux/global.txt"
+    local out3 err3
+    err3=$(INFRA_STATUS_DEPOT_DIR="$bac/vieux" "$0" --afficher 2>&1 >"$bac/o3")
+    out3=$(cat "$bac/o3")
+    grep -q 'CONTENU-TEMOIN-VIEUX' <<<"$out3" || { echo "✗ ÉPREUVE RATÉE : contenu d'un dépôt vieux non rendu"; verdict=1; }
+    grep -q 'relevé vieux de 9 h' <<<"$out3" || { echo "✗ ÉPREUVE RATÉE : l'âge (9 h) n'a pas été annoncé"; verdict=1; }
+    grep -q 'relance SIMULÉE: --relever-global' <<<"$err3" || { echo "✗ ÉPREUVE RATÉE : dépôt périmé non rafraîchi"; verdict=1; }
+    sed -n '/relevé vieux/p' <<<"$out3" | sed 's/^/    /'
+
+    echo "── ÉPREUVE 4/5 : dépôt VIDE (fichier de 0 octet) → NON ABOUTIE, jamais un vert silencieux"
+    mkdir -p "$bac/zero"; : > "$bac/zero/global.txt"; : > "$bac/zero/crypto.txt"
+    local out4; out4=$(INFRA_STATUS_DEPOT_DIR="$bac/zero" "$0" --afficher 2>/dev/null)
+    grep -q 'MESURE NON ABOUTIE' <<<"$out4" || { echo "✗ ÉPREUVE RATÉE : un fichier vide est passé pour une mesure"; verdict=1; }
+    echo "    fichier de 0 octet correctement refusé ✓"
+
+    echo "── ÉPREUVE 5/5 : un VERROU VIVANT ne doit pas déclencher une seconde relance"
+    mkdir -p "$bac/verrouille/global.txt.verrou"
+    local err5; err5=$(INFRA_STATUS_DEPOT_DIR="$bac/verrouille" "$0" --afficher 2>&1 >/dev/null)
+    grep -q 'relance SIMULÉE: --relever-global' <<<"$err5" && { echo "✗ ÉPREUVE RATÉE : relevé relancé malgré un verrou vivant"; verdict=1; }
+    echo "    verrou respecté, pas de tempête de relevés ✓"
+
+    # `deposer` ne doit jamais remplacer un dépôt par du vide.
+    echo "── BONUS : un relevé sans sortie ne doit PAS effacer le dépôt précédent"
+    echo "ANCIEN" > "$bac/depose.txt"
+    printf '' | deposer "$bac/depose.txt" && { echo "✗ ÉPREUVE RATÉE : deposer a accepté du vide"; verdict=1; }
+    grep -qx 'ANCIEN' "$bac/depose.txt" || { echo "✗ ÉPREUVE RATÉE : le dépôt précédent a été détruit"; verdict=1; }
+    echo "    dépôt précédent préservé ✓"
+
+    rm -rf "$bac"
+    [ $verdict -eq 0 ] && echo "✓ ÉPREUVE TENUE : vu rendre MESURE NON ABOUTIE sur dépôt absent et sur dépôt vide, vu annoncer l'âge d'un dépôt périmé, vu refuser d'écraser par du vide."
+    return $verdict
+}
+
+case "${1:---afficher}" in
+    --afficher)        afficher ;;
+    --relever)         relever_global; relever_repo ;;
+    --relever-global)  relever_global ;;
+    --relever-repo)    relever_repo ;;
+    --direct)          direct ;;
+    --epreuve)         epreuve ;;
+    -h|--help)         sed -n '/^# *USAGE/,/^# *CODES DE SORTIE/p' "$0" | sed 's/^# \{0,1\}//' ;;
+    *)                 afficher ;;
+esac
 exit 0
