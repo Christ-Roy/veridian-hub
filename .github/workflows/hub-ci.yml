@@ -262,12 +262,25 @@ jobs:
     env:
       NOMAD_JOB: hub
       JOB_FILE: deploy/hub.nomad.hcl
-      REMOTE_HCL: /tmp/hub-${{ github.run_id }}.nomad.hcl
       PROD_URL: https://app.veridian.site
     steps:
       - uses: actions/checkout@v6
         # Le HCL vit dans le repo (deploy/) — pas besoin du submodule ici.
 
+      # ── DEPLOY NOMAD PROD (bastion, commande forcée) ───────────────────────
+      # Depuis le constat C4 de l'audit d'exposition, la clé `hub-ci-deploy@github`
+      # n'ouvre plus de shell sur le bastion : elle est câblée en
+      #   command="/usr/local/sbin/veridian-ci-deploy hub"
+      # dans authorized_keys. La CI ne fournit plus qu'un verbe, un tier et un tag,
+      # tous validés par motif strict côté serveur ; l'application est fixée dans la
+      # ligne de la clé, donc cette clé ne peut déployer QUE le Hub, et le jeton
+      # management Nomad n'est plus lisible depuis la session SSH.
+      #
+      # Ce qui a quitté ce fichier pour le script serveur, sans rien perdre :
+      # la sauvegarde R2 pré-déploiement des bases (pré-hook du couple hub/prod),
+      # le pré-pull authentifié sur ovh-prod, le `nomad job validate`, le `plan` et
+      # son code retour, le `-check-index` anti-TOCTOU, et le suivi du DeploymentID
+      # exact jusqu'à son état terminal. Ne pas les redupliquer ici.
       - name: Install SSH key (bastion Nomad)
         run: |
           mkdir -p ~/.ssh
@@ -275,96 +288,36 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "${{ secrets.NOMAD_BASTION_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
 
-      # ⚠️ On copie le HCL DU REPO (qui déclare `variable "image_tag"`), jamais la
+      # ⚠️ On dépose le HCL DU REPO (qui déclare `variable "image_tag"`), jamais la
       # copie bastion ~/nomad-veridian/jobs/ (plus vieille, sans le bloc variable).
-      - name: Copy HCL to bastion
+      # Le HCL part sur stdin : la CI ne choisit plus le chemin d'écriture, et le
+      # script refuse un HCL qui ne déclare pas `job "hub"`.
+      - name: Dépôt du HCL sur le bastion (put-job prod)
         run: |
-          scp -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new \
-            "$JOB_FILE" \
-            "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}:$REMOTE_HCL"
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+            "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}" \
+            "put-job prod" < "$JOB_FILE"
 
-      - name: nomad job plan (dry-run) + run -detach
+      # Backup R2 + pré-pull + validate + plan + run -check-index + suivi du
+      # déploiement, côté bastion. La sortie est relayée telle quelle dans le log du
+      # run, et le code de sortie du script fait échouer ce step (deploy KO ou
+      # auto-revert).
+      # ⚠️ Job prod STATEFUL (DB co-localisée, count=1) → un run recrée l'alloc
+      # (bref redémarrage DB, attendu, pas zéro-downtime).
+      - name: Deploy Nomad prod (deploy prod <tag>)
         env:
           IMAGE_TAG: ${{ needs.docker.outputs.version }}
-          REMOTE_HCL: ${{ env.REMOTE_HCL }}
         run: |
-          ssh -i ~/.ssh/id_ed25519 \
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes \
             "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}" \
-            "IMAGE_TAG='${IMAGE_TAG}' REMOTE_HCL='${REMOTE_HCL}' bash -s" <<'REMOTE'
-          set -euo pipefail
-          # NOMAD_MGMT_TOKEN sourcé ici, sur le bastion, exporté en NOMAD_TOKEN.
-          source ~/credentials/nomad-bastion.env
-          export NOMAD_ADDR NOMAD_TOKEN="$NOMAD_MGMT_TOKEN"
+            "deploy prod ${IMAGE_TAG}"
 
-          echo "== nomad job validate =="
-          /usr/bin/nomad job validate -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL"
-
-          echo "== nomad job plan (diff, inoffensif) =="
-          set +e
-          PLAN_OUTPUT=$(/usr/bin/nomad job plan -no-color \
-            -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL" 2>&1)
-          PLAN_STATUS=$?
-          set -e
-          printf '%s\n' "$PLAN_OUTPUT"
-          case "$PLAN_STATUS" in
-            0) echo "plan sans création ou destruction d'allocation" ;;
-            1) echo "plan avec remplacement d'allocation attendu" ;;
-            *) echo "::error::nomad job plan a échoué (code=$PLAN_STATUS)"; exit "$PLAN_STATUS" ;;
-          esac
-
-          # Lie le run au Modify Index observé par le plan. Si un autre acteur
-          # modifie le job entre les deux, Nomad refuse le run au lieu d'écraser
-          # silencieusement ce changement concurrent.
-          MODIFY_INDEX=$(printf '%s\n' "$PLAN_OUTPUT" \
-            | sed -n 's/^Job Modify Index: \([0-9][0-9]*\)$/\1/p' | tail -1)
-          RUN_INDEX_ARGS=()
-          [ -n "$MODIFY_INDEX" ] && RUN_INDEX_ARGS=(-check-index "$MODIFY_INDEX")
-
-          # Le groupe est stateful et redémarre PostgreSQL. Le runner canonique
-          # crée et vérifie une sauvegarde R2 des six bases avant toute mutation.
-          echo "== sauvegarde PostgreSQL pré-déploiement vers R2 =="
-          /home/brunon5/all-cron/backups/prod-r2-backup.sh
-
-          # ── PRÉ-PULL authentifié sur le nœud cible (prod = ovh-prod) ──
-          # Nomad ne pull pas les images PRIVÉES ghcr (plugin sans bloc auth → 401,
-          # alloc pending jusqu'au healthy_deadline). On pré-pull via SSH sur le
-          # nœud cible (auth ghcr en place) → image déjà présente quand la task démarre.
-          echo "== pré-pull image prod sur ovh-prod =="
-          ssh -n -o BatchMode=yes -o StrictHostKeyChecking=accept-new prod-pub \
-            "docker pull 'ghcr.io/christ-roy/veridian-hub:${IMAGE_TAG}'"
-
-          # Déploiement + vérification CIBLÉE (ni race, ni 404) : run -detach →
-          # résout le Deployment de cet eval → `deployment status -monitor <id>`
-          # (bloque jusqu'à terminal, exit ≠0 si échec/auto-revert). Évite le faux
-          # positif du poll (lit l'ancien deploy) ET le faux négatif du `job run`
-          # bloquant (404 transitoire). Incident 2026-07-11.
-          # ⚠️ Job prod STATEFUL (DB co-localisée, count=1) → un run recrée l'alloc
-          # (bref redémarrage DB, attendu, pas zéro-downtime).
-          echo "== nomad job run -detach + monitoring du déploiement ciblé (image_tag=${IMAGE_TAG}) =="
-          EVAL=$(/usr/bin/nomad job run -detach "${RUN_INDEX_ARGS[@]}" \
-            -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL" \
-            | grep -oP 'Evaluation ID:\s+\K\S+')
-          echo "eval: ${EVAL:-none}"
-          DEP=""
-          for i in $(seq 1 15); do
-            DEP=$(/usr/bin/nomad eval status -json "$EVAL" 2>/dev/null | python3 -c 'import sys,json;print(json.load(sys.stdin).get("DeploymentID") or "")' 2>/dev/null || true)
-            [ -n "$DEP" ] && break
-            sleep 2
-          done
-          if [ -z "$DEP" ]; then
-            echo "Pas de déploiement créé (job inchangé = no-op) → OK"
-          else
-            echo "deployment: $DEP — monitoring jusqu'à terminal…"
-            /usr/bin/nomad deployment status -monitor "$DEP"
-          fi
-          REMOTE
-
-      - name: Cleanup remote HCL
+      - name: Cleanup du HCL déposé (cleanup prod)
         if: always()
         run: |
-          ssh -i ~/.ssh/id_ed25519 \
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes \
             "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}" \
-            "rm -f '$REMOTE_HCL'" || true
+            "cleanup prod" || true
 
       # Smoke public (le monitor Nomad a déjà garanti que le NOUVEL alloc est
       # healthy ; ce curl est une double-vérif via l'ingress public).

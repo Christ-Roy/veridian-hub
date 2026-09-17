@@ -13,8 +13,8 @@
 |---|---|
 | `deploy/hub.nomad.hcl` | **PROD** — job `hub`, `provider=ovh-prod`, DB `veridian-core-db` postgres:16 co-localisée aujourd'hui, sert `app.veridian.site`. `DATABASE_URL` est composée depuis `HUB_DATABASE_*` + le mot de passe, pour préparer le cutover HA sans réécrire l'app. `variable image_tag` (défaut `latest`). |
 | `deploy/hub-staging.nomad.hcl` | **STAGING** — job `hub-staging`, `provider=ovh-dev`, **DB en cluster Patroni HA** (sidecar HAProxy `pgproxy` → leader dynamique), privé `internal-only@nomad`, sert `hub.staging.veridian.site`. `variable image_tag` (défaut `staging-latest`). |
-| `.github/workflows/hub-staging.yml` | Pipeline staging (push `staging`) : build+push GHCR → deploy Nomad SSH-bastion → smoke tailnet. |
-| `.github/workflows/hub-ci.yml` | Pipeline prod (push `main`) : test → audit → trivy → docker → deploy-prod (Nomad SSH-bastion) → e2e-prod-smoke. |
+| `.github/workflows/hub-staging.yml` | Pipeline staging (push `staging`) : build+push GHCR → `put-job` / `deploy` / `cleanup` sur le bastion → smoke tailnet. |
+| `.github/workflows/hub-ci.yml` | Pipeline prod (push `main`) : test → audit → trivy → docker → deploy-prod (`put-job` / `deploy` / `cleanup` sur le bastion) → e2e-prod-smoke. |
 
 ## Différences Hub vs canon Prospection
 
@@ -70,7 +70,7 @@ Posés 2026-07-13 (mêmes valeurs partagées cross-app, clé SSH **dédiée Hub*
 
 | Secret | Contenu |
 |---|---|
-| `NOMAD_DEPLOY_SSH_KEY` | Clé SSH privée ed25519 dédiée CI Hub (`hub-ci-deploy@github`). Publique dans `~brunon5/.ssh/authorized_keys` du bastion. |
+| `NOMAD_DEPLOY_SSH_KEY` | Clé SSH privée ed25519 dédiée CI Hub (`hub-ci-deploy@github`). Publique dans `~brunon5/.ssh/authorized_keys` du bastion, **en commande forcée** `command="/usr/local/sbin/veridian-ci-deploy hub"` : elle n'ouvre plus de shell. |
 | `NOMAD_BASTION_HOST` | Adresse du bastion Nomad utilisée comme control-plane. |
 | `NOMAD_BASTION_USER` | `brunon5`. |
 | `TS_OAUTH_CLIENT_ID` / `TS_OAUTH_SECRET` | (déjà présents) Le smoke staging rejoint le tailnet (staging privé). |
@@ -79,6 +79,38 @@ Les secrets **applicatifs** (DB, Stripe, OAuth, HMAC cross-app) vivent dans les
 Nomad Variables `nomad/jobs/hub` et `nomad/jobs/hub-staging` — la CI ne les voit
 jamais. Les anciens secrets `STAGING_*` / `DEPLOY_SSH_KEY` / `DOKPLOY_*` du deploy
 compose sont devenus inutiles (à retirer une fois le Nomad éprouvé).
+
+## Contrat de déploiement contraint (constat C4)
+
+La clé de CI ouvrait un shell sur un compte `NOPASSWD:ALL` du groupe `docker` :
+elle valait root sur le bastion et pouvait lire `~/credentials/nomad-bastion.env`,
+c'est-à-dire le jeton **management** Nomad, c'est-à-dire les secrets de toutes les
+applications. Elle porte désormais une commande forcée, et la CI ne parle plus au
+bastion qu'en verbes validés :
+
+| Étape CI | Commande envoyée |
+|---|---|
+| dépôt du jobspec | `ssh … "put-job <staging\|prod>" < deploy/hub[-staging].nomad.hcl` (le HCL passe par stdin ; refusé s'il ne déclare pas le job attendu) |
+| déploiement | `ssh … "deploy <tier> <image_tag>"` |
+| nettoyage | `ssh … "cleanup <tier>"` |
+
+L'application (`hub`) est fixée **dans la ligne de la clé**, côté serveur : cette
+clé ne peut pas déployer une autre application, et le tag doit matcher
+`[A-Za-z0-9][A-Za-z0-9._-]{0,127}`. Tout le reste sort en code **64**.
+
+Ce que le script serveur (`/usr/local/sbin/veridian-ci-deploy`) exécute pour nous,
+et qu'il ne faut donc PAS redupliquer dans les workflows : sauvegarde R2
+pré-déploiement des bases (pré-hook du couple `hub`/`prod`), pré-pull authentifié
+sur le nœud cible, `nomad job validate`, `nomad job plan` avec traitement de son
+code retour, `nomad job run -detach -check-index` (anti-TOCTOU), puis suivi du
+DeploymentID exact jusqu'à son état terminal. Le garde-fou
+`scripts/ci/check-prod-gitops-reliability.sh` refuse la réintroduction d'un
+`bash -s`, d'une lecture du jeton ou d'un appel `nomad` brut depuis la CI.
+
+Toujours `-o BatchMode=yes`, jamais `-t` : la clé est en `no-pty`.
+
+Retour arrière : retirer `command="…"` de la ligne concernée dans
+`~brunon5/.ssh/authorized_keys` du bastion.
 
 ## Déployer / rejouer à la main (depuis le bastion)
 
@@ -101,10 +133,11 @@ curl -s -o /dev/null -w '%{http_code}\n' https://app.veridian.site/api/health   
 
 ## Pièges Hub (en plus des 11 du canon Prospection)
 
-- **Pré-pull staging = sur ovh-dev** (`ssh -n dev-pub docker pull …`) car le job
-  `hub-staging` est `provider=ovh-dev`. Pré-pull prod = **sur ovh-prod**
-  (`ssh -n prod-pub docker pull …`). L'auth GHCR doit rester valide sur les deux
-  nœuds cibles.
+- **Pré-pull staging = sur ovh-dev** car le job `hub-staging` est
+  `provider=ovh-dev` ; pré-pull prod = **sur ovh-prod**. Il est fait par le script
+  serveur (table `app:tier` → nœud), plus par le workflow, mais l'auth GHCR doit
+  toujours rester valide sur les deux nœuds cibles : sans elle, Nomad laisse
+  l'alloc en `pending` jusqu'au `healthy_deadline`.
 - **Migrate-on-boot + Patroni staging** : au démarrage, le container Hub attend
   que le sidecar `pgproxy` route vers un leader. Si l'ordre de démarrage fait
   booter Hub avant pgproxy, le migrate échoue → le `restart` stanza (10×/15s)

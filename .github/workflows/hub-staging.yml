@@ -49,7 +49,6 @@ jobs:
       # Job Nomad staging (== `job "hub-staging"` du HCL) — placé sur ovh-dev.
       NOMAD_JOB: hub-staging
       JOB_FILE: deploy/hub-staging.nomad.hcl
-      REMOTE_HCL: /tmp/hub-staging-${{ github.run_id }}.nomad.hcl
     steps:
       - uses: actions/checkout@v6
         with:
@@ -88,10 +87,23 @@ jobs:
               -f ./Dockerfile \
               .
 
-      # ── DEPLOY NOMAD (SSH bastion) — remplace l'ancien deploy compose dev-pub ──
-      # Canon : veridian-prospection/deploy/README.md. Le NOMAD_TOKEN ne quitte
-      # JAMAIS le bastion (sourcé in situ). Les secrets app vivent dans la Nomad
-      # Variable nomad/jobs/hub-staging (injectés cluster-side par template{env}).
+      # ── DEPLOY NOMAD (bastion, commande forcée) ────────────────────────────
+      # Canon : veridian-prospection/deploy/README.md. Depuis le constat C4 de
+      # l'audit d'exposition, la clé `hub-ci-deploy@github` n'ouvre plus de shell
+      # sur le bastion : elle est câblée en
+      #   command="/usr/local/sbin/veridian-ci-deploy hub"
+      # dans authorized_keys. La CI ne fournit plus qu'un verbe, un tier et un tag,
+      # tous validés par motif strict côté serveur ; l'application, elle, est fixée
+      # dans la ligne de la clé, donc cette clé ne peut déployer QUE le Hub.
+      # Le NOMAD_TOKEN ne quitte JAMAIS le bastion (sourcé dans le script). Les
+      # secrets app vivent dans la Nomad Variable nomad/jobs/hub-staging (injectés
+      # cluster-side par template{env}).
+      #
+      # Le pré-pull authentifié sur ovh-dev, le `nomad job validate`, le `plan`, le
+      # `-check-index` anti-TOCTOU et le suivi du DeploymentID exact jusqu'à son état
+      # terminal sont désormais DANS le script serveur : rien n'est perdu, tout est
+      # simplement passé côté bastion. Ne pas les redupliquer ici.
+      #
       # ⚠️ Adaptation Hub : PAS de step `prisma migrate deploy` — le container Hub
       # migre AU BOOT (Dockerfile CMD : `prisma migrate deploy && … && server.js`,
       # idempotent + advisory lock). Nomad démarre le nouvel alloc → migrate-on-boot
@@ -103,88 +115,33 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "${{ secrets.NOMAD_BASTION_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
 
-      # ⚠️ On copie le HCL DU REPO (qui déclare `variable "image_tag"`), jamais la
+      # ⚠️ On dépose le HCL DU REPO (qui déclare `variable "image_tag"`), jamais la
       # copie bastion ~/nomad-veridian/jobs/ (plus vieille, sans le bloc variable).
-      - name: Copy HCL to bastion
+      # Le HCL part sur stdin : la CI ne choisit plus le chemin d'écriture, et le
+      # script refuse un HCL qui ne déclare pas `job "hub-staging"`.
+      - name: Dépôt du HCL sur le bastion (put-job staging)
         run: |
-          scp -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new \
-            "$JOB_FILE" \
-            "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}:$REMOTE_HCL"
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+            "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}" \
+            "put-job staging" < "$JOB_FILE"
 
-      - name: nomad job plan (dry-run) + run -detach
+      # validate + plan + run -check-index + suivi du déploiement, côté bastion.
+      # La sortie du script est relayée telle quelle dans le log du run, et son
+      # code de sortie fait échouer ce step (déploiement KO ou auto-revert).
+      - name: Deploy Nomad staging (deploy staging <tag>)
         env:
           IMAGE_TAG: ${{ steps.tag.outputs.image-tag }}
-          REMOTE_HCL: ${{ env.REMOTE_HCL }}
         run: |
-          ssh -i ~/.ssh/id_ed25519 \
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes \
             "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}" \
-            "IMAGE_TAG='${IMAGE_TAG}' REMOTE_HCL='${REMOTE_HCL}' bash -s" <<'REMOTE'
-          set -euo pipefail
-          # NOMAD_MGMT_TOKEN sourcé ici, sur le bastion, exporté en NOMAD_TOKEN.
-          source ~/credentials/nomad-bastion.env
-          export NOMAD_ADDR NOMAD_TOKEN="$NOMAD_MGMT_TOKEN"
+            "deploy staging ${IMAGE_TAG}"
 
-          # ── PRÉ-PULL authentifié sur le nœud cible (staging = ovh-dev == dev-pub) ──
-          # Nomad ne pull pas les images PRIVÉES ghcr (plugin sans bloc auth → 401,
-          # alloc pending jusqu'au healthy_deadline, incident 2026-07-11). On pré-pull
-          # AVEC l'auth ghcr du nœud. -n IMPÉRATIF : sinon ce ssh avale le stdin du
-          # heredoc REMOTE et mange les commandes nomad suivantes → faux vert.
-          echo "== pré-pull image sur ovh-dev (auth ghcr du nœud) =="
-          ssh -n -o BatchMode=yes -o ConnectTimeout=15 dev-pub \
-            "docker pull ghcr.io/christ-roy/veridian-hub:${IMAGE_TAG}"
-
-          echo "== nomad job validate =="
-          /usr/bin/nomad job validate -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL"
-
-          echo "== nomad job plan (diff, inoffensif) =="
-          set +e
-          PLAN_OUTPUT=$(/usr/bin/nomad job plan -no-color \
-            -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL" 2>&1)
-          PLAN_STATUS=$?
-          set -e
-          printf '%s\n' "$PLAN_OUTPUT"
-          case "$PLAN_STATUS" in
-            0) echo "plan sans création ou destruction d'allocation" ;;
-            1) echo "plan avec remplacement d'allocation attendu" ;;
-            *) echo "::error::nomad job plan staging a échoué (code=$PLAN_STATUS)"; exit "$PLAN_STATUS" ;;
-          esac
-
-          # Refuse d'écraser une modification concurrente entre plan et run.
-          MODIFY_INDEX=$(printf '%s\n' "$PLAN_OUTPUT" \
-            | sed -n 's/^Job Modify Index: \([0-9][0-9]*\)$/\1/p' | tail -1)
-          RUN_INDEX_ARGS=()
-          [ -n "$MODIFY_INDEX" ] && RUN_INDEX_ARGS=(-check-index "$MODIFY_INDEX")
-
-          # Déploiement + vérification CIBLÉE (ni race, ni 404) : run -detach →
-          # résout le Deployment de cet eval → `deployment status -monitor <id>`
-          # (bloque jusqu'à terminal, exit ≠0 si échec/auto-revert). Évite le faux
-          # positif du poll `job status | grep successful` (lit l'ancien deploy) ET
-          # le faux négatif du `job run` bloquant (404 transitoire). Incident 2026-07-11.
-          echo "== nomad job run -detach + monitoring du déploiement ciblé (image_tag=${IMAGE_TAG}) =="
-          EVAL=$(/usr/bin/nomad job run -detach "${RUN_INDEX_ARGS[@]}" \
-            -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL" \
-            | grep -oP 'Evaluation ID:\s+\K\S+')
-          echo "eval: ${EVAL:-none}"
-          DEP=""
-          for i in $(seq 1 15); do
-            DEP=$(/usr/bin/nomad eval status -json "$EVAL" 2>/dev/null | python3 -c 'import sys,json;print(json.load(sys.stdin).get("DeploymentID") or "")' 2>/dev/null || true)
-            [ -n "$DEP" ] && break
-            sleep 2
-          done
-          if [ -z "$DEP" ]; then
-            echo "Pas de déploiement créé (job inchangé = no-op) → OK"
-          else
-            echo "deployment: $DEP — monitoring jusqu'à terminal…"
-            /usr/bin/nomad deployment status -monitor "$DEP"
-          fi
-          REMOTE
-
-      - name: Cleanup remote HCL
+      - name: Cleanup du HCL déposé (cleanup staging)
         if: always()
         run: |
-          ssh -i ~/.ssh/id_ed25519 \
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes \
             "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}" \
-            "rm -f '$REMOTE_HCL'" || true
+            "cleanup staging" || true
 
       # Staging accessible UNIQUEMENT via le tailnet Veridian (internal-only@nomad,
       # ipAllowList 100.64/10 → 403 hors tailnet). Le runner rejoint le tailnet.
