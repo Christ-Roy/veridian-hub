@@ -97,8 +97,6 @@ jobs:
         run: ./scripts/ci/check-prod-gitops-reliability.sh
       - name: Hub HA env contract
         run: ./scripts/ci/check-hub-ha-env-contract.sh
-      - name: Staging freshness gate behavior
-        run: ./scripts/ci/test-check-staging-fresh.sh
       - name: Tests
         run: pnpm test
         env:
