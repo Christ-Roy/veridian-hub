@@ -142,7 +142,19 @@ Source de vérité de l'avancement billing/trial :
 ## CI/CD
 
 - `.github/workflows/hub-ci.yml` : test → audit (npm) → docker → **trivy** → deploy-staging → deploy-prod → e2e-prod-smoke → rollback-prod (si fail)
-- `.github/workflows/hub-security-cron.yml` : Trivy cron quotidien 3h UTC sur image deployed
+- **Pas de cron Trivy dans ce dépôt.** `hub-security-cron.yml` a été retiré le
+  2026-09-23 : il scannait `ghcr.io/christ-roy/veridian-hub:latest`, un tag
+  différent de ce qui tourne réellement en prod (`v0.5.27` au moment du
+  retrait — vérifié par comparaison de digests, les deux tags pointaient vers
+  des images distinctes). Le cron rendait donc « 0 CVE » sans jamais avoir
+  regardé l'image déployée. La surveillance continue des CVE sur l'image
+  RÉELLEMENT en cours d'exécution est désormais portée par `sec-scan`
+  (job Nomad système, scanne par identifiant d'image et non par tag) et lue
+  via le CLI `secu` sur le bastion Contabo — cf
+  `~/.claude/hooks/securite/invariant-cve-surface-publique.sh` et
+  `~/all-cron/security/secu` côté infra Veridian. `_trivy-image.yml` reste
+  utilisé par `hub-ci.yml` (scan à la construction), ce n'est que le CRON
+  redondant sur l'image `:latest` qui disparaît.
 - Déploiement : **job Nomad** (Dokploy décommissionné 2026-07-10). Job HCL
   versionné dans `~/nomad-veridian/jobs/saas-prod/` (staging dans `saas-staging/`).
   Debug/logs `nomad-v logs hub`, redeploy `nomad-v run hub` / `nomad-v deploy <fichier>`,
