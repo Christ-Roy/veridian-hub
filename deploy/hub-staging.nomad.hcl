@@ -201,6 +201,7 @@ EOH
       }
       template {
         destination = "secrets/hub.env"
+        perms       = "600"   # I07 : sans ca Nomad ecrit en 644, lisible par tout compte local du noeud. Sur ovh-dev le compte staging-deploy est dans le groupe docker, ce n est pas theorique. Mesure du 2026-09-23.
         env         = true
         data        = <<EOH
 NODE_ENV=production
