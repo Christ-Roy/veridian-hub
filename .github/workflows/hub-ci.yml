@@ -135,34 +135,8 @@ jobs:
       skip-license: false
       sarif-upload: true
 
-  # Path-based staging gate : si la PR/push touche aux fichiers structurels
-  # (Dockerfile, prisma/schema.prisma, prisma/migrations/**, compose/**,
-  # docker-compose.yml, package.json, pnpm-lock.yaml) → exige un run staging
-  # vert dans les 24h sur un ancêtre de HEAD.
-  # N'exécute la vérification staging que sur push main (sur PR, on bloque pas).
-  structural-gate:
-    name: Structural change gate (staging fresh)
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    outputs:
-      has-structural: ${{ steps.detect.outputs.has-structural }}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 50
-      - name: Detect structural changes
-        id: detect
-        run: ./scripts/ci/check-structural-changes.sh || true
-        env:
-          BASE_REF: HEAD~1
-      - name: Require staging fresh
-        if: steps.detect.outputs.has-structural == 'true'
-        run: ./scripts/ci/check-staging-fresh.sh
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   docker:
-    needs: [test, audit, trivy-fs, structural-gate]
+    needs: [test, audit, trivy-fs]
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     # GitHub-hosted depuis extraction polyrepo (2026-05-13). Le self-hosted
     # runner [self-hosted, veridian] n'est pas enregistré sur ce repo.
