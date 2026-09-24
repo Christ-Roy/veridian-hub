@@ -35,7 +35,9 @@ variable "image_tag" {
   # -var image_tag ; l'effet est sur la VERITE des plans hors CI, ou le defaut
   # affichait une retrogradation qui n'existait pas et bloquait le chantier
   # perms des secrets.
-  default     = "v0.5.32"
+  # Recale le 2026-09-24 (chantier durcissement conteneurs) : mesure sur le
+  # job Nomad vivant = v0.5.35, juste avant ce commit.
+  default     = "v0.5.35"
 }
 
 job "hub" {
@@ -329,6 +331,7 @@ EOH
     # ---- hub (Next.js, port 3000) ----
     task "hub" {
       driver         = "docker"
+      user           = "nextjs"
       shutdown_delay = "10s"
       kill_timeout   = "30s"
       service {
@@ -353,7 +356,9 @@ EOH
         # droits via un binaire setuid. C'est le maillon entre « shell dans le
         # conteneur » et « root sur l'hote ». N'affecte PAS un processus qui
         # ABANDONNE ses droits au demarrage, seulement celui qui en gagne.
-        security_opt = ["no-new-privileges:true"]
+        security_opt    = ["no-new-privileges:true"]
+        readonly_rootfs = true
+        cap_drop        = ["ALL"]
 
         # Identification lisible du conteneur (2026-09-07). Nomad ne pose que
         # `com.hashicorp.nomad.alloc_id` : rien ne disait a quelle application
@@ -372,6 +377,19 @@ EOH
         image = "ghcr.io/christ-roy/veridian-hub:${var.image_tag}"
         init  = true
         ports = ["http"]
+
+        mount {
+          type     = "tmpfs"
+          target   = "/tmp"
+          readonly = false
+          tmpfs_options { size = 67108864 }
+        }
+        mount {
+          type     = "tmpfs"
+          target   = "/app/.next/cache"
+          readonly = false
+          tmpfs_options { size = 134217728 }
+        }
       }
       template {
         destination = "secrets/hub.env"
