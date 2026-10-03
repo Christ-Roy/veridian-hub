@@ -49,7 +49,6 @@ jobs:
       # Job Nomad staging (== `job "hub-staging"` du HCL) — placé sur ovh-dev.
       NOMAD_JOB: hub-staging
       JOB_FILE: deploy/hub-staging.nomad.hcl
-      REMOTE_HCL: /tmp/hub-staging-${{ github.run_id }}.nomad.hcl
     steps:
       - uses: actions/checkout@v6
         with:
@@ -88,119 +87,56 @@ jobs:
               -f ./Dockerfile \
               .
 
-      # ── DEPLOY NOMAD (SSH bastion) — remplace l'ancien deploy compose dev-pub ──
-      # Canon : veridian-prospection/deploy/README.md. Le NOMAD_TOKEN ne quitte
-      # JAMAIS le bastion (sourcé in situ). Les secrets app vivent dans la Nomad
-      # Variable nomad/jobs/hub-staging (injectés cluster-side par template{env}).
-      # ⚠️ Adaptation Hub : PAS de step `prisma migrate deploy` — le container Hub
-      # migre AU BOOT (Dockerfile CMD : `prisma migrate deploy && … && server.js`,
-      # idempotent + advisory lock). Nomad démarre le nouvel alloc → migrate-on-boot
-      # tourne contre le leader Patroni (via le sidecar HAProxy) → puis server.
-      - name: Install SSH key (bastion Nomad)
+      # ── DEPLOY NOMAD via les verbes contraints du bastion (constat C4) ──
+      # Les secrets app vivent dans la Nomad Variable nomad/jobs/hub-staging
+      # (injectés cluster-side par template{env}). Hub : PAS de step migrate, le
+      # container migre AU BOOT (Dockerfile CMD, idempotent + advisory lock).
+      - name: Install SSH key (bastion Nomad, clé contrainte V2)
+        env:
+          DEPLOY_KEY: ${{ secrets.NOMAD_DEPLOY_SSH_KEY_V2 }}
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.NOMAD_DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "${{ secrets.NOMAD_BASTION_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
 
-      # ⚠️ On copie le HCL DU REPO (qui déclare `variable "image_tag"`), jamais la
-      # copie bastion ~/nomad-veridian/jobs/ (plus vieille, sans le bloc variable).
-      - name: Copy HCL to bastion
+      # ── Verbes contraints (constat C4) ──
+      # La clé V2 porte `command="/usr/local/sbin/veridian-ci-deploy hub"` : elle
+      # n'ouvre aucun shell, le bastion n'accepte que put-job / plan / deploy /
+      # smoke / cleanup / revert (cf. deploy/README.md). Pré-hook (sauvegarde R2
+      # prod), pré-pull ghcr, validate, plan, run -check-index et suivi du
+      # DeploymentID sont exécutés CÔTÉ BASTION : ne pas les redupliquer ici.
+      # ⚠️ On dépose le HCL DU REPO (qui déclare `variable "image_tag"`) sur stdin.
+      - name: Put job HCL (verbe put-job)
         run: |
-          scp -i ~/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new \
-            "$JOB_FILE" \
-            "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}:$REMOTE_HCL"
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new \
+            "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}" \
+            "put-job staging" < "$JOB_FILE"
 
-      - name: nomad job plan (dry-run) + run -detach
+      - name: Deploy (verbe deploy)
         env:
           IMAGE_TAG: ${{ steps.tag.outputs.image-tag }}
-          REMOTE_HCL: ${{ env.REMOTE_HCL }}
         run: |
-          ssh -i ~/.ssh/id_ed25519 \
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -o IdentitiesOnly=yes \
             "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}" \
-            "IMAGE_TAG='${IMAGE_TAG}' REMOTE_HCL='${REMOTE_HCL}' bash -s" <<'REMOTE'
-          set -euo pipefail
-          # NOMAD_MGMT_TOKEN sourcé ici, sur le bastion, exporté en NOMAD_TOKEN.
-          source ~/credentials/nomad-bastion.env
-          export NOMAD_ADDR NOMAD_TOKEN="$NOMAD_MGMT_TOKEN"
+            "deploy staging ${IMAGE_TAG}"
 
-          # ── PRÉ-PULL authentifié sur le nœud cible (staging = ovh-dev == dev-pub) ──
-          # Nomad ne pull pas les images PRIVÉES ghcr (plugin sans bloc auth → 401,
-          # alloc pending jusqu'au healthy_deadline, incident 2026-07-11). On pré-pull
-          # AVEC l'auth ghcr du nœud. -n IMPÉRATIF : sinon ce ssh avale le stdin du
-          # heredoc REMOTE et mange les commandes nomad suivantes → faux vert.
-          echo "== pré-pull image sur ovh-dev (auth ghcr du nœud) =="
-          ssh -n -o BatchMode=yes -o ConnectTimeout=15 dev-pub \
-            "docker pull ghcr.io/christ-roy/veridian-hub:${IMAGE_TAG}"
-
-          echo "== nomad job validate =="
-          /usr/bin/nomad job validate -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL"
-
-          echo "== nomad job plan (diff, inoffensif) =="
-          set +e
-          PLAN_OUTPUT=$(/usr/bin/nomad job plan -no-color \
-            -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL" 2>&1)
-          PLAN_STATUS=$?
-          set -e
-          printf '%s\n' "$PLAN_OUTPUT"
-          case "$PLAN_STATUS" in
-            0) echo "plan sans création ou destruction d'allocation" ;;
-            1) echo "plan avec remplacement d'allocation attendu" ;;
-            *) echo "::error::nomad job plan staging a échoué (code=$PLAN_STATUS)"; exit "$PLAN_STATUS" ;;
-          esac
-
-          # Refuse d'écraser une modification concurrente entre plan et run.
-          MODIFY_INDEX=$(printf '%s\n' "$PLAN_OUTPUT" \
-            | sed -n 's/^Job Modify Index: \([0-9][0-9]*\)$/\1/p' | tail -1)
-          RUN_INDEX_ARGS=()
-          [ -n "$MODIFY_INDEX" ] && RUN_INDEX_ARGS=(-check-index "$MODIFY_INDEX")
-
-          # Déploiement + vérification CIBLÉE (ni race, ni 404) : run -detach →
-          # résout le Deployment de cet eval → `deployment status -monitor <id>`
-          # (bloque jusqu'à terminal, exit ≠0 si échec/auto-revert). Évite le faux
-          # positif du poll `job status | grep successful` (lit l'ancien deploy) ET
-          # le faux négatif du `job run` bloquant (404 transitoire). Incident 2026-07-11.
-          echo "== nomad job run -detach + monitoring du déploiement ciblé (image_tag=${IMAGE_TAG}) =="
-          EVAL=$(/usr/bin/nomad job run -detach "${RUN_INDEX_ARGS[@]}" \
-            -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL" \
-            | grep -oP 'Evaluation ID:\s+\K\S+')
-          echo "eval: ${EVAL:-none}"
-          DEP=""
-          for i in $(seq 1 15); do
-            DEP=$(/usr/bin/nomad eval status -json "$EVAL" 2>/dev/null | python3 -c 'import sys,json;print(json.load(sys.stdin).get("DeploymentID") or "")' 2>/dev/null || true)
-            [ -n "$DEP" ] && break
-            sleep 2
-          done
-          if [ -z "$DEP" ]; then
-            echo "Pas de déploiement créé (job inchangé = no-op) → OK"
-          else
-            echo "deployment: $DEP — monitoring jusqu'à terminal…"
-            /usr/bin/nomad deployment status -monitor "$DEP"
-          fi
-          REMOTE
-
-      - name: Cleanup remote HCL
+      - name: Cleanup remote HCL (verbe cleanup)
         if: always()
         run: |
-          ssh -i ~/.ssh/id_ed25519 \
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -o IdentitiesOnly=yes \
             "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}" \
-            "rm -f '$REMOTE_HCL'" || true
+            "cleanup staging" || true
 
-      # Staging accessible UNIQUEMENT via le tailnet Veridian (internal-only@nomad,
-      # ipAllowList 100.64/10 → 403 hors tailnet). Le runner rejoint le tailnet.
-      - name: Tailscale (connect runner to tailnet for staging smoke)
-        uses: tailscale/github-action@v4
-        with:
-          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
-          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
-          tags: tag:ci-github
-          version: latest
-
-      - name: Smoke test staging URL
+      # Staging joignable depuis le tailnet seulement : le verbe `smoke staging`
+      # fait le curl DEPUIS le bastion (plus de Tailscale côté runner).
+      - name: Smoke test staging URL (verbe smoke)
         run: |
-          echo "Smoke test: ${{ env.STAGING_URL }}/api/health (via Tailscale)"
+          echo "Smoke test: ${{ env.STAGING_URL }}/api/health (depuis le bastion)"
           for i in $(seq 1 12); do
-            if curl -sf --max-time 10 "${{ env.STAGING_URL }}/api/health" | grep -q '"status":"ok"'; then
+            if ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -o IdentitiesOnly=yes \
+                "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}" \
+                "smoke staging" | grep -q '"status":"ok"'; then
               echo "✓ Staging healthy: ${{ env.STAGING_URL }}"
               exit 0
             fi
