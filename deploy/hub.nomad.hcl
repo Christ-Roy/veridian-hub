@@ -180,6 +180,26 @@ job "hub" {
         ]
       }
       template {
+        destination = "secrets/pgbackrest-repo.key"
+        perms       = "600"
+        uid         = 70
+        gid         = 70
+        data        = <<EOH
+{{ with nomadVar "nomad/jobs/hub" }}{{ .SFTP_REPO_KEY }}{{ end }}
+EOH
+      }
+
+      template {
+        destination = "secrets/pgbackrest-repo.key.pub"
+        perms       = "644"
+        uid         = 70
+        gid         = 70
+        data        = <<EOH
+{{ with nomadVar "nomad/jobs/hub" }}{{ .SFTP_REPO_KEY_PUB }}{{ end }}
+EOH
+      }
+
+      template {
         destination = "secrets/pg.env"
         perms       = "600"   # secret: lisible du seul proprietaire
         env         = true
@@ -194,11 +214,18 @@ POSTGRES_PASSWORD={{ .VERIDIAN_CORE_DB_PASSWORD }}
 # Aucun fichier de configuration : les identifiants R2 et la phrase de
 # chiffrement ne sont jamais ecrits sur le disque de l'allocation. pgBackRest
 # lit toute option sous la forme PGBACKREST_<OPTION>.
-PGBACKREST_REPO1_TYPE=s3
-PGBACKREST_REPO1_PATH=/pgbackrest/hub-core
-PGBACKREST_REPO1_S3_REGION=auto
+# Depot sur NOS machines (2026-10-10, plus de R2) : SFTP chroot, compte `pgbackrest`,
+# jamais sur le noeud qui porte la base ; cle dans la Variable Nomad du job.
+PGBACKREST_REPO1_TYPE=sftp
+{{ with nomadVar "nomad/jobs/hub" }}PGBACKREST_REPO1_SFTP_HOST={{ .SFTP_REPO_HOST }}{{ end }}
+PGBACKREST_REPO1_SFTP_HOST_USER=pgbackrest
+PGBACKREST_REPO1_SFTP_PRIVATE_KEY_FILE=/secrets/pgbackrest-repo.key
+PGBACKREST_REPO1_SFTP_PUBLIC_KEY_FILE=/secrets/pgbackrest-repo.key.pub
+PGBACKREST_REPO1_SFTP_HOST_KEY_CHECK_TYPE=fingerprint
+PGBACKREST_REPO1_SFTP_HOST_KEY_HASH_TYPE=sha1
+{{ with nomadVar "nomad/jobs/hub" }}PGBACKREST_REPO1_SFTP_HOST_FINGERPRINT={{ .SFTP_REPO_FP }}{{ end }}
+PGBACKREST_REPO1_PATH=/data/hub-core
 # path : R2 accepte les deux styles, celui-ci ne depend pas d'un DNS par bucket.
-PGBACKREST_REPO1_S3_URI_STYLE=path
 PGBACKREST_REPO1_CIPHER_TYPE=aes-256-cbc
 PGBACKREST_COMPRESS_TYPE=zst
 PGBACKREST_COMPRESS_LEVEL=6
@@ -211,10 +238,6 @@ PGBACKREST_PG1_PORT=5432
 PGBACKREST_PG1_USER=veridian
 PGBACKREST_PG1_DATABASE=veridian
 {{ with nomadVar "nomad/jobs/hub" }}
-PGBACKREST_REPO1_S3_BUCKET={{ .R2_BUCKET }}
-PGBACKREST_REPO1_S3_ENDPOINT={{ .R2_ENDPOINT }}
-PGBACKREST_REPO1_S3_KEY={{ .R2_ACCESS_KEY_ID }}
-PGBACKREST_REPO1_S3_KEY_SECRET={{ .R2_SECRET_ACCESS_KEY }}
 # ATTENTION : PERDRE CETTE PHRASE = PERDRE TOUTES LES SAUVEGARDES. Copie de
 # secours dans ~/credentials/.all-creds.env (PGBACKREST_CIPHER_HUB_CORE).
 PGBACKREST_REPO1_CIPHER_PASS={{ .PGBACKREST_CIPHER_PASS }}
@@ -267,6 +290,26 @@ EOH
       user = "postgres"
 
       template {
+        destination = "secrets/pgbackrest-repo.key"
+        perms       = "600"
+        uid         = 70
+        gid         = 70
+        data        = <<EOH
+{{ with nomadVar "nomad/jobs/hub" }}{{ .SFTP_REPO_KEY }}{{ end }}
+EOH
+      }
+
+      template {
+        destination = "secrets/pgbackrest-repo.key.pub"
+        perms       = "644"
+        uid         = 70
+        gid         = 70
+        data        = <<EOH
+{{ with nomadVar "nomad/jobs/hub" }}{{ .SFTP_REPO_KEY_PUB }}{{ end }}
+EOH
+      }
+
+      template {
         destination = "secrets/pgbackrest.env"
         perms       = "600"   # secret: lisible du seul proprietaire
         env         = true
@@ -293,11 +336,18 @@ PGBACKREST_START_FAST=y
 # Aucun fichier de configuration : les identifiants R2 et la phrase de
 # chiffrement ne sont jamais ecrits sur le disque de l'allocation. pgBackRest
 # lit toute option sous la forme PGBACKREST_<OPTION>.
-PGBACKREST_REPO1_TYPE=s3
-PGBACKREST_REPO1_PATH=/pgbackrest/hub-core
-PGBACKREST_REPO1_S3_REGION=auto
+# Depot sur NOS machines (2026-10-10, plus de R2) : SFTP chroot, compte `pgbackrest`,
+# jamais sur le noeud qui porte la base ; cle dans la Variable Nomad du job.
+PGBACKREST_REPO1_TYPE=sftp
+{{ with nomadVar "nomad/jobs/hub" }}PGBACKREST_REPO1_SFTP_HOST={{ .SFTP_REPO_HOST }}{{ end }}
+PGBACKREST_REPO1_SFTP_HOST_USER=pgbackrest
+PGBACKREST_REPO1_SFTP_PRIVATE_KEY_FILE=/secrets/pgbackrest-repo.key
+PGBACKREST_REPO1_SFTP_PUBLIC_KEY_FILE=/secrets/pgbackrest-repo.key.pub
+PGBACKREST_REPO1_SFTP_HOST_KEY_CHECK_TYPE=fingerprint
+PGBACKREST_REPO1_SFTP_HOST_KEY_HASH_TYPE=sha1
+{{ with nomadVar "nomad/jobs/hub" }}PGBACKREST_REPO1_SFTP_HOST_FINGERPRINT={{ .SFTP_REPO_FP }}{{ end }}
+PGBACKREST_REPO1_PATH=/data/hub-core
 # path : R2 accepte les deux styles, celui-ci ne depend pas d'un DNS par bucket.
-PGBACKREST_REPO1_S3_URI_STYLE=path
 PGBACKREST_REPO1_CIPHER_TYPE=aes-256-cbc
 PGBACKREST_COMPRESS_TYPE=zst
 PGBACKREST_COMPRESS_LEVEL=6
@@ -310,10 +360,6 @@ PGBACKREST_PG1_PORT=5432
 PGBACKREST_PG1_USER=veridian
 PGBACKREST_PG1_DATABASE=veridian
 {{ with nomadVar "nomad/jobs/hub" }}
-PGBACKREST_REPO1_S3_BUCKET={{ .R2_BUCKET }}
-PGBACKREST_REPO1_S3_ENDPOINT={{ .R2_ENDPOINT }}
-PGBACKREST_REPO1_S3_KEY={{ .R2_ACCESS_KEY_ID }}
-PGBACKREST_REPO1_S3_KEY_SECRET={{ .R2_SECRET_ACCESS_KEY }}
 # ATTENTION : PERDRE CETTE PHRASE = PERDRE TOUTES LES SAUVEGARDES. Copie de
 # secours dans ~/credentials/.all-creds.env (PGBACKREST_CIPHER_HUB_CORE).
 PGBACKREST_REPO1_CIPHER_PASS={{ .PGBACKREST_CIPHER_PASS }}
