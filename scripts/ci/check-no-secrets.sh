@@ -111,6 +111,8 @@ while IFS= read -r f; do
       echo "$tok" | grep -q '[0-9]' || continue
     fi
     case "$allowed" in *" $ln "*) continue;; esac
+    # Digest d'image épinglée : public par nature, et c'est le bon usage.
+    sed -n "${ln}p" "$f" | grep -qE '@sha256:[0-9a-f]{64}' && continue
     lines="$lines $ln"
   done < <(grep -oEnI "$HEX_RE|$B64_RE" "$f" 2>/dev/null | grep -vEi "$BENIGN" || true)
 
