@@ -10,6 +10,7 @@ import type { Browser } from '@playwright/test';
 
 import type { AppKey } from './cibles';
 import { NonAbouti } from './etat';
+import { rybbitCompte } from './hub-admin';
 import { type Atterrissage, type Compte, creerCompteNonProuve, creerCompteProuve, ID_RUN, ouvrirApp } from './parcours';
 import { RUN_DIR } from './versions';
 import type { BrowserContext } from '@playwright/test';
@@ -20,11 +21,12 @@ type Monde = {
   comptes: Record<string, Compte>;
   arrivees: Record<string, { ok: boolean; atterrissage: Atterrissage }>;
   reconcileBase?: any;
+  rybbit: string[];
 };
 
 function lire(): Monde {
   if (existsSync(FICHIER)) return JSON.parse(readFileSync(FICHIER, 'utf8'));
-  return { comptes: {}, arrivees: {} };
+  return { comptes: {}, arrivees: {}, rybbit: [] };
 }
 function ecrire(m: Monde) {
   mkdirSync(RUN_DIR, { recursive: true });
@@ -59,6 +61,18 @@ export function noterArrivee(app: AppKey, ok: boolean, atterrissage: Atterrissag
   const m = lire();
   m.arrivees[app] = { ok, atterrissage };
   ecrire(m);
+}
+
+/** Crée (une fois) le compte Rybbit du compte de test : sans lui, le rebond répond user_not_in_app. */
+export function assurerRybbit(c: Compte) {
+  const m = lire();
+  if ((m.rybbit ?? []).includes(c.email)) return;
+  m.rybbit = [...(m.rybbit ?? []), c.email];
+  ecrire(m); // noté AVANT la création : un crash ne doit pas orpheliner le compte
+  rybbitCompte('creer', c.email);
+}
+export function comptesRybbit(): string[] {
+  return lire().rybbit ?? [];
 }
 
 export function reconcileBase() {

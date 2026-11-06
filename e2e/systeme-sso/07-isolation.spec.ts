@@ -8,7 +8,7 @@ import { devraitIgnorerLesAutres } from './lib/assertions';
 import { APP_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
 import { listTenants } from './lib/hub-admin';
-import { compte, contexteDe, ouvrirApp } from './lib/monde';
+import { compte, contexteDe, ouvrirApp , assurerRybbit } from './lib/monde';
 
 /** Marques de tenants qui ne sont pas à nous : on n'en garde que la forme, jamais l'affichage. */
 async function marquesEtrangeres(nosEmails: string[]) {
@@ -81,6 +81,7 @@ cas('notifuse', 'le compte de test ne voit aucune donnée d\'un autre tenant', a
 
 cas('analytics', 'le compte de test ne voit aucune donnée d\'un autre tenant', async ({ browser }) => {
   const [A, B] = [await compte(browser, 'A'), await compte(browser, 'B')];
+  assurerRybbit(A);
   const cA = await contexteDe(browser, A);
   try {
     const a = await ouvrirApp(cA, 'analytics');

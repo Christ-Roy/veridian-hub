@@ -7,7 +7,7 @@ import { expect } from '@playwright/test';
 import { devraitEtreArrive } from './lib/assertions';
 import { APP_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
-import { compte, contexteDe, noterArrivee, ouvrirApp } from './lib/monde';
+import { compte, contexteDe, noterArrivee, ouvrirApp , assurerRybbit } from './lib/monde';
 
 const T = 'un compte à adresse prouvée arrive à son nom et voit ses données';
 
@@ -59,6 +59,7 @@ cas('notifuse', T, async ({ browser }) => {
 
 cas('analytics', T, async ({ browser }) => {
   const A = await compte(browser, 'A');
+  assurerRybbit(A);
   const ctx = await contexteDe(browser, A);
   const a = await ouvrirApp(ctx, 'analytics');
   let ok = false;

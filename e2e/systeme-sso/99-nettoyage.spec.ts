@@ -7,12 +7,14 @@
 import { expect } from '@playwright/test';
 
 import { cas } from './lib/etat';
-import { lookup, reconcile, supprimerNotifuse, supprimerTenantHub } from './lib/hub-admin';
+import { lookup, reconcile, rybbitCompte, supprimerNotifuse, supprimerTenantHub } from './lib/hub-admin';
+import { comptesRybbit } from './lib/monde';
 import { comptesNotes, oublierRegistre } from './lib/parcours';
 
 cas(null, 'les comptes de test sont supprimés et reconcile n\'en garde aucun', async () => {
   const emails = Array.from(new Set(comptesNotes()));
   const restes: string[] = [];
+  for (const e of comptesRybbit()) rybbitCompte('supprimer', e); // échec = NON ABOUTI, jamais un faux vert
   for (const email of emails) {
     const u = await lookup(email);
     for (const t of (u.json?.tenants ?? []) as any[]) {

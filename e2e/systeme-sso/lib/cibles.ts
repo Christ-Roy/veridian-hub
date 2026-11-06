@@ -21,7 +21,8 @@ export const SERVI: Record<
 > = {
   hub: { job: 'hub', corrige: ['v0.5.42'], note: 'preuve d\'adresse + rebond sur les hôtes réels' },
   prospection: { job: 'prospection', corrige: ['0d25f6d'], note: 'identité Hub' },
-  notifuse: { job: 'notifuse', corrige: ['61e3b290'], note: 'identité Hub' },
+  // e5d4f7bd contient 61e3b290 (descendant, vérifié par merge-base le 06/11)
+  notifuse: { job: 'notifuse', corrige: ['61e3b290', 'e5d4f7bd'], note: 'identité Hub' },
   analytics: { job: 'analytics-rybbit', corrige: ['prod-271633e'], note: 'identité Hub (Rybbit)' },
   twenty: { job: null, corrige: [], note: 'staging, si servi' },
 };

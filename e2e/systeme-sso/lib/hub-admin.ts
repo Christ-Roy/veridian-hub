@@ -3,7 +3,8 @@
  * Le secret vient de l'environnement (ADMIN_SECRET) ou de ~/credentials/.all-creds.env,
  * lu à l'exécution : jamais écrit dans le dépôt ni affiché.
  */
-import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -101,3 +102,23 @@ export const supprimerTenantHub = (email: string) =>
   admin('DELETE', 'delete-tenant', { email, confirm: true });
 export const supprimerNotifuse = (tenantId: string) =>
   admin('DELETE', 'notifuse/delete', { tenantId, confirm: true });
+
+/**
+ * Rybbit ne crée aucun compte depuis le Hub (contrat §6bis.8.3 : le rebond répond
+ * `user_not_in_app` tant que le compte n'existe pas). On passe par le script de la session
+ * Rybbit, qui refuse toute adresse hors e2e-sso-*@veridian.site et borne le compte au site de test.
+ */
+const SCRIPT_RYBBIT =
+  process.env.RYBBIT_COMPTE_E2E || path.join(os.homedir(), '.claude/skills/rybbit/scripts/compte-e2e-rybbit.sh');
+
+export function rybbitCompte(action: 'creer' | 'supprimer', email: string) {
+  if (!existsSync(SCRIPT_RYBBIT)) {
+    throw new NonAbouti(`script de compte Rybbit introuvable (${SCRIPT_RYBBIT}, ou RYBBIT_COMPTE_E2E)`);
+  }
+  try {
+    execFileSync(SCRIPT_RYBBIT, [action, email], { encoding: 'utf8', timeout: 90_000, stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (e) {
+    const err = e as { status?: number; stderr?: string };
+    throw new NonAbouti(`compte Rybbit ${action} ${email} : sortie ${err.status} ${String(err.stderr ?? '').slice(0, 160)}`);
+  }
+}
