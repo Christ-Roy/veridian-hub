@@ -24,12 +24,12 @@ Prospection). Twenty retiré de la stack 2026-05-18.
 
 ## Stack
 
-- Next.js 15.5.18 (App Router) + pnpm
+- Next.js 15 (App Router) + pnpm
 - Auth.js v5 (Google OAuth + Credentials bcrypt + MFA email)
 - Prisma 7 sur Postgres dédié `veridian-core-db` (schema `hub_app`)
 - Stripe (billing, webhooks, plans)
 - shadcn/ui + Tailwind
-- Notifuse fork pour emails transactionnels (mail signup, magic links tenants)
+- Brevo pour les mails transactionnels (`lib/email/send.ts`), Notifuse fork pour les tenants
 
 ## Structure
 
@@ -75,6 +75,26 @@ pnpm dev          # Dev mode (port 3000 par défaut)
 pnpm build        # Build prod
 pnpm test         # Vitest (150+ tests)
 ```
+
+## Identité (décision Robert, 06/11/2026)
+
+Le Hub est la **seule source de vérité des utilisateurs**, chaque app garde sa base et une
+copie de ses comptes, sans inscription ni mot de passe utilisable.
+Référence : `docs/CONTRAT-HUB.md` §3.7, §3.8, `docs/SAAS-STANDARDS.md` §1.1, §1.2.
+
+- `hub_user_id` = `users.supabase_user_id`, jamais `users.id` (cuid sur la moitié des comptes).
+- Toute route qui mène à une session d'app appelle `denyUnlessEmailProven`
+  (`lib/auth/email-proof.ts`). Un test échoue sur toute nouvelle route non gardée.
+- `hub reconcile` (`lib/sync/`) n'écrit rien : une dérive se lit et se tranche. Il compare
+  aussi les comptes de chaque app au Hub.
+- Toute écriture de plan se propage à l'app. Un refus n'écrit rien au Hub.
+- Le dépôt est **public**, ses logs Actions aussi : aucune adresse client dans une réponse de cron.
+
+## Déploiement : la prod vient de `main`
+
+`staging` et `main` divergent. La CI pose `deploy/hub.nomad.hcl` depuis `main`. La version servie
+se lit avec `nomad job inspect hub`, jamais dans le miroir `~/nomad-veridian/jobs/saas-prod/`.
+Un audit CVE ou un test rouge saute le déploiement sans bruit : lire `gh run view`, puis l'image.
 
 ## Provisioning flow
 
@@ -141,7 +161,7 @@ Source de vérité de l'avancement billing/trial :
 
 ## CI/CD
 
-- `.github/workflows/hub-ci.yml` : test → audit (npm) → docker → **trivy** → deploy-staging → deploy-prod → e2e-prod-smoke → rollback-prod (si fail)
+- `.github/workflows/hub-ci.yml` : test → audit (npm) → docker → **trivy** → deploy-prod (sur `main`) → e2e-prod-smoke → rollback-prod (si fail)
 - **Pas de cron Trivy dans ce dépôt.** `hub-security-cron.yml` a été retiré le
   2026-09-23 : il scannait `ghcr.io/christ-roy/veridian-hub:latest`, un tag
   différent de ce qui tourne réellement en prod (`v0.5.27` au moment du

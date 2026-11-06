@@ -60,6 +60,7 @@ export async function provisionNotifuseTenant(
       ownerEmail: email,
       workspaceName,
       plan: 'free',
+      hubUserId: userId,
     });
 
     logStep('NOTIFUSE', result.created ? 'Workspace created' : 'Workspace already existed');

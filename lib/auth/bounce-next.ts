@@ -42,8 +42,14 @@ export const NEXT_COOKIE_NAME_INSECURE = 'veridian-next';
 /** TTL du cookie next : 10 minutes (couvre le flow OAuth complet). */
 export const NEXT_COOKIE_TTL_MS = 10 * 60 * 1000;
 
-/** Regex whitelist côté production : `https://<sub>.veridian.site` + sous-paths. */
-const NEXT_WHITELIST_REGEX_PROD = /^https:\/\/[a-z0-9-]+\.veridian\.site(\/.*)?$/;
+/**
+ * Regex whitelist côté production : `https://<sub>.app.veridian.site` (hôte réel
+ * de toutes les apps) ou `https://<sub>.veridian.site`, + sous-paths.
+ *
+ * Sans le `.app` optionnel, le rebond ignore en silence tous les hôtes réels et
+ * l'utilisateur atterrit sur le login sans destination (mesuré en prod le 06/11).
+ */
+const NEXT_WHITELIST_REGEX_PROD = /^https:\/\/[a-z0-9-]+(\.app)?\.veridian\.site(\/.*)?$/;
 
 /** Regex whitelist côté staging : `https://<sub>.staging.veridian.site` + sous-paths. */
 const NEXT_WHITELIST_REGEX_STAGING = /^https:\/\/[a-z0-9-]+\.staging\.veridian\.site(\/.*)?$/;
@@ -72,7 +78,7 @@ export type DeployEnv = 'production' | 'staging' | 'development' | 'test' | stri
 /**
  * Choisit la regex whitelist selon `DEPLOY_ENV`.
  *
- * - production → `*.veridian.site`
+ * - production → `*.app.veridian.site` et `*.veridian.site`
  * - staging    → `*.staging.veridian.site`
  * - autres (dev/test) → accepte les deux (utile pour tests unitaires + dev local
  *   qui pointerait sur staging)
@@ -132,14 +138,14 @@ export function parseNext(
 }
 
 /**
- * Extrait le sous-domaine app : pour `notifuse.veridian.site` → `notifuse`,
+ * Extrait le sous-domaine app : pour `notifuse.app.veridian.site` → `notifuse`,
  * pour `prospection.staging.veridian.site` → `prospection`.
  */
 function extractSubdomain(host: string): string | null {
   // Strip port if any (URL.host inclut le port).
   const hostNoPort = host.split(':')[0];
   const parts = hostNoPort.split('.');
-  // Prod : <sub>.veridian.site → 3 parts, sub = parts[0]
+  // Prod : <sub>.app.veridian.site → 4 parts, sub = parts[0]
   // Staging : <sub>.staging.veridian.site → 4 parts, sub = parts[0]
   if (parts.length < 3) return null;
   const sub = parts[0];

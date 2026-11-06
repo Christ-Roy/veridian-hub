@@ -28,6 +28,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { sendTelegramAlert } from '@/lib/notifications/telegram';
+import { identityCounts } from '@/lib/sync/identity-audit';
 import { runReconcile } from '@/lib/sync/reconcile';
 import type { SyncApp } from '@/lib/sync/types';
 import { SYNC_APPS } from '@/lib/sync/types';
@@ -93,7 +94,13 @@ export async function POST(request: NextRequest) {
     }
 
     const httpDurationMs = Date.now() - startedAt;
-    return NextResponse.json({ ok: true, ...summary, httpDurationMs });
+    // Comptes seulement : cette réponse s'affiche dans les logs Actions, publics.
+    return NextResponse.json({
+      ok: true,
+      ...summary,
+      identity: identityCounts(summary.identity),
+      httpDurationMs,
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[cron-reconcile-tenants] fatal:', msg);

@@ -1,3 +1,4 @@
+import { pushUserToApps } from '@/lib/identity/push-user';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { requireAdmin } from '@/lib/admin/require-admin';
@@ -99,6 +100,9 @@ export async function DELETE(request: NextRequest) {
   try {
     await prisma.user.delete({ where: { id: user.id } });
     actions.push('Deleted auth user');
+    if (user.supabaseUserId) {
+      await pushUserToApps({ hubUserId: user.supabaseUserId, deleted: true });
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     actions.push(`⚠️ Auth user delete failed: ${message}`);

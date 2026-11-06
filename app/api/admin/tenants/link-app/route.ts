@@ -12,6 +12,7 @@
  * Auth : requireAdmin. Audit : 'admin.tenant.link'.
  */
 
+import { pushProspectionPlan } from '@/lib/prospection/plan-push';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
@@ -152,6 +153,20 @@ export async function POST(request: NextRequest) {
     ownerEmail: parsed.data.owner_email?.trim().toLowerCase() ?? email,
   });
 
+  // Un plan posé au rattachement doit aussi valoir dans l'app. Le lien reste acquis si
+  // l'app refuse : la réponse le dit, et `hub reconcile` garde l'écart visible.
+  let planPropagationError: string | undefined;
+  if (parsed.data.app === 'prospection' && parsed.data.plan) {
+    const pushed = await pushProspectionPlan({
+      hubTenantId: result.tenantId,
+      email,
+      plan: parsed.data.plan,
+      planSource: 'grant_manual',
+      reason: 'hub link --plan',
+    });
+    if (!pushed.ok) planPropagationError = pushed.error;
+  }
+
   const actor = resolveActor(request.headers, authResult.sessionEmail);
   await writeAuditLog(prisma, {
     action: 'admin.tenant.link',
@@ -173,5 +188,6 @@ export async function POST(request: NextRequest) {
     app: result.app,
     metadata_path: result.metadataPath,
     created: result.created,
+    ...(planPropagationError ? { plan_propagation_error: planPropagationError } : {}),
   });
 }

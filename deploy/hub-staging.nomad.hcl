@@ -225,7 +225,7 @@ NEXT_PUBLIC_PROSPECTION_URL=https://prospection.staging.veridian.site
 PROSPECTION_API_URL=https://prospection.staging.veridian.site
 PROSPECTION_INTERNAL_URL=https://prospection.staging.veridian.site
 
-ANALYTICS_API_URL=https://analytics-engine.staging.veridian.site
+ANALYTICS_API_URL=https://analytics-rybbit.staging.veridian.site
 CRM_METADATA_URL=https://crm.staging.veridian.site/metadata
 CRM_REST_URL=https://crm.staging.veridian.site/rest
 CRM_FRONTEND_URL=https://crm.staging.veridian.site

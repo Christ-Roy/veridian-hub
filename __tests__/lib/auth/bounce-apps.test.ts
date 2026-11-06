@@ -120,7 +120,8 @@ describe('listSupportedApps', () => {
     expect(apps).toContain('cms');
     expect(apps).toContain('analytics');
     expect(apps).toContain('crm');
-    expect(apps).toHaveLength(5);
+    expect(apps).toContain('analytics-rybbit');
+    expect(apps).toHaveLength(6);
   });
 });
 

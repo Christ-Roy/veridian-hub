@@ -48,6 +48,27 @@ describe('parseNext — whitelist regex anti open-redirect', () => {
       expect(r!.app).toBe('newapp');
     });
 
+    it.each([
+      ['https://notifuse.app.veridian.site/console', 'notifuse'],
+      ['https://prospection.app.veridian.site/', 'prospection'],
+      ['https://analytics.app.veridian.site/', 'analytics'],
+      ['https://crm.app.veridian.site/', 'crm'],
+    ])('accepte l\'hôte réel de prod %s', (url, app) => {
+      const r = parseNext(url, 'production');
+      expect(r).not.toBeNull();
+      expect(r!.app).toBe(app);
+    });
+
+    it('rejette les hôtes Hub sous la forme .app (anti-boucle)', () => {
+      expect(parseNext('https://app.app.veridian.site/', 'production')).toBeNull();
+      expect(parseNext('https://hub.app.veridian.site/', 'production')).toBeNull();
+    });
+
+    it('rejette un sous-domaine plus profond et un .app.veridian.site piégé', () => {
+      expect(parseNext('https://a.b.app.veridian.site/', 'production')).toBeNull();
+      expect(parseNext('https://x.app.veridian.site.evil.com/', 'production')).toBeNull();
+    });
+
     it('rejette evil.com (anti open-redirect)', () => {
       expect(parseNext('https://evil.com/path', 'production')).toBeNull();
     });

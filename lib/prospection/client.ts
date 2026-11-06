@@ -39,6 +39,15 @@ export interface ProvisionInput {
   plan?: string;
 }
 
+export interface UpdatePlanInput {
+  tenantId: string;
+  /** Enum canonique du contrat billing v2 : free | pro | business | enterprise. */
+  plan: string;
+  planSource: string;
+  idempotencyKey: string;
+  reason?: string;
+}
+
 export interface ProvisionResponse {
   tenant_id: string;
   api_key: string;
@@ -82,6 +91,18 @@ export class ProspectionClient {
       plan: input.plan ?? 'freemium',
       user_id: input.userId,
       metadata: { hub_user_id: input.userId },
+    });
+  }
+
+  async updatePlan(input: UpdatePlanInput): Promise<void> {
+    await this.hmacRequest<unknown>('POST', '/api/tenants/update-plan', {
+      contract_version: '2.0',
+      tenant_id: input.tenantId,
+      plan: input.plan,
+      plan_source: input.planSource,
+      effective_at: new Date().toISOString(),
+      idempotency_key: input.idempotencyKey,
+      ...(input.reason ? { reason: input.reason } : {}),
     });
   }
 

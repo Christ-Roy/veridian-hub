@@ -44,6 +44,8 @@ export interface ProvisionInput {
   ownerEmail: string;
   workspaceName?: string;
   plan?: NotifusePlan;
+  /** `users.supabase_user_id` du Hub, l'identifiant unique cross-app (§3.7). */
+  hubUserId?: string;
 }
 
 export interface ProvisionResponse {

@@ -18,7 +18,7 @@
 >   restent maintenus.
 > - `CI-ARCHITECTURE.md` — pipeline CI/CD cross-app. Idem, pas de duplication.
 >
-> **Versionnage** : `v1.7` (2026-05-22). Toute évolution majeure → bump version + section
+> **Versionnage** : `v1.8` (2026-11-06). Toute évolution majeure → bump version + section
 > "Changements" en bas.
 >
 > **Compagnon technique** : `CONTRAT-HUB-API-REF.md` (même dossier, symlinké
@@ -144,7 +144,7 @@ professionnelle à corriger immédiatement.
 **Principe** :
 
 - Le Hub est **source de vérité par défaut** pour :
-  - L'identité utilisateur (`hub_app.users.id`)
+  - L'identité utilisateur (`hub_user_id`, §3.7 et §3.8)
   - Le lien `user ↔ tenant` (`hub_app.tenant_members`)
   - Le plan billing (souscrit via Stripe sur le Hub)
   - Les invitations cross-app (`hub_app.cross_app_invitations`)
@@ -175,6 +175,20 @@ professionnelle à corriger immédiatement.
 - **Webhooks Hub → app** : Hub idem.
   - Retry 3× backoff, puis log warning. Tenant reste autoritaire côté Hub.
   - Reconciliation via cron Hub niveau 3.
+
+**Quand le Hub est en panne** (état au 2026-11-06) :
+
+| Situation | Ce qui se passe | Niveau de preuve |
+|---|---|---|
+| Session d'app déjà ouverte | Elle continue : session locale, le Hub n'est pas consulté | Code lu (Prospection, Notifuse). Coupure réelle non aboutie : voir ci-dessous |
+| Nouvelle connexion d'un client | Impossible par le Hub. C'est le prix de l'invariant §3.8, à mesurer face à la durée des sessions d'app | Déduit du flux |
+| Lien déjà émis, ou appel direct à `issue-magic-link` | Fonctionne, l'app ne rappelle pas le Hub | Vu : 200 sur Prospection staging, sans preuve de coupure |
+| Accès de secours opérateur, jamais client | Appel HMAC direct à `POST <app>/api/sso/issue-magic-link` avec le secret de l'app, depuis le bastion (`notifuse-admin magic-link` pour Notifuse) | Prospection staging vue, Notifuse par son CLI |
+
+Une coupure réelle reste à faire : `hub-staging` ne simule rien (il dort derrière Sablier, et
+Prospection staging appelle le Hub de **prod**), et `/etc/hosts` n'est pas modifiable dans le
+conteneur. Pour l'éprouver : poser un `HUB_API_URL` injoignable sur `prospection-staging`, puis
+contrôler une session ouverte.
 
 **Conséquences directes pour les implémentations** :
 
@@ -449,13 +463,16 @@ Cf §8.9 pour l'implémentation côté Hub Dashboard.
 
 **Identifiants** :
 
-- **`hub_app.users.id`** : UUID v4 généré par le Hub. Source de vérité unique
-  pour identifier un humain dans l'écosystème Veridian.
+- **`hub_user_id` = `hub_app.users.supabase_user_id`** (tranché le 2026-11-06) :
+  UUID v4 unique, présent sur 100 % des comptes mesurés. C'est **le seul identifiant**
+  qu'une app reçoit et stocke. Le nom de colonne est historique, sans lien avec
+  Supabase. **`hub_app.users.id` n'est jamais envoyé** : c'est un cuid sur la moitié
+  des comptes (il casse un `@db.Uuid`).
 - **`<app>.users.id`** : UUID v4 local à chaque app. Reste la clé primaire
   des tables internes (FK `workspace_members.user_id`, etc.). **Pas de
   migration destructive.**
 - **`<app>.users.hub_user_id`** : colonne **nullable** ajoutée côté chaque app.
-  Stocke le `hub_app.users.id` correspondant. Index unique. Backfillé au
+  Stocke le `hub_user_id` correspondant. Index unique. Backfillé au
   premier contact (provision, attach-member, sync-member, magic link consume).
 - **Email** : clé de jointure de secours. Source de vérité canonique
   cross-app pour le **lookup** (jamais pour la PK).
@@ -465,7 +482,8 @@ Cf §8.9 pour l'implémentation côté Hub Dashboard.
 1. **Hub appelle une app** : utilise `email` ET `hub_user_id` dans le body
    (les 2 toujours présents). L'app résout :
    - `hub_user_id` matche un row local → use it.
-   - Sinon `email` matche → backfill `hub_user_id` + use it.
+   - Sinon `email` matche → backfill `hub_user_id` + use it. Ce repli n'est sûr que
+     parce que le Hub n'appelle jamais une app pour une adresse non prouvée (§3.8).
    - Sinon → crée user local (`hub_user_id` filled, password = NULL, email_verified = NULL).
 
 2. **App appelle Hub** : utilise `email` ou `hub_user_id` selon disponibilité.
@@ -502,6 +520,45 @@ Cf §8.9 pour l'implémentation côté Hub Dashboard.
 
 **Fallback Hub-down** : les apps continuent de fonctionner avec leurs `users.id`
 locaux. La colonne `hub_user_id` est utile pour Hub seulement.
+
+### 3.8 Le Hub, seule source de vérité des utilisateurs (gravé v1.8)
+
+> Décision Robert du 2026-11-06. Prévaut sur toute mention contraire de ce contrat.
+
+**Invariant, commun à Notifuse, Rybbit, Prospection et Twenty** : créer, modifier ou
+supprimer un utilisateur, son email, son nom, un membre ou un plan se fait **uniquement
+au Hub**. Les tables `users` locales restent, comme des copies alimentées par le Hub.
+
+- **Interdit dans une app** : inscription, mot de passe utilisable, changement d'email,
+  y compris par les écrans natifs d'un fork.
+- **Reste local** : les clés API machine, et ce qui n'est pas de l'identité.
+- **Exception opérateur** : l'accès de secours du §1.4, jamais pour un client.
+
+**Aucun lien vers une app sans adresse prouvée.** Toute route du Hub qui mène à une
+session d'app passe par `denyUnlessEmailProven` (`lib/auth/email-proof.ts`, vérifié par
+un test qui échoue sur toute nouvelle route non gardée). L'app ne reçoit pas de champ
+`email_verified` : c'est le Hub qui porte ce contrôle. L'impersonation admin en est
+exemptée, parce qu'elle est tracée.
+
+Valent preuve : un fournisseur OAuth qui certifie l'adresse (une telle connexion sur un
+compte non prouvé annule le mot de passe préexistant et invalide les sessions déjà
+émises), le lien par mail cliqué **dans une session de ce compte** (un scanner de mail
+ou une victime ne valident rien), un reset de mot de passe, une invitation adressée à
+cette adresse.
+
+**Endpoints que chaque app expose au Hub** (HMAC §6.1) :
+
+| Endpoint | Corps | Réponse |
+|---|---|---|
+| `GET /api/hub/users` | vide, signature sur `${ts}.` | `{ users: [{ hub_user_id, email, name }] }`, humains seulement |
+| `POST /api/hub/users/sync` | `{ hub_user_id, name?, email?, deleted? }` | 200, ou 404 `{ error: "user_not_in_app" }` |
+
+- `sync` retrouve le compte **par `hub_user_id` uniquement**, jamais par email, et
+  n'applique que les champs présents. `deleted: true` coupe les sessions et l'accès.
+- Le Hub ne pousse une adresse qu'une fois prouvée (`lib/identity/push-user.ts`).
+- `hub reconcile` compare les comptes de chaque app au Hub (`lib/sync/identity-audit.ts`) :
+  comptes sans Hub, comptes non reliés, écarts d'email ou de nom. Une app sans endpoint
+  s'affiche `endpoint_missing`, jamais « aucun écart ».
 
 ---
 
@@ -2087,7 +2144,7 @@ L'app tente l'authentification dans cet ordre, premier succès gagne :
    « Continuer avec Google » ou « Continuer avec Microsoft » → redirect
    vers `app.veridian.site/login?next=<encoded_url_app>` → Hub fait le
    flow OAuth (Auth.js v5 Google/Microsoft) → Hub valide `next` contre
-   regex `^https://[a-z0-9-]+\.veridian\.site(/.*)?$` (anti
+   regex `^https://[a-z0-9-]+(\.app)?\.veridian\.site(/.*)?$` (anti
    open-redirect) → Hub appelle l'endpoint contrat
    `POST <app>/api/sso/issue-magic-link` (HMAC §6.1) avec
    `{hub_user_id, email}` → l'app génère son magic link interne (réutilise
@@ -2174,10 +2231,8 @@ Chaque app maintient localement :
 propre identité connue (workspaces déjà provisionnés). Si Hub est HS
 pendant 1h, l'utilisateur connu de l'app peut toujours se logger.
 
-**Mot de passe optionnel** : un user peut depuis "Settings → Security"
-de l'app set un password local (bcrypt, table `<app>_passwords`). Le flow
-devient : tente couche 1 → 2 → 3 → password en bypass total. Cette
-feature est P3, non bloquante.
+**Pas de mot de passe local** (§3.8) : l'ancienne option P3 d'un mot de passe dans l'app
+est retirée.
 
 ### 6bis.4 Mapping rôle / workspace
 
@@ -2367,12 +2422,17 @@ externalise tout au Hub.
 2. **Whitelist server-side (anti open-redirect)** : valider `next` contre
    le regex strict :
    ```
-   ^https://[a-z0-9-]+\.veridian\.site(/.*)?$
+   ^https://[a-z0-9-]+(\.app)?\.veridian\.site(/.*)?$
    ```
    - Rejeter tout autre domaine (un attaquant ne doit pas pouvoir
      détourner le bounce vers `evil.com`).
    - Pattern intentionnellement large : **toute future app
-     `*.veridian.site` est éligible sans modif Hub**.
+     `*.app.veridian.site` passe la whitelist sans modif Hub**. Pour l'appel
+     HMAC, elle doit en plus être déclarée dans `APP_ENV_MAP`
+     (`lib/auth/bounce-apps.ts`), sinon le rebond finit en `not_configured`.
+   - Le `.app` est obligatoire dans le regex : sans lui, tous les hôtes réels
+     étaient ignorés en silence et le rebond n'a jamais servi en prod jusqu'au
+     06/11/2026.
    - Refuser `app.veridian.site` lui-même (pas de bounce vers Hub —
      redirect normal `/dashboard`).
 3. **Persister `next` pendant le flow OAuth** : cookie temporaire
@@ -2381,7 +2441,7 @@ externalise tout au Hub.
    l'URL OAuth public (fuite Referer).
 4. **Après OAuth réussi** (Google ou Microsoft) :
    - Lire `next` (cookie/state).
-   - Extraire le sous-domaine app : `<app>.veridian.site` → app name
+   - Extraire le sous-domaine app : `<app>.app.veridian.site` → app name
      `<app>` (regex capture).
    - Appeler l'endpoint contrat §6bis.8.3 de l'app cible en HMAC §6.1.
    - Recevoir `{magic_link_url}` → effacer le cookie `next` →
@@ -2437,6 +2497,8 @@ au Hub.
 
 #### 6bis.8.4 Cas particuliers
 
+- **Adresse non prouvée** : aucun appel à l'app, retour au tableau de bord et envoi
+  automatique du lien de preuve (§3.8).
 - **`?next=` avec user déjà loggué au Hub** (cookie session Hub présent
   AVANT le clic « Continuer avec Google ») : skip OAuth, aller directement
   à l'étape « appeler issue-magic-link de l'app cible ». L'user n'aura
@@ -2465,21 +2527,25 @@ L'app downstream DOIT couvrir en CI bloquant :
 Le Hub DOIT couvrir en CI bloquant :
 
 - `?next=https://evil.com` → ignoré, redirect `/dashboard` (regex strict).
-- `?next=https://newapp.veridian.site/x` → flow nominal (regex large
+- `?next=https://newapp.app.veridian.site/x` → flow nominal (regex large
   vérifie automatiquement la couverture des apps futures).
+- `?next=https://prospection.app.veridian.site/` → flow nominal : un hôte réel de
+  prod doit figurer dans les tests, jamais seulement une forme théorique.
 - `?next` mal encodé → ignoré sans 500.
 
 #### 6bis.8.6 Onboarding d'une nouvelle app — récap (mise à jour §11)
 
-Une app `veridian-newapp` qui s'ajoute à la stack n'a **rien à demander
-au Hub** pour le bounce OAuth :
+Une app `veridian-newapp` qui s'ajoute à la stack demande une seule chose au Hub
+pour le bounce OAuth, sa déclaration (point 4) :
 
 1. Implémenter l'endpoint `POST /api/sso/issue-magic-link` (cf.
    §6bis.8.3) — réutilise la logique magic_link couche 3.
 2. Ajouter les 2 boutons standardisés sur `/login` (cf. §6bis.8.1).
 3. Domaine DNS `newapp.app.veridian.site` (et `newapp.staging.veridian.site`).
-
-Le Hub la prend en charge automatiquement via le regex de la whitelist.
+4. Côté Hub, déclarer l'app dans `APP_ENV_MAP` (`lib/auth/bounce-apps.ts`) et poser
+   `<APP>_API_URL` + `<APP>_HUB_API_SECRET`. La clé est le premier label de l'hôte :
+   `analytics` pour Rybbit, `crm` pour Twenty (`CRM_API_URL`, `CRM_HUB_API_SECRET`).
+   Le regex de la whitelist ne suffit pas à lui seul.
 Aucune PR Hub, aucune migration Hub, aucun déploiement Hub n'est requis
 pour onboarder l'OAuth de la nouvelle app.
 
@@ -4053,6 +4119,27 @@ chaque app retry indéfiniment avec backoff plafond 1h.
 ---
 
 ## 16. Changements
+
+### v1.8 — 2026-11-06 (identité sans base commune)
+
+- **Décision gravée** : une base par app, identité portée par le Hub, pas d'OIDC.
+  Détail dans `SAAS-STANDARDS.md` §1.1 et §1.2.
+- **§3.8 nouveau** : le Hub est la seule source de vérité des utilisateurs, et aucun
+  lien vers une app sans adresse prouvée. Mesuré le 06/11 avant correctif : un compte
+  jamais prouvé obtenait un lien d'auto-login.
+- **§3.7** : `hub_user_id` est `users.supabase_user_id`, jamais `users.id`.
+- **§6bis.8.2** : le regex de la whitelist accepte enfin les hôtes réels
+  `<app>.app.veridian.site`. Avant, le rebond les ignorait tous en silence.
+- **§6bis.8.6** : une nouvelle app doit être déclarée dans `APP_ENV_MAP`. Twenty y
+  figure sous la clé `crm`, inactive tant que `CRM_API_URL` et `CRM_HUB_API_SECRET`
+  ne sont pas posées.
+- **CMS** : sort de `hub reconcile` et de la discovery. Il reste à part et s'éteint
+  peu à peu.
+- **Dette ouverte, §5.2** : le Hub ne pousse toujours pas `update-plan` vers
+  Prospection, ni depuis Stripe, ni depuis `hub plan`, alors que l'endpoint existe.
+  Blocage : seuls 10 tenants sur 40 ont le même id des deux côtés, et le Hub ne
+  connaît pas l'id de tenant Prospection. Il manque `tenant_id` dans la réponse de
+  `GET /api/users/by-email` côté Prospection.
 
 ### v1.7 — 2026-05-22 (extraction billing)
 

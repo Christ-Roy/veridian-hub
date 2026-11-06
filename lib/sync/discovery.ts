@@ -69,7 +69,7 @@ export interface DiscoverOptions {
 }
 
 /** Lit le secret HMAC d'une app (avec fallback legacy quand applicable). */
-function readAppSecret(app: SyncApp): string | null {
+export function readAppSecret(app: SyncApp): string | null {
   const mapping = APP_ENV_MAPPING[app];
   const primary = process.env[mapping.secretEnv];
   if (primary) return primary;
@@ -80,7 +80,7 @@ function readAppSecret(app: SyncApp): string | null {
 }
 
 /** Lit l'URL de base d'une app (sans trailing slash). */
-function readAppUrl(app: SyncApp): string | null {
+export function readAppUrl(app: SyncApp): string | null {
   const url = process.env[APP_ENV_MAPPING[app].urlEnv];
   if (!url) return null;
   return url.replace(/\/+$/, '');
@@ -100,7 +100,7 @@ function readAppUrl(app: SyncApp): string | null {
  * conventions HMAC à gérer. Le path part dans l'URL, le timestamp anti-replay
  * dans le header, et la sig est sur `${ts}.`.
  */
-function signGet(secret: string): { timestamp: string; signature: string } {
+export function signGet(secret: string): { timestamp: string; signature: string } {
   const timestamp = Date.now().toString();
   const signature = createHmac('sha256', secret)
     .update(`${timestamp}.`)
@@ -161,6 +161,7 @@ export async function discoverAppForEmail(
           workspaces?: Array<{
             workspace_id?: string;
             workspace_name?: string;
+            tenant_id?: string;
             role?: string;
             plan?: string;
             status?: string;
@@ -183,6 +184,7 @@ export async function discoverAppForEmail(
         app,
         workspaceId: w.workspace_id,
         workspaceName: w.workspace_name,
+        tenantId: w.tenant_id,
         role: w.role,
         plan: w.plan,
         status:

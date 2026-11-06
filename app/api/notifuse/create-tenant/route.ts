@@ -90,6 +90,7 @@ export async function POST(request: NextRequest) {
       ownerEmail: user.email,
       workspaceName,
       plan: 'free',
+      hubUserId: uuid,
     });
 
     addLog('success', 'provision', 'Workspace provisioned via Notifuse Veridian API', {

@@ -112,6 +112,11 @@ const APP_ENV_MAP: Record<
     urlVar: 'ANALYTICS_API_URL',
     secretVar: 'ANALYTICS_HUB_API_SECRET',
   },
+  // Hôte staging de Rybbit : `analytics-rybbit.staging.veridian.site`.
+  'analytics-rybbit': {
+    urlVar: 'ANALYTICS_API_URL',
+    secretVar: 'ANALYTICS_HUB_API_SECRET',
+  },
   crm: {
     urlVar: 'CRM_API_URL',
     secretVar: 'CRM_HUB_API_SECRET',

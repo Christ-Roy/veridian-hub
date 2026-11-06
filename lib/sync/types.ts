@@ -33,6 +33,8 @@ export interface TenantSnapshot {
   /** ID du tenant côté app (slug, uuid, etc.) — sémantique app-spécifique. */
   workspaceId: string;
   workspaceName?: string;
+  /** Id du tenant côté app, quand elle l'expose (Prospection). */
+  tenantId?: string;
   role?: string;
   plan?: string;
   status?: 'active' | 'suspended' | 'deleted';
@@ -61,6 +63,20 @@ export interface DiscoveryResult {
   durationMs: number;
 }
 
+/** Audit d'identité d'une app (`lib/sync/identity-audit.ts`). */
+export interface IdentityAuditApp {
+  status: 'ok' | 'endpoint_missing' | 'unreachable' | 'not_configured';
+  localAccounts: number;
+  /** Comptes humains locaux dont l'adresse est inconnue du Hub. */
+  withoutHub: string[];
+  /** Adresse connue du Hub, mais pas relié par `hub_user_id`. */
+  unlinked: string[];
+  emailMismatch: string[];
+  nameMismatch: string[];
+}
+
+export type IdentityAudit = Partial<Record<SyncApp, IdentityAuditApp>>;
+
 /** Type d'écart détecté par la reconciliation entre Hub et app downstream. */
 export type DriftKind =
   | 'plan_mismatch'        // Hub.<app>Plan ≠ snapshot.plan
@@ -88,6 +104,8 @@ export interface ReconcileSummary {
    * discovery ne peut pas les lire. Remontés ici pour ne pas disparaître du relevé.
    */
   tenantsWithoutUser: string[];
+  /** Comptes des apps comparés au Hub. Absent si l'audit n'a pas pu tourner. */
+  identity?: IdentityAudit;
   /** Nombre d'apps interrogées (≤ usersScanned × 3). */
   appsQueried: number;
   /** Nombre de drifts détectés (1 drift = 1 (tenant, app) divergent). */

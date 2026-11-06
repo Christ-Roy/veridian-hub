@@ -27,50 +27,46 @@ différents, et aucune cohésion entre apps pour l'utilisateur final. Le but :
 
 ## 1. Persistance et multitenance
 
-### 1.1 Postgres cible
+### 1.1 Une base par app, identité portée par le Hub
 
-- **Toute nouvelle app ou feature écrit sur `veridian-core-db`** (voir
-  `infra/docker-compose.yml` service `veridian-core-db`, base `veridian`).
-- **Plus jamais sur Supabase PG** sauf tables legacy déjà présentes (Prospection
-  tenants/profiles, auth Supabase). C'est dette acceptée à court terme, pas un
-  nouveau pattern.
-- **Exceptions de fait** :
-  - Prospection garde sa PG dédiée (historique 996k entreprises, ne bouge pas).
-  - Notifuse garde la sienne (boîte noire upstream, on minimise le diff).
-  - Les apps futures (Analytics, Hub extensions) écrivent sur `veridian-core-db`.
+> **Décision du 06/11/2026 (Robert)** : chaque app garde sa propre base. Il n'y a
+> ni base commune ni schéma partagé. Pourquoi : la restauration pgBackRest se fait
+> par cluster (restaurer une app ne doit pas ramener les autres en arrière), une
+> panne de base ne doit toucher qu'une app, et une base unique obligerait à
+> réécrire l'auth de chaque fork.
+>
+> Porte de sortie : à rouvrir seulement si une app a besoin de transactions avec
+> une autre, ce qui n'existe pas aujourd'hui.
 
-### 1.2 Isolation par schema Prisma
+| App | Base | Auth utilisateur |
+|---|---|---|
+| Hub | `veridian-core-db` (schéma `hub_app`) | Auth.js v5, point d'identité |
+| Prospection | `prospection-saas-db`, dédiée | la sienne, rebond Hub |
+| Notifuse | dédiée (fork) | la sienne, rebond Hub |
+| Analytics (fork Rybbit) | dédiée (Postgres + ClickHouse) | la sienne, rebond Hub |
+| Twenty (à son retour) | dédiée (fork) | la sienne, rebond Hub |
+| CMS (Payload) | dédiée | à part, hors identité Hub, s'éteint peu à peu |
 
-Un schema Postgres par app sur `veridian-core-db` :
+Toute nouvelle app a sa base dédiée. **Plus aucune app n'écrit sur Supabase PG**,
+ni sur `veridian-core-db` en dehors du Hub.
 
-- `hub_app` — tables Hub (tenants, subscriptions, audit_log, invitations Hub)
-- `analytics` — tables Analytics (sites, pageviews, form_submissions, sip_calls)
-- `<futur_app>` — …
+### 1.2 Identité : le Hub, sans base commune ni OIDC
 
-Prisma support multi-schema :
-
-```prisma
-// hub/prisma/schema.prisma
-generator client {
-  provider        = "prisma-client-js"
-  previewFeatures = ["multiSchema"]
-}
-
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-  schemas  = ["hub_app"]
-}
-
-model Tenant {
-  id        String   @id @default(uuid()) @db.Uuid
-  // ...
-  @@schema("hub_app")
-}
-```
-
-Aucune app ne lit ou écrit dans le schema d'une autre app. Pas de foreign keys
-cross-schema. La communication inter-apps passe exclusivement par HTTP (voir §7).
+- Le Hub est le seul point de connexion et la **seule source de vérité** des
+  utilisateurs (`CONTRAT-HUB.md` §3.8). La table `users` d'une app n'est qu'une copie
+  reliée par le `hub_user_id` : aucune inscription, aucun mot de passe utilisable, aucun
+  changement d'email dans l'app. Les clés API machine restent locales.
+- Le passage du Hub à une app se fait par le **rebond** : le Hub appelle en HMAC
+  `POST <app>/api/sso/issue-magic-link` et redirige vers le lien reçu
+  (`CONTRAT-HUB.md` §6bis.8, `lib/auth/bounce-apps.ts`). Le Hub n'expose pas
+  d'endpoint OIDC : Auth.js n'y est que client.
+- Le rapprochement se fait par `GET <app>/api/users/by-email` et par `hub reconcile`
+  (`lib/sync/`), qui n'écrit rien : une dérive se lit et se tranche.
+- Aucune app ne lit la base d'une autre, aucune foreign key ne traverse deux bases.
+  La communication passe exclusivement par HTTP.
+- Un fork reste minimal : l'identité y ajoute les endpoints du contrat
+  (`issue-magic-link`, `by-email`, `hub/users`, `hub/users/sync`) et coupe les écrans
+  d'inscription et de mot de passe. On ne réécrit pas son auth.
 
 ### 1.3 Colonne `tenant_id` obligatoire
 
@@ -183,11 +179,9 @@ export const authConfig = {
 
 ### 2.3 Exceptions
 
-- **Prospection** utilise encore Supabase Auth → dette P2 (chantier douloureux).
-  Ne pas étendre ce pattern aux nouvelles apps.
-- **Twenty** a son propre auth OSS → on le garde, on l'alimente via provisioning
-  API.
-- **Notifuse** a son propre auth OSS → idem.
+- **Prospection** est sur Auth.js v5 depuis mai 2026 ; elle n'utilise plus Supabase.
+- **Twenty**, **Notifuse** et **Analytics (Rybbit)** gardent l'auth de leur fork et
+  reçoivent l'utilisateur par le rebond Hub (§1.2). On ne réécrit pas leur auth.
 
 ---
 
@@ -813,7 +807,7 @@ Le lead du sprint valide.
 
 ### Docs & TODO
 - [ ] README de l'app référence ce document
-- [ ] Tout écart (ex : Supabase Auth legacy) tracé dans `todo/TODO-LIVE.md`
+- [ ] Tout écart tracé dans `todo/TODO-LIVE.md`
 - [ ] Session note ajoutée dans `todo/apps/<app>/TODO.md`
 
 ---
