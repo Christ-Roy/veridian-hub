@@ -58,3 +58,7 @@ e2e-headfull-staging.json
 e2e-mega-staging.json
 e2e-tunnel-gates.json
 playwright-report-mega/
+
+# batterie système SSO
+e2e/systeme-sso/.run/
+e2e/systeme-sso/node_modules
