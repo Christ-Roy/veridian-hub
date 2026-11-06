@@ -50,6 +50,11 @@ test.describe('contrôle d\'échec', () => {
     expect(() => devraitNePasEtreArrive(a, 'analytics')).not.toThrow(); // pas « arrivé »...
     expect(/bounce\/error/.test(a.chemin)).toBe(true); // ...mais 02 le rejette par son propre test de chemin
   });
+  cas(null, 'réseau : une page d\'erreur du navigateur n\'est ni une arrivée ni un refus, elle est non aboutie', async () => {
+    const err = atterri({ hote: 'chromewebdata', url: 'chrome-error://chromewebdata/', chemin: '/' });
+    expect(() => devraitEtreArrive(err, 'prospection')).toThrow(/erreur réseau/);
+    expect(() => devraitNePasEtreArrive(err, 'prospection')).toThrow(/erreur réseau/);
+  });
   cas(null, 'lien mort : tombe si le lien a ouvert une session ou la console', async () => {
     const vue = { session: { email: 'a@b.c' }, texte: '', url: 'https://x/' };
     expect(() => devraitEtreSansSession(vue, 'a@b.c')).toThrow();

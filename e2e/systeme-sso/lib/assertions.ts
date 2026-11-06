@@ -4,6 +4,7 @@
  * fausse et exige qu'elle lève. Une assertion qui ne sait pas lever ne prouve rien.
  */
 import { APP_URL, masquer, type AppKey } from './cibles';
+import { NonAbouti } from './etat';
 import type { Atterrissage } from './parcours';
 
 const verdict = (ok: boolean, msg: string) => {
@@ -13,7 +14,15 @@ const verdict = (ok: boolean, msg: string) => {
 const ECHEC_REBOND = /Impossible de revenir|bounce\/error|Connectez-vous pour revenir/i;
 
 /** L'utilisateur est dans l'app, sans formulaire de connexion. */
+/** Page d'erreur du navigateur (réseau coupé, redéploiement en cours) : ce n'est pas un verdict de l'app. */
+function pasUneReponse(a: Atterrissage) {
+  if (/chromewebdata|^chrome-error:/.test(a.hote + a.url)) {
+    throw new NonAbouti(`${a.app} : navigation en erreur réseau (${a.url}), aucune réponse de l'app ni du Hub à juger`);
+  }
+}
+
 export function devraitEtreArrive(a: Atterrissage, app: AppKey) {
+  pasUneReponse(a);
   const hoteApp = new URL(APP_URL[app]).host;
   verdict(
     a.hote === hoteApp,
@@ -25,6 +34,7 @@ export function devraitEtreArrive(a: Atterrissage, app: AppKey) {
 
 /** L'utilisateur n'est PAS entré dans l'app. */
 export function devraitNePasEtreArrive(a: Atterrissage, app: AppKey) {
+  pasUneReponse(a);
   const hoteApp = new URL(APP_URL[app]).host;
   verdict(a.hote !== hoteApp, `${app} : un compte sans adresse prouvée est ENTRÉ dans l'app (${a.hote}${a.chemin})`);
   verdict(!a.lienUnique, `${app} : un lien de connexion a été émis pour un compte sans adresse prouvée`);
