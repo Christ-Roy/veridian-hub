@@ -20,7 +20,7 @@ async function marquesEtrangeres(nosEmails: string[]) {
     marques.add(e);
     for (const k of ['slug', 'notifuseWorkspaceSlug']) if (t[k] && String(t[k]).length > 5) marques.add(String(t[k]));
   }
-  return [...marques];
+  return Array.from(marques);
 }
 
 cas('prospection', 'le compte de test ne voit aucune donnée d\'un autre tenant', async ({ browser }) => {

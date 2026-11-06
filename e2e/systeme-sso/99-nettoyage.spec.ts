@@ -11,7 +11,7 @@ import { lookup, reconcile, supprimerNotifuse, supprimerTenantHub } from './lib/
 import { comptesNotes, oublierRegistre } from './lib/parcours';
 
 cas(null, 'les comptes de test sont supprimés et reconcile n\'en garde aucun', async () => {
-  const emails = [...new Set(comptesNotes())];
+  const emails = Array.from(new Set(comptesNotes()));
   const restes: string[] = [];
   for (const email of emails) {
     const u = await lookup(email);

@@ -25,10 +25,10 @@ function imageNomad(job: string): string | null {
       timeout: 15_000,
       stdio: ['ignore', 'pipe', 'ignore'],
     });
-    const images = [...out.matchAll(/"[Ii]mage": *"([^"]+)"/g)]
+    const images = Array.from(out.matchAll(/"[Ii]mage": *"([^"]+)"/g))
       .map((m) => m[1])
       .filter((i) => !/postgres|clickhouse|redis|pgbackrest/.test(i));
-    return images.length ? [...new Set(images)].join(' + ') : null;
+    return images.length ? Array.from(new Set(images)).join(' + ') : null;
   } catch {
     return null;
   }

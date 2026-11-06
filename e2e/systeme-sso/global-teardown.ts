@@ -6,7 +6,7 @@ import { lookup, supprimerNotifuse, supprimerTenantHub } from './lib/hub-admin';
 import { comptesNotes, oublierRegistre } from './lib/parcours';
 
 export default async function () {
-  const restes = [...new Set(comptesNotes())];
+  const restes = Array.from(new Set(comptesNotes()));
   for (const email of restes) {
     try {
       const u = await lookup(email);

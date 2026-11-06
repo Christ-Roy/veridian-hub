@@ -79,7 +79,7 @@ export function devraitNeVoirAucuneDeriveNouvelle(base: RapportReconcile, apres:
     n.derives.length === 0 && n.identite.length === 0,
     `reconcile : ${n.derives.length} dérive(s) nouvelle(s) ${JSON.stringify(
       n.derives.map((d) => `${d.app}:${d.kind}`),
-    )}, identité ${JSON.stringify([...new Set(n.identite)])}`,
+    )}, identité ${JSON.stringify(Array.from(new Set(n.identite)))}`,
   );
 }
 
