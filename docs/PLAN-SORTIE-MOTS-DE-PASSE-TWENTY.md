@@ -34,8 +34,13 @@ Côté Prospection, la colonne n'a plus aucun lecteur : seule la purge la remet 
 | 5 | Migration Prisma : `twenty_password_encrypted` devient nullable, puis suppression après une connexion réelle mesurée | Hub | 1 h | étape 4 en prod |
 | 6 | Migration Prisma : suppression de `twenty_user_password` et de sa ligne dans la purge | Prospection | 30 min | indépendante, mais sans urgence : colonne vide |
 
+Même sort pour `twenty_api_key_encrypted` (décision du 06/11) : le Hub n'appelle jamais cette
+clé, seul `hub crm:api-key` la révélait pour des imports ponctuels, et le contrat §3.8 laisse les
+clés machine locales à l'app. `provision` ne la renvoie plus, la colonne part avec l'étape 5, et
+`CRM_VAULT_KEY` disparaît avec elle.
+
 **Total côté Hub : environ 4 h 30, plus 30 min côté Prospection.** Aucune dépense, aucune
-tâche planifiée. `CRM_VAULT_KEY` reste nécessaire : elle chiffre aussi `twenty_api_key_encrypted`.
+tâche planifiée.
 
 ## Le garde-fou de l'ordre
 

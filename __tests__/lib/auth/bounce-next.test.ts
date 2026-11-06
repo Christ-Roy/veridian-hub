@@ -59,6 +59,18 @@ describe('parseNext — whitelist regex anti open-redirect', () => {
       expect(r!.app).toBe(app);
     });
 
+    it('workspace Twenty : <slug>.crm.app désigne l\'app crm', () => {
+      expect(parseNext('https://acme.crm.app.veridian.site/x', 'production')?.app).toBe('crm');
+      expect(parseNext('https://acme.crm.staging.veridian.site/x', 'staging')?.app).toBe('crm');
+    });
+
+    it('le niveau de plus reste réservé à crm', () => {
+      expect(parseNext('https://acme.notifuse.app.veridian.site/', 'production')).toBeNull();
+      expect(parseNext('https://acme.notifuse.staging.veridian.site/', 'staging')).toBeNull();
+      expect(parseNext('https://a.b.crm.app.veridian.site/', 'production')).toBeNull();
+      expect(parseNext('https://acme.crm.veridian.site/', 'production')).toBeNull();
+    });
+
     it('rejette les hôtes Hub sous la forme .app (anti-boucle)', () => {
       expect(parseNext('https://app.app.veridian.site/', 'production')).toBeNull();
       expect(parseNext('https://hub.app.veridian.site/', 'production')).toBeNull();

@@ -553,6 +553,8 @@ cette adresse.
 | `GET /api/hub/users` | vide, signature sur `${ts}.` | `{ users: [{ hub_user_id, email, name }] }`, humains seulement |
 | `POST /api/hub/users/sync` | `{ hub_user_id, name?, email?, deleted? }` | 200, ou 404 `{ error: "user_not_in_app" }` |
 
+Noms uniques pour toutes les apps : pas de route équivalente sous un autre chemin.
+
 - `sync` retrouve le compte **par `hub_user_id` uniquement**, jamais par email, et
   n'applique que les champs présents. `deleted: true` coupe les sessions et l'accès.
 - Le Hub ne pousse une adresse qu'une fois prouvée (`lib/identity/push-user.ts`).
@@ -2144,7 +2146,7 @@ L'app tente l'authentification dans cet ordre, premier succès gagne :
    « Continuer avec Google » ou « Continuer avec Microsoft » → redirect
    vers `app.veridian.site/login?next=<encoded_url_app>` → Hub fait le
    flow OAuth (Auth.js v5 Google/Microsoft) → Hub valide `next` contre
-   regex `^https://[a-z0-9-]+(\.app)?\.veridian\.site(/.*)?$` (anti
+   regex §6bis.8.2 (anti
    open-redirect) → Hub appelle l'endpoint contrat
    `POST <app>/api/sso/issue-magic-link` (HMAC §6.1) avec
    `{hub_user_id, email}` → l'app génère son magic link interne (réutilise
@@ -2422,8 +2424,9 @@ externalise tout au Hub.
 2. **Whitelist server-side (anti open-redirect)** : valider `next` contre
    le regex strict :
    ```
-   ^https://[a-z0-9-]+(\.app)?\.veridian\.site(/.*)?$
+   ^https://(?:[a-z0-9-]+\.crm\.app|[a-z0-9-]+(?:\.app)?)\.veridian\.site(/.*)?$
    ```
+   Le niveau `<slug>.crm.*` est réservé à Twenty, dont chaque workspace a son sous-domaine.
    - Rejeter tout autre domaine (un attaquant ne doit pas pouvoir
      détourner le bounce vers `evil.com`).
    - Pattern intentionnellement large : **toute future app
@@ -2507,7 +2510,7 @@ au Hub.
   app→Hub→app) : géré naturellement par l'étape 5 du flow Hub — la couche
   4 termine sur un magic_link app, donc l'user atterrit loggué sur l'app
   d'origine.
-- **Staging** : whitelist staging = `^https://[a-z0-9-]+\.staging\.veridian\.site(/.*)?$`.
+- **Staging** : whitelist staging = `^https://(?:[a-z0-9-]+\.crm|[a-z0-9-]+)\.staging\.veridian\.site(/.*)?$`.
   Cookie `next` scopé `hub.staging.veridian.site`. Pas de cross-pollution
   prod/staging (cf. §6bis.7.2).
 
