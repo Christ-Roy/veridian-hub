@@ -141,10 +141,10 @@ describe('chemin de réparation (tenant rattaché par hub link)', () => {
       deps(),
     );
 
-    expect(provisionWorkspace).toHaveBeenCalledWith({
+    expect(provisionWorkspace).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: 'celinegaetan',
       ownerEmail: 'vrai-owner@x.test',
-    });
+    }));
   });
 
   it("backfille l'email owner pour que le clic suivant prenne le chemin rapide", async () => {

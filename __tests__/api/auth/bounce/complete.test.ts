@@ -16,6 +16,8 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const userFindUniqueMock = vi.hoisted(() => vi.fn(async (): Promise<unknown> => null));
+vi.mock('@/lib/prisma', () => ({ prisma: { user: { findUnique: userFindUniqueMock } } }));
 const mockDenyUnlessEmailProven = vi.hoisted(() => vi.fn(async (): Promise<unknown> => null));
 vi.mock('@/lib/auth/email-proof', () => ({
   denyUnlessEmailProven: mockDenyUnlessEmailProven,
@@ -284,6 +286,65 @@ describe('GET /api/auth/bounce/complete', () => {
     const res = await GET(makeReq({ cookie }));
     expect(fetchMock).not.toHaveBeenCalled();
     expect(res.headers.get('location')).toMatch(/\/dashboard$/);
+  });
+
+  it.each([
+    ['requête RSC', { rsc: '1' }, ''],
+    ['paramètre _rsc', {}, '?_rsc=abc'],
+    ['préchargement Next', { 'next-router-prefetch': '1' }, ''],
+    ['préchargement navigateur', { 'sec-purpose': 'prefetch' }, ''],
+    ['fetch', { 'sec-fetch-mode': 'cors' }, ''],
+  ])('%s : aucun lien émis, cookie intact, 204', async (_label, headers, query) => {
+    getCurrentUserMock.mockResolvedValue({
+      id: 'u1', email: 'a@b.c', name: null, image: null, supabaseUserId: 'uuid-1',
+    });
+    const cookie = signNextCookie('https://notifuse.veridian.site/', TEST_SECRET);
+    const req = new NextRequest(`https://app.veridian.site/api/auth/bounce/complete${query}`);
+    req.cookies.set(NEXT_COOKIE_NAME_SECURE, cookie);
+    // Les en-têtes `sec-*` sont interdits au constructeur : le test les présente directement.
+    const sent = headers as Record<string, string>;
+    vi.spyOn(req.headers, 'get').mockImplementation((name: string) => sent[name.toLowerCase()] ?? null);
+    const { GET } = await import('@/app/api/auth/bounce/complete/route');
+    const res = await GET(req);
+    expect(res.status).toBe(204);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(mockDenyUnlessEmailProven).not.toHaveBeenCalled();
+    expect(res.cookies.get(NEXT_COOKIE_NAME_SECURE)).toBeUndefined();
+  });
+
+  it.each([
+    [new Date(), true],
+    [null, undefined],
+  ])('emailVerified=%s en base → email_proven=%s dans le corps signé', async (emailVerified, expected) => {
+    getCurrentUserMock.mockResolvedValue({
+      id: 'u1', email: 'a@b.c', name: null, image: null, supabaseUserId: 'uuid-1',
+    });
+    userFindUniqueMock.mockResolvedValueOnce({ emailVerified });
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ magic_link_url: 'https://notifuse.veridian.site/x' }), { status: 200 }),
+    );
+    const { GET } = await import('@/app/api/auth/bounce/complete/route');
+    await GET(makeReq({ cookie: signNextCookie('https://notifuse.veridian.site/', TEST_SECRET) }));
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.email_proven).toBe(expected);
+  });
+
+  it('navigation réelle (sec-fetch-mode navigate) : le lien est émis', async () => {
+    getCurrentUserMock.mockResolvedValue({
+      id: 'u1', email: 'a@b.c', name: null, image: null, supabaseUserId: 'uuid-1',
+    });
+    fetchMock.mockResolvedValue(
+      new Response(JSON.stringify({ magic_link_url: 'https://notifuse.veridian.site/x' }), { status: 200 }),
+    );
+    const req = new NextRequest('https://app.veridian.site/api/auth/bounce/complete');
+    req.cookies.set(NEXT_COOKIE_NAME_SECURE, signNextCookie('https://notifuse.veridian.site/', TEST_SECRET));
+    vi.spyOn(req.headers, 'get').mockImplementation((name: string) =>
+      name.toLowerCase() === 'sec-fetch-mode' ? 'navigate' : null,
+    );
+    const { GET } = await import('@/app/api/auth/bounce/complete/route');
+    const res = await GET(req);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(res.headers.get('location')).toBe('https://notifuse.veridian.site/x');
   });
 
   it('user sans supabaseUserId → aucun appel à l\'app : users.id ne sert jamais de hub_user_id', async () => {

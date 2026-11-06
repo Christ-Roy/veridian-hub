@@ -70,6 +70,11 @@ export function LoginForm({
       return;
     }
 
+    // Le rebond finit sur une autre origine : une navigation complète, pas le routeur.
+    if (bounceApp) {
+      window.location.assign(callbackUrl);
+      return;
+    }
     router.push(callbackUrl);
     router.refresh();
   };

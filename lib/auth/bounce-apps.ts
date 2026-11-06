@@ -6,7 +6,7 @@
  *
  *     POST <app>/api/sso/issue-magic-link
  *     Headers: X-Veridian-Hub-Signature (HMAC §6.1), X-Veridian-Timestamp
- *     Body:    { "hub_user_id": "<uuid>", "email": "<string>" }
+ *     Body:    { "hub_user_id": "<uuid>", "email": "<string>", "email_proven"?: true }
  *
  *     Réponses :
  *       200 → { magic_link_url: "https://<app>.../auth/token?t=..." }
@@ -67,6 +67,8 @@ export interface IssueMagicLinkInput {
   app: string;
   hubUserId: string;
   email: string;
+  /** Adresse prouvée au Hub : seule condition pour qu'une app relie par email. */
+  emailProven?: boolean;
 }
 
 export interface IssueMagicLinkSuccess {
@@ -190,6 +192,7 @@ export async function issueMagicLinkForApp(
   const body = JSON.stringify({
     hub_user_id: input.hubUserId,
     email: input.email,
+    ...(input.emailProven ? { email_proven: true } : {}),
   });
 
   const timestamp = String(nowMs());

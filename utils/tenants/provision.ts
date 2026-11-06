@@ -5,6 +5,7 @@
  * Twenty retiré de la stack 2026-05-18.
  */
 
+import { isEmailProvenInDb } from '@/lib/auth/email-proof-provider';
 import { logProvisionStart, logProvisionEnd, logStep, logError } from './debug';
 import { NotifuseClient } from '@/lib/notifuse/client';
 import { NotifuseError } from '@/lib/notifuse/types';
@@ -61,6 +62,7 @@ export async function provisionNotifuseTenant(
       workspaceName,
       plan: 'free',
       hubUserId: userId,
+      emailProven: await isEmailProvenInDb(prisma, userId),
     });
 
     logStep('NOTIFUSE', result.created ? 'Workspace created' : 'Workspace already existed');
@@ -186,6 +188,7 @@ export async function provisionProspectionTenant(
       name: email.split('@')[0],
       userId,
       plan: 'freemium',
+      emailProven: await isEmailProvenInDb(prisma, userId),
     });
 
     logStep('PROSPECTION', 'Provisioned', { tenantId: data.tenant_id, created: data.created });

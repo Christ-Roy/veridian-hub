@@ -536,9 +536,14 @@ au Hub**. Les tables `users` locales restent, comme des copies alimentées par l
 
 **Aucun lien vers une app sans adresse prouvée.** Toute route du Hub qui mène à une
 session d'app passe par `denyUnlessEmailProven` (`lib/auth/email-proof.ts`, vérifié par
-un test qui échoue sur toute nouvelle route non gardée). L'app ne reçoit pas de champ
-`email_verified` : c'est le Hub qui porte ce contrôle. L'impersonation admin en est
+un test qui échoue sur toute nouvelle route non gardée). L'impersonation admin en est
 exemptée, parce qu'elle est tracée.
+
+**`email_proven: true`** : le Hub l'ajoute au corps signé de `issue-magic-link` et de
+`provision`, seulement si `emailVerified` est posé en base au moment de l'appel. Absent
+signifie « non attesté », y compris pour une impersonation. Une app ne relie un compte
+existant par email que si ce champ est présent ; sinon elle se fie au seul `hub_user_id`.
+Une app qui n'a pas de lien par email peut l'ignorer.
 
 Valent preuve : un fournisseur OAuth qui certifie l'adresse (une telle connexion sur un
 compte non prouvé annule le mot de passe préexistant et invalide les sessions déjà
@@ -2419,6 +2424,8 @@ externalise tout au Hub.
 #### 6bis.8.2 Côté Hub — gestion du param `?next=`
 
 **Spec contractuelle (ce que le Hub DOIT faire)** :
+
+0. N'appeler l'app que pour une adresse prouvée, et poser `email_proven: true` selon le §3.8.
 
 1. **Accepter le param `next` sur `/login`** : `app.veridian.site/login?next=<encoded_url>`.
 2. **Whitelist server-side (anti open-redirect)** : valider `next` contre

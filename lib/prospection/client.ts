@@ -37,6 +37,7 @@ export interface ProvisionInput {
   name: string;
   userId: string;
   plan?: string;
+  emailProven?: boolean;
 }
 
 export interface UpdatePlanInput {
@@ -91,6 +92,7 @@ export class ProspectionClient {
       plan: input.plan ?? 'freemium',
       user_id: input.userId,
       metadata: { hub_user_id: input.userId },
+      ...(input.emailProven ? { email_proven: true } : {}),
     });
   }
 

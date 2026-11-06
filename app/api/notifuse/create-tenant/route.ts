@@ -1,3 +1,4 @@
+import { isEmailProvenInDb } from '@/lib/auth/email-proof-provider';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { requireUser, userUuid } from '@/lib/auth/get-user';
@@ -91,6 +92,7 @@ export async function POST(request: NextRequest) {
       workspaceName,
       plan: 'free',
       hubUserId: uuid,
+      emailProven: await isEmailProvenInDb(prisma, uuid),
     });
 
     addLog('success', 'provision', 'Workspace provisioned via Notifuse Veridian API', {

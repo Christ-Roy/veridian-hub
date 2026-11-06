@@ -35,12 +35,34 @@ import {
   NEXT_COOKIE_NAME_INSECURE,
 } from '@/lib/auth/bounce-next';
 import { issueMagicLinkForApp, BounceError } from '@/lib/auth/bounce-apps';
+import { isEmailProvenInDb } from '@/lib/auth/email-proof-provider';
 import { getHubBaseUrl } from '@/lib/mail/oauth-cookies';
+import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
+/**
+ * Requête du routeur Next (RSC, préchargement) ou `fetch`, pas une navigation réelle.
+ * Elle ne doit rien émettre : un lien coûte au plafond de 10 par minute côté app, et un
+ * préchargement peut consommer un lien à usage unique. Mesuré le 06/11 : 3 liens par
+ * connexion par mot de passe, dont 2 sur des requêtes `_rsc`.
+ */
+function isRealNavigation(req: NextRequest): boolean {
+  if (req.headers.get('rsc') || req.nextUrl.searchParams.has('_rsc')) return false;
+  if (req.headers.get('next-router-prefetch')) return false;
+  const purpose = req.headers.get('purpose') ?? req.headers.get('sec-purpose');
+  if (purpose?.includes('prefetch')) return false;
+  const mode = req.headers.get('sec-fetch-mode');
+  return !mode || mode === 'navigate';
+}
+
 export async function GET(req: NextRequest): Promise<NextResponse> {
+  // Sans corps ni cookie consommé : le routeur Next retombe sur une navigation complète.
+  if (!isRealNavigation(req)) {
+    return new NextResponse(null, { status: 204, headers: { 'Cache-Control': 'no-store' } });
+  }
+
   const deployEnv = process.env.DEPLOY_ENV;
   const secret = process.env.AUTH_SECRET;
 
@@ -111,6 +133,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       app: parsed.app,
       hubUserId: userUuid(user),
       email: user.email,
+      emailProven: await isEmailProvenInDb(prisma, userUuid(user)),
     });
     return wipeCookies(NextResponse.redirect(magicLinkUrl));
   } catch (err) {
