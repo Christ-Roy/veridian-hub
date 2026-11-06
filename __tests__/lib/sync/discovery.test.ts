@@ -110,7 +110,7 @@ describe('discoverAppForEmail', () => {
   });
 
   it('returns { error: app_not_configured } when ENV missing', async () => {
-    const result = await discoverAppForEmail('cms', 'user@x.com');
+    const result = await discoverAppForEmail('analytics', 'user@x.com');
     expect(result).toMatchObject({
       error: expect.stringContaining('app_not_configured'),
     });
@@ -202,15 +202,11 @@ describe('discoverUserApps (cross-app aggregator)', () => {
     });
     expect(Object.keys(result.apps).sort()).toEqual([
       'analytics',
-      'cms',
       'notifuse',
       'prospection',
     ]);
     expect(result.apps.notifuse).toEqual({ found: false });
     expect(result.apps.prospection).toEqual({ found: false });
-    expect(result.apps.cms).toMatchObject({
-      error: expect.stringContaining('app_not_configured'),
-    });
     expect(result.apps.analytics).toMatchObject({
       error: expect.stringContaining('app_not_configured'),
     });

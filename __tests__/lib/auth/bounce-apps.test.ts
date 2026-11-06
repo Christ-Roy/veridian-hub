@@ -113,13 +113,14 @@ describe('resolveAppConfig', () => {
 });
 
 describe('listSupportedApps', () => {
-  it('renvoie la liste des 4 apps officielles', () => {
+  it('renvoie la liste des apps officielles', () => {
     const apps = listSupportedApps();
     expect(apps).toContain('notifuse');
     expect(apps).toContain('prospection');
     expect(apps).toContain('cms');
     expect(apps).toContain('analytics');
-    expect(apps).toHaveLength(4);
+    expect(apps).toContain('crm');
+    expect(apps).toHaveLength(5);
   });
 });
 

@@ -13,13 +13,14 @@
  */
 
 /** Identifiant d'une app downstream gérée par le sync. */
-export type SyncApp = 'notifuse' | 'prospection' | 'analytics' | 'cms';
+export type SyncApp = 'notifuse' | 'prospection' | 'analytics';
 
+// Le CMS (Payload) n'en fait pas partie : il reste à part, sans discovery ni
+// secret HMAC côté Hub, et il s'éteint peu à peu (décision Robert, 06/11).
 export const SYNC_APPS: readonly SyncApp[] = [
   'notifuse',
   'prospection',
   'analytics',
-  'cms',
 ] as const;
 
 /**
@@ -52,7 +53,7 @@ export type DiscoveryAppResult =
 export interface DiscoveryResult {
   /** Email du user dont on a fait le discovery. */
   email: string;
-  /** Map app → result. Toujours présente pour les 4 apps gérées. */
+  /** Map app → result. Toujours présente pour les apps gérées. */
   apps: Record<SyncApp, DiscoveryAppResult>;
   /** ISO 8601 — quand la discovery a été lancée. */
   startedAt: string;
@@ -82,7 +83,12 @@ export interface TenantDrift {
 export interface ReconcileSummary {
   /** Nombre de users actifs scannés. */
   usersScanned: number;
-  /** Nombre d'apps interrogées (≤ usersScanned × 4). */
+  /**
+   * Tenants actifs dont le User n'existe plus : ils n'ont pas d'email, donc la
+   * discovery ne peut pas les lire. Remontés ici pour ne pas disparaître du relevé.
+   */
+  tenantsWithoutUser: string[];
+  /** Nombre d'apps interrogées (≤ usersScanned × 3). */
   appsQueried: number;
   /** Nombre de drifts détectés (1 drift = 1 (tenant, app) divergent). */
   driftsDetected: number;

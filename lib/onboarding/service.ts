@@ -355,6 +355,18 @@ export async function activateOnboarding(
     const apps = normalizeApps(getMetadataApps(metadata));
     const credentials = user.accounts.find((a) => a.provider === 'credentials');
 
+    // Le lien d'activation a été remis à cette adresse : c'est une preuve. Un mot de
+    // passe posé avant cette preuve disparaît ci-dessous, ses sessions aussi.
+    if (!user.emailVerified) {
+      await tx.user.update({
+        where: { id: user.id },
+        data: {
+          emailVerified: now,
+          ...(credentials ? { sessionsValidAfter: now } : {}),
+        },
+      });
+    }
+
     if (credentials) {
       await tx.account.update({
         where: { id: credentials.id },

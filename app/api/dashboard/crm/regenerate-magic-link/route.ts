@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
+import { denyUnlessEmailProven } from '@/lib/auth/email-proof';
 import { getCrmTenantByUserId } from '@/lib/crm/select-tenant';
 import { regenerateMagicLink } from '@/lib/crm/client';
 
@@ -11,6 +12,8 @@ export async function POST() {
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  const denied = await denyUnlessEmailProven(user);
+  if (denied) return denied;
 
   let tenant;
   try {

@@ -38,6 +38,7 @@
  *   `isGoogleOneTapEnabled()` qui lit DEPLOY_ENV.
  */
 
+import { applyProviderEmailProof } from '@/lib/auth/email-proof-provider';
 import { NextResponse, type NextRequest } from 'next/server';
 import { randomUUID } from 'node:crypto';
 import { encode } from 'next-auth/jwt';
@@ -180,6 +181,9 @@ export async function POST(request: NextRequest) {
       where: { id: user.id },
       data: { supabaseUserId: randomUUID() },
     });
+  }
+  if (!freshlyCreated) {
+    await applyProviderEmailProof(prisma, user.id);
   }
 
   const existingAccount = await prisma.account.findUnique({

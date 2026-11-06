@@ -65,7 +65,7 @@ export function ProspectionCard({
           return;
         }
         toast.error('Impossible de générer le lien de connexion', {
-          description: data.error || 'Erreur inconnue',
+          description: data.message || data.error || 'Erreur inconnue',
           duration: 5000,
         });
         return;

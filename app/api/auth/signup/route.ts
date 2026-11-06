@@ -22,6 +22,7 @@ import { randomUUID } from 'crypto';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 
+import { issueEmailProof } from '@/lib/auth/email-proof';
 import { prisma } from '@/lib/prisma';
 import { signupLimiter, extractClientIp } from '@/lib/auth/rate-limit';
 import { provisionDefaultWorkspace } from '@/lib/workspace/provision';
@@ -126,6 +127,11 @@ export async function POST(request: NextRequest) {
     } catch (wsErr) {
       console.error('[Signup] workspace provisioning failed (non-blocking):', wsErr);
     }
+
+    // Lien de preuve dès l'inscription : sans lui, aucun outil ne s'ouvre.
+    void issueEmailProof(prisma, { id: user.id, email: user.email }).catch((err) => {
+      console.error('[Signup] email proof failed (non-blocking):', err);
+    });
 
     // Tunnel de vente : goal `signup` vers Veridian Analytics (best-effort,
     // fire-and-forget). user_id = email → le bridge fait l'union slug↔email.

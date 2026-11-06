@@ -36,6 +36,7 @@ vi.mock('@/utils/helpers', () => ({
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     user: {
+      update: vi.fn(async () => ({})),
       findUnique: vi.fn(async ({ where }: any) => userStore.get(where.email) ?? null),
     },
     verificationToken: {

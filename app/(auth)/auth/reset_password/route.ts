@@ -225,6 +225,16 @@ async function handleConsume(data: { token: string; password: string }): Promise
     });
   }
 
+  // Le lien de reset est parti à cette adresse : c'est une preuve. Le mot de passe
+  // vient d'être remplacé, donc les sessions ouvertes avec l'ancien tombent aussi.
+  if (!user.emailVerified) {
+    const now = new Date();
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { emailVerified: now, ...(credsAccount ? { sessionsValidAfter: now } : {}) },
+    });
+  }
+
   // Token consommé → suppression
   await prisma.verificationToken.delete({ where: { token: data.token } }).catch(() => {});
 

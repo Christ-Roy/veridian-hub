@@ -12,6 +12,13 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const mockDenyUnlessEmailProven = vi.hoisted(() => vi.fn(async (): Promise<unknown> => null));
+vi.mock('@/lib/auth/email-proof', () => ({
+  denyUnlessEmailProven: mockDenyUnlessEmailProven,
+  isEmailProvenForSession: vi.fn(async () => true),
+  issueEmailProof: vi.fn(async () => true),
+}));
+
 const provisionTenantsMock = vi.fn(async () => ({
   success: true,
   notifuse: { success: true, workspaceId: 'ws-1', autoLoginUrl: 'https://nf/auto' },

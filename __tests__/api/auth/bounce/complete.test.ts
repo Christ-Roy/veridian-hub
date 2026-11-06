@@ -15,6 +15,13 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+const mockDenyUnlessEmailProven = vi.hoisted(() => vi.fn(async (): Promise<unknown> => null));
+vi.mock('@/lib/auth/email-proof', () => ({
+  denyUnlessEmailProven: mockDenyUnlessEmailProven,
+  isEmailProvenForSession: vi.fn(async () => true),
+  issueEmailProof: vi.fn(async () => true),
+}));
 import { NextRequest } from 'next/server';
 import { signNextCookie, NEXT_COOKIE_NAME_SECURE } from '@/lib/auth/bounce-next';
 
@@ -25,6 +32,10 @@ const fetchMock = vi.fn();
 
 vi.mock('@/lib/auth/get-user', () => ({
   getCurrentUser: () => getCurrentUserMock(),
+  userUuid: (u: { supabaseUserId: string | null }) => {
+    if (!u.supabaseUserId) throw new Error('no supabaseUserId');
+    return u.supabaseUserId;
+  },
 }));
 
 // Mock global fetch — utilisé par issueMagicLinkForApp.
@@ -263,7 +274,19 @@ describe('GET /api/auth/bounce/complete', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('user sans supabaseUserId → fallback sur user.id pour hub_user_id', async () => {
+  it('adresse non prouvée → aucun appel à l\'app, retour au tableau de bord, cookies vidés', async () => {
+    getCurrentUserMock.mockResolvedValue({
+      id: 'u1', email: 'a@b.c', name: null, image: null, supabaseUserId: 'uuid-1',
+    });
+    mockDenyUnlessEmailProven.mockResolvedValueOnce(new Response(null, { status: 403 }));
+    const cookie = signNextCookie('https://notifuse.veridian.site/', TEST_SECRET);
+    const { GET } = await import('@/app/api/auth/bounce/complete/route');
+    const res = await GET(makeReq({ cookie }));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(res.headers.get('location')).toMatch(/\/dashboard$/);
+  });
+
+  it('user sans supabaseUserId → aucun appel à l\'app : users.id ne sert jamais de hub_user_id', async () => {
     getCurrentUserMock.mockResolvedValue({
       id: 'fallback-id', email: 'a@b.c', name: null, image: null, supabaseUserId: null,
     });
@@ -273,7 +296,6 @@ describe('GET /api/auth/bounce/complete', () => {
     const cookie = signNextCookie('https://notifuse.veridian.site/', TEST_SECRET);
     const { GET } = await import('@/app/api/auth/bounce/complete/route');
     await GET(makeReq({ cookie }));
-    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
-    expect(body.hub_user_id).toBe('fallback-id');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

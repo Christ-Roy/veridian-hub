@@ -15,6 +15,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { requireUser, userUuid } from '@/lib/auth/get-user';
+import { denyUnlessEmailProven } from '@/lib/auth/email-proof';
 import { prisma } from '@/lib/prisma';
 import { provisionTenants } from '@/utils/tenants/provision';
 import { trackGoal, hubSessionId } from '@/lib/analytics/track-event';
@@ -34,6 +35,8 @@ export async function POST(request: NextRequest) {
     if (err instanceof Response) return err;
     throw err;
   }
+  const denied = await denyUnlessEmailProven(user);
+  if (denied) return denied;
 
   let payload: unknown = {};
   try {

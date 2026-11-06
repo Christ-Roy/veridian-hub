@@ -13,6 +13,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { issueAndSendMfaCode } from '@/lib/mfa';
 import { authConfig } from './auth.config';
+import { applyProviderEmailProof, providerProvesEmail } from '@/lib/auth/email-proof-provider';
 import { createSignInCallback } from '@/lib/auth/sign-in-callback';
 import { createCreateUserEvent } from '@/lib/auth/create-user-event';
 import { buildMockOauthProvider } from '@/lib/auth/mock-oauth-provider';
@@ -174,7 +175,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
     ...authConfig.callbacks,
     // Callback signIn extrait dans lib/auth/sign-in-callback.ts pour le tester
     // unitairement. Gère MFA + retour boolean/string (path) selon spec Auth.js v5.
-    signIn: createSignInCallback({ prisma, issueAndSendMfaCode }),
+    signIn: createSignInCallback({ prisma, issueAndSendMfaCode, applyProviderEmailProof }),
     async jwt({ token, user }) {
       if (user) {
         token.uid = user.id;
@@ -188,6 +189,9 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
     async session({ session, token }) {
       if (token?.uid && session.user) {
         session.user.id = token.uid as string;
+      }
+      if (typeof token?.iat === 'number' && session.user) {
+        session.user.issuedAt = token.iat;
       }
       // Expose le marqueur d'impersonation côté session pour que les Server
       // Components / routes admin puissent (a) afficher une bannière et
@@ -213,7 +217,12 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
     // passent par l'override `logger.error` ci-dessus. On filtre sur le
     // provider : un login Credentials ne doit PAS polluer la table OAuth.
     // Best-effort — `recordOauthSuccess` swallow ses propres erreurs.
-    async signIn({ user, account }) {
+    async signIn({ user, account, profile, isNewUser }) {
+      // Premier login OAuth : le user vient d'être créé par l'adapter, avec
+      // `emailVerified` à null. Le callback `signIn` ne l'a pas encore vu.
+      if (isNewUser && user?.id && providerProvesEmail(account, profile, user.email)) {
+        await applyProviderEmailProof(prisma, user.id);
+      }
       const providerId = account?.provider;
       if (providerId && OAUTH_PROVIDER_IDS.has(providerId)) {
         void oauthEventLogger.recordOauthSuccess({

@@ -15,6 +15,8 @@ declare module 'next-auth' {
   interface Session {
     user: {
       id?: string;
+      /** `iat` du JWT, comparé à `User.sessionsValidAfter` par `getCurrentUser`. */
+      issuedAt?: number;
       /** `true` si la session provient d'une impersonation admin. */
       impersonated?: boolean;
       /** Email du platform admin à l'origine de l'impersonation, sinon null. */

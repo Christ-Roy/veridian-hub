@@ -16,6 +16,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+vi.mock('@/lib/auth/email-proof-provider', () => ({
+  applyProviderEmailProof: vi.fn(async () => undefined),
+}));
 import { NextRequest } from 'next/server';
 
 const {

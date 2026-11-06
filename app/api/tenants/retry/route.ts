@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 import { requireUser, userUuid } from '@/lib/auth/get-user';
+import { denyUnlessEmailProven } from '@/lib/auth/email-proof';
 import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
@@ -9,6 +10,8 @@ export const runtime = 'nodejs';
 export async function POST() {
   try {
     const user = await requireUser();
+    const denied = await denyUnlessEmailProven(user);
+    if (denied) return denied;
     const uuid = userUuid(user);
 
     // Check what's already provisioned

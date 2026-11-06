@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { requireUser, userUuid } from '@/lib/auth/get-user';
+import { denyUnlessEmailProven } from '@/lib/auth/email-proof';
 import { NotifuseClient } from '@/lib/notifuse/client';
 import { NotifuseError } from '@/lib/notifuse/types';
 import { validateWorkspaceId } from '@/lib/notifuse/workspace-id';
@@ -58,6 +59,8 @@ export async function POST(request: NextRequest) {
       }
       throw err;
     }
+    const denied = await denyUnlessEmailProven(user);
+    if (denied) return denied;
     const uuid = userUuid(user);
 
     addLog('info', 'auth', `User authenticated: ${user.email}`);

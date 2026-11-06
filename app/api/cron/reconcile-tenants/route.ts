@@ -34,7 +34,7 @@ import { SYNC_APPS } from '@/lib/sync/types';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-export const maxDuration = 300; // 5 min : marge pour 100 tenants × 4 apps × 2s
+export const maxDuration = 300; // 5 min : marge pour 100 tenants × 3 apps × 2s
 
 const CRON_SECRET = process.env.CRON_SECRET;
 const ALERT_THRESHOLD = Number(process.env.RECONCILE_ALERT_THRESHOLD ?? 5);
@@ -86,7 +86,8 @@ export async function POST(request: NextRequest) {
       await sendTelegramAlert(
         `<b>Reconcile tenants drift</b>\n` +
           `${summary.driftsDetected} drift(s) sur ${summary.usersScanned} tenants. ` +
-          `${summary.appsUnreachable} apps unreachable.\n` +
+          `${summary.appsUnreachable} apps unreachable. ` +
+          `${summary.tenantsWithoutUser.length} tenant(s) sans user.\n` +
           `Mode: ${summary.mode}.`,
       ).catch(() => undefined);
     }
@@ -114,7 +115,7 @@ export async function GET() {
     schedule: 'hourly (hub-reconcile-cron.yml)',
     querystring: {
       limit: 'number 1..500, default 100',
-      apps: 'csv of notifuse|prospection|analytics|cms, default all',
+      apps: 'csv of notifuse|prospection|analytics, default all',
     },
     references: [
       'todo/2026-05-20-tenant-sync-strategy.md §Niveau 3',

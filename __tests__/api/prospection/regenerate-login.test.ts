@@ -6,6 +6,13 @@
 
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 
+const mockDenyUnlessEmailProven = vi.hoisted(() => vi.fn(async (): Promise<unknown> => null));
+vi.mock('@/lib/auth/email-proof', () => ({
+  denyUnlessEmailProven: mockDenyUnlessEmailProven,
+  isEmailProvenForSession: vi.fn(async () => true),
+  issueEmailProof: vi.fn(async () => true),
+}));
+
 vi.mock('@/lib/auth/get-user', () => ({
   requireUser: vi.fn(async () => ({
     id: 'auth-1',
@@ -49,6 +56,18 @@ afterAll(() => {
 });
 
 describe('POST /api/prospection/regenerate-login', () => {
+  it('adresse non prouvée → refus, Prospection n\'est jamais appelée', async () => {
+    mockDenyUnlessEmailProven.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: 'email_not_verified' }), { status: 403 }),
+    );
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    const { POST } = await import('@/app/api/prospection/regenerate-login/route');
+    const res = await POST();
+    expect(res.status).toBe(403);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
   it('retourne 200 + login_url + tenant_id quand tout va bien', async () => {
     const { POST } = await import('@/app/api/prospection/regenerate-login/route');
     const res = await POST();
