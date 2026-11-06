@@ -1,15 +1,10 @@
 # hub-staging — stack Next.js hub (staging) sur ovh-dev, servie via l'ingress bastion.
 # Privé Tailscale : middleware internal-only (ipAllowList 100.64/10) → 403 hors tailnet.
 #
-# ⚠️ DB : plus de postgres co-localisé. La DB `hub` vit désormais dans le cluster
-# Patroni HA `hub-staging-db` (3 nœuds, DCS Consul — jobs/hub-staging-db.nomad.hcl).
-# L'app se connecte au LEADER dynamique via un sidecar HAProxy (task "pgproxy") :
-#   HAProxy interroge l'API Patroni REST (GET /master sur :8010) de chaque nœud et
-#   ne route le trafic PG que vers celui qui répond 200 = le primaire courant.
-#   → l'app garde DATABASE_URL=...@127.0.0.1:5432/... (inchangé) ; sur failover,
-#     HAProxy bascule vers le nouveau leader (shutdown-sessions coupe les conns
-#     vers l'ancien → le pool Prisma reconnecte). Pattern driver-agnostic
-#     (Prisma ne supporte pas le multi-host libpq target_session_attrs).
+# DB : Postgres simple `hub-staging-db` sur node02 (depot nomad-veridian, jobs/saas-staging/),
+# sans HA ni sauvegarde : c'est un banc. Le Patroni a ete archive le 2026-11-06.
+# L'app garde DATABASE_URL=...@127.0.0.1:5432/... : le sidecar HAProxy (task "pgproxy")
+# retrouve la base par nomadService et absorbe un changement de noeud.
 #
 # Rollback DB co-localisée : ~/nomad-veridian/jobs/hub-staging.nomad.hcl.rollback
 # Secrets = Nomad var nomad/jobs/hub-staging (env réels du container staging dev).
@@ -104,7 +99,7 @@ job "hub-staging" {
       }
     }
 
-    # ---- pgproxy (HAProxy sidecar → toujours le LEADER Patroni) ----
+    # ---- pgproxy (HAProxy sidecar → la base `hub-staging-db`) ----
     # Écoute 127.0.0.1:5432 dans le netns du groupe ; l'app tape localhost:5432.
     task "hub-staging-pgproxy" {
       driver = "docker"
@@ -151,16 +146,11 @@ defaults
     timeout server 30m
     timeout check 5s
 
-# Route PG vers le seul nœud dont l'API Patroni répond 200 sur /master = le primaire.
-# on-marked-down shutdown-sessions : sur bascule, coupe les conns vers l'ex-leader
-# → le pool applicatif reconnecte et retombe sur le nouveau primaire.
-listen postgres-primary
+listen postgres
     bind 127.0.0.1:5432
-    option httpchk GET /master
-    http-check expect status 200
     default-server inter 3s fall 2 rise 2 on-marked-down shutdown-sessions
 {{ range $index, $service := nomadService "hub-staging-db" }}
-    server patroni-{{ $index }} {{ $service.Address }}:5433 check port {{ $service.Port }}
+    server db-{{ $index }} {{ $service.Address }}:{{ $service.Port }} check
 {{ end }}
 EOH
       }
@@ -236,7 +226,7 @@ CRM_FRONTEND_URL=https://crm.staging.veridian.site
 CRM_API_URL=https://crm.staging.veridian.site
 
 {{ with nomadVar "nomad/jobs/hub-staging" }}
-# DB → sidecar HAProxy local qui pointe le LEADER Patroni courant. Comme en
+# DB → sidecar HAProxy local qui pointe la base du banc. Comme en
 # prod, DATABASE_URL est construite depuis un contrat d'endpoint stable et non
 # recopiée comme URL opaque. Le fallback garde le sidecar local actuel ; un futur
 # proxy/service HA se câble par `HUB_DATABASE_*` sans changer le code applicatif.
@@ -245,7 +235,7 @@ CRM_API_URL=https://crm.staging.veridian.site
 {{ $dbPort := or .HUB_DATABASE_PORT.Value "5432" }}
 {{ $dbName := or .HUB_DATABASE_NAME.Value "hub" }}
 {{ $dbSchema := or .HUB_DATABASE_SCHEMA.Value "hub_app" }}
-HUB_DATABASE_MODE={{ or .HUB_DATABASE_MODE.Value "patroni-haproxy" }}
+HUB_DATABASE_MODE={{ or .HUB_DATABASE_MODE.Value "single-haproxy" }}
 HUB_DATABASE_SERVICE_NAME={{ or .HUB_DATABASE_SERVICE_NAME.Value "hub-staging-db" }}
 HUB_DATABASE_USER={{ $dbUser }}
 HUB_DATABASE_HOST={{ $dbHost }}
