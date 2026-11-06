@@ -33,6 +33,9 @@ model User {
   emailVerified DateTime? @map("email_verified")
   image         String?
 
+  // Sessions JWT émises avant cette date : invalides (cf. lib/auth/email-proof.ts).
+  sessionsValidAfter DateTime? @map("sessions_valid_after")
+
   // 2FA email opt-in
   mfaEnabled Boolean @default(false) @map("mfa_enabled")
 

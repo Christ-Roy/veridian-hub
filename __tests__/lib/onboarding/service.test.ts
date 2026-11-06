@@ -58,6 +58,7 @@ function makeFakePrisma() {
 
   const fake = {
     user: {
+      update: vi.fn(async () => ({})),
       findUnique: vi.fn(async ({ where }: any) => {
         const user =
           (where.email ? Array.from(users.values()).find((u) => u.email === where.email) : null) ??

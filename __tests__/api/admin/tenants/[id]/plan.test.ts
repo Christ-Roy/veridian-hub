@@ -15,6 +15,9 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const pushProspectionPlanMock = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/prospection/plan-push', () => ({ pushProspectionPlan: pushProspectionPlanMock }));
+
 let adminDenial: any = null;
 vi.mock('@/lib/admin/require-admin', () => ({
   requireAdmin: vi.fn(async () => adminDenial),
@@ -42,6 +45,7 @@ const updateTenantMock = vi.fn(async ({ data, select }: any) => ({
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
+    user: { findFirst: vi.fn(async () => ({ email: 'owner@x.fr' })) },
     tenant: {
       findUnique: vi.fn(async () => tenantRow),
       update: (...args: any[]) => updateTenantMock(...args),
@@ -137,15 +141,36 @@ describe('POST /api/admin/tenants/[id]/plan', () => {
     });
   });
 
-  it('writes DB only on prospection update + returns warning', async () => {
+  it('tenant non provisionné dans Prospection : écrit le Hub seul et le dit', async () => {
     const { POST } = await import('@/app/api/admin/tenants/[id]/plan/route');
     const res = await POST(makeReq({ app: 'prospection', plan: 'pro' }), ctx('t-1'));
     expect(res.status).toBe(200);
-    expect(updatePlanMock).not.toHaveBeenCalled();
+    expect(pushProspectionPlanMock).not.toHaveBeenCalled();
     const body = await res.json();
-    expect(body.app).toBe('prospection');
     expect(body.plan).toBe('pro');
-    expect(body.warning).toContain('Prospection');
+    expect(body.propagated).toBe(false);
+  });
+
+  it('tenant provisionné : pousse à Prospection puis écrit le Hub', async () => {
+    Object.assign(tenantRow, { prospectionProvisionedAt: new Date() });
+    pushProspectionPlanMock.mockResolvedValueOnce({ ok: true, prospectionTenantId: 'p-1' });
+    const { POST } = await import('@/app/api/admin/tenants/[id]/plan/route');
+    const res = await POST(makeReq({ app: 'prospection', plan: 'pro' }), ctx('t-1'));
+    expect(res.status).toBe(200);
+    expect((await res.json()).propagated).toBe(true);
+    expect(pushProspectionPlanMock).toHaveBeenCalledWith(
+      expect.objectContaining({ plan: 'pro', planSource: 'grant_manual' }),
+    );
+    expect(updateTenantMock).toHaveBeenCalled();
+  });
+
+  it('refus de Prospection : le Hub n\'écrit rien, pas d\'écart silencieux', async () => {
+    Object.assign(tenantRow, { prospectionProvisionedAt: new Date() });
+    pushProspectionPlanMock.mockResolvedValueOnce({ ok: false, error: 'prospection_tenant_ambiguous' });
+    const { POST } = await import('@/app/api/admin/tenants/[id]/plan/route');
+    const res = await POST(makeReq({ app: 'prospection', plan: 'pro' }), ctx('t-1'));
+    expect(res.status).toBe(502);
+    expect(updateTenantMock).not.toHaveBeenCalled();
   });
 
   it('updates trialEndsAt to null when explicit null', async () => {

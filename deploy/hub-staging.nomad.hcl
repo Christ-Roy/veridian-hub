@@ -159,9 +159,9 @@ listen postgres-primary
     option httpchk GET /master
     http-check expect status 200
     default-server inter 3s fall 2 rise 2 on-marked-down shutdown-sessions
-    server patroni-contabo 100.108.136.89:5433 check port 8010
-    server patroni-ovhprod 100.88.202.29:5433  check port 8010
-    server patroni-ovhdev  100.92.215.42:5433  check port 8010
+{{ range $index, $service := nomadService "hub-staging-db" }}
+    server patroni-{{ $index }} {{ $service.Address }}:5433 check port {{ $service.Port }}
+{{ end }}
 EOH
       }
       resources {
@@ -229,19 +229,36 @@ NEXT_PUBLIC_PROSPECTION_URL=https://prospection.staging.veridian.site
 PROSPECTION_API_URL=https://prospection.staging.veridian.site
 PROSPECTION_INTERNAL_URL=https://prospection.staging.veridian.site
 
-ANALYTICS_API_URL=https://analytics-engine.staging.veridian.site
+ANALYTICS_API_URL=https://analytics-rybbit.staging.veridian.site
 CRM_METADATA_URL=https://crm.staging.veridian.site/metadata
 CRM_REST_URL=https://crm.staging.veridian.site/rest
 CRM_FRONTEND_URL=https://crm.staging.veridian.site
+CRM_API_URL=https://crm.staging.veridian.site
 
 {{ with nomadVar "nomad/jobs/hub-staging" }}
-# DB → sidecar HAProxy (127.0.0.1:5432) qui pointe le LEADER Patroni courant.
-DATABASE_URL=postgresql://hub:{{ .HUB_DB_PASSWORD }}@127.0.0.1:5432/hub?schema=hub_app
+# DB → sidecar HAProxy local qui pointe le LEADER Patroni courant. Comme en
+# prod, DATABASE_URL est construite depuis un contrat d'endpoint stable et non
+# recopiée comme URL opaque. Le fallback garde le sidecar local actuel ; un futur
+# proxy/service HA se câble par `HUB_DATABASE_*` sans changer le code applicatif.
+{{ $dbUser := or .HUB_DATABASE_USER.Value "hub" }}
+{{ $dbHost := or .HUB_DATABASE_HOST.Value "127.0.0.1" }}
+{{ $dbPort := or .HUB_DATABASE_PORT.Value "5432" }}
+{{ $dbName := or .HUB_DATABASE_NAME.Value "hub" }}
+{{ $dbSchema := or .HUB_DATABASE_SCHEMA.Value "hub_app" }}
+HUB_DATABASE_MODE={{ or .HUB_DATABASE_MODE.Value "patroni-haproxy" }}
+HUB_DATABASE_SERVICE_NAME={{ or .HUB_DATABASE_SERVICE_NAME.Value "hub-staging-db" }}
+HUB_DATABASE_USER={{ $dbUser }}
+HUB_DATABASE_HOST={{ $dbHost }}
+HUB_DATABASE_PORT={{ $dbPort }}
+HUB_DATABASE_NAME={{ $dbName }}
+HUB_DATABASE_SCHEMA={{ $dbSchema }}
+DATABASE_URL=postgresql://{{ $dbUser }}:{{ .HUB_DB_PASSWORD }}@{{ $dbHost }}:{{ $dbPort }}/{{ $dbName }}?schema={{ $dbSchema }}
 AUTH_SECRET={{ .AUTH_SECRET }}
 ADMIN_SECRET={{ .ADMIN_SECRET }}
 CRON_SECRET={{ .CRON_SECRET }}
 VAULT_ENC_KEY={{ .VAULT_ENC_KEY }}
 CRM_VAULT_KEY={{ .CRM_VAULT_KEY }}
+CRM_HUB_API_SECRET={{ .CRM_HUB_API_SECRET }}
 SESSION_HINT_SECRET={{ .SESSION_HINT_SECRET }}
 E2E_RATELIMIT_BYPASS_SECRET={{ .E2E_RATELIMIT_BYPASS_SECRET }}
 GOOGLE_MAIL_CLIENT_ID={{ .GOOGLE_MAIL_CLIENT_ID }}

@@ -45,6 +45,8 @@ export type AutoLoginSource = 'api_key' | 'provision_idempotent';
 
 export type ResolveAutoLoginTenant = {
   id: string;
+  /** Pont UUID du propriétaire, envoyé comme `hub_user_id` (§3.7). */
+  userId?: string | null;
   notifuseWorkspaceSlug: string | null;
   notifuseApiKey: string | null;
   notifuseUserEmail: string | null;
@@ -206,6 +208,7 @@ export async function resolveNotifuseAutoLogin(
     provisioned = await client.provisionWorkspace({
       tenantId: workspaceId,
       ownerEmail,
+      hubUserId: tenant.userId ?? undefined,
     });
   } catch (err) {
     return {

@@ -66,6 +66,7 @@ export class NotifuseClient {
       owner_email: input.ownerEmail,
       workspace_name: input.workspaceName,
       plan: input.plan,
+      ...(input.hubUserId ? { metadata: { hub_user_id: input.hubUserId } } : {}),
     });
   }
 

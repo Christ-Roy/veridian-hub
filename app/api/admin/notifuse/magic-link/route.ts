@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/auth';
+import { denyUnlessEmailProven } from '@/lib/auth/email-proof';
 import { isPlatformAdmin } from '@/lib/admin/check-admin';
 import { NotifuseClient } from '@/lib/notifuse/client';
 import { resolveNotifuseAutoLogin } from '@/lib/notifuse/resolve-autologin';
@@ -13,6 +14,12 @@ export async function POST(request: NextRequest) {
   const session = await auth();
   const sessionUser = session?.user;
   if (!sessionUser) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  if (sessionUser.id && sessionUser.email) {
+    const denied = await denyUnlessEmailProven({ id: sessionUser.id, email: sessionUser.email });
+    if (denied) return denied;
+  } else {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

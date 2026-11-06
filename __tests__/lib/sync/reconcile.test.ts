@@ -8,7 +8,7 @@
  *     mode dry-run forcé même si autoRepair=true
  *   - Aucune écriture côté Hub en dry-run (assertion explicite)
  *   - Comptage appsUnreachable
- *   - Tenant sans email → skip silencieux
+ *   - Tenant sans User → non scanné mais listé dans tenantsWithoutUser
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -29,7 +29,6 @@ function makeDiscovery(
       notifuse,
       prospection,
       analytics: { found: false },
-      cms: { found: false },
     },
     startedAt: new Date().toISOString(),
     durationMs: 1,
@@ -42,6 +41,7 @@ const baseTenant = {
   notifusePlan: 'pro',
   prospectionPlan: null,
   notifuseWorkspaceSlug: 'avse-slug',
+  prospectionProvisionedAt: null,
   metadata: { notifuse_status: 'active' } as Record<string, unknown>,
 };
 
@@ -163,6 +163,155 @@ describe('diffTenantApp', () => {
   });
 });
 
+describe('diffTenantApp — dérives relevées en prod le 06/11', () => {
+  const snapshot = (app: 'notifuse' | 'prospection' | 'analytics', over: Record<string, unknown>) => ({
+    app,
+    workspaceId: 'ws',
+    observedAt: 'now',
+    ...over,
+  });
+
+  it('une colonne de plan par défaut ne prouve pas le provisioning', () => {
+    const neverProvisioned = {
+      ...baseTenant,
+      notifusePlan: 'free',
+      prospectionPlan: 'freemium',
+      notifuseWorkspaceSlug: null,
+      prospectionProvisionedAt: null,
+      metadata: {} as Record<string, unknown>,
+    };
+    const disc = makeDiscovery({ found: false }, { found: false });
+    expect(diffTenantApp(neverProvisioned, 'notifuse', disc, 'now')).toHaveLength(0);
+    expect(diffTenantApp(neverProvisioned, 'prospection', disc, 'now')).toHaveLength(0);
+  });
+
+  it('Prospection provisionné côté Hub et inconnu de l\'app reste une dérive', () => {
+    const provisioned = {
+      ...baseTenant,
+      prospectionPlan: 'freemium',
+      prospectionProvisionedAt: new Date('2026-01-01'),
+    };
+    const disc = makeDiscovery({ found: false }, { found: false });
+    expect(diffTenantApp(provisioned, 'prospection', disc, 'now')).toMatchObject([
+      { kind: 'tenant_missing_app' },
+    ]);
+  });
+
+  it.each([
+    ['enterprise', 'business'],
+    ['enterprise', 'lifetime_partner'],
+    ['pro', 'lifetime_site_vitrine'],
+    ['free', 'freemium'],
+  ])('Prospection : %s côté Hub équivaut à %s côté app', (hubPlan, appPlan) => {
+    const t = {
+      ...baseTenant,
+      prospectionPlan: hubPlan,
+      prospectionProvisionedAt: new Date('2026-01-01'),
+    };
+    const disc = makeDiscovery(
+      { found: false },
+      { found: true, snapshots: [snapshot('prospection', { plan: appPlan })] },
+    );
+    expect(diffTenantApp(t, 'prospection', disc, 'now')).toHaveLength(0);
+  });
+
+  it.each([
+    ['enterprise', 'freemium'],
+    ['enterprise', 'pro'],
+  ])('Prospection : %s côté Hub contre %s côté app reste un écart réel', (hubPlan, appPlan) => {
+    const t = {
+      ...baseTenant,
+      prospectionPlan: hubPlan,
+      prospectionProvisionedAt: new Date('2026-01-01'),
+    };
+    const disc = makeDiscovery(
+      { found: false },
+      { found: true, snapshots: [snapshot('prospection', { plan: appPlan })] },
+    );
+    expect(diffTenantApp(t, 'prospection', disc, 'now')).toMatchObject([
+      { kind: 'plan_mismatch', hubValue: hubPlan, appValue: appPlan },
+    ]);
+  });
+
+  it('l\'équivalence de plans ne s\'applique pas à Notifuse', () => {
+    const t = { ...baseTenant, notifusePlan: 'enterprise', metadata: {} };
+    const disc = makeDiscovery({
+      found: true,
+      snapshots: [snapshot('notifuse', { plan: 'business' })],
+    });
+    expect(diffTenantApp(t, 'notifuse', disc, 'now')).toMatchObject([{ kind: 'plan_mismatch' }]);
+  });
+
+  it('multi-workspace : pas d\'écart si un des workspaces porte le plan du Hub', () => {
+    const t = {
+      ...baseTenant,
+      prospectionPlan: 'enterprise',
+      prospectionProvisionedAt: new Date('2026-01-01'),
+    };
+    const disc = makeDiscovery(
+      { found: false },
+      {
+        found: true,
+        snapshots: [
+          snapshot('prospection', { plan: 'pro' }),
+          snapshot('prospection', { plan: 'business' }),
+        ],
+      },
+    );
+    expect(diffTenantApp(t, 'prospection', disc, 'now')).toHaveLength(0);
+  });
+
+  it('un simple membre d\'un workspace étranger n\'est pas une dérive', () => {
+    const t = {
+      ...baseTenant,
+      notifusePlan: null,
+      notifuseWorkspaceSlug: null,
+      metadata: {} as Record<string, unknown>,
+    };
+    const disc = makeDiscovery({
+      found: true,
+      snapshots: [snapshot('notifuse', { role: 'member', plan: 'enterprise' })],
+    });
+    expect(diffTenantApp(t, 'notifuse', disc, 'now')).toHaveLength(0);
+  });
+
+  it('un owner inconnu du Hub reste un tenant_extra_app', () => {
+    const t = {
+      ...baseTenant,
+      notifusePlan: null,
+      notifuseWorkspaceSlug: null,
+      metadata: {} as Record<string, unknown>,
+    };
+    const disc = makeDiscovery({
+      found: true,
+      snapshots: [snapshot('notifuse', { role: 'owner' })],
+    });
+    expect(diffTenantApp(t, 'notifuse', disc, 'now')).toMatchObject([{ kind: 'tenant_extra_app' }]);
+  });
+
+  it('analytics : un lien metadata.analytics compte comme connu du Hub', () => {
+    const t = {
+      ...baseTenant,
+      metadata: { analytics: { external_tenant_id: 'x' } } as Record<string, unknown>,
+    };
+    const owner = {
+      email: 'user@x.com',
+      apps: {
+        notifuse: { found: false as const },
+        prospection: { found: false as const },
+        analytics: { found: true as const, snapshots: [snapshot('analytics', { role: 'owner' })] },
+      },
+      startedAt: 'now',
+      durationMs: 1,
+    };
+    expect(diffTenantApp(t, 'analytics', owner, 'now')).toHaveLength(0);
+    const gone = { ...owner, apps: { ...owner.apps, analytics: { found: false as const } } };
+    expect(diffTenantApp(t, 'analytics', gone, 'now')).toMatchObject([
+      { kind: 'tenant_missing_app' },
+    ]);
+  });
+});
+
 // ============================================================================
 // runReconcile (intégration avec Prisma mocké + discovery mocké)
 // ============================================================================
@@ -271,6 +420,24 @@ describe('runReconcile', () => {
     // Le mode reste dry-run et personne n'a appelé tenant.update.
     expect(summary.mode).toBe('dry-run');
     expect(tenantUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it('remonte les tenants dont le User a disparu au lieu de les ignorer', async () => {
+    tenantsRowsMock.push({
+      id: 'orphelin',
+      userId: 'uuid-disparu',
+      notifusePlan: 'free',
+      prospectionPlan: null,
+      notifuseWorkspaceSlug: 'e2e',
+      prospectionProvisionedAt: null,
+      metadata: {},
+    });
+    const summary = await runReconcile({
+      prisma: fakePrisma as never,
+      fetchImpl: vi.fn() as unknown as typeof fetch,
+    });
+    expect(summary.usersScanned).toBe(0);
+    expect(summary.tenantsWithoutUser).toEqual(['orphelin']);
   });
 
   it('forces dry-run even when autoRepair=true is passed (P0 lock)', async () => {

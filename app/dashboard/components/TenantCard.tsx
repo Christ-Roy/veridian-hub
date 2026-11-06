@@ -65,7 +65,7 @@ export function TenantCard({
         const fallback = (env.NEXT_PUBLIC_NOTIFUSE_URL || 'https://notifuse.app.veridian.site') + '/console';
         window.open(fallback, '_blank');
         toast.error('Connexion automatique indisponible', {
-          description: data.error || 'Ouverture de la console sans connexion automatique.',
+          description: data.message || data.error || 'Ouverture de la console sans connexion automatique.',
           duration: 5000,
         });
         return;

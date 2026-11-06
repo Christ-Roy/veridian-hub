@@ -19,6 +19,13 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+const mockDenyUnlessEmailProven = vi.hoisted(() => vi.fn(async (): Promise<unknown> => null));
+vi.mock('@/lib/auth/email-proof', () => ({
+  denyUnlessEmailProven: mockDenyUnlessEmailProven,
+  isEmailProvenForSession: vi.fn(async () => true),
+  issueEmailProof: vi.fn(async () => true),
+}));
+
 const validToken = 'a'.repeat(64);
 const expiredToken = 'b'.repeat(64);
 const acceptedToken = 'c'.repeat(64);
@@ -79,6 +86,7 @@ vi.mock('@/lib/prisma', () => {
       }),
     },
     user: {
+      updateMany: vi.fn(async () => ({ count: 1 })),
       // Route accept lookup le supabaseUserId du user loggué (UUID v4 bridge
       // cross-app). Par défaut on retourne un UUID valide pour ne pas
       // bloquer les tests qui ne testent pas ce path. Un test dédié override

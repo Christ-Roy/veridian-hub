@@ -17,7 +17,12 @@
  *   - URL    : `<APP>_API_URL` (réutilisée — la même que pour provisioning)
  *   - SECRET : `<APP>_HUB_API_SECRET` (réutilisé — pas de nouveau secret)
  *
- * Apps supportées (extensible) : `notifuse`, `prospection`, `cms`, `analytics`.
+ * Apps supportées (extensible) : `notifuse`, `prospection`, `cms`, `analytics`
+ * (Rybbit, hôte `analytics.app.veridian.site`), `crm` (Twenty, hôte
+ * `crm.app.veridian.site`). La clé est le sous-domaine extrait par `parseNext`.
+ *
+ * Twenty s'active sans code dès que son endpoint existe : poser `CRM_API_URL` et
+ * `CRM_HUB_API_SECRET` dans l'environnement du Hub. Avant ça : `not_configured`.
  *
  * NB : pour `notifuse`, on accepte aussi `NOTIFUSE_HUB_API_SECRET` qui existe
  *      déjà. Pour `prospection`, fallback legacy `PROSPECTION_TENANT_API_SECRET`
@@ -106,6 +111,15 @@ const APP_ENV_MAP: Record<
   analytics: {
     urlVar: 'ANALYTICS_API_URL',
     secretVar: 'ANALYTICS_HUB_API_SECRET',
+  },
+  // Hôte staging de Rybbit : `analytics-rybbit.staging.veridian.site`.
+  'analytics-rybbit': {
+    urlVar: 'ANALYTICS_API_URL',
+    secretVar: 'ANALYTICS_HUB_API_SECRET',
+  },
+  crm: {
+    urlVar: 'CRM_API_URL',
+    secretVar: 'CRM_HUB_API_SECRET',
   },
 };
 

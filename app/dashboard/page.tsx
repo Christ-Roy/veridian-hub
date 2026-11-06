@@ -1,3 +1,5 @@
+import { isEmailProvenForSession } from '@/lib/auth/email-proof';
+import { EmailProofBanner } from './components/EmailProofBanner';
 import { redirect } from 'next/navigation';
 import { TenantCard } from './components/TenantCard';
 import { ProspectionCard } from './components/ProspectionCard';
@@ -145,7 +147,8 @@ export default async function DashboardPage({
   const prospectionBaseUrl =
     process.env.NEXT_PUBLIC_PROSPECTION_URL ||
     'https://saas-prospection.staging.veridian.site';
-  const prospectionLoginUrl = tenant?.prospectionLoginToken
+  const emailProven = await isEmailProvenForSession(user.id);
+  const prospectionLoginUrl = emailProven && tenant?.prospectionLoginToken
     ? `${prospectionBaseUrl}/api/auth/token?t=${tenant.prospectionLoginToken}`
     : null;
 
@@ -192,6 +195,7 @@ export default async function DashboardPage({
       />
 
       <section className="mb-12">
+        {!emailProven && user.email && <EmailProofBanner email={user.email} />}
         <div className="mb-4">
           <h2 className="text-2xl font-semibold tracking-tight">Vos outils</h2>
           <p className="text-sm text-muted-foreground">

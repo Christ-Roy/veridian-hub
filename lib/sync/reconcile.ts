@@ -9,12 +9,10 @@
  * `TenantDrift` (kind = plan_mismatch | status_mismatch | tenant_missing_app
  * | tenant_extra_app | app_unreachable).
  *
- * MODE PAR DÉFAUT : **dry-run**. Aucune écriture côté Hub. Le rationale est
- * conservateur — vu que les apps n'ont pas encore livré
- * `GET /api/users/by-email` (cf docs/CONTRAT-HUB.md §10.1 row 22), tous les
- * tenants apparaitront comme "tenant_missing_app" tant que les endpoints
- * downstream ne sont pas en place. Auto-repair aveugle = wipe en masse des
- * cards UI Hub. On préfère :
+ * MODE PAR DÉFAUT : **dry-run**. Aucune écriture côté Hub. Notifuse, Prospection
+ * et Analytics exposent `GET /api/users/by-email`, mais un écart peut toucher le
+ * plan d'un client réel : il se lit et se tranche, il ne se répare pas tout seul.
+ * On préfère :
  *
  *   1. Logger structuré (Grafana Loki) pour observabilité
  *   2. Alerter Telegram si drifts > N
@@ -33,6 +31,7 @@ import type { PrismaClient } from '@prisma/client';
 
 import { prisma as defaultPrisma } from '@/lib/prisma';
 import { discoverUserApps } from '@/lib/sync/discovery';
+import { auditIdentity, identityCounts } from '@/lib/sync/identity-audit';
 import type {
   DiscoveryResult,
   ReconcileSummary,
@@ -52,6 +51,7 @@ interface HubTenantSnapshot {
   notifusePlan: string | null;
   prospectionPlan: string | null;
   notifuseWorkspaceSlug: string | null;
+  prospectionProvisionedAt: Date | null;
   metadata: Record<string, unknown>;
 }
 
@@ -65,9 +65,42 @@ function readLocalStatus(meta: Record<string, unknown>, app: SyncApp): string | 
 function readLocalPlan(t: HubTenantSnapshot, app: SyncApp): string | null {
   if (app === 'notifuse') return t.notifusePlan;
   if (app === 'prospection') return t.prospectionPlan;
-  // analytics / cms : pas de colonne typed → metadata.<app>_plan
+  // analytics : pas de colonne typed → metadata.<app>_plan
   const v = t.metadata[`${app}_plan`];
   return typeof v === 'string' ? v : null;
+}
+
+/**
+ * Le Hub a-t-il réellement cette app pour ce tenant ?
+ *
+ * Jamais d'après les colonnes de plan : `notifusePlan` et `prospectionPlan` ont
+ * une valeur par défaut, donc elles ne prouvent aucun provisioning (3 faux
+ * `tenant_missing_app` mesurés le 06/11). Analytics vit dans `metadata.analytics`,
+ * écrit par `lib/admin/link-app.ts` (2 faux `tenant_extra_app` sinon).
+ */
+function hubKnowsApp(t: HubTenantSnapshot, app: SyncApp): boolean {
+  if (readLocalStatus(t.metadata, app) !== null) return true;
+  if (app === 'notifuse') return t.notifuseWorkspaceSlug !== null;
+  if (app === 'prospection') return t.prospectionProvisionedAt !== null;
+  return readLocalPlan(t, app) !== null || Boolean(t.metadata[app]);
+}
+
+/**
+ * Noms locaux Prospection ramenés au palier commun. Prospection n'a pas de tier
+ * `enterprise` et le stocke en `business` (`mapCanonicalPlanToLocal` côté app) ;
+ * les plans offerts suivent `getAppPlansForBundle` (`lib/pricing/helpers.ts`).
+ */
+const PROSPECTION_PLAN_TIER: Record<string, string> = {
+  free: 'freemium',
+  enterprise: 'business',
+  lifetime_partner: 'business',
+  internal: 'business',
+  lifetime_site_vitrine: 'pro',
+};
+
+function samePlan(app: SyncApp, a: string, b: string): boolean {
+  if (app !== 'prospection') return a === b;
+  return (PROSPECTION_PLAN_TIER[a] ?? a) === (PROSPECTION_PLAN_TIER[b] ?? b);
 }
 
 /**
@@ -96,10 +129,7 @@ export function diffTenantApp(
     return drifts;
   }
 
-  const hubKnowsThisApp =
-    readLocalPlan(t, app) !== null ||
-    readLocalStatus(t.metadata, app) !== null ||
-    (app === 'notifuse' && t.notifuseWorkspaceSlug !== null);
+  const hubKnowsThisApp = hubKnowsApp(t, app);
 
   if (!appResult.found) {
     // App répond "user inconnu". Si le Hub croit avoir cette app
@@ -119,6 +149,9 @@ export function diffTenantApp(
 
   // App a au moins 1 workspace pour ce user. On compare avec ce que le Hub sait.
   if (!hubKnowsThisApp) {
+    // Simple membre d'un workspace appartenant à un autre tenant : situation
+    // normale d'une invitation, le Hub n'a rien à en savoir sur CE tenant.
+    if (appResult.snapshots.every((s) => s.role === 'member')) return drifts;
     drifts.push({
       hubTenantId: t.hubTenantId,
       app,
@@ -130,18 +163,19 @@ export function diffTenantApp(
     return drifts;
   }
 
-  // Pour le diff plan/status, on prend le 1er workspace renvoyé. La sémantique
-  // multi-workspace cross-app est encore à figer (cf §11bis du contrat) — on
-  // garde simple : le snapshot principal d'un user = son 1er workspace.
+  // Un user peut être membre de plusieurs workspaces (le sien et celui d'un
+  // autre tenant) : l'ordre n'est pas garanti, donc le plan est en écart seulement
+  // si AUCUN workspace ne porte le plan du Hub. Le status reste lu sur le 1er.
   const snap = appResult.snapshots[0];
   const localPlan = readLocalPlan(t, app);
-  if (snap.plan && localPlan && snap.plan !== localPlan) {
+  const appPlans = appResult.snapshots.flatMap((s) => (s.plan ? [s.plan] : []));
+  if (localPlan && appPlans.length > 0 && !appPlans.some((p) => samePlan(app, p, localPlan))) {
     drifts.push({
       hubTenantId: t.hubTenantId,
       app,
       kind: 'plan_mismatch',
       hubValue: localPlan,
-      appValue: snap.plan,
+      appValue: appPlans.length === 1 ? appPlans[0] : appPlans,
       observedAt,
     });
   }
@@ -189,7 +223,7 @@ export interface ReconcileOptions {
 async function selectActiveTenants(
   p: PrismaClient,
   limit: number,
-): Promise<HubTenantSnapshot[]> {
+): Promise<{ tenants: HubTenantSnapshot[]; withoutUser: string[] }> {
   const rows = await p.tenant.findMany({
     where: {
       status: 'active',
@@ -201,13 +235,14 @@ async function selectActiveTenants(
       notifusePlan: true,
       prospectionPlan: true,
       notifuseWorkspaceSlug: true,
+      prospectionProvisionedAt: true,
       metadata: true,
     },
     orderBy: { updatedAt: 'asc' },
     take: limit,
   });
 
-  if (rows.length === 0) return [];
+  if (rows.length === 0) return { tenants: [], withoutUser: [] };
 
   // Lookup batch des emails : Tenant.userId est un UUID (legacy bridge), il
   // map sur User.supabaseUserId. On résout en 1 query au lieu de N.
@@ -220,20 +255,25 @@ async function selectActiveTenants(
     users.map((u) => [u.supabaseUserId as string, u.email]),
   );
 
-  return rows
-    .map((r) => {
-      const email = emailBySid.get(r.userId);
-      if (!email) return null;
-      return {
-        hubTenantId: r.id,
-        userEmail: email,
-        notifusePlan: r.notifusePlan,
-        prospectionPlan: r.prospectionPlan,
-        notifuseWorkspaceSlug: r.notifuseWorkspaceSlug,
-        metadata: (r.metadata as Record<string, unknown> | null) ?? {},
-      } satisfies HubTenantSnapshot;
-    })
-    .filter((x): x is HubTenantSnapshot => x !== null);
+  const tenants: HubTenantSnapshot[] = [];
+  const withoutUser: string[] = [];
+  for (const r of rows) {
+    const email = emailBySid.get(r.userId);
+    if (!email) {
+      withoutUser.push(r.id);
+      continue;
+    }
+    tenants.push({
+      hubTenantId: r.id,
+      userEmail: email,
+      notifusePlan: r.notifusePlan,
+      prospectionPlan: r.prospectionPlan,
+      notifuseWorkspaceSlug: r.notifuseWorkspaceSlug,
+      prospectionProvisionedAt: r.prospectionProvisionedAt,
+      metadata: (r.metadata as Record<string, unknown> | null) ?? {},
+    });
+  }
+  return { tenants, withoutUser };
 }
 
 /**
@@ -261,7 +301,7 @@ export async function runReconcile(
     });
   }
 
-  const tenants = await selectActiveTenants(p, limit);
+  const { tenants, withoutUser } = await selectActiveTenants(p, limit);
 
   let appsQueried = 0;
   let appsUnreachable = 0;
@@ -290,8 +330,19 @@ export async function runReconcile(
     }
   }
 
+  let identity: ReconcileSummary['identity'];
+  try {
+    identity = await auditIdentity(p, { apps, fetchImpl: options.fetchImpl });
+  } catch (err) {
+    errors.push({
+      message: `identity audit: ${err instanceof Error ? err.message : String(err)}`,
+    });
+  }
+
   const summary: ReconcileSummary = {
     usersScanned: tenants.length,
+    tenantsWithoutUser: withoutUser,
+    identity,
     appsQueried,
     driftsDetected: drifts.length,
     drifts: drifts.slice(0, 200),
@@ -309,6 +360,8 @@ export async function runReconcile(
       level: 'info',
       mode: summary.mode,
       usersScanned: summary.usersScanned,
+      tenantsWithoutUser: withoutUser.length,
+      identity: identityCounts(identity),
       appsQueried: summary.appsQueried,
       driftsDetected: summary.driftsDetected,
       appsUnreachable: summary.appsUnreachable,

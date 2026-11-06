@@ -30,6 +30,7 @@
  * et empêche le scan).
  */
 
+import { denyUnlessEmailProven } from '@/lib/auth/email-proof';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
@@ -130,6 +131,12 @@ export async function POST(
     );
   }
 
+  // Accepter pour une autre adresse que celle invitée n'apporte aucune preuve.
+  if (parsed.data?.allow_email_mismatch === true) {
+    const denied = await denyUnlessEmailProven({ id: user.id, email: user.email });
+    if (denied) return denied;
+  }
+
   const result = await acceptCrossAppInvitation(prisma, {
     token,
     acceptingUserId: user.id,
@@ -156,6 +163,14 @@ export async function POST(
       },
       { status: statusByCode[result.code] },
     );
+  }
+
+  // Le jeton est parti à cette adresse et le compte porte la même : c'est une preuve.
+  if (!result.emailMismatch) {
+    await prisma.user.updateMany({
+      where: { id: user.id, emailVerified: null },
+      data: { emailVerified: new Date() },
+    });
   }
 
   await writeAuditLog(prisma, {

@@ -26,7 +26,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-import { getCurrentUser } from '@/lib/auth/get-user';
+import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
+import { denyUnlessEmailProven } from '@/lib/auth/email-proof';
 import {
   parseNext,
   verifyNextCookie,
@@ -96,12 +97,19 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(url);
   }
 
+  // Adresse non prouvée : aucun lien vers une app. Le lien de preuve part par mail
+  // et le tableau de bord explique la suite.
+  const denied = await denyUnlessEmailProven(user);
+  if (denied) {
+    return wipeCookies(NextResponse.redirect(new URL('/dashboard', baseUrl)));
+  }
+
   // Consomme le cookie AVANT l'appel downstream pour garantir l'idempotence
   // côté navigation (refresh = pas de double-bounce).
   try {
     const { magicLinkUrl } = await issueMagicLinkForApp({
       app: parsed.app,
-      hubUserId: user.supabaseUserId ?? user.id,
+      hubUserId: userUuid(user),
       email: user.email,
     });
     return wipeCookies(NextResponse.redirect(magicLinkUrl));

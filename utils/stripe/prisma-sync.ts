@@ -11,6 +11,7 @@
 // - La mapping `stripe_price_id` → `PlanKey` passe par
 //   getPlanByStripePriceId() qui regarde le catalogue ET le mapping legacy.
 
+import { pushProspectionPlan } from '@/lib/prospection/plan-push';
 import Stripe from 'stripe';
 
 import { prisma } from '@/lib/prisma';
@@ -218,6 +219,7 @@ export async function manageSubscriptionStatusChange(
     notifuseWorkspaceSlug: string | null;
     notifusePlan: string | null;
     prospectionPlan: string | null;
+    prospectionProvisionedAt: Date | null;
     notifuseUserEmail: string | null;
     metadata: unknown;
   } | null = null;
@@ -230,6 +232,7 @@ export async function manageSubscriptionStatusChange(
         notifuseWorkspaceSlug: true,
         notifusePlan: true,
         prospectionPlan: true,
+        prospectionProvisionedAt: true,
         notifuseUserEmail: true,
         metadata: true,
       },
@@ -425,9 +428,28 @@ export async function manageSubscriptionStatusChange(
     }
   }
 
-  // Prospection : pas encore d'endpoint update-plan câblé côté agent
-  // Prospection au 2026-05-21 (ticket dispatché). DB Hub mise à jour ci-dessus,
-  // l'app le lira via discovery quand son endpoint sera prêt.
+  // ─── 3. Propagation HMAC Hub → Prospection ───
+  // Un plan offert côté app reste immune (409 traité comme tel par le helper).
+  if (tenant.prospectionProvisionedAt) {
+    const owner = await prisma.user.findFirst({
+      where: { supabaseUserId: uuid },
+      select: { email: true },
+    });
+    const pushed = owner
+      ? await pushProspectionPlan({
+          hubTenantId: tenant.id,
+          email: owner.email,
+          plan: targetProspection,
+          planSource: 'stripe',
+        })
+      : ({ ok: false, error: 'owner_not_found' } as const);
+    if (!pushed.ok) {
+      console.error(
+        `[stripe-sync] update-plan KO prospection tenant=${tenant.id} plan=${targetProspection}: ${pushed.error}`,
+      );
+      result.failures.push({ app: 'prospection', targetPlan: targetProspection, error: pushed.error });
+    }
+  }
 
   return result;
 }

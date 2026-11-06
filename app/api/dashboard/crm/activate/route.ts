@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth/get-user';
+import { denyUnlessEmailProven } from '@/lib/auth/email-proof';
 import {
   getCrmTenantByUserId,
   getCrmTenantByEmail,
@@ -28,6 +29,8 @@ export async function POST(_request: NextRequest) {
   if (!user || !user.email) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
+  const denied = await denyUnlessEmailProven(user);
+  if (denied) return denied;
 
   const existingByUser = await getCrmTenantByUserId(user.id);
   const existing =

@@ -9,16 +9,13 @@
  * pour l'utilisateur — la card de l'app indisponible reste cachée
  * silencieusement.
  *
- * ⚠️ Côté apps downstream : l'endpoint `GET /api/users/by-email` n'est PAS
- * encore implémenté (cf `todo/2026-05-20-hub-discovery-by-email-pattern.md`,
- * conformité 0/4 dans `docs/CONTRAT-HUB.md` §10.1 row 22). Tant qu'aucune
- * app ne le livre, cette fonction renverra `{ found: false }` partout — ce
- * qui est le comportement gracieux attendu (rien ne casse côté Hub).
+ * Notifuse, Prospection et Analytics (fork Rybbit) exposent
+ * `GET /api/users/by-email` (mesuré en prod le 06/11/2026). Le CMS n'en fait pas
+ * partie : il reste hors de l'identité Hub.
  *
  * Tickets associés livrés côté apps :
  *   - `notifuse-veridian/todo/...-discovery-endpoint.md`
  *   - `veridian-prospection/todo/...-discovery-endpoint.md`
- *   - `veridian-cms/todo/...-discovery-endpoint.md`
  *   - `veridian-analytics/todo/...-discovery-endpoint.md`
  *
  * Référence : `todo/2026-05-20-tenant-sync-strategy.md` Niveau 1,
@@ -60,10 +57,6 @@ const APP_ENV_MAPPING: Record<
     urlEnv: 'ANALYTICS_API_URL',
     secretEnv: 'ANALYTICS_HUB_API_SECRET',
   },
-  cms: {
-    urlEnv: 'CMS_API_URL',
-    secretEnv: 'CMS_HUB_API_SECRET',
-  },
 };
 
 export interface DiscoverOptions {
@@ -76,7 +69,7 @@ export interface DiscoverOptions {
 }
 
 /** Lit le secret HMAC d'une app (avec fallback legacy quand applicable). */
-function readAppSecret(app: SyncApp): string | null {
+export function readAppSecret(app: SyncApp): string | null {
   const mapping = APP_ENV_MAPPING[app];
   const primary = process.env[mapping.secretEnv];
   if (primary) return primary;
@@ -87,7 +80,7 @@ function readAppSecret(app: SyncApp): string | null {
 }
 
 /** Lit l'URL de base d'une app (sans trailing slash). */
-function readAppUrl(app: SyncApp): string | null {
+export function readAppUrl(app: SyncApp): string | null {
   const url = process.env[APP_ENV_MAPPING[app].urlEnv];
   if (!url) return null;
   return url.replace(/\/+$/, '');
@@ -107,7 +100,7 @@ function readAppUrl(app: SyncApp): string | null {
  * conventions HMAC à gérer. Le path part dans l'URL, le timestamp anti-replay
  * dans le header, et la sig est sur `${ts}.`.
  */
-function signGet(secret: string): { timestamp: string; signature: string } {
+export function signGet(secret: string): { timestamp: string; signature: string } {
   const timestamp = Date.now().toString();
   const signature = createHmac('sha256', secret)
     .update(`${timestamp}.`)
@@ -168,6 +161,7 @@ export async function discoverAppForEmail(
           workspaces?: Array<{
             workspace_id?: string;
             workspace_name?: string;
+            tenant_id?: string;
             role?: string;
             plan?: string;
             status?: string;
@@ -190,6 +184,7 @@ export async function discoverAppForEmail(
         app,
         workspaceId: w.workspace_id,
         workspaceName: w.workspace_name,
+        tenantId: w.tenant_id,
         role: w.role,
         plan: w.plan,
         status:
@@ -239,7 +234,6 @@ export async function discoverUserApps(
     notifuse: { found: false },
     prospection: { found: false },
     analytics: { found: false },
-    cms: { found: false },
   };
 
   apps.forEach((app, i) => {

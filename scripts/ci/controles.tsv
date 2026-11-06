@@ -1,0 +1,17 @@
+# =============================================================================
+# controles.tsv — ce que veridian-hub contrôle lui-même. Six colonnes, tabulation.
+# Standard : ~/nomad-veridian/standards/controles-portables/CLAUDE.md
+# Joué au push par `gardes pre-push` (palier rapide), à la main par
+# `gardes verifier <palier>`. Trivy et les secrets du diff sortant sont joués
+# par gardes lui-même, ils ne se déclarent pas ici.
+# Palier rapide = mot pour mot l'ancien .husky/pre-push (8 étapes, même ordre,
+# mêmes conditions), migré le 03/10/2026.
+# =============================================================================
+rapide	mapping-route-test	.	BASE_REF="${BASE_REF:-origin/main}" scripts/ci/check-test-mapping.sh	-	Chaque route modifiée a son test. Une route sans test part en prod sans que rien ne l'ait jamais appelée.
+rapide	compose-sync	.	if git diff --name-only "${BASE_REF:-origin/main}"...HEAD | grep -qE '^(compose/|docker-compose\.yml)'; then scripts/ci/check-compose-sync.sh; fi	-	Seulement si le compose a changé : base, prod et staging rendent un compose valide, labels Traefik de app.veridian.site intacts.
+rapide	migration-safety	.	if git diff --name-only "${BASE_REF:-origin/main}"...HEAD | grep -qE '^prisma/migrations/.+migration\.sql$'; then BASE_REF="${BASE_REF:-origin/main}" scripts/ci/check-migration-safety.sh; fi	-	Seulement si une migration Prisma change : refuse DROP, RENAME, ALTER NOT NULL et CREATE INDEX bloquants.
+rapide	risk-marker	.	BASE_REF="${BASE_REF:-origin/main}" scripts/ci/check-risk-marker.sh	-	Refuse [risk:low] sur un commit qui touche un chemin de tier haut ou critique (CI-ARCHITECTURE §20.3).
+rapide	pas-de-mock-oauth-en-prod	.	scripts/ci/check-no-test-provider-in-prod.sh	-	Le faux fournisseur OAuth de staging ne fuit pas en prod ou base : ce serait un contournement d'authentification (session admin offerte).
+rapide	env-sync	.	scripts/ci/check-env-sync.sh	-	process.env du code, .env.example et compose disent la même chose. Sinon une variable manque au déploiement et l'app tourne dégradée en silence.
+rapide	pas-de-cle-stripe-live	.	scripts/ci/check-no-stripe-live-key.sh	-	Aucune clé Stripe LIVE dans un fichier suivi : elles n'existent qu'en variable d'environnement de prod.
+rapide	contrat-nomad	.	scripts/ci/check-nomad-contract.sh	-	Le contrat GitOps Nomad co-localisé reste cohérent avec le dépôt.

@@ -12,7 +12,7 @@ name: Hub — Reconcile tenants (hourly)
 # Fréquence horaire = compromis entre :
 #   - réactivité : drift de plan/status remonté en < 1h sans webhook
 #   - coût : 24 runs/jour × ~10s = 4 min CI/jour, négligeable
-#   - charge apps downstream : 24 × 100 tenants × 4 apps = 9600 GET /jour, OK
+#   - charge apps downstream : 24 × 100 tenants × 3 apps = 7200 GET /jour, OK
 #
 # Secret `CRON_SECRET` : déjà provisionné côté `hub-trial-tick-cron.yml`.
 # Pas de nouveau secret à créer.
@@ -27,7 +27,7 @@ on:
         required: false
         default: '100'
       apps:
-        description: 'Apps à interroger (csv: notifuse,prospection,analytics,cms)'
+        description: 'Apps à interroger (csv: notifuse,prospection,analytics)'
         required: false
         default: ''
 

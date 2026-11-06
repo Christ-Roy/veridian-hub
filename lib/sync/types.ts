@@ -13,13 +13,14 @@
  */
 
 /** Identifiant d'une app downstream gérée par le sync. */
-export type SyncApp = 'notifuse' | 'prospection' | 'analytics' | 'cms';
+export type SyncApp = 'notifuse' | 'prospection' | 'analytics';
 
+// Le CMS (Payload) n'en fait pas partie : il reste à part, sans discovery ni
+// secret HMAC côté Hub, et il s'éteint peu à peu (décision Robert, 06/11).
 export const SYNC_APPS: readonly SyncApp[] = [
   'notifuse',
   'prospection',
   'analytics',
-  'cms',
 ] as const;
 
 /**
@@ -32,6 +33,8 @@ export interface TenantSnapshot {
   /** ID du tenant côté app (slug, uuid, etc.) — sémantique app-spécifique. */
   workspaceId: string;
   workspaceName?: string;
+  /** Id du tenant côté app, quand elle l'expose (Prospection). */
+  tenantId?: string;
   role?: string;
   plan?: string;
   status?: 'active' | 'suspended' | 'deleted';
@@ -52,13 +55,27 @@ export type DiscoveryAppResult =
 export interface DiscoveryResult {
   /** Email du user dont on a fait le discovery. */
   email: string;
-  /** Map app → result. Toujours présente pour les 4 apps gérées. */
+  /** Map app → result. Toujours présente pour les apps gérées. */
   apps: Record<SyncApp, DiscoveryAppResult>;
   /** ISO 8601 — quand la discovery a été lancée. */
   startedAt: string;
   /** Durée totale de l'opération (parallèle). */
   durationMs: number;
 }
+
+/** Audit d'identité d'une app (`lib/sync/identity-audit.ts`). */
+export interface IdentityAuditApp {
+  status: 'ok' | 'endpoint_missing' | 'unreachable' | 'not_configured';
+  localAccounts: number;
+  /** Comptes humains locaux dont l'adresse est inconnue du Hub. */
+  withoutHub: string[];
+  /** Adresse connue du Hub, mais pas relié par `hub_user_id`. */
+  unlinked: string[];
+  emailMismatch: string[];
+  nameMismatch: string[];
+}
+
+export type IdentityAudit = Partial<Record<SyncApp, IdentityAuditApp>>;
 
 /** Type d'écart détecté par la reconciliation entre Hub et app downstream. */
 export type DriftKind =
@@ -82,7 +99,14 @@ export interface TenantDrift {
 export interface ReconcileSummary {
   /** Nombre de users actifs scannés. */
   usersScanned: number;
-  /** Nombre d'apps interrogées (≤ usersScanned × 4). */
+  /**
+   * Tenants actifs dont le User n'existe plus : ils n'ont pas d'email, donc la
+   * discovery ne peut pas les lire. Remontés ici pour ne pas disparaître du relevé.
+   */
+  tenantsWithoutUser: string[];
+  /** Comptes des apps comparés au Hub. Absent si l'audit n'a pas pu tourner. */
+  identity?: IdentityAudit;
+  /** Nombre d'apps interrogées (≤ usersScanned × 3). */
   appsQueried: number;
   /** Nombre de drifts détectés (1 drift = 1 (tenant, app) divergent). */
   driftsDetected: number;

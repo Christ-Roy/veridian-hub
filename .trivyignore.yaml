@@ -8,7 +8,31 @@
 #
 # Ce fichier remplace .trivyignore plat (toujours présent pour backward compat).
 
-vulnerabilities: []
+vulnerabilities:
+  - id: GHSA-3f6p-5ww8-9rcr
+    statement: |
+      FAUX POSITIF MESURE, pas une CVE toleree. Trivy lit la CLE de l'override
+      pnpm « mysql2@<3.22.0 » dans package.json et la prend pour une dependance
+      installee, qu'il resout a la version la plus basse de l'intervalle
+      (3.15.3). Cette version n'est installee nulle part.
+
+      Preuve, le 2026-09-23, sur le meme commit que le scan :
+        - pnpm-lock.yaml : ZERO occurrence de 3.15.3
+        - seule version resolue : mysql2@3.24.4, soit au-dessus des 3.22.0
+          qui corrigent l'avis
+        - seule mention de mysql2 dans package.json : l'override lui-meme
+        - l'image est batie par `pnpm install --frozen-lockfile`, donc sur ce
+          lockfile et pas sur les intervalles declaratifs
+
+      L'avis lui-meme est reel et serieux (downgrade du plugin d'auth vers
+      mysql_clear_password, fuite du mot de passe en clair). C'est pour ça que
+      l'override existe, et il fait son travail : cette entree ne masque pas la
+      vulnerabilite, elle masque l'incapacite de Trivy a lire un override pnpm.
+
+      A RETIRER si l'override mysql2 disparait de package.json, ou si Trivy
+      apprend a resoudre les overrides pnpm : l'entree deviendrait alors un
+      vrai angle mort.
+    expired_at: 2026-12-31
 
 licenses:
   - id: LGPL-3.0-or-later

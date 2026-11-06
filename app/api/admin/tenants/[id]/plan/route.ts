@@ -6,9 +6,9 @@
 //   - notifuse : valide contre NOTIFUSE_PLANS (incl. lifetime_*, internal),
 //     pousse à Notifuse via updatePlan() HMAC, écrit `notifusePlan` en DB +
 //     met aussi à jour metadata.notifuse_plan pour rétrocompat.
-//   - prospection : valide contre la liste prospection ('freemium', 'pro',
-//     'enterprise'), écrit `prospectionPlan`. Le push vers Prospection n'est
-//     pas encore câblé côté app (ticket déposé) — pour l'instant, DB seule.
+//   - prospection : valide contre la liste prospection, pousse à Prospection si
+//     le tenant y est provisionné (`lib/prospection/plan-push.ts`), puis écrit
+//     `prospectionPlan`. Un refus de l'app n'écrit rien : pas d'écart silencieux.
 //   - trialEndsAt : si présent dans le body, met à jour le champ Tenant.
 //     `null` = pas d'expiration (free pour toujours). Absent = pas de
 //     modification.
@@ -24,11 +24,12 @@ import { requireAdmin } from '@/lib/admin/require-admin';
 import { buildNotifuseClient } from '@/lib/notifuse/admin-helpers';
 import { isNotifusePlan, NOTIFUSE_PLANS, NotifuseError } from '@/lib/notifuse/types';
 import { prisma } from '@/lib/prisma';
+import { pushProspectionPlan } from '@/lib/prospection/plan-push';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-const PROSPECTION_PLANS = ['freemium', 'starter', 'pro', 'enterprise'] as const;
+const PROSPECTION_PLANS = ['freemium', 'pro', 'business', 'enterprise'] as const;
 type ProspectionPlan = (typeof PROSPECTION_PLANS)[number];
 
 interface RequestBody {
@@ -69,8 +70,10 @@ export async function POST(
     select: {
       id: true,
       notifuseWorkspaceSlug: true,
+      userId: true,
       notifusePlan: true,
       prospectionPlan: true,
+      prospectionProvisionedAt: true,
       trialEndsAt: true,
       metadata: true,
     },
@@ -205,9 +208,30 @@ export async function POST(
   }
   const prospectionPlan = body.plan as ProspectionPlan;
 
-  // NB : pas encore de propagation HMAC vers Prospection (ticket déposé dans
-  // `todo/integrations/prospection-update-plan-2026-05-18.md`). DB seule pour
-  // l'instant — le sync Stripe→Prisma existant continue de marcher.
+  let propagated = false;
+  if (tenant.prospectionProvisionedAt) {
+    const owner = await prisma.user.findFirst({
+      where: { supabaseUserId: tenant.userId },
+      select: { email: true },
+    });
+    if (!owner) {
+      return NextResponse.json({ error: 'Tenant owner not found' }, { status: 409 });
+    }
+    const pushed = await pushProspectionPlan({
+      hubTenantId: tenant.id,
+      email: owner.email,
+      plan: prospectionPlan,
+      planSource: 'grant_manual',
+      reason: body.reason,
+    });
+    if (!pushed.ok) {
+      return NextResponse.json(
+        { error: `Prospection rejected plan update: ${pushed.error}` },
+        { status: 502 },
+      );
+    }
+    propagated = true;
+  }
 
   const updated = await prisma.tenant.update({
     where: { id: tenantId },
@@ -250,7 +274,6 @@ export async function POST(
     trial_ends_at: updated.trialEndsAt,
     set_by: setBy,
     set_at: setAt,
-    warning:
-      'Prospection app n\'expose pas encore /update-plan HMAC — plan stocké côté Hub uniquement.',
+    propagated,
   });
 }

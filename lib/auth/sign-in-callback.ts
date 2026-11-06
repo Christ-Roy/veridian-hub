@@ -12,6 +12,8 @@
 
 import type { PrismaClient } from '@prisma/client';
 
+import { providerProvesEmail } from '@/lib/auth/email-proof-provider';
+
 type SignInUser = {
   id?: string | null;
   email?: string | null;
@@ -24,6 +26,8 @@ export type SignInDeps = {
   prisma: Pick<PrismaClient, 'user'>;
   /** Sender MFA email (mockable) */
   issueAndSendMfaCode: (input: { id: string; email: string }) => Promise<unknown>;
+  /** Enregistre une preuve fournisseur (annule un mot de passe non prouvé). */
+  applyProviderEmailProof?: (prisma: never, userId: string) => Promise<void>;
   /** Logger (mockable) — par défaut console */
   logger?: { error: (...args: unknown[]) => void };
 };
@@ -33,8 +37,21 @@ export type SignInDeps = {
  * Utilisé par `auth.ts` (avec les deps réelles) et par les tests unitaires
  * (avec mocks).
  */
-export function createSignInCallback({ prisma, issueAndSendMfaCode, logger = console }: SignInDeps) {
-  return async function signIn({ user }: { user: SignInUser }): Promise<boolean | string> {
+export function createSignInCallback({
+  prisma,
+  issueAndSendMfaCode,
+  applyProviderEmailProof,
+  logger = console,
+}: SignInDeps) {
+  return async function signIn({
+    user,
+    account,
+    profile,
+  }: {
+    user: SignInUser;
+    account?: { provider?: string | null } | null;
+    profile?: Record<string, unknown> | null;
+  }): Promise<boolean | string> {
     if (!user.email) {
       // Aucun provider ne retourne un user sans email en pratique (les 3
       // providers Veridian — Google, Microsoft, Credentials — exigent email).
@@ -52,6 +69,11 @@ export function createSignInCallback({ prisma, issueAndSendMfaCode, logger = con
       // user. On laisse passer (pas de MFA au tout premier login).
       // Scénarios A (signup Google) et B (signup Microsoft) du catalogue.
       return true;
+    }
+
+    // Avant la pose du JWT : la session qui naît ici reste valide, celles d'avant non.
+    if (applyProviderEmailProof && providerProvesEmail(account, profile, dbUser.email)) {
+      await applyProviderEmailProof(prisma as never, dbUser.id);
     }
 
     if (dbUser.mfaEnabled) {

@@ -44,10 +44,19 @@ export async function getCurrentUser(): Promise<AuthUser | null> {
       name: true,
       image: true,
       supabaseUserId: true,
+      sessionsValidAfter: true,
     },
   });
+  if (!user) return null;
 
-  return user;
+  // JWT émis avant l'annulation d'un mot de passe non prouvé : session morte.
+  const { sessionsValidAfter, ...authUser } = user;
+  if (sessionsValidAfter && session.user.impersonated !== true) {
+    const validAfterSeconds = Math.floor(sessionsValidAfter.getTime() / 1000);
+    if ((session.user.issuedAt ?? 0) < validAfterSeconds) return null;
+  }
+
+  return authUser;
 }
 
 /**

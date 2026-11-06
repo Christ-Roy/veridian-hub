@@ -11,6 +11,7 @@
  * à jour `providerAccountId` pour rester cohérent avec le legacy bridge.
  */
 
+import { pushUserToApps } from '@/lib/identity/push-user';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
@@ -80,6 +81,12 @@ export async function PATCH(req: Request) {
         data: { providerAccountId: email },
       })
       .catch(() => { /* non bloquant */ });
+  }
+
+  // Le nom part tout de suite. Une nouvelle adresse attend sa preuve
+  // (cf. app/api/auth/email-proof/confirm/route.ts).
+  if (name !== undefined && user.supabaseUserId) {
+    void pushUserToApps({ hubUserId: user.supabaseUserId, name }).catch(() => undefined);
   }
 
   return NextResponse.json({ ok: true });

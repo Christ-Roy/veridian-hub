@@ -33,7 +33,7 @@ export function StartTrialButton({
       if (!res.ok || !data.ok) {
         toast.error("Échec du démarrage de l'essai", {
           description:
-            data.errors?.join(', ') || data.error || 'Erreur inconnue',
+            data.message || data.errors?.join(', ') || data.error || 'Erreur inconnue',
           duration: 5000,
         });
         return;
