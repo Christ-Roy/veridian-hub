@@ -69,6 +69,7 @@ describe('POST /api/cron/reconcile-tenants — route wrapper', () => {
   it('calls runReconcile and relays summary when secret OK', async () => {
     runReconcileMock.mockResolvedValueOnce({
       usersScanned: 10,
+      tenantsWithoutUser: [],
       appsQueried: 40,
       driftsDetected: 2,
       drifts: [
@@ -90,6 +91,7 @@ describe('POST /api/cron/reconcile-tenants — route wrapper', () => {
       expect.objectContaining({
         ok: true,
         usersScanned: 10,
+        tenantsWithoutUser: [],
         driftsDetected: 2,
         mode: 'dry-run',
       }),
@@ -99,6 +101,7 @@ describe('POST /api/cron/reconcile-tenants — route wrapper', () => {
   it('parses limit and apps from querystring and passes to runReconcile', async () => {
     runReconcileMock.mockResolvedValueOnce({
       usersScanned: 0,
+      tenantsWithoutUser: [],
       appsQueried: 0,
       driftsDetected: 0,
       drifts: [],
@@ -126,6 +129,7 @@ describe('POST /api/cron/reconcile-tenants — route wrapper', () => {
   it('clamps limit to [1, 500] and rejects garbage values', async () => {
     runReconcileMock.mockResolvedValue({
       usersScanned: 0,
+      tenantsWithoutUser: [],
       appsQueried: 0,
       driftsDetected: 0,
       drifts: [],
@@ -153,6 +157,7 @@ describe('POST /api/cron/reconcile-tenants — route wrapper', () => {
     process.env.RECONCILE_ALERT_THRESHOLD = '3';
     runReconcileMock.mockResolvedValueOnce({
       usersScanned: 100,
+      tenantsWithoutUser: [],
       appsQueried: 400,
       driftsDetected: 5,
       drifts: [],
@@ -172,6 +177,7 @@ describe('POST /api/cron/reconcile-tenants — route wrapper', () => {
     process.env.RECONCILE_ALERT_THRESHOLD = '10';
     runReconcileMock.mockResolvedValueOnce({
       usersScanned: 100,
+      tenantsWithoutUser: [],
       appsQueried: 400,
       driftsDetected: 2,
       drifts: [],
