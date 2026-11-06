@@ -43,11 +43,11 @@ import { runSqlOnStaging, selectScalar } from './_sql-helper';
 // ─── Secrets (alignés sur spec 15 / spec 08) ──────────────────────────────
 const NOTIFUSE_HUB_WEBHOOK_SECRET =
   process.env.NOTIFUSE_HUB_WEBHOOK_SECRET ||
-  'a62b5fb7384c9228d9813c5262cb156374c3fb3b6f6f2a3ae4a969657f083683';
+  'FAKE-e2e-notifuse-hub-webhook-secret-do-not-use-in-prod';
 
 const NOTIFUSE_WEBHOOK_TOKEN =
   process.env.NOTIFUSE_WEBHOOK_TOKEN ||
-  '6a68be1b9effd251386d0d25d04409cdda75575d79feee3de899c30dfa9b59f2';
+  'FAKE-e2e-notifuse-webhook-token-do-not-use-in-prod';
 
 // ─── Identifiants de test (isolés par RUN_STAMP, cleanup ciblé) ───────────
 const WORKSPACE_SLUG = `recon-e2e-${RUN_STAMP}`;

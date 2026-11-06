@@ -172,7 +172,13 @@ describe('POST /api/webhooks/notifuse — v1.4 (Bearer)', () => {
     // La route doit passer le request original (notre fake req) au receiver
     expect(passedRequest).toBe(req);
     expect(config.app).toBe('notifuse');
-    expect(config.expectedToken).toBe(V14_TOKEN);
+    // Depuis la rotation du 2026-08-27, la route passe une `RotatingSecret`
+    // (double acceptation) et non plus une string. Hors fenêtre de rotation,
+    // `previous` est null.
+    expect(config.expectedToken).toEqual({
+      current: V14_TOKEN,
+      previous: null,
+    });
     // Les handlers v1.4 doivent contenir au moins les 3 events stub définis
     expect(typeof config.handlers).toBe('object');
     expect(Object.keys(config.handlers)).toEqual(

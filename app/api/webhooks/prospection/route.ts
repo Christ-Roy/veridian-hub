@@ -23,12 +23,15 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { handleWebhook } from '@/lib/webhooks/receiver';
 import { prospectionHandlers } from '@/lib/webhooks/prospection-handlers';
+import { readRotatingSecret } from '@/lib/webhooks/secret-rotation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
-  const token = process.env.PROSPECTION_WEBHOOK_TOKEN;
+  // Double acceptation : `PROSPECTION_WEBHOOK_TOKEN` + éventuel
+  // `PROSPECTION_WEBHOOK_TOKEN_PREVIOUS` pendant une fenêtre de rotation.
+  const token = readRotatingSecret('PROSPECTION_WEBHOOK_TOKEN');
   if (!token) {
     return NextResponse.json(
       {

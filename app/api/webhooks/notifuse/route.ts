@@ -44,6 +44,11 @@ import { prisma } from '@/lib/prisma';
 import { handleWebhook } from '@/lib/webhooks/receiver';
 import { v14Handlers } from '@/lib/webhooks/notifuse-handlers';
 import { ingestProspectEvent } from '@/lib/prospect/ingest';
+import {
+  logWebhookAuth,
+  matchRotatingSecretWith,
+  readRotatingSecret,
+} from '@/lib/webhooks/secret-rotation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -59,7 +64,9 @@ export async function POST(request: NextRequest) {
   const hasBearer = !!request.headers.get('authorization');
 
   if (hasBearer) {
-    const token = process.env.NOTIFUSE_WEBHOOK_TOKEN;
+    // Double acceptation : `NOTIFUSE_WEBHOOK_TOKEN` + éventuel
+    // `NOTIFUSE_WEBHOOK_TOKEN_PREVIOUS` pendant une fenêtre de rotation.
+    const token = readRotatingSecret('NOTIFUSE_WEBHOOK_TOKEN');
     if (!token) {
       return NextResponse.json(
         {
@@ -107,7 +114,11 @@ function verifyLegacySignature(
 }
 
 async function handleLegacyNotifuseHmac(request: NextRequest): Promise<Response> {
-  const secret = process.env.NOTIFUSE_HUB_WEBHOOK_SECRET;
+  // Double acceptation : `NOTIFUSE_HUB_WEBHOOK_SECRET` + éventuel
+  // `NOTIFUSE_HUB_WEBHOOK_SECRET_PREVIOUS` pendant une fenêtre de rotation.
+  // La signature étant un HMAC, on ne compare pas des valeurs : on recalcule
+  // la signature attendue avec chaque secret candidat.
+  const secret = readRotatingSecret('NOTIFUSE_HUB_WEBHOOK_SECRET');
   if (!secret) {
     return NextResponse.json(
       { error: 'NOTIFUSE_HUB_WEBHOOK_SECRET not configured' },
@@ -119,7 +130,11 @@ async function handleLegacyNotifuseHmac(request: NextRequest): Promise<Response>
   const timestamp = request.headers.get('x-veridian-timestamp');
   const signature = request.headers.get('x-veridian-notifuse-signature');
 
-  if (!verifyLegacySignature(rawBody, timestamp, signature, secret)) {
+  const keyUsed = matchRotatingSecretWith(secret, (candidate) =>
+    verifyLegacySignature(rawBody, timestamp, signature, candidate),
+  );
+  logWebhookAuth('notifuse', 'legacy-hmac', keyUsed);
+  if (keyUsed === 'none') {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
   }
 

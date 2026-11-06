@@ -101,6 +101,11 @@ services:
       PROSPECTION_INTERNAL_URL: https://prospection.staging.veridian.site
       PROSPECTION_TENANT_API_SECRET: ${PROSPECTION_TENANT_API_SECRET_STAGING:-staging-secret}
       PROSPECTION_WEBHOOK_TOKEN: ${PROSPECTION_WEBHOOK_TOKEN:-staging-token-not-real}
+      # Fenêtre de rotation : valeurs héritées acceptées EN PLUS des
+      # courantes. Vides hors rotation. Cf runbooks/rotation-secrets-webhook.md
+      NOTIFUSE_HUB_WEBHOOK_SECRET_PREVIOUS: ${NOTIFUSE_HUB_WEBHOOK_SECRET_PREVIOUS:-}
+      NOTIFUSE_WEBHOOK_TOKEN_PREVIOUS: ${NOTIFUSE_WEBHOOK_TOKEN_PREVIOUS:-}
+      PROSPECTION_WEBHOOK_TOKEN_PREVIOUS: ${PROSPECTION_WEBHOOK_TOKEN_PREVIOUS:-}
 
       # ─── Analytics ─────────────────────────────────────────────────────
       # URL admin API (Pattern A legacy x-admin-key — lib/analytics/client.ts).

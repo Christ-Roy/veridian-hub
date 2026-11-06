@@ -23,9 +23,13 @@
  */
 
 import { NextResponse } from 'next/server';
-import { timingSafeEqual } from 'node:crypto';
 
 import { prisma } from '@/lib/prisma';
+import {
+  RotatingSecret,
+  logWebhookAuth,
+  matchRotatingSecret,
+} from '@/lib/webhooks/secret-rotation';
 
 /** Format payload v1.4 attendu. */
 export interface V14WebhookPayload {
@@ -52,8 +56,15 @@ export type HandlerTable = Record<string, WebhookHandler>;
 export interface ReceiverConfig {
   /** Nom court de l'app émettrice : 'notifuse', 'prospection', ... */
   app: string;
-  /** Valeur attendue du Bearer token. */
-  expectedToken: string;
+  /**
+   * Valeur(s) acceptée(s) du Bearer token.
+   *
+   * Une `RotatingSecret` permet d'accepter simultanément la valeur courante et
+   * une valeur héritée pendant une fenêtre de rotation (cf
+   * `lib/webhooks/secret-rotation.ts`). La forme `string` reste acceptée et
+   * équivaut à une rotation fermée (une seule valeur).
+   */
+  expectedToken: string | RotatingSecret;
   /** Map event_type → handler. */
   handlers: HandlerTable;
 }
@@ -61,18 +72,6 @@ export interface ReceiverConfig {
 /** UUID v4 (laxe : on accepte aussi v1/v3/v5 — anti-typo, pas anti-crypto). */
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-/**
- * Compare en temps constant deux strings Bearer. Évite les timing attacks
- * sur le token (le risque est faible vu qu'on a un token de 256 bits, mais
- * c'est gratuit et c'est du standard industriel).
- */
-function constantTimeEquals(a: string, b: string): boolean {
-  const aBuf = Buffer.from(a, 'utf-8');
-  const bBuf = Buffer.from(b, 'utf-8');
-  if (aBuf.length !== bBuf.length) return false;
-  return timingSafeEqual(aBuf, bBuf);
-}
 
 /**
  * Récupère le Bearer token du header `Authorization: Bearer <token>`.
@@ -101,7 +100,12 @@ export async function handleWebhook(
   request: Request,
   config: ReceiverConfig,
 ): Promise<Response> {
-  // 1. Auth Bearer
+  // 1. Auth Bearer — double acceptation pendant une fenêtre de rotation.
+  const expected: RotatingSecret =
+    typeof config.expectedToken === 'string'
+      ? { current: config.expectedToken, previous: null }
+      : config.expectedToken;
+
   const presented = extractBearer(request.headers.get('authorization'));
   if (!presented) {
     return NextResponse.json(
@@ -109,7 +113,10 @@ export async function handleWebhook(
       { status: 401 },
     );
   }
-  if (!constantTimeEquals(presented, config.expectedToken)) {
+
+  const keyUsed = matchRotatingSecret(presented, expected);
+  logWebhookAuth(config.app, 'v14-bearer', keyUsed);
+  if (keyUsed === 'none') {
     return NextResponse.json(
       { error: 'unauthorized', message: 'Invalid token' },
       { status: 401 },

@@ -85,6 +85,13 @@ jobs:
           echo "✓ Aucune route d'atelier en extension standard"
       - name: Lint
         run: pnpm lint
+      # Ce dépôt est PUBLIC : un secret poussé ici est publié et l'historique
+      # le conserve. Bloquant. L'autotest tourne AVANT le contrôle : un garde-fou
+      # qu'on n'a jamais vu refuser ne prouve rien (incident 2026-05-21).
+      - name: Autotest du détecteur de secrets
+        run: ./scripts/ci/check-no-secrets.selftest.sh
+      - name: Aucun secret en clair dans les fichiers trackés
+        run: ./scripts/ci/check-no-secrets.sh
       - name: Compose sync (base + prod + staging cohérents)
         run: ./scripts/ci/check-compose-sync.sh
       - name: ENV sync (code ↔ .env.example ↔ compose)

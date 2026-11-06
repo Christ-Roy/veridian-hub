@@ -113,13 +113,13 @@ const SECRET_NOTIFUSE_INVITATION =
 
 const NOTIFUSE_HUB_WEBHOOK_SECRET =
   process.env.NOTIFUSE_HUB_WEBHOOK_SECRET ||
-  // Fallback : valeur récupérée via `ssh dev-pub 'docker exec hub-staging env'`
-  // (stable d'un push à l'autre, injectée par compose staging).
-  'a62b5fb7384c9228d9813c5262cb156374c3fb3b6f6f2a3ae4a969657f083683';
+  // Fallback VOLONTAIREMENT factice : ce dépôt est public, aucun secret réel
+  // ne doit y figurer. La vraie valeur est injectée par la CI staging.
+  'FAKE-e2e-notifuse-hub-webhook-secret-do-not-use-in-prod';
 
 const NOTIFUSE_WEBHOOK_TOKEN =
   process.env.NOTIFUSE_WEBHOOK_TOKEN ||
-  '6a68be1b9effd251386d0d25d04409cdda75575d79feee3de899c30dfa9b59f2';
+  'FAKE-e2e-notifuse-webhook-token-do-not-use-in-prod';
 
 function legacyEmail(slug: string): string {
   return makeEmail(`legacy-${slug}`);

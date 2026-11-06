@@ -478,3 +478,69 @@ describe('POST /api/webhooks/prospection — Niveau 2 sync events', () => {
     expect(rows[0].processedAt).toBeNull();
   });
 });
+
+// ============================================================================
+// Double acceptation pendant une fenêtre de rotation
+// ============================================================================
+//
+// La route lit `PROSPECTION_WEBHOOK_TOKEN` et, pendant une bascule,
+// `PROSPECTION_WEBHOOK_TOKEN_PREVIOUS`. Ces tests exercent le vrai câblage
+// route → readRotatingSecret → receiver, avec de vraies variables
+// d'environnement : c'est le câblage qui casse, pas l'algorithme (testé à part
+// dans __tests__/lib/webhooks/secret-rotation.test.ts).
+
+describe('POST /api/webhooks/prospection — rotation du jeton', () => {
+  const NEW = 'n'.repeat(64);
+  const OLD = 'o'.repeat(64);
+
+  afterEach(() => {
+    delete process.env.PROSPECTION_WEBHOOK_TOKEN_PREVIOUS;
+  });
+
+  it('accepte le NOUVEAU jeton pendant la fenêtre', async () => {
+    process.env.PROSPECTION_WEBHOOK_TOKEN = NEW;
+    process.env.PROSPECTION_WEBHOOK_TOKEN_PREVIOUS = OLD;
+    const { POST } = await import('@/app/api/webhooks/prospection/route');
+    const res = await POST(
+      makeReq({ authHeader: `Bearer ${NEW}`, body: validPayload('rot-new') }) as any,
+    );
+    expect(res.status).toBe(200);
+    expect(rows).toHaveLength(1);
+  });
+
+  it("accepte l'ANCIEN jeton pendant la fenêtre — c'est ce qui évite la coupure", async () => {
+    process.env.PROSPECTION_WEBHOOK_TOKEN = NEW;
+    process.env.PROSPECTION_WEBHOOK_TOKEN_PREVIOUS = OLD;
+    const { POST } = await import('@/app/api/webhooks/prospection/route');
+    const res = await POST(
+      makeReq({ authHeader: `Bearer ${OLD}`, body: validPayload('rot-old') }) as any,
+    );
+    expect(res.status).toBe(200);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].processedAt).not.toBeNull();
+  });
+
+  it("REFUSE l'ancien jeton une fois _PREVIOUS retirée", async () => {
+    // La moitié qui ferme la vulnérabilité. Sans ce 401, le jeton publié sur
+    // GitHub reste utilisable et la rotation n'a servi à rien.
+    process.env.PROSPECTION_WEBHOOK_TOKEN = NEW;
+    delete process.env.PROSPECTION_WEBHOOK_TOKEN_PREVIOUS;
+    const { POST } = await import('@/app/api/webhooks/prospection/route');
+    const res = await POST(
+      makeReq({ authHeader: `Bearer ${OLD}`, body: validPayload('rot-closed') }) as any,
+    );
+    expect(res.status).toBe(401);
+    expect(rows).toHaveLength(0);
+  });
+
+  it('ignore une _PREVIOUS vide (fenêtre considérée fermée)', async () => {
+    process.env.PROSPECTION_WEBHOOK_TOKEN = NEW;
+    process.env.PROSPECTION_WEBHOOK_TOKEN_PREVIOUS = '';
+    const { POST } = await import('@/app/api/webhooks/prospection/route');
+    const res = await POST(
+      makeReq({ authHeader: `Bearer ${OLD}`, body: validPayload('rot-empty') }) as any,
+    );
+    expect(res.status).toBe(401);
+    expect(rows).toHaveLength(0);
+  });
+});

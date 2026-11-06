@@ -56,7 +56,7 @@ const SPEC = '02-parallel-trial-ticks';
 const CRON_SECRET = process.env.CRON_SECRET || 'staging-cron-secret';
 const NOTIFUSE_WEBHOOK_TOKEN =
   process.env.NOTIFUSE_WEBHOOK_TOKEN ||
-  '6a68be1b9effd251386d0d25d04409cdda75575d79feee3de899c30dfa9b59f2';
+  'FAKE-e2e-notifuse-webhook-token-do-not-use-in-prod';
 
 test.describe.configure({ mode: 'serial' });
 
