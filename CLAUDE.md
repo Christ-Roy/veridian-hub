@@ -66,6 +66,23 @@ hub/
 └── Dockerfile              # Multi-stage Node 20-alpine (deps → builder → runner)
 ```
 
+## Session et identité
+
+Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HUB.md` §3.8 et §6bis.8.0.
+
+- **Session d'un an, glissante.** La révocation se lit en base dans le callback `jwt` de `auth.ts`,
+  sur `authAt`. Jamais sur `iat` : Auth.js le réécrit à chaque lecture, middleware compris (faille
+  mesurée en prod le 07/11).
+- **Preuve récente** : `lib/auth/recent-auth.ts` (24 h compte et admin, 7 j facturation).
+- **Rebond** : `api/auth/bounce/prepare` et `complete`. Anti-boucle par app, sur 30 s, jamais remis à
+  zéro sur `complete`. Aucun lien hors d'une adresse prouvée.
+- **Batterie** : `pnpm test:systeme`, à jouer depuis le bastion, sur ce qui est servi. Twenty :
+  `HUB_URL=https://hub.staging.veridian.site`. Après une modification, rejouer chaque
+  `SSO_SABOTAGE=<scénario>` : il doit échouer. Elle retire ses comptes, et échoue s'il en reste.
+- **Restes de test** : `testResidue` de `hub reconcile`.
+- **Coupure** : un déploiement coupe le Hub environ 19 s (07/11), la base est dans le groupe Nomad.
+  Regrouper les changements. `e2e/systeme-sso/**` ne redéploie rien.
+
 ## Commandes
 
 ```bash
