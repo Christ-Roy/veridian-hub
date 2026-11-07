@@ -69,6 +69,9 @@ RUN pnpm run build
 # STAGE 3: Runner (Production)
 # ============================================================================
 FROM node:22-alpine AS runner
+# SHA du commit, lu par /api/health (la CI passe --build-arg GIT_SHA=${{ github.sha }}).
+ARG GIT_SHA=
+ENV HUB_GIT_SHA=$GIT_SHA
 
 WORKDIR /app
 

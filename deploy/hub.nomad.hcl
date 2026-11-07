@@ -67,8 +67,13 @@ job "hub" {
     # auto_revert : un deploy prod qui n'atteint jamais healthy restaure la
     # dernière version saine (zéro trou prod). min_healthy_time : l'alloc doit
     # rester saine 15s avant d'être comptée healthy (anti-flap).
+    # Bleu-vert (07/11/2026) : le canari demarre a cote de l'ancienne allocation, hors routage (`canary_tags`),
+    # puis la promotion le route et arrete l'ancienne apres `shutdown_delay`. Avant : l'ancienne s'arretait d'abord,
+    # 11 a 14 s de 404 et 502 a chaque deploiement.
     update {
       max_parallel      = 1
+      canary            = 1
+      auto_promote      = true
       min_healthy_time  = "15s"
       healthy_deadline  = "5m"
       progress_deadline = "10m"
@@ -117,6 +122,8 @@ job "hub" {
         "traefik.http.routers.hubprod.tls=true",
         "traefik.http.routers.hubprod.tls.certresolver=letsencrypt",
       ]
+      # Le canari n'est pas route tant qu'il n'est pas promu : il demarre (~60 s) sans recevoir de trafic.
+      canary_tags = ["traefik.enable=false"]
       check {
         type     = "http"
         path     = "/api/health"
@@ -129,7 +136,8 @@ job "hub" {
     task "hub" {
       driver         = "docker"
       user           = "nextjs"
-      shutdown_delay = "10s"
+      # Traefik relit le catalogue toutes les 15 s : l'allocation sortante sert encore pendant qu'il l'oublie.
+      shutdown_delay = "30s"
       kill_timeout   = "30s"
       service {
         name     = "hub-selfheal"

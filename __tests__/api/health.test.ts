@@ -58,6 +58,20 @@ describe('GET /api/health', () => {
     });
   });
 
+  it('reports the built commit SHA when the image carries it', async () => {
+    const before = process.env.HUB_GIT_SHA;
+    process.env.HUB_GIT_SHA = '0b74d0a1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7';
+    try {
+      const response = await GET();
+      expect(response.body).toMatchObject({ version: '0b74d0a1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7' });
+      process.env.HUB_GIT_SHA = 'pas-un-sha';
+      expect((await GET()).body).toMatchObject({ version: 'unknown' });
+    } finally {
+      if (before === undefined) delete process.env.HUB_GIT_SHA;
+      else process.env.HUB_GIT_SHA = before;
+    }
+  });
+
   it('returns HTTP 503 without leaking details when the database is unavailable', async () => {
     queryRawMock.mockRejectedValueOnce(new Error('secret database hostname'));
 

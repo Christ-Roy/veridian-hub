@@ -5,8 +5,14 @@ import pkg from '../../../package.json';
 export const dynamic = 'force-dynamic';
 
 const DATABASE_TIMEOUT_MS = 2_000;
-const appVersion =
+const packageVersion =
   'version' in pkg && typeof pkg.version === 'string' ? pkg.version : 'unknown';
+
+// SHA du commit construit, injecte par la CI (`--build-arg GIT_SHA`) : dit quelle version sert vraiment.
+function appVersion(): string {
+  const sha = process.env.HUB_GIT_SHA?.trim();
+  return sha && /^[0-9a-f]{7,40}$/.test(sha) ? sha : packageVersion;
+}
 
 async function checkDatabase(): Promise<'ok' | 'ko'> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -40,7 +46,7 @@ export async function GET() {
   return NextResponse.json(
     {
       status,
-      version: appVersion,
+      version: appVersion(),
       db,
       dependencies: {},
       timestamp: new Date().toISOString(),
