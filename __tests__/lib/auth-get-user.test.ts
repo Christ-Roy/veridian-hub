@@ -75,7 +75,6 @@ describe('getCurrentUser', () => {
         name: true,
         image: true,
         supabaseUserId: true,
-        sessionsValidAfter: true,
       },
     });
   });

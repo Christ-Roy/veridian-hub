@@ -198,9 +198,6 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       if (token?.uid && session.user) {
         session.user.id = token.uid as string;
       }
-      if (typeof token?.iat === 'number' && session.user) {
-        session.user.issuedAt = token.iat;
-      }
       if (typeof token?.authAt === 'number' && session.user) {
         session.user.authAt = token.authAt;
       }

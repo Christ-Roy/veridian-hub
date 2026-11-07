@@ -1,12 +1,14 @@
 /**
- * Révocation des sessions JWT du Hub. Un JWT ne se retire pas : on refuse ceux émis avant
- * `users.sessions_valid_after`, et ceux d'un compte supprimé. Fichier sans dépendance à `auth.ts`,
- * qui l'importe.
+ * Révocation des sessions JWT du Hub. Un JWT ne se retire pas : on refuse ceux dont la connexion
+ * réelle (`authAt`) précède `users.sessions_valid_after`, et ceux d'un compte supprimé. Jamais `iat` :
+ * Auth.js le réécrit à chaque lecture de session, y compris dans le middleware, qui ne lit pas la
+ * base. Un vieux cookie y gagnait un `iat` neuf et survivait à la révocation (mesuré le 07/11).
+ * Fichier sans dépendance à `auth.ts`, qui l'importe.
  */
 
 import type { PrismaClient } from '@prisma/client';
 
-type Jeton = { uid?: unknown; iat?: unknown; impersonated?: unknown };
+type Jeton = { uid?: unknown; authAt?: unknown; impersonated?: unknown };
 
 export async function isSessionRevoked(
   prisma: Pick<PrismaClient, 'user'>,
@@ -27,8 +29,9 @@ export async function isSessionRevoked(
   }
   if (!row) return true;
   if (!row.sessionsValidAfter || token.impersonated === true) return false;
-  const iat = typeof token.iat === 'number' ? token.iat : 0;
-  return iat < Math.floor(row.sessionsValidAfter.getTime() / 1000);
+  // Jeton d'avant `authAt` : sa date réelle est inconnue, il tombe dès qu'une révocation existe.
+  const authAt = typeof token.authAt === 'number' ? token.authAt : 0;
+  return authAt < Math.floor(row.sessionsValidAfter.getTime() / 1000);
 }
 
 /** Coupe toutes les sessions d'un compte, ici et dans les apps. */

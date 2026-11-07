@@ -1,5 +1,6 @@
 'use client';
 
+import { redirectIfReauthRequired } from '@/lib/auth/reauth-redirect';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -80,10 +81,7 @@ export function PricingGrid({
       });
       const data = await res.json();
 
-      if (data.error === 'recent_auth_required') {
-        window.location.href = `${data.login_url}&callbackUrl=${encodeURIComponent(window.location.pathname)}`;
-        return;
-      }
+      if (redirectIfReauthRequired(data)) return;
 
       if (!res.ok || !data.url) {
         toast.error('Erreur de checkout', {

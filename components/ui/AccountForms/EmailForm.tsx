@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import CardWrapper from '@/components/ui/card-wrapper';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
+import { redirectIfReauthRequired } from '@/lib/auth/reauth-redirect';
 import { toast } from 'sonner';
 
 /**
@@ -36,6 +37,7 @@ export default function EmailForm({
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
+        if (redirectIfReauthRequired(data)) return;
         toast.error(data.error || "Échec de la mise à jour de l'email");
         return;
       }

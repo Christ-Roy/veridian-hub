@@ -37,6 +37,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
   // 2. Détermine si on est en mode bounce (cookie signé doit exister).
   let bounceApp: string | null = null;
+  let bounceOrigin: string | null = null;
   if (mode === 'bounce') {
     const secret = process.env.AUTH_SECRET;
     const cookieStore = await cookies();
@@ -50,6 +51,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         const parsed = parseNext(next, deployEnv);
         if (parsed) {
           bounceApp = parsed.app;
+          bounceOrigin = new URL(parsed.url).origin;
         }
       }
     }
@@ -104,6 +106,15 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
               bounceApp={safeAppHint}
             />
           </Card>
+          {/* Un compte local non relié n'a pas sa place ici : le retour lui rend l'écran de son outil,
+              qui n'ouvre pas un second rebond automatique (§6bis.8.0, point 3). */}
+          {bounceOrigin && (
+            <p className="mt-4 text-center text-sm text-muted-foreground">
+              <a href={bounceOrigin} className="underline hover:text-foreground">
+                Revenir à la connexion de l&apos;outil
+              </a>
+            </p>
+          )}
         </div>
       </div>
 

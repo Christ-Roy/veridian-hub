@@ -13,28 +13,33 @@ const T = 1_800_000_000;
 
 describe('isSessionRevoked', () => {
   it('compte supprimé : révoquée', async () => {
-    expect(await isSessionRevoked(avec(null), { uid: 'u', iat: T })).toBe(true);
+    expect(await isSessionRevoked(avec(null), { uid: 'u', authAt: T })).toBe(true);
   });
   it('rien de posé : valable', async () => {
-    expect(await isSessionRevoked(avec({ sessionsValidAfter: null }), { uid: 'u', iat: T })).toBe(false);
+    expect(await isSessionRevoked(avec({ sessionsValidAfter: null }), { uid: 'u', authAt: T })).toBe(false);
   });
-  it('émise avant la révocation : révoquée ; après : valable', async () => {
+  it('connexion avant la révocation : révoquée ; après : valable', async () => {
     const r = avec({ sessionsValidAfter: new Date(T * 1000) });
-    expect(await isSessionRevoked(r, { uid: 'u', iat: T - 1 })).toBe(true);
-    expect(await isSessionRevoked(r, { uid: 'u', iat: T })).toBe(false);
+    expect(await isSessionRevoked(r, { uid: 'u', authAt: T - 1 })).toBe(true);
+    expect(await isSessionRevoked(r, { uid: 'u', authAt: T })).toBe(false);
+  });
+  it('un iat réécrit après la révocation ne sauve pas une vieille connexion', async () => {
+    const r = avec({ sessionsValidAfter: new Date(T * 1000) });
+    const relu = { uid: 'u', authAt: T - 1, iat: T + 3600 } as never;
+    expect(await isSessionRevoked(r, relu)).toBe(true);
   });
   it('jeton sans date : révoquée dès qu\'une révocation existe', async () => {
     expect(await isSessionRevoked(avec({ sessionsValidAfter: new Date(T * 1000) }), { uid: 'u' })).toBe(true);
   });
   it('impersonation : hors révocation du compte, mais pas d\'un compte supprimé', async () => {
     const r = avec({ sessionsValidAfter: new Date(T * 1000) });
-    expect(await isSessionRevoked(r, { uid: 'u', iat: T - 9, impersonated: true })).toBe(false);
-    expect(await isSessionRevoked(avec(null), { uid: 'u', iat: T, impersonated: true })).toBe(true);
+    expect(await isSessionRevoked(r, { uid: 'u', authAt: T - 9, impersonated: true })).toBe(false);
+    expect(await isSessionRevoked(avec(null), { uid: 'u', authAt: T, impersonated: true })).toBe(true);
   });
   it('base en panne : on ne déconnecte personne', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const p = { user: { findUnique: vi.fn(async () => { throw new Error('down'); }) } } as never;
-    expect(await isSessionRevoked(p, { uid: 'u', iat: T })).toBe(false);
+    expect(await isSessionRevoked(p, { uid: 'u', authAt: T })).toBe(false);
   });
 });
 

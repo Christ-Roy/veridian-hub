@@ -245,3 +245,80 @@ export async function sessionApp(ctx: BrowserContext, app: AppKey | 'hub', base?
   const j = await r?.json().catch(() => null);
   return (j?.user as { email?: string; id?: string } | undefined) ?? null;
 }
+
+/** Page réservée aux connectés, celle qu'on demande pour prouver le retour « sur la page demandée ». */
+export const PAGE_PROTEGEE: Record<AppKey, string> = {
+  prospection: '/prospects',
+  notifuse: '/console/',
+  analytics: '/',
+  twenty: '/settings/profile',
+};
+
+export type VueApp = {
+  connecte: boolean;
+  hote: string;
+  chemin: string;
+  /** Départs vers le rebond automatique : un seul attendu, jamais une rafale. */
+  rebondsAuto: number;
+};
+
+/**
+ * La session telle que l'app la relit côté serveur, depuis la page ouverte. `no-store` : Prospection
+ * met certaines réponses en cache 30 s. Twenty n'a pas encore de lecture : `undefined` = non lu.
+ */
+async function sessionLue(page: Page, app: AppKey): Promise<boolean | undefined> {
+  const lire = (chemin: string, jeton: string | null = null) =>
+    page.evaluate(
+      async ([c, j]) => {
+        const r = await fetch(c as string, {
+          cache: 'no-store',
+          headers: j ? { Authorization: `Bearer ${j}` } : {},
+        });
+        return { status: r.status, corps: await r.json().catch(() => null) };
+      },
+      [chemin, jeton],
+    );
+  if (app === 'prospection') return Boolean((await lire('/api/auth/session')).corps?.user?.email);
+  if (app === 'analytics') return Boolean((await lire('/api/auth/get-session')).corps?.user?.email);
+  if (app === 'notifuse') {
+    const jeton = await page.evaluate(() => localStorage.getItem('auth_token'));
+    if (!jeton) return false;
+    return (await lire('/api/user.me', jeton)).status === 200;
+  }
+  return undefined;
+}
+
+/**
+ * Le geste réel : ouvrir une page de l'app dans ce navigateur, sans rien saisir, et regarder où l'on
+ * finit, puis relire la session. Vaut quel que soit l'endroit où l'app la garde (cookie, localStorage).
+ * Le rebond part souvent du client après chargement : on attend que l'adresse soit stable 6 s.
+ */
+export async function voirApp(ctx: BrowserContext, app: AppKey, chemin = PAGE_PROTEGEE[app]): Promise<VueApp> {
+  const page = await ctx.newPage();
+  let rebondsAuto = 0;
+  page.on('request', (r) => {
+    if (r.isNavigationRequest() && /\/api\/auth\/bounce\/prepare\?.*auto=1/.test(r.url())) rebondsAuto += 1;
+  });
+  try {
+    await page.goto(`${APP_URL[app]}${chemin}`, { waitUntil: 'domcontentloaded', timeout: 45_000 }).catch(() => {});
+    await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
+    const fin = Date.now() + 40_000;
+    let vue = page.url();
+    let depuis = Date.now();
+    while (Date.now() < fin && Date.now() - depuis < 6_000) {
+      await page.waitForTimeout(500);
+      if (page.url() !== vue) {
+        vue = page.url();
+        depuis = Date.now();
+      }
+    }
+    const u = new URL(page.url());
+    const surApp = u.host === hoteDe(APP_URL[app]);
+    const formulaire = (await page.locator('input[type=password]').count().catch(() => 0)) > 0;
+    let connecte = surApp && !/login|signin|sign-in|welcome|session-ended|auth\//.test(u.pathname) && !formulaire;
+    if (connecte) connecte = (await sessionLue(page, app).catch(() => false)) ?? true;
+    return { connecte, hote: u.host, chemin: u.pathname, rebondsAuto };
+  } finally {
+    await page.close();
+  }
+}

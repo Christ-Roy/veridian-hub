@@ -36,7 +36,7 @@ Le classement est dans `lib/cibles.ts` (`SERVI`) : seule une image listée dans 
 | `05-synchro-identite` | nom et email changés au Hub, relus dans chaque app par `GET /api/hub/users` (§3.8) |
 | `06-reconcile` | aucune dérive nouvelle, et aucun de nos comptes cité par l'audit d'identité |
 | `07-isolation` | A ne voit rien de B ni d'un autre tenant (B = présence qui rend l'absence probante) |
-| `08-session-longue` | session Hub : app ouverte sans saisie ; sans session : connexion ; jeton expiré refusé ; cookie d'un an ; iframe refusée ; déconnexion partout et compte supprimé : plus aucun accès |
+| `08-session-longue` | par app : session Hub ouverte, absente, expirée (témoin non expiré à côté) ; cookie d'un an ; iframe ; anti-boucle ; déconnexion partout et compte supprimé, cookie rejoué compris. Twenty : `HUB_URL=https://hub.staging.veridian.site`. Épreuve : `SSO_SABOTAGE=ouverte\|absente\|expiree\|partout\|supprime` doit faire échouer le scénario |
 | `99-nettoyage` | suppression des comptes de test, vérifiée au Hub et dans reconcile |
 
 ## Comptes de test

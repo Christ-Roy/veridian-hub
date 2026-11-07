@@ -2410,7 +2410,8 @@ cookie de session sur `.veridian.site`**, ce domaine porte aussi des sites clien
 sur le Hub, et le rebond fait le reste.
 
 **Hub.** Session glissante d'un an : l'usage renouvelle, un an d'inactivité déconnecte. La révocation
-se lit en base à chaque lecture de session. Compte supprimé, « se déconnecter partout », mot de passe
+se lit en base à chaque lecture de session, sur la date de connexion réelle (`authAt`), jamais sur
+`iat`, que chaque lecture réécrit. Compte supprimé, « se déconnecter partout », mot de passe
 changé ou réinitialisé : la session tombe au passage suivant. Changer `AUTH_SECRET` coupe toutes les
 sessions, c'est le bouton d'urgence. Une connexion réelle récente est exigée pour le changement
 d'email ou de mot de passe et l'administration par session (24 h), et pour la facturation (7 jours).
@@ -2424,6 +2425,8 @@ d'email ou de mot de passe et l'administration par session (24 h), et pour la fa
    silencieuse. Le bouton « Continuer » de cette page appelle le rebond sans `auto`.
 3. **Un seul essai automatique** : poser avant de partir un cookie local de 5 minutes. S'il est déjà
    là au retour, afficher la page de connexion au lieu de repartir. Le lever à la connexion réussie.
+   Le Hub s'arrête aussi de son côté : au troisième `auto=1` sur la même app en 60 s, il renvoie sur
+   `/login?bounce_failed=1`. Le compteur est par app : ouvrir trois outils à la suite n'est pas une boucle.
 4. **Jamais** de rebond automatique dans une iframe, sur un POST, ni sur une route d'API (répondre
    401). Le Hub répond 204 sans rien émettre à une requête qui n'est pas une navigation.
 5. `POST /api/sso/issue-magic-link` reçoit `next` en option : y renvoyer après connexion **si et

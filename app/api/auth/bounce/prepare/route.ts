@@ -87,7 +87,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // Anti-boucle : un retour automatique d'app (`auto=1`) qui revient ici trop vite a échoué. Plus
   // de rebond silencieux, on montre la connexion ; l'app en fait autant de son côté (§6bis.9).
   const auto = url.searchParams.get('auto') === '1';
-  const essais = Number(req.cookies.get(AUTO_BOUNCE_COOKIE)?.value ?? 0) || 0;
+  // Compté par app : ouvrir trois outils à la suite n'est pas une boucle.
+  const [appDuCompteur, compteur] = (req.cookies.get(AUTO_BOUNCE_COOKIE)?.value ?? '').split(':');
+  const essais = appDuCompteur === parsed.app ? Number(compteur) || 0 : 0;
   if (auto && essais >= AUTO_BOUNCE_MAX) {
     const stop = new URL('/login', baseUrl);
     stop.searchParams.set('bounce_failed', '1');
@@ -118,7 +120,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   if (auto) {
     response.cookies.set({
       name: AUTO_BOUNCE_COOKIE,
-      value: String(essais + 1),
+      value: `${parsed.app}:${essais + 1}`,
       httpOnly: true,
       sameSite: 'lax',
       secure,

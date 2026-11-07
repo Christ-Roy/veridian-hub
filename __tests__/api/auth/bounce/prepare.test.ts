@@ -82,12 +82,18 @@ describe('GET /api/auth/bounce/prepare', () => {
       encodeURIComponent('https://notifuse.app.veridian.site/');
     const premier = await GET(new NextRequest(url));
     expect(premier.headers.get('location')).toContain('mode=bounce');
-    expect(premier.cookies.get('veridian-auto-bounce')?.value).toBe('1');
+    expect(premier.cookies.get('veridian-auto-bounce')?.value).toBe('notifuse:1');
     const req = new NextRequest(url);
-    req.cookies.set('veridian-auto-bounce', '2');
+    req.cookies.set('veridian-auto-bounce', 'notifuse:2');
     const stop = await GET(req);
     expect(stop.headers.get('location')).toContain('bounce_failed=1');
     expect(stop.cookies.get(NEXT_COOKIE_NAME_SECURE)).toBeUndefined();
+    // Ouvrir un autre outil juste après n'est pas une boucle.
+    const autre = new NextRequest(url.replace('notifuse.app', 'prospection.app'));
+    autre.cookies.set('veridian-auto-bounce', 'notifuse:2');
+    const suite = await GET(autre);
+    expect(suite.headers.get('location')).toContain('mode=bounce');
+    expect(suite.cookies.get('veridian-auto-bounce')?.value).toBe('prospection:1');
   });
 
 

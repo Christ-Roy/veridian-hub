@@ -364,6 +364,13 @@ export const billingStatePollLimiter = new RateLimiter({
   name: 'billing-state-poll',
 });
 
+// Rate-limit sur POST /api/account/sessions/revoke-all : chaque appel pousse vers toutes les apps.
+export const sessionsRevokeAllLimiter = new RateLimiter({
+  capacity: 5,
+  windowMs: 60_000,
+  name: 'sessions-revoke-all',
+});
+
 // Rate-limit sur GET /api/users/by-email (Discovery cross-app).
 // Brief ticket "30 req/min/secret" — un secret = une app downstream. Une
 // app downstream appelle au login user → quelques req/min en steady-state,

@@ -7,8 +7,10 @@
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 
+import { auth } from '@/auth';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { isPlatformAdmin } from '@/lib/admin/check-admin';
+import { isAuthRecent, PREUVE_COMPTE_S } from '@/lib/auth/recent-auth';
 
 export default async function AdminHubLayout({ children }: { children: React.ReactNode }) {
   const user = await getCurrentUser();
@@ -19,6 +21,11 @@ export default async function AdminHubLayout({ children }: { children: React.Rea
   if (!isPlatformAdmin(user)) {
     // Use notFound semantics so non-admins don't discover the admin area
     redirect('/dashboard');
+  }
+  // Les routes admin exigent une connexion réelle récente : le dire ici, pas page par page.
+  const session = await auth();
+  if (!isAuthRecent(session?.user?.authAt, PREUVE_COMPTE_S)) {
+    redirect(`/login?reauth=1&callbackUrl=${encodeURIComponent('/dashboard/admin')}`);
   }
 
   return (
