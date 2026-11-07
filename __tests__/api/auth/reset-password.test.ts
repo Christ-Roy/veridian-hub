@@ -65,6 +65,8 @@ vi.mock('@/lib/prisma', () => ({
         accountUpdates.push(args);
         return { id: args.where.id };
       }),
+      // D1 : retrait des liaisons OAuth posées avant la preuve par le reset.
+      deleteMany: vi.fn(async () => ({ count: 0 })),
     },
   },
 }));

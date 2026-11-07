@@ -106,6 +106,44 @@ describe('applyProviderEmailProof', () => {
   });
 });
 
+describe('D1 : liaisons OAuth posées avant la preuve', () => {
+  it('preuve OAuth : garde la ligne du fournisseur qui prouve, retire les autres liaisons non prouvées et pose sessionsValidAfter', async () => {
+    const p = fakePrisma({ emailVerified: null }, 0);
+    p.account.deleteMany.mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 1 });
+    await applyProviderEmailProof(p as never, 'u1', 'google');
+    expect(p.account.deleteMany).toHaveBeenCalledWith({
+      where: { userId: 'u1', provider: { notIn: ['credentials', 'google'] } },
+    });
+    const data = (p.user.update.mock.calls[0] as never as [{ data: Record<string, unknown> }])[0].data;
+    expect(data.sessionsValidAfter).toBeInstanceOf(Date);
+  });
+
+  it('preuve par lien mail, adresse non prouvée : retire les liaisons OAuth posées avant et pose sessionsValidAfter', async () => {
+    const p = fakePrisma({ emailVerified: null }, 0);
+    p.account.deleteMany.mockResolvedValueOnce({ count: 1 });
+    const send = vi.fn(async () => undefined);
+    await issueEmailProof(p as never, { id: 'u1', email: EMAIL }, send as never);
+    const clair = decodeURIComponent(/token=([^"&]+)/.exec((send.mock.calls[0] as never as [{ html: string }])[0].html)![1]);
+    expect(await consumeEmailProof(p as never, clair, 'u1')).toBe('proved');
+    expect(p.account.deleteMany).toHaveBeenCalledWith({
+      where: { userId: 'u1', provider: { notIn: ['credentials'] } },
+    });
+    const data = (p.user.update.mock.calls.at(-1) as never as [{ data: Record<string, unknown> }])[0].data;
+    expect(data.sessionsValidAfter).toBeInstanceOf(Date);
+  });
+
+  it('preuve par lien mail sur une adresse DÉJÀ prouvée : aucune liaison OAuth retirée', async () => {
+    const p = fakePrisma({ emailVerified: new Date() }, 0);
+    const send = vi.fn(async () => undefined);
+    await issueEmailProof(p as never, { id: 'u1', email: EMAIL }, send as never);
+    const clair = decodeURIComponent(/token=([^"&]+)/.exec((send.mock.calls[0] as never as [{ html: string }])[0].html)![1]);
+    expect(await consumeEmailProof(p as never, clair, 'u1')).toBe('proved');
+    expect(p.account.deleteMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ provider: { notIn: ['credentials'] } }) }),
+    );
+  });
+});
+
 describe('lien de preuve par mail', () => {
   const user = { id: 'u1', email: EMAIL };
   let send: ReturnType<typeof vi.fn>;

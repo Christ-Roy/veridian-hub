@@ -34,6 +34,8 @@ import { renderEmailProofEmail } from '@/lib/email/templates/email-proof';
 import { prisma as defaultPrisma } from '@/lib/prisma';
 import { getURL } from '@/utils/helpers';
 
+import { retirerLiensNonProuves } from '@/lib/auth/email-proof-provider';
+
 export { applyProviderEmailProof, providerProvesEmail } from '@/lib/auth/email-proof-provider';
 
 export const EMAIL_PROOF_IDENTIFIER_PREFIX = 'email-proof:';
@@ -41,7 +43,7 @@ export const EMAIL_PROOF_TTL_HOURS = 48;
 /** Un seul mail par compte sur cette fenêtre : pas de bombardement d'une boîte. */
 const RESEND_COOLDOWN_MS = 10 * 60 * 1000;
 
-type ProofPrisma = Pick<PrismaClient, 'user' | 'verificationToken'>;
+type ProofPrisma = Pick<PrismaClient, 'user' | 'verificationToken' | 'account'>;
 
 function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
@@ -120,15 +122,22 @@ export async function consumeEmailProof(
   // Jeton d'une adresse que le compte n'a plus : périmé, même s'il est encore en base.
   const current = await prisma.user.findUnique({
     where: { id: sessionUserId },
-    select: { email: true },
+    select: { email: true, emailVerified: true },
   });
   if (!current?.email || row.identifier !== proofIdentifier(sessionUserId, current.email)) {
     return 'invalid';
   }
   await prisma.verificationToken.deleteMany({ where: { identifier: row.identifier } });
+  // Preuve venue d'ailleurs sur un compte non prouvé : les liaisons OAuth posées avant sont
+  // retirées, et les sessions d'avant aussi (D1).
+  const now = new Date();
+  let retires = 0;
+  if (!current.emailVerified) {
+    retires = await retirerLiensNonProuves(prisma, sessionUserId);
+  }
   await prisma.user.update({
     where: { id: sessionUserId },
-    data: { emailVerified: new Date() },
+    data: { emailVerified: now, ...(retires > 0 ? { sessionsValidAfter: now } : {}) },
   });
   return 'proved';
 }

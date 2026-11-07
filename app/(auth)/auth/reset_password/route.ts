@@ -19,6 +19,7 @@
 // quota transactionnel Brevo. Trois limiters, cf. commentaires ci-dessous.
 
 import { revokeAllSessions } from '@/lib/auth/session-revocation';
+import { retirerLiensNonProuves } from '@/lib/auth/email-proof-provider';
 import { NextRequest, NextResponse } from 'next/server';
 import { randomBytes } from 'crypto';
 import bcrypt from 'bcryptjs';
@@ -228,8 +229,10 @@ async function handleConsume(data: { token: string; password: string }): Promise
 
   // Le lien de reset est parti à cette adresse : c'est une preuve. Le mot de passe vient d'être
   // remplacé, donc toutes les sessions ouvertes tombent, ici et dans les apps.
+  // D1 : une adresse prouvée ici retire les liaisons OAuth posées avant la preuve.
   if (!user.emailVerified) {
     await prisma.user.update({ where: { id: user.id }, data: { emailVerified: new Date() } });
+    await retirerLiensNonProuves(prisma, user.id);
   }
   await revokeAllSessions(prisma, user);
 

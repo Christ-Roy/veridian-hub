@@ -228,8 +228,9 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
     async signIn({ user, account, profile, isNewUser }) {
       // Premier login OAuth : le user vient d'être créé par l'adapter, avec
       // `emailVerified` à null. Le callback `signIn` ne l'a pas encore vu.
+      // Le fournisseur courant garde sa propre ligne `account` : elle vient d'être créée.
       if (isNewUser && user?.id && providerProvesEmail(account, profile, user.email)) {
-        await applyProviderEmailProof(prisma, user.id);
+        await applyProviderEmailProof(prisma, user.id, account?.provider);
       }
       const providerId = account?.provider;
       if (providerId && OAUTH_PROVIDER_IDS.has(providerId)) {

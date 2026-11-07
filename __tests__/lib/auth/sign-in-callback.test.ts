@@ -11,18 +11,24 @@ import { createSignInCallback } from '@/lib/auth/sign-in-callback';
 function makeDeps(opts: {
   user?: { id: string; email: string; mfaEnabled: boolean } | null;
   issueMfaThrows?: boolean;
+  /** Ligne `account` déjà liée (provider, providerAccountId) : vaut pour un user existant. */
+  linkedAccount?: { userId: string } | null;
 } = {}) {
   const findUnique = vi.fn(async () => opts.user ?? null);
+  const accountFindUnique = vi.fn(async () => opts.linkedAccount ?? null);
+  const applyProviderEmailProof = vi.fn(async () => undefined);
   const issueAndSendMfaCode = vi.fn(async () => {
     if (opts.issueMfaThrows) throw new Error('SMTP down');
     return { ok: true };
   });
   const logger = { error: vi.fn() };
   return {
-    prisma: { user: { findUnique } } as never,
+    prisma: { user: { findUnique }, account: { findUnique: accountFindUnique } } as never,
     issueAndSendMfaCode,
+    applyProviderEmailProof,
     logger,
     _findUnique: findUnique,
+    _accountFindUnique: accountFindUnique,
   };
 }
 
@@ -53,41 +59,88 @@ describe('createSignInCallback — scénarios OAuth', () => {
     expect(await cb({ user: { email: 'new.user@outlook.com' } })).toBe(true);
   });
 
-  it('Scénario C — user existant (Credentials) tente login Google sans MFA : autorise (link auto via flag provider)', async () => {
+  it('Scénario C — user existant, Google avec email_verified=false, pas de ligne account : REFUSE (D1)', async () => {
     const deps = makeDeps({
       user: { id: 'u1', email: 'existing@gmail.com', mfaEnabled: false },
     });
     const cb = createSignInCallback(deps);
-    const r = await cb({ user: { email: 'existing@gmail.com' } });
-    // Le link account_provider ↔ user existant est géré par le PrismaAdapter
-    // grâce à `allowDangerousEmailAccountLinking: true` côté Google provider.
-    // Le callback signIn n'a juste pas à bloquer.
-    expect(r).toBe(true);
+    const r = await cb({
+      user: { email: 'existing@gmail.com' },
+      account: { provider: 'google', providerAccountId: 'g-1' },
+      profile: { email: 'existing@gmail.com', email_verified: false },
+    });
+    expect(r).toBe('/auth/liaison-refusee');
+    expect(deps.applyProviderEmailProof).not.toHaveBeenCalled();
     expect(deps.issueAndSendMfaCode).not.toHaveBeenCalled();
   });
 
-  it('Scénario D — user existant tente login Microsoft sans MFA : idem C', async () => {
+  it('Scénario D — user existant, Entra sans xms_edov (compte perso ou nOAuth), pas de ligne account : REFUSE (D1)', async () => {
     const deps = makeDeps({
       user: { id: 'u2', email: 'existing@outlook.com', mfaEnabled: false },
     });
     const cb = createSignInCallback(deps);
-    expect(await cb({ user: { email: 'existing@outlook.com' } })).toBe(true);
+    const r = await cb({
+      user: { email: 'existing@outlook.com' },
+      account: { provider: 'microsoft-entra-id', providerAccountId: 'ms-1' },
+      profile: { email: 'existing@outlook.com' },
+    });
+    expect(r).toBe('/auth/liaison-refusee');
+    expect(deps.applyProviderEmailProof).not.toHaveBeenCalled();
   });
 
-  it('Scénario E — user déjà linké Google → re-login Google : autorise (idempotent)', async () => {
+  it('D1 — Entra avec xms_edov : adresse prouvée, liaison autorisée et preuve appliquée avec le fournisseur', async () => {
+    const deps = makeDeps({
+      user: { id: 'u2', email: 'existing@corp.fr', mfaEnabled: false },
+    });
+    const cb = createSignInCallback(deps);
+    const r = await cb({
+      user: { email: 'existing@corp.fr' },
+      account: { provider: 'microsoft-entra-id', providerAccountId: 'ms-2' },
+      profile: { email: 'existing@corp.fr', xms_edov: true },
+    });
+    expect(r).toBe(true);
+    expect(deps.applyProviderEmailProof).toHaveBeenCalledWith(expect.anything(), 'u2', 'microsoft-entra-id');
+  });
+
+  it('Scénario E — user déjà lié (ligne account), re-login sans preuve cette fois : autorise (D1)', async () => {
     const deps = makeDeps({
       user: { id: 'u1', email: 'already-linked@gmail.com', mfaEnabled: false },
+      linkedAccount: { userId: 'u1' },
     });
     const cb = createSignInCallback(deps);
-    expect(await cb({ user: { email: 'already-linked@gmail.com' } })).toBe(true);
+    const r = await cb({
+      user: { email: 'already-linked@gmail.com' },
+      account: { provider: 'google', providerAccountId: 'g-2' },
+      profile: { email: 'already-linked@gmail.com', email_verified: false },
+    });
+    expect(r).toBe(true);
+    expect(deps.applyProviderEmailProof).not.toHaveBeenCalled();
+    expect(deps._accountFindUnique).toHaveBeenCalledWith({
+      where: { provider_providerAccountId: { provider: 'google', providerAccountId: 'g-2' } },
+      select: { userId: true },
+    });
   });
 
-  it('Scénario F — user linké Google tente Microsoft (même email, MFA off) : autorise (PrismaAdapter ajoute row accounts)', async () => {
+  it('Scénario F — ligne account liée à un AUTRE user, même email : REFUSE (D1)', async () => {
     const deps = makeDeps({
       user: { id: 'u1', email: 'dual@gmail.com', mfaEnabled: false },
+      linkedAccount: { userId: 'autre-user' },
     });
     const cb = createSignInCallback(deps);
-    expect(await cb({ user: { email: 'dual@gmail.com' } })).toBe(true);
+    const r = await cb({
+      user: { email: 'dual@gmail.com' },
+      account: { provider: 'google', providerAccountId: 'g-3' },
+      profile: { email: 'dual@gmail.com', email_verified: false },
+    });
+    expect(r).toBe('/auth/liaison-refusee');
+  });
+
+  it('credentials : pas de garde OAuth, le mot de passe passe par authorize', async () => {
+    const deps = makeDeps({
+      user: { id: 'u1', email: 'cred@x.fr', mfaEnabled: false },
+    });
+    const cb = createSignInCallback(deps);
+    expect(await cb({ user: { email: 'cred@x.fr' }, account: { provider: 'credentials' } })).toBe(true);
   });
 });
 
