@@ -15,7 +15,9 @@ import { RUN_DIR } from './versions';
 
 export const ID_RUN =
   process.env.SSO_RUN_ID || `${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
-const REGISTRE = path.join(RUN_DIR, 'comptes.jsonl');
+// Un registre par Hub : un passage staging ne doit pas oublier, ni chercher, les comptes de la prod.
+const SUFFIXE_HUB = /staging/.test(HUB_URL) ? '-staging' : '';
+const REGISTRE = path.join(RUN_DIR, `comptes${SUFFIXE_HUB}.jsonl`);
 
 export type Compte = {
   etiquette: string;
@@ -53,7 +55,7 @@ function retirerDe(fichier: string, email: string) {
 export const oublierCompte = (email: string) => retirerDe(REGISTRE, email);
 
 /** Les comptes Rybbit ont leur registre : `monde` repart à zéro à chaque lancement, pas eux. */
-const REGISTRE_RYBBIT = path.join(RUN_DIR, 'comptes-rybbit.jsonl');
+const REGISTRE_RYBBIT = path.join(RUN_DIR, `comptes-rybbit${SUFFIXE_HUB}.jsonl`);
 
 export function noterRybbit(email: string) {
   mkdirSync(RUN_DIR, { recursive: true });
@@ -69,7 +71,7 @@ export function comptesRybbitNotes(): string[] {
 }
 
 /** Espaces Twenty de test : retirés au nettoyage, le `deleted` du Hub les laisserait. */
-const REGISTRE_TWENTY = path.join(RUN_DIR, 'espaces-twenty.jsonl');
+const REGISTRE_TWENTY = path.join(RUN_DIR, `espaces-twenty${SUFFIXE_HUB}.jsonl`);
 
 export function noterEspaceTwenty(email: string, tenantId: string) {
   mkdirSync(RUN_DIR, { recursive: true });
@@ -87,6 +89,26 @@ export function espacesTwenty(email: string): string[] {
 }
 
 export const oublierEspacesTwenty = (email: string) => retirerDe(REGISTRE_TWENTY, email);
+
+/** Workspaces Notifuse : notés à la création, un compte supprimé en cours de scénario ne les perd pas. */
+const REGISTRE_WORKSPACES = path.join(RUN_DIR, `workspaces-notifuse${SUFFIXE_HUB}.jsonl`);
+
+export function noterWorkspace(email: string, id: string) {
+  mkdirSync(RUN_DIR, { recursive: true });
+  appendFileSync(REGISTRE_WORKSPACES, JSON.stringify({ email, id }) + '\n');
+}
+
+export function workspacesNotes(email: string): string[] {
+  if (!existsSync(REGISTRE_WORKSPACES)) return [];
+  return readFileSync(REGISTRE_WORKSPACES, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => JSON.parse(l) as { email: string; id: string })
+    .filter((l) => l.email === email)
+    .map((l) => l.id);
+}
+
+export const oublierWorkspaces = (email: string) => retirerDe(REGISTRE_WORKSPACES, email);
 
 export const oublierRybbit = (email: string) => retirerDe(REGISTRE_RYBBIT, email);
 
@@ -150,6 +172,9 @@ export async function creerCompteProuve(browser: Browser, etiquette: string): Pr
       await new Promise((r) => setTimeout(r, 1500));
     }
     if (!surStaging && !u?.tenants?.[0]) throw new NonAbouti(`compte de test ${etiquette} : tenant non provisionné après 60 s`);
+    for (const t of (u?.tenants ?? []) as { notifuseWorkspaceSlug?: string }[]) {
+      if (t.notifuseWorkspaceSlug) noterWorkspace(email, t.notifuseWorkspaceSlug);
+    }
     if (!u.user?.email_verified) {
       throw new NonAbouti(`compte de test ${etiquette} : adresse toujours non prouvée après l'invitation`);
     }
