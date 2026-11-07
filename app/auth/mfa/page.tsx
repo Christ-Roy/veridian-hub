@@ -1,5 +1,7 @@
-// Page /auth/mfa — saisie du code 2FA envoyé par mail.
-// Arrivée ici via redirect depuis le signIn callback Auth.js quand mfaEnabled.
+// Page /auth/mfa — saisie du code 2FA envoyé par mail (D3).
+// Arrivée ici depuis le formulaire de connexion, après le mot de passe (`/api/auth/mfa/start`).
+// L'état tient dans le cookie signé d'étape 1 : pas d'identifiant dans l'URL. `next` rend la
+// page d'arrivée prévue, validée côté serveur comme côté ici.
 
 'use client';
 
@@ -8,12 +10,13 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import Logo from '@/components/icons/Logo';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { safeCallback } from '@/lib/auth/safe-callback';
 import { Input } from '@/components/ui/input';
 
 function MfaContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const userId = searchParams.get('uid') ?? '';
+  const suite = safeCallback(searchParams.get('next'));
 
   const [code, setCode] = useState('');
   const [status, setStatus] = useState<'idle' | 'submitting' | 'error' | 'success'>('idle');
@@ -38,23 +41,27 @@ function MfaContent() {
       const res = await fetch('/api/auth/mfa/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, code }),
+        body: JSON.stringify({ code, next: suite }),
       });
+      const payload = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        const payload = await res.json().catch(() => ({}));
         setStatus('error');
         setErrorMsg(
           payload?.error === 'invalid_code'
             ? 'Code incorrect ou expiré. Réessaye ou demande un nouveau code.'
-            : 'Une erreur est survenue. Réessaye.'
+            : payload?.error === 'too_many_attempts'
+              ? 'Trop d’essais. Reconnecte-toi dans quelques minutes.'
+              : payload?.error === 'mfa_step1_required'
+                ? 'Ta connexion a expiré. Reconnecte-toi.'
+                : 'Une erreur est survenue. Réessaye.'
         );
         return;
       }
 
       setStatus('success');
-      // Petit délai pour feedback visuel
-      setTimeout(() => router.push('/dashboard'), 500);
+      // La session est posée par la réponse : on rejoint la page demandée.
+      setTimeout(() => router.push(typeof payload?.redirect === 'string' ? payload.redirect : '/dashboard'), 500);
     } catch (err) {
       console.error(err);
       setStatus('error');
@@ -69,7 +76,7 @@ function MfaContent() {
       const res = await fetch('/api/auth/mfa/resend', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId }),
+        body: JSON.stringify({}),
       });
       if (res.status === 429) {
         setResendStatus('rate_limited');
@@ -80,20 +87,6 @@ function MfaContent() {
     } catch {
       setResendStatus('rate_limited');
     }
-  }
-
-  if (!userId) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-6 bg-background">
-        <Card className="w-full max-w-sm p-6 text-center space-y-3">
-          <h1 className="text-lg font-semibold">Session expirée</h1>
-          <p className="text-sm text-muted-foreground">
-            Impossible de valider ton code. Retourne à la page de connexion.
-          </p>
-          <Button onClick={() => router.push('/login')}>Retour connexion</Button>
-        </Card>
-      </div>
-    );
   }
 
   return (

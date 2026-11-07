@@ -11,6 +11,7 @@ const signInMock = vi.fn();
 const routerPushMock = vi.fn();
 const routerRefreshMock = vi.fn();
 let search = '';
+let fetchMock = vi.fn();
 
 vi.mock('next-auth/react', () => ({
   signIn: (...args: unknown[]) => signInMock(...args),
@@ -48,6 +49,8 @@ describe('LoginForm — callbackUrl validé (D8)', () => {
     routerPushMock.mockReset();
     routerRefreshMock.mockReset();
     search = '';
+    fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: true, mfa: false }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
   });
 
   it.each([
@@ -91,5 +94,30 @@ describe('LoginForm — callbackUrl validé (D8)', () => {
     fireEvent.submit(form);
     expect(await findByText(/Connexion impossible/)).toBeTruthy();
     expect(queryByText(/mot de passe invalide/)).toBeNull();
+  });
+
+  // D3 : compte à double vérification → /auth/mfa avec la suite demandée, sans session ici.
+  it('D3 : double vérification → /auth/mfa?next=… et aucun signIn', async () => {
+    search = `callbackUrl=${encodeURIComponent('/dashboard/settings')}`;
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, mfa: true }), { status: 200 }));
+    const { container, findByText: _ } = render(<LoginForm />);
+    const form = container.querySelector('form')!;
+    (form.querySelector('input[name="email"]') as HTMLInputElement).value = 'mfa@b.fr';
+    (form.querySelector('input[name="password"]') as HTMLInputElement).value = 'motdepasse';
+    fireEvent.submit(form);
+    await waitFor(() => expect(routerPushMock).toHaveBeenCalled());
+    expect(routerPushMock.mock.calls[0][0]).toBe(`/auth/mfa?next=${encodeURIComponent('/dashboard/settings')}`);
+    expect(signInMock).not.toHaveBeenCalled();
+  });
+
+  it('D3 : mauvais mot de passe au /start → message, pas de signIn', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ok: false }), { status: 401 }));
+    const { container, findByText } = render(<LoginForm />);
+    const form = container.querySelector('form')!;
+    (form.querySelector('input[name="email"]') as HTMLInputElement).value = 'a@b.fr';
+    (form.querySelector('input[name="password"]') as HTMLInputElement).value = 'faux';
+    fireEvent.submit(form);
+    expect(await findByText(/Email ou mot de passe invalide/)).toBeTruthy();
+    expect(signInMock).not.toHaveBeenCalled();
   });
 });

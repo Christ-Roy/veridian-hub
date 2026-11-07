@@ -1,32 +1,32 @@
-// POST /api/auth/mfa/resend — demande un nouveau code 2FA.
-// Body : { userId: string }
-// Rate-limité via la lib (max 5 codes / heure / user).
+// POST /api/auth/mfa/resend : renvoie le code 2FA (D3).
+//
+// Ne prend plus d'identifiant dans le corps : l'utilisateur vient du cookie signé d'étape 1
+// (posé après le mot de passe). Sans lui, n'importe qui pouvait faire envoyer des codes à une
+// adresse dont il ne connaît pas le mot de passe. Limite : 5 codes par heure (lib/mfa).
 
 import { NextResponse } from 'next/server';
-import { z } from 'zod';
 
 import { prisma } from '@/lib/prisma';
 import { issueAndSendMfaCode, MfaRateLimitError } from '@/lib/mfa';
+import { lireEtapeUn, verifierEtapeUn } from '@/lib/auth/mfa-step1';
 
-const bodySchema = z.object({
-  userId: z.string().min(1),
-});
+export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
-  const json = await request.json().catch(() => null);
-  const parsed = bodySchema.safeParse(json);
-
-  if (!parsed.success) {
-    return NextResponse.json({ ok: false, error: 'invalid_payload' }, { status: 400 });
+  const secret = process.env.AUTH_SECRET;
+  if (!secret) {
+    return NextResponse.json({ ok: false, error: 'misconfigured' }, { status: 500 });
+  }
+  const uid = verifierEtapeUn(lireEtapeUn(request.headers.get('cookie')), secret, Math.floor(Date.now() / 1000));
+  if (!uid) {
+    return NextResponse.json({ ok: false, error: 'mfa_step1_required' }, { status: 401 });
   }
 
   const user = await prisma.user.findUnique({
-    where: { id: parsed.data.userId },
+    where: { id: uid },
     select: { id: true, email: true, mfaEnabled: true },
   });
-
   if (!user || !user.mfaEnabled) {
-    // Ne pas divulguer si l'user existe
     return NextResponse.json({ ok: true });
   }
 

@@ -106,6 +106,10 @@ export function createSignInCallback({
     }
 
     if (dbUser.mfaEnabled) {
+      // D3 : le mot de passe d'un compte à double vérification passe par `/api/auth/mfa/start`,
+      // qui pose le cookie d'étape 1. Un signIn credentials direct n'a pas ce cookie : il ne doit
+      // ni envoyer de code, ni laisser croire qu'une session va naître.
+      if (provider === 'credentials') return false;
       try {
         await issueAndSendMfaCode({ id: dbUser.id, email: dbUser.email });
       } catch (err) {

@@ -199,4 +199,12 @@ describe('createSignInCallback — contrat Auth.js v5', () => {
       expect(typeof r, `case ${JSON.stringify(c.user)}`).toBe(c.expectedType);
     }
   });
+
+  // D3 : un signIn credentials direct vers un compte MFA ne crée rien et n'envoie aucun code.
+  it('D3 : credentials + MFA : refusé, aucun code envoyé', async () => {
+    const deps = makeDeps({ user: { id: 'u3', email: 'mfa@x.fr', mfaEnabled: true } });
+    const cb = createSignInCallback(deps);
+    expect(await cb({ user: { email: 'mfa@x.fr' }, account: { provider: 'credentials' } })).toBe(false);
+    expect(deps.issueAndSendMfaCode).not.toHaveBeenCalled();
+  });
 });

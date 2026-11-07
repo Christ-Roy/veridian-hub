@@ -62,6 +62,30 @@ export function LoginForm({
     // D10 : Hub coupé, cookie tiers bloqué ou erreur de configuration ne doivent ni laisser le
     // bouton bloqué, ni afficher un faux « mot de passe invalide ».
     try {
+      // D3 : d'abord le mot de passe, côté serveur. Un compte à double vérification reçoit le code
+      // et part sur /auth/mfa, avec la suite demandée ; il n'obtient aucune session ici.
+      const pre = await fetch('/api/auth/mfa/start', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ email, password }),
+      });
+      if (pre.status === 401) {
+        setError('Email ou mot de passe invalide.');
+        setIsSubmitting(false);
+        return;
+      }
+      if (!pre.ok) {
+        setError('Connexion impossible pour le moment. Réessayez dans un instant.');
+        setIsSubmitting(false);
+        return;
+      }
+      const etape = (await pre.json()) as { mfa?: boolean };
+      if (etape.mfa) {
+        router.push(`/auth/mfa?next=${encodeURIComponent(callbackUrl)}`);
+        return;
+      }
+
       const res = await signIn('credentials', {
         email,
         password,
