@@ -22,6 +22,7 @@
 // décode `session.metadata.kind === 'refill_leads'` pour dispatcher le crédit
 // vers `POST <prospection>/api/tenants/{id}/credit-leads`.
 
+import { denyUnlessRecentAuth, PREUVE_FACTURATION_S } from '@/lib/auth/recent-auth';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
@@ -72,6 +73,10 @@ const bodySchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  // D12 : une session ancienne ne lance pas un paiement (preuve facturation : 7 jours).
+  const preuveRecente = await denyUnlessRecentAuth(PREUVE_FACTURATION_S);
+  if (preuveRecente) return preuveRecente;
+
   // ─── Rate-limit (anti-spam Checkout creation) ───
   // `enforceWithBypass` accepte le header `x-veridian-e2e-bypass-ratelimit`
   // hors prod (DEPLOY_ENV !== 'prod') — la suite MEGA E2E enchaîne 6+ refill

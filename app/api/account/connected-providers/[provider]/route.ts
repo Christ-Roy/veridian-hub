@@ -1,3 +1,4 @@
+import { denyUnlessRecentAuth, PREUVE_COMPTE_S } from '@/lib/auth/recent-auth';
 /**
  * DELETE /api/account/connected-providers/[provider]
  *
@@ -39,6 +40,9 @@ export async function DELETE(
     if (resp instanceof Response) return resp;
     throw resp;
   }
+  // D12 : détacher un fournisseur de connexion exige une connexion récente.
+  const preuveRecente = await denyUnlessRecentAuth(PREUVE_COMPTE_S);
+  if (preuveRecente) return preuveRecente;
 
   const { provider } = await ctx.params;
 

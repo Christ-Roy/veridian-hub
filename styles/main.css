@@ -185,8 +185,9 @@
     --accent-foreground: oklch(0.95 0.008 285);   /* Accent text - clair */
 
     /* Destructive colors */
-    --destructive: oklch(0.3123 0.0852 29.7877);  /* Destructive - Dark red */
-    --destructive-foreground: oklch(0.9368 0.0045 34.3092); /* Destructive text - White */
+    /* Rouge CLAIR en sombre : texte d'erreur (>= 4,5:1) et fond de bouton, d'où le texte foncé dessus. */
+    --destructive: oklch(0.80 0.14 25);           /* Destructive - rouge clair */
+    --destructive-foreground: oklch(0.17 0.012 285); /* Texte sur destructive - bleu-nuit */
 
     /* Semantic status colors (success / warning / info) - dark mode variants */
     --success: oklch(0.6959 0.1491 162.4796);     /* Success - Teal/green */

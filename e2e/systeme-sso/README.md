@@ -10,6 +10,14 @@ pnpm test:systeme          # ou : bash scripts/test-systeme-sso.sh [filtre, ex. 
 Sortie : `0` tout passe · `1` au moins un ÉCHOUE · `2` au moins un NON ABOUTI.
 Résultat lisible dans `e2e/systeme-sso/.run/resultat.txt` et `.json`.
 
+## Où elle se place
+
+Trois niveaux, du plus rapide au plus réel : la **garde** (`__tests__/contrat/`, à chaque push, sans réseau), la
+**sonde** de prod (étape « Sonde identité » de `hub-ci.yml`, lectures seules, après chaque déploiement), et cette
+**batterie** (vrai navigateur, comptes créés puis retirés, à la main depuis le bastion). Chaque parcours, avec son niveau
+de preuve : `docs/PARCOURS-IDENTITE.md`. Si une correction touche la session, la révocation ou le rebond, rejouer la
+batterie et chaque `SSO_SABOTAGE=<scénario>` concerné (il doit échouer).
+
 ## Les états
 
 | État | Sens |

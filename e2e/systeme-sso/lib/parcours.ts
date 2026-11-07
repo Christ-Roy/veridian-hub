@@ -15,7 +15,9 @@ import { RUN_DIR } from './versions';
 
 export const ID_RUN =
   process.env.SSO_RUN_ID || `${Date.now().toString(36)}${randomBytes(2).toString('hex')}`;
-const REGISTRE = path.join(RUN_DIR, 'comptes.jsonl');
+// Un registre par Hub : un passage staging ne doit pas oublier, ni chercher, les comptes de la prod.
+const SUFFIXE_HUB = /staging/.test(HUB_URL) ? '-staging' : '';
+const REGISTRE = path.join(RUN_DIR, `comptes${SUFFIXE_HUB}.jsonl`);
 
 export type Compte = {
   etiquette: string;
@@ -53,7 +55,7 @@ function retirerDe(fichier: string, email: string) {
 export const oublierCompte = (email: string) => retirerDe(REGISTRE, email);
 
 /** Les comptes Rybbit ont leur registre : `monde` repart à zéro à chaque lancement, pas eux. */
-const REGISTRE_RYBBIT = path.join(RUN_DIR, 'comptes-rybbit.jsonl');
+const REGISTRE_RYBBIT = path.join(RUN_DIR, `comptes-rybbit${SUFFIXE_HUB}.jsonl`);
 
 export function noterRybbit(email: string) {
   mkdirSync(RUN_DIR, { recursive: true });
@@ -67,6 +69,46 @@ export function comptesRybbitNotes(): string[] {
     .filter(Boolean)
     .map((l) => JSON.parse(l).email as string);
 }
+
+/** Espaces Twenty de test : retirés au nettoyage, le `deleted` du Hub les laisserait. */
+const REGISTRE_TWENTY = path.join(RUN_DIR, `espaces-twenty${SUFFIXE_HUB}.jsonl`);
+
+export function noterEspaceTwenty(email: string, tenantId: string) {
+  mkdirSync(RUN_DIR, { recursive: true });
+  appendFileSync(REGISTRE_TWENTY, JSON.stringify({ email, tenantId }) + '\n');
+}
+
+export function espacesTwenty(email: string): string[] {
+  if (!existsSync(REGISTRE_TWENTY)) return [];
+  return readFileSync(REGISTRE_TWENTY, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => JSON.parse(l) as { email: string; tenantId: string })
+    .filter((l) => l.email === email)
+    .map((l) => l.tenantId);
+}
+
+export const oublierEspacesTwenty = (email: string) => retirerDe(REGISTRE_TWENTY, email);
+
+/** Workspaces Notifuse : notés à la création, un compte supprimé en cours de scénario ne les perd pas. */
+const REGISTRE_WORKSPACES = path.join(RUN_DIR, `workspaces-notifuse${SUFFIXE_HUB}.jsonl`);
+
+export function noterWorkspace(email: string, id: string) {
+  mkdirSync(RUN_DIR, { recursive: true });
+  appendFileSync(REGISTRE_WORKSPACES, JSON.stringify({ email, id }) + '\n');
+}
+
+export function workspacesNotes(email: string): string[] {
+  if (!existsSync(REGISTRE_WORKSPACES)) return [];
+  return readFileSync(REGISTRE_WORKSPACES, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => JSON.parse(l) as { email: string; id: string })
+    .filter((l) => l.email === email)
+    .map((l) => l.id);
+}
+
+export const oublierWorkspaces = (email: string) => retirerDe(REGISTRE_WORKSPACES, email);
 
 export const oublierRybbit = (email: string) => retirerDe(REGISTRE_RYBBIT, email);
 
@@ -130,6 +172,9 @@ export async function creerCompteProuve(browser: Browser, etiquette: string): Pr
       await new Promise((r) => setTimeout(r, 1500));
     }
     if (!surStaging && !u?.tenants?.[0]) throw new NonAbouti(`compte de test ${etiquette} : tenant non provisionné après 60 s`);
+    for (const t of (u?.tenants ?? []) as { notifuseWorkspaceSlug?: string }[]) {
+      if (t.notifuseWorkspaceSlug) noterWorkspace(email, t.notifuseWorkspaceSlug);
+    }
     if (!u.user?.email_verified) {
       throw new NonAbouti(`compte de test ${etiquette} : adresse toujours non prouvée après l'invitation`);
     }
@@ -327,21 +372,25 @@ async function sessionLue(page: Page, app: AppKey): Promise<boolean | undefined>
 }
 
 /** Le clic « Se déconnecter » de chaque app, celui qui doit interdire la reconnexion silencieuse. */
-export async function seDeconnecterDeApp(ctx: BrowserContext, app: AppKey): Promise<void> {
+export async function seDeconnecterDeApp(ctx: BrowserContext, app: AppKey, hote?: string): Promise<void> {
   const page = await ctx.newPage();
   try {
     if (app === 'notifuse') {
       await page.goto(`${APP_URL.notifuse}/console/logout`, { waitUntil: 'domcontentloaded' });
     } else {
-      await page.goto(`${APP_URL[app]}${{ prospection: PAGE_PROTEGEE.prospection, analytics: '/settings/account', twenty: '/settings/profile', notifuse: '' }[app]}`, {
+      // Twenty : la session vit sur l'hôte de l'espace, pas sur le domaine nu.
+      const base = app === 'twenty' && hote ? `https://${hote}` : APP_URL[app];
+      await page.goto(`${base}${{ prospection: PAGE_PROTEGEE.prospection, analytics: '/settings/account', twenty: '/settings/profile', notifuse: '' }[app]}`, {
         waitUntil: 'domcontentloaded',
       });
       await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
       const bouton =
         app === 'prospection'
           ? page.locator('[title^="Se déconnecter"]')
-          : page.getByText(/^(Sign out|Se déconnecter|Log ?out|Déconnexion)$/i);
-      await bouton.first().click({ timeout: 20_000 });
+          : app === 'twenty'
+            ? page.locator('#nav-item-logout')
+            : page.getByText(/^(Sign out|Se déconnecter|Log ?out|Déconnexion)$/i);
+      await bouton.first().click({ timeout: app === 'twenty' ? 60_000 : 20_000 });
     }
     await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
     await page.waitForTimeout(3_000);
@@ -366,10 +415,13 @@ export async function voirApp(ctx: BrowserContext, app: AppKey, chemin = PAGE_PR
   try {
     await page.goto(`${APP_URL[app]}${chemin}`, { waitUntil: 'domcontentloaded', timeout: 45_000 }).catch(() => {});
     await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
-    const fin = Date.now() + 40_000;
+    // Twenty recharge tout son front sur chaque hôte (9 à 14 s mesurées sous charge) : `/verify` est un
+    // passage, jamais une arrivée, et une adresse stable 6 s n'y prouve rien.
+    const stable = app === 'twenty' ? 20_000 : 6_000;
+    const fin = Date.now() + 75_000;
     let vue = page.url();
     let depuis = Date.now();
-    while (Date.now() < fin && Date.now() - depuis < 6_000) {
+    while (Date.now() < fin && (Date.now() - depuis < stable || new URL(page.url()).pathname === '/verify')) {
       await page.waitForTimeout(500);
       if (page.url() !== vue) {
         vue = page.url();

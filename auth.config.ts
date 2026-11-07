@@ -36,26 +36,23 @@ export const authConfig = {
           prompt: 'select_account',
         },
       },
-      // Auto-link au user existant si l'email matche (= comportement standard
-      // marché 2026 : Discord, Stripe, Vercel, Linear, Notion, Slack, Figma,
-      // GitHub, etc.). Sûr car Google certifie `email_verified=true` dans
-      // l'id_token OIDC — on fait confiance à Google pour la vérif d'email.
-      // Sans ce flag, un user existant (créé via Credentials/magic link) qui
-      // tente le bouton "Continuer avec Google" voit `OAuthAccountNotLinked`,
-      // ce qui casse l'UX standard.
-      //
-      // Le nom "dangerous" du flag Auth.js v5 est historique et exagéré pour
-      // les providers qui vérifient l'email ; cf. doc Auth.js qui le
-      // recommande explicitement pour Google + Microsoft.
+      // Liaison à un compte existant : AUTORISÉE par Auth.js (flag ci-dessous), mais
+      // la garde est dans `lib/auth/sign-in-callback.ts` (D1). Un compte existant n'est
+      // rattaché à Google que si Google certifie `email_verified=true`, ou si la
+      // ligne `account` existe déjà. Sinon la connexion est refusée (page
+      // /auth/liaison-refusee). Sans ce flag, Auth.js refuse toute liaison, même
+      // prouvée. Le nom « dangerous » est historique : la sécurité vient de la garde.
       allowDangerousEmailAccountLinking: true,
     }),
     // Multi-tenant (issuer par défaut common/v2.0/) — accepte comptes Microsoft
     // Work/School ET personnels (Outlook, Xbox, Skype). Cf. décision D4 du ticket
     // todo/2026-05-20-oauth-signin-google-microsoft-cross-app.md.
     //
-    // Auto-link activé pour la même raison que Google : Microsoft Entra
-    // certifie `xms_edov=true` (Email Domain Owner Verified) pour les comptes
-    // dont l'email est sous un domaine vérifié côté tenant.
+    // Liaison : même garde que Google (D1). Seule preuve acceptée : `xms_edov=true`
+    // (Email Domain Owner Verified), revendication optionnelle à activer dans
+    // l'application Entra. `email` seul ne prouve rien (un tenant peut poser
+    // n'importe quelle adresse). Les comptes Microsoft personnels n'ont pas
+    // `xms_edov` : ils ne se lient donc jamais à un compte existant.
     MicrosoftEntraID({
       clientId: process.env.MICROSOFT_OAUTH_CLIENT_ID,
       clientSecret: process.env.MICROSOFT_OAUTH_CLIENT_SECRET,

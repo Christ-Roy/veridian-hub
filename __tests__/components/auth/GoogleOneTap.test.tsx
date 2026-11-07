@@ -187,10 +187,12 @@ describe('GoogleOneTap — render conditionnel', () => {
     expect(script?.defer).toBe(true);
   });
 
-  it('callback GSI → signIn("google-one-tap") avec credential + callbackUrl', () => {
+  it('D7 : callback GSI → POST JSON vers la route landing, pas de signIn masqué', async () => {
     const gsi = installFakeGsi();
     useSessionMock.mockReturnValue({ status: 'unauthenticated' });
     installExistingGsiScript();
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ ok: false, error: 'mfa_required' }), { status: 403 }));
+    vi.stubGlobal('fetch', fetchMock);
 
     render(<GoogleOneTap callbackUrl="/dashboard?welcome=1" />);
 
@@ -198,10 +200,15 @@ describe('GoogleOneTap — render conditionnel', () => {
     const cfg = gsi.initialize.mock.calls[0][0];
     cfg.callback({ credential: 'google.id.token' });
 
-    expect(signInMock).toHaveBeenCalledWith('google-one-tap', {
-      credential: 'google.id.token',
-      callbackUrl: '/dashboard?welcome=1',
-    });
+    expect(signInMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/auth/callback/google-one-tap',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ credential: 'google.id.token' }),
+      }),
+    );
+    vi.unstubAllGlobals();
   });
 
   it('callback GSI sans credential → pas de signIn', () => {

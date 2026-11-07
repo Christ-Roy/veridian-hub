@@ -125,3 +125,26 @@ describe('LoginErrorBanner (rendu)', () => {
 // La structure import-dynamique + vi.doMock + resetModules est nécessaire car
 // useSearchParams est un hook qu'on ne peut pas paramétrer après le 1er render.
 mockSearchParams;
+
+describe('messages sans code ?error= (pixel)', () => {
+  const rendre = (qs: string) => {
+    vi.resetModules();
+    vi.doMock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(qs) }));
+    return import('@/components/auth/LoginErrorBanner').then(({ LoginErrorBanner: Banner }) => render(<Banner />));
+  };
+
+  it('?bounce_failed=1 dit que le rebond n’a pas abouti', async () => {
+    await rendre('bounce_failed=1');
+    expect(screen.getByRole('alert').textContent).toMatch(/pas pu vous reconnecter/);
+  });
+
+  it('?reauth=1 explique la reconnexion demandée', async () => {
+    await rendre('reauth=1');
+    expect(screen.getByRole('alert').textContent).toMatch(/Pour votre sécurité/);
+  });
+
+  it('?error=… garde la priorité sur bounce_failed', async () => {
+    await rendre('error=AccessDenied&bounce_failed=1');
+    expect(screen.getByRole('alert').textContent).toMatch(/annulée/i);
+  });
+});

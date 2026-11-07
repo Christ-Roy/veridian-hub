@@ -20,6 +20,8 @@ import { createCreateUserEvent } from '@/lib/auth/create-user-event';
 import { buildMockOauthProvider } from '@/lib/auth/mock-oauth-provider';
 import { buildGoogleOneTapProvider } from '@/lib/auth/google-one-tap-provider';
 import { createOauthEventLogger } from '@/lib/auth/oauth-event-log';
+import { impersonationExpiree } from '@/lib/auth/impersonation';
+import { normaliserEmail } from '@/lib/auth/email-normalize';
 
 const credentialsSchema = z.object({
   email: z.string().email(),
@@ -128,7 +130,12 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
         password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials) {
-        const parsed = credentialsSchema.safeParse(credentials);
+        // D6 : même forme que la base (minuscules, sans espaces) : « Robert@X.com » se connecte.
+        const parsed = credentialsSchema.safeParse({
+          ...credentials,
+          email:
+            typeof credentials?.email === 'string' ? normaliserEmail(credentials.email) : credentials?.email,
+        });
         if (!parsed.success) {
           return null;
         }
@@ -183,6 +190,8 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
         token.authAt = Math.floor(Date.now() / 1000);
         return token;
       }
+      // Impersonation : une heure après son début réel, quoi que dise la durée re-signée (D5).
+      if (impersonationExpiree(token)) return null;
       // Session d'un an : la révocation doit se lire ici, à chaque lecture de session, sinon un
       // jeton volé ou un compte supprimé resterait valable jusqu'à son expiration.
       if (typeof token.uid === 'string' && (await isSessionRevoked(prisma, token))) {
@@ -228,8 +237,9 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
     async signIn({ user, account, profile, isNewUser }) {
       // Premier login OAuth : le user vient d'être créé par l'adapter, avec
       // `emailVerified` à null. Le callback `signIn` ne l'a pas encore vu.
+      // Le fournisseur courant garde sa propre ligne `account` : elle vient d'être créée.
       if (isNewUser && user?.id && providerProvesEmail(account, profile, user.email)) {
-        await applyProviderEmailProof(prisma, user.id);
+        await applyProviderEmailProof(prisma, user.id, account?.provider);
       }
       const providerId = account?.provider;
       if (providerId && OAUTH_PROVIDER_IDS.has(providerId)) {

@@ -8,7 +8,9 @@ import { existsSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { HUB_URL } from './cibles';
+import { createHmac } from 'node:crypto';
+
+import { APP_URL, HUB_URL } from './cibles';
 import { NonAbouti } from './etat';
 
 let secret: string | null = null;
@@ -160,4 +162,51 @@ export function rybbitCompte(action: 'creer' | 'supprimer', email: string) {
     const err = e as { status?: number; stderr?: string };
     throw new NonAbouti(`compte Rybbit ${action} ${email} : sortie ${err.status} ${String(err.stderr ?? '').slice(0, 160)}`);
   }
+}
+
+/**
+ * Espace Twenty d'un compte de test : le Hub n'en crée pas pour un compte neuf, et le rebond répond
+ * `user_not_in_app` sans lui. Appel signé §6.1, secret lu au moment du test, jamais affiché.
+ */
+function secretTwenty(): string {
+  try {
+    const txt = readFileSync(path.join(os.homedir(), 'credentials', '.all-creds.env'), 'utf8');
+    const m = txt.match(/^\s*CRM_HUB_API_SECRET_STAGING\s*=\s*(.*)$/m);
+    if (m) return m[1].trim().replace(/^['"]|['"]$/g, '');
+  } catch {
+    /* tombe sur NonAbouti ci-dessous */
+  }
+  throw new NonAbouti('CRM_HUB_API_SECRET_STAGING introuvable dans ~/credentials/.all-creds.env');
+}
+
+async function appelTwenty(methode: 'POST' | 'DELETE', chemin: string, corps?: unknown): Promise<Response> {
+  const body = corps === undefined ? '' : JSON.stringify(corps);
+  const ts = Date.now().toString();
+  const signature = createHmac('sha256', secretTwenty()).update(`${ts}.${body}`).digest('hex');
+  return fetch(`${APP_URL.twenty}${chemin}`, {
+    method: methode,
+    headers: {
+      'content-type': 'application/json',
+      'X-Veridian-Timestamp': ts,
+      'X-Veridian-Hub-Signature': signature,
+    },
+    body: body || undefined,
+    signal: AbortSignal.timeout(90_000),
+  });
+}
+
+export async function creerEspaceTwenty(tenantId: string, email: string, hubUserId: string): Promise<void> {
+  const r = await appelTwenty('POST', '/api/tenants/provision', {
+    tenant_id: tenantId,
+    owner_email: email,
+    workspace_name: 'Test',
+    plan: 'free',
+    metadata: { hub_user_id: hubUserId },
+  });
+  if (!r.ok) throw new NonAbouti(`espace Twenty non créé : HTTP ${r.status} ${(await r.text()).slice(0, 160)}`);
+}
+
+export async function retirerEspaceTwenty(tenantId: string): Promise<void> {
+  const r = await appelTwenty('DELETE', `/api/tenants/${tenantId}`);
+  if (!r.ok && r.status !== 404) throw new Error(`espace Twenty ${tenantId} non retiré : HTTP ${r.status}`);
 }

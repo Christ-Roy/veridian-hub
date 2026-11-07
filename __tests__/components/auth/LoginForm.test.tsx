@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { LoginForm } from '@/components/auth/LoginForm';
 
 const signInMock = vi.fn();
@@ -42,6 +42,8 @@ describe('LoginForm', () => {
     signInMock.mockReset();
     routerPushMock.mockReset();
     routerRefreshMock.mockReset();
+    // D3 : le formulaire demande d'abord /api/auth/mfa/start (compte sans double vérification ici).
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ ok: true, mfa: false }), { status: 200 })));
   });
 
   it('exporte un composant React nommé LoginForm', () => {
@@ -90,8 +92,8 @@ describe('LoginForm', () => {
     const submit = screen.getByRole('button', { name: /Se connecter/i });
     fireEvent.click(submit);
 
-    await Promise.resolve();
-    await Promise.resolve();
+    // D3 : le mot de passe passe d'abord par /api/auth/mfa/start (fetch) : on attend le signIn.
+    await waitFor(() => expect(signInMock).toHaveBeenCalled());
 
     expect(signInMock).toHaveBeenCalledWith('credentials', expect.objectContaining({
       email: 'alice@example.com',

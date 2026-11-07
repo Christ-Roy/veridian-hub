@@ -200,6 +200,20 @@ export type ImpersonationJwtUser = {
  *
  * @throws si `AUTH_SECRET` est absent — refus catégorique, pas de fallback.
  */
+/**
+ * Une session impersonée tombe une heure après son début réel (`authAt`), même si Auth.js
+ * re-signe le jeton à chaque lecture avec une durée d'un an (D5). Sans `authAt` : expirée
+ * (échec fermé).
+ */
+export function impersonationExpiree(
+  token: { impersonated?: unknown; authAt?: unknown },
+  nowS: number = Math.floor(Date.now() / 1000),
+): boolean {
+  if (token.impersonated !== true) return false;
+  if (typeof token.authAt !== 'number') return true;
+  return nowS - token.authAt > IMPERSONATION_SESSION_TTL_S;
+}
+
 export async function encodeImpersonationSessionJwt(params: {
   user: ImpersonationJwtUser;
   impersonatedBy: string;
@@ -221,6 +235,8 @@ export async function encodeImpersonationSessionJwt(params: {
     token: {
       uid: params.user.id,
       sub: params.user.id,
+      // Début réel de l'impersonation : la fin d'une heure se lit là (cf. impersonationExpiree).
+      authAt: Math.floor(Date.now() / 1000),
       email: params.user.email,
       name: params.user.name ?? null,
       picture: params.user.image ?? null,

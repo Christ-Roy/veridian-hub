@@ -110,7 +110,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
               qui n'ouvre pas un second rebond automatique (§6bis.8.0, point 3). */}
           {bounceOrigin && (
             <p className="mt-4 text-center text-sm text-muted-foreground">
-              <a href={bounceOrigin} className="underline hover:text-foreground">
+              <a href={bounceOrigin} className="inline-block py-3 underline hover:text-foreground">
                 Revenir à la connexion de l&apos;outil
               </a>
             </p>

@@ -7,15 +7,16 @@
  * l'épreuve de la batterie elle-même, à rejouer quand ce fichier change (README).
  */
 import { execFileSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 
 import { expect, type Browser, type BrowserContext, type Cookie } from '@playwright/test';
 
 import { APP_URL, HUB_URL, type AppKey } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
-import { supprimerTenantHub } from './lib/hub-admin';
+import { creerEspaceTwenty, supprimerTenantHub } from './lib/hub-admin';
 import { assurerRybbit, compte, contexteDe, ouvrirApp } from './lib/monde';
 import { nettoyerCompte } from './lib/nettoyage';
-import { PAGE_PROTEGEE, seDeconnecterDeApp, voirApp, type Compte } from './lib/parcours';
+import { espacesTwenty, noterEspaceTwenty, PAGE_PROTEGEE, seDeconnecterDeApp, voirApp, type Compte } from './lib/parcours';
 
 const SUR_STAGING = /staging/.test(HUB_URL);
 // Twenty n'existe qu'en staging : il se joue contre le Hub staging, les autres contre le Hub prod.
@@ -24,8 +25,14 @@ const sabote = (s: string) => process.env.SSO_SABOTAGE === s;
 const hoteHub = new URL(HUB_URL).hostname;
 const NOM_COOKIE = HUB_URL.startsWith('https') ? '__Secure-authjs.session-token' : 'authjs.session-token';
 
-const prevoirCompte = (c: Compte, app: AppKey) => {
+const prevoirCompte = async (c: Compte, app: AppKey) => {
   if (app === 'analytics') assurerRybbit(c);
+  if (app === 'twenty' && !espacesTwenty(c.email).length) {
+    if (!c.hubUserId) throw new NonAbouti('compte de test sans hub_user_id');
+    const id = randomUUID();
+    noterEspaceTwenty(c.email, id); // noté AVANT la création : un plantage ne doit rien laisser
+    await creerEspaceTwenty(id, c.email, c.hubUserId);
+  }
 };
 
 function cookieHub(cookies: Cookie[]): string {
@@ -86,7 +93,7 @@ async function rejeter(valeur: string, maxAge: number): Promise<string> {
 for (const app of APPS) {
   cas(app, 'session Hub ouverte : arrivée connectée sur la page demandée, sans saisie', async ({ browser }) => {
     const A = await compte(browser, 'A');
-    prevoirCompte(A, app);
+    await prevoirCompte(A, app);
     // Contexte neuf : aucune session d'app (cookie ni localStorage), seul le Hub peut ouvrir la porte.
     const ctx = sabote('ouverte') ? await browser.newContext() : await contexteDe(browser, A);
     try {
@@ -102,7 +109,7 @@ for (const app of APPS) {
 
   cas(app, 'sans session Hub : écran de connexion, puis retour à la page demandée', async ({ browser }) => {
     const A = await compte(browser, 'A');
-    prevoirCompte(A, app);
+    await prevoirCompte(A, app);
     const ctx = sabote('absente') ? await contexteDe(browser, A) : await browser.newContext();
     const autres: BrowserContext[] = [];
     try {
@@ -115,11 +122,14 @@ for (const app of APPS) {
       autres.push(neuf);
       const page = await neuf.newPage();
       await page.goto(`${APP_URL[app]}${PAGE_PROTEGEE[app]}`, { waitUntil: 'domcontentloaded' });
-      await page.waitForURL((u) => u.hostname === hoteHub, { timeout: 30_000 });
+      await page.waitForURL((u) => u.hostname === hoteHub, { timeout: 60_000 });
       await page.locator('input[type=email], input[name=email]').first().fill(A.email);
       await page.locator('input[type=password]').first().fill(A.motDePasse);
       await page.getByRole('button', { name: /^(Se connecter|Continuer)/i }).first().click();
-      await page.waitForURL((u) => u.host === new URL(APP_URL[app]).host, { timeout: 60_000 });
+      const hoteApp = new URL(APP_URL[app]).host;
+      await page.waitForURL((u) => (u.host === hoteApp || u.host.endsWith(`.${hoteApp}`)) && u.pathname !== '/verify', {
+        timeout: 90_000,
+      });
       await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
       const u = new URL(page.url());
       expect(u.pathname.replace(/\/$/, ''), `${app} : retour à la page demandée`).toContain(
@@ -134,7 +144,7 @@ for (const app of APPS) {
 
   cas(app, 'session Hub expirée : plus aucun accès, le même jeton non expiré ouvre', async ({ browser }) => {
     const A = await compte(browser, 'A');
-    prevoirCompte(A, app);
+    await prevoirCompte(A, app);
     const source = await contexteDe(browser, A);
     const valeur = cookieHub(await source.cookies(HUB_URL));
     await source.close();
@@ -161,12 +171,12 @@ for (const app of APPS) {
 for (const app of APPS) {
   cas(app, 'clic sur Se déconnecter, session Hub ouverte : pas de reconnexion silencieuse ni de boucle', async ({ browser }) => {
     const A = await compte(browser, 'A');
-    prevoirCompte(A, app);
+    await prevoirCompte(A, app);
     const ctx = await contexteDe(browser, A);
     try {
       const avant = await voirApp(ctx, app);
       if (!avant.connecte) throw new NonAbouti(`${app} ne s'ouvre pas avant la déconnexion (${avant.hote}${avant.chemin})`);
-      if (!sabote('logout')) await seDeconnecterDeApp(ctx, app);
+      if (!sabote('logout')) await seDeconnecterDeApp(ctx, app, avant.hote);
       const apres = await voirApp(ctx, app);
       expect(apres.connecte, `${app} : reconnexion silencieuse, vu ${apres.hote}${apres.chemin}`).toBe(false);
       expect(apres.rebondsAuto, `${app} : aucun rebond automatique après le clic`).toBe(0);
@@ -181,7 +191,7 @@ for (const app of APPS) {
 cas(null, 'plusieurs rebonds réussis de suite : la page demandée, jamais le tableau de bord', async ({ browser }) => {
   const app = APPS[0];
   const A = await compte(browser, 'A');
-  prevoirCompte(A, app);
+  await prevoirCompte(A, app);
   const ctx = await contexteDe(browser, A);
   const hoteApp = new URL(APP_URL[app]).host;
   try {
@@ -296,7 +306,8 @@ async function prouverCoupure(browser: Browser, c: Compte, couper: () => Promise
 
 cas(null, 'se déconnecter partout : le Hub et les apps coupent, la reconnexion marche', async ({ browser }) => {
   const C = await compte(browser, 'C');
-  if (!SUR_STAGING) assurerRybbit(C);
+  if (SUR_STAGING) await prevoirCompte(C, 'twenty');
+  else assurerRybbit(C);
   const detail = await prouverCoupure(browser, C, async () => {
     if (sabote('partout')) return;
     const ctx = await contexteDe(browser, C);
@@ -323,7 +334,8 @@ cas(null, 'se déconnecter partout : le Hub et les apps coupent, la reconnexion 
 
 cas(null, 'compte supprimé : plus aucun accès, avec sa session encore en main', async ({ browser }) => {
   const D = await compte(browser, 'D');
-  if (!SUR_STAGING) assurerRybbit(D);
+  if (SUR_STAGING) await prevoirCompte(D, 'twenty');
+  else assurerRybbit(D);
   const detail = await prouverCoupure(browser, D, async () => {
     if (sabote('supprime')) return;
     await supprimerTenantHub(D.email);

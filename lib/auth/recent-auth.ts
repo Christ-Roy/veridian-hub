@@ -17,6 +17,23 @@ export function isAuthRecent(authAt: number | undefined, maxAgeS: number, nowMs 
   return typeof authAt === 'number' && nowMs / 1000 - authAt <= maxAgeS;
 }
 
+/**
+ * Refus des actions qui changent le compte (mot de passe, email) pour une session impersonée
+ * (D5). L'impersonation sert au support : elle ne doit ni verrouiller le client hors de son
+ * compte, ni changer ses identifiants sans trace côté client.
+ */
+export async function denyIfImpersonated(): Promise<NextResponse | null> {
+  const session = await auth();
+  if (session?.user?.impersonated !== true) return null;
+  return NextResponse.json(
+    {
+      error: 'impersonation_interdite',
+      message: "Cette action n'est pas permise pendant une session d'assistance.",
+    },
+    { status: 403 },
+  );
+}
+
 /** Réponse de refus si la dernière connexion réelle est trop ancienne, sinon `null`. */
 export async function denyUnlessRecentAuth(maxAgeS: number): Promise<NextResponse | null> {
   const session = await auth();

@@ -266,4 +266,10 @@ describe('nextCookieName', () => {
   it('non-secure → sans préfixe', () => {
     expect(nextCookieName(false)).toBe(NEXT_COOKIE_NAME_INSECURE);
   });
+
+  // D13 : la prod déploie `DEPLOY_ENV=prod` (jobs Nomad). Une valeur « prod » ne doit jamais
+  // élargir la liste blanche à celle de staging ou de dev.
+  it('D13 : DEPLOY_ENV=prod refuse un hôte staging', () => {
+    expect(parseNext('https://notifuse.staging.veridian.site/x', 'prod')).toBeNull();
+  });
 });

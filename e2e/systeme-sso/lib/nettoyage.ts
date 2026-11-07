@@ -8,8 +8,8 @@ import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { NonAbouti } from './etat';
-import { lookup, reconcile, rybbitCompte, supprimerTenantHub } from './hub-admin';
-import { comptesNotes, comptesRybbitNotes, oublierCompte, oublierRybbit } from './parcours';
+import { lookup, reconcile, retirerEspaceTwenty, rybbitCompte, supprimerTenantHub } from './hub-admin';
+import { comptesNotes, comptesRybbitNotes, espacesTwenty, oublierCompte, oublierEspacesTwenty, oublierRybbit, oublierWorkspaces, workspacesNotes } from './parcours';
 import { HUB_URL, PREFIXE_COMPTE } from './cibles';
 import { RUN_DIR } from './versions';
 
@@ -52,11 +52,14 @@ function workspacesRestants(): string[] {
 
 export async function nettoyerCompte(email: string): Promise<void> {
   if (comptesRybbitNotes().includes(email)) await retirerDeRybbit(email);
+  for (const id of espacesTwenty(email)) await retirerEspaceTwenty(id);
+  oublierEspacesTwenty(email);
   const u = await lookup(email);
+  // Le registre d'abord : un compte déjà supprimé au Hub (scénario « compte supprimé ») n'y figure plus.
+  const hub = ((u.json?.tenants ?? []) as { notifuseWorkspaceSlug?: string }[]).map((t) => t.notifuseWorkspaceSlug);
+  for (const id of Array.from(new Set([...workspacesNotes(email), ...hub]))) if (id) effacerWorkspace(id);
+  oublierWorkspaces(email);
   if (u.status !== 404) {
-    for (const t of (u.json?.tenants ?? []) as { notifuseWorkspaceSlug?: string }[]) {
-      if (t.notifuseWorkspaceSlug) effacerWorkspace(t.notifuseWorkspaceSlug);
-    }
     await supprimerTenantHub(email);
     if ((await lookup(email)).status !== 404) throw new Error(`${email} encore présent au Hub après suppression`);
   }

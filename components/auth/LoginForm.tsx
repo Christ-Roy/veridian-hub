@@ -16,6 +16,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { LoginErrorBanner } from "@/components/auth/LoginErrorBanner";
 import { OAuthButtons, SignupLink } from "@/components/auth/OAuthButtons";
+import { safeCallback } from "@/lib/auth/safe-callback";
 
 export interface LoginFormProps extends React.ComponentProps<"form"> {
   allowEmail?: boolean;
@@ -45,7 +46,7 @@ export function LoginForm({
   // détourner le flow.
   const callbackUrl = bounceApp
     ? '/api/auth/bounce/complete'
-    : requestedCallbackUrl ?? '/dashboard';
+    : safeCallback(requestedCallbackUrl);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,25 +59,60 @@ export function LoginForm({
     const email = String(formData.get('email') ?? '');
     const password = String(formData.get('password') ?? '');
 
-    const res = await signIn('credentials', {
-      email,
-      password,
-      redirect: false,
-    });
+    // D10 : Hub coupé, cookie tiers bloqué ou erreur de configuration ne doivent ni laisser le
+    // bouton bloqué, ni afficher un faux « mot de passe invalide ».
+    try {
+      // D3 : d'abord le mot de passe, côté serveur. Un compte à double vérification reçoit le code
+      // et part sur /auth/mfa, avec la suite demandée ; il n'obtient aucune session ici.
+      const pre = await fetch('/api/auth/mfa/start', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        credentials: 'same-origin',
+        body: JSON.stringify({ email, password }),
+      });
+      if (pre.status === 401) {
+        setError('Email ou mot de passe invalide.');
+        setIsSubmitting(false);
+        return;
+      }
+      if (!pre.ok) {
+        setError('Connexion impossible pour le moment. Réessayez dans un instant.');
+        setIsSubmitting(false);
+        return;
+      }
+      const etape = (await pre.json()) as { mfa?: boolean };
+      if (etape.mfa) {
+        router.push(`/auth/mfa?next=${encodeURIComponent(callbackUrl)}`);
+        return;
+      }
 
-    if (res?.error) {
-      setError('Email ou mot de passe invalide.');
+      const res = await signIn('credentials', {
+        email,
+        password,
+        redirect: false,
+      });
+
+      if (res?.error) {
+        setError(
+          res.error === 'CredentialsSignin'
+            ? 'Email ou mot de passe invalide.'
+            : 'Connexion impossible pour le moment. Réessayez dans un instant.',
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Le rebond finit sur une autre origine : une navigation complète, pas le routeur.
+      if (bounceApp) {
+        window.location.assign(callbackUrl);
+        return;
+      }
+      router.push(callbackUrl);
+      router.refresh();
+    } catch {
+      setError('Connexion impossible pour le moment. Réessayez dans un instant.');
       setIsSubmitting(false);
-      return;
     }
-
-    // Le rebond finit sur une autre origine : une navigation complète, pas le routeur.
-    if (bounceApp) {
-      window.location.assign(callbackUrl);
-      return;
-    }
-    router.push(callbackUrl);
-    router.refresh();
   };
 
   return (
@@ -111,7 +147,7 @@ export function LoginForm({
                 <FieldLabel htmlFor="password">Mot de passe</FieldLabel>
                 <Link
                   href="/signin/forgot_password"
-                  className="ml-auto text-sm underline-offset-4 hover:underline"
+                  className="ml-auto inline-flex min-h-11 items-center text-sm underline-offset-4 hover:underline"
                 >
                   Mot de passe oublié ?
                 </Link>

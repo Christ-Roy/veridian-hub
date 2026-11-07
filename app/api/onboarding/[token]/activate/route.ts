@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
+import { PASSWORD_MIN } from '@/lib/auth/password-policy';
 import { prisma } from '@/lib/prisma';
 import { activateOnboarding } from '@/lib/onboarding/service';
 import { extractClientIp, onboardingConsumeLimiter } from '@/lib/auth/rate-limit';
@@ -11,7 +12,7 @@ export const dynamic = 'force-dynamic';
 const bodySchema = z.object({
   // max 72 bytes utile avec bcrypt. La validation UI demande plus fort, mais
   // l'API garde la borne standard et stable côté sécurité.
-  password: z.string().min(8).refine(
+  password: z.string().min(PASSWORD_MIN).refine(
     (value) => Buffer.byteLength(value, 'utf8') <= 72,
     { message: 'password_max_72_bytes' },
   ),

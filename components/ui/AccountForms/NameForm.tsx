@@ -5,6 +5,7 @@ import CardWrapper from '@/components/ui/card-wrapper';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { toast } from 'sonner';
+import { MESSAGE_RESEAU } from '@/lib/ui/messages';
 
 /**
  * NameForm — Auth.js v5
@@ -36,8 +37,8 @@ export default function NameForm({ userName }: { userName: string }) {
       }
       toast.success('Nom mis à jour.');
       router.refresh();
-    } catch (err: any) {
-      toast.error(err?.message || 'Erreur réseau');
+    } catch {
+      toast.error(MESSAGE_RESEAU);
     } finally {
       setIsSubmitting(false);
     }
@@ -61,12 +62,12 @@ export default function NameForm({ userName }: { userName: string }) {
         </div>
       }
     >
-      <div className="mt-8 mb-4 text-xl font-semibold">
+      <div className="mt-8 mb-4">
         <form id="nameForm" onSubmit={handleSubmit}>
           <input
             type="text"
             name="fullName"
-            className="input-base w-1/2"
+            className="input-base w-full max-w-md min-h-11 border border-input"
             defaultValue={userName}
             placeholder="Votre nom"
             maxLength={64}

@@ -37,7 +37,9 @@ describe('providerProvesEmail', () => {
   });
 });
 
-function fakePrisma(user: { emailVerified: Date | null }, credentials = 0) {
+function fakePrisma(user: { emailVerified: Date | null; email?: string }, credentials = 0) {
+  // L'adresse courante du compte : la preuve doit lui correspondre (D2). Muté en place par les tests.
+  if (user.email === undefined) user.email = EMAIL;
   const tokens = new Map<string, { identifier: string; token: string; expires: Date }>();
   return {
     tokens,
@@ -57,8 +59,13 @@ function fakePrisma(user: { emailVerified: Date | null }, credentials = 0) {
       }),
       findUnique: vi.fn(async ({ where }: never) => tokens.get((where as { token: string }).token) ?? null),
       deleteMany: vi.fn(async ({ where }: never) => {
+        const w = where as { identifier: string | { startsWith: string } };
         for (const [k, v] of tokens) {
-          if (v.identifier === (where as { identifier: string }).identifier) tokens.delete(k);
+          const hit =
+            typeof w.identifier === 'string'
+              ? v.identifier === w.identifier
+              : v.identifier.startsWith(w.identifier.startsWith);
+          if (hit) tokens.delete(k);
         }
         return { count: 1 };
       }),
@@ -99,6 +106,44 @@ describe('applyProviderEmailProof', () => {
   });
 });
 
+describe('D1 : liaisons OAuth posées avant la preuve', () => {
+  it('preuve OAuth : garde la ligne du fournisseur qui prouve, retire les autres liaisons non prouvées et pose sessionsValidAfter', async () => {
+    const p = fakePrisma({ emailVerified: null }, 0);
+    p.account.deleteMany.mockResolvedValueOnce({ count: 0 }).mockResolvedValueOnce({ count: 1 });
+    await applyProviderEmailProof(p as never, 'u1', 'google');
+    expect(p.account.deleteMany).toHaveBeenCalledWith({
+      where: { userId: 'u1', provider: { notIn: ['credentials', 'google'] } },
+    });
+    const data = (p.user.update.mock.calls[0] as never as [{ data: Record<string, unknown> }])[0].data;
+    expect(data.sessionsValidAfter).toBeInstanceOf(Date);
+  });
+
+  it('preuve par lien mail, adresse non prouvée : retire les liaisons OAuth posées avant et pose sessionsValidAfter', async () => {
+    const p = fakePrisma({ emailVerified: null }, 0);
+    p.account.deleteMany.mockResolvedValueOnce({ count: 1 });
+    const send = vi.fn(async () => undefined);
+    await issueEmailProof(p as never, { id: 'u1', email: EMAIL }, send as never);
+    const clair = decodeURIComponent(/token=([^"&]+)/.exec((send.mock.calls[0] as never as [{ html: string }])[0].html)![1]);
+    expect(await consumeEmailProof(p as never, clair, 'u1')).toBe('proved');
+    expect(p.account.deleteMany).toHaveBeenCalledWith({
+      where: { userId: 'u1', provider: { notIn: ['credentials'] } },
+    });
+    const data = (p.user.update.mock.calls.at(-1) as never as [{ data: Record<string, unknown> }])[0].data;
+    expect(data.sessionsValidAfter).toBeInstanceOf(Date);
+  });
+
+  it('preuve par lien mail sur une adresse DÉJÀ prouvée : aucune liaison OAuth retirée', async () => {
+    const p = fakePrisma({ emailVerified: new Date() }, 0);
+    const send = vi.fn(async () => undefined);
+    await issueEmailProof(p as never, { id: 'u1', email: EMAIL }, send as never);
+    const clair = decodeURIComponent(/token=([^"&]+)/.exec((send.mock.calls[0] as never as [{ html: string }])[0].html)![1]);
+    expect(await consumeEmailProof(p as never, clair, 'u1')).toBe('proved');
+    expect(p.account.deleteMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ provider: { notIn: ['credentials'] } }) }),
+    );
+  });
+});
+
 describe('lien de preuve par mail', () => {
   const user = { id: 'u1', email: EMAIL };
   let send: ReturnType<typeof vi.fn>;
@@ -116,7 +161,8 @@ describe('lien de preuve par mail', () => {
     expect(await issueEmailProof(p as never, user, send as never)).toBe(true);
     const token = tokenFrom(send.mock.calls[0]);
     expect(p.tokens.has(token)).toBe(false);
-    expect([...p.tokens.values()][0].identifier).toBe(`${EMAIL_PROOF_IDENTIFIER_PREFIX}u1`);
+    // Le jeton porte le compte ET l'empreinte de l'adresse (D2).
+    expect([...p.tokens.values()][0].identifier).toMatch(new RegExp(`^${EMAIL_PROOF_IDENTIFIER_PREFIX}u1:[0-9a-f]{64}$`));
   });
 
   it('ne bombarde pas : un second envoi immédiat ne part pas', async () => {
@@ -149,6 +195,29 @@ describe('lien de preuve par mail', () => {
     expect(await consumeEmailProof(p as never, 'faux', 'u1')).toBe('invalid');
     await consumeEmailProof(p as never, token, 'u1');
     expect(await consumeEmailProof(p as never, token, 'u1')).toBe('invalid');
+  });
+
+  it('D2 : un jeton émis pour une ancienne adresse ne prouve pas la nouvelle', async () => {
+    const account = { emailVerified: null as Date | null, email: 'a@evil.example' };
+    const p = fakePrisma(account);
+    await issueEmailProof(p as never, { id: 'u1', email: 'a@evil.example' }, send as never);
+    const token = tokenFrom(send.mock.calls[0]);
+    // PATCH profil : l'adresse change dans la même session, dans les 10 minutes.
+    account.email = 'victime@corp.example';
+    expect(await consumeEmailProof(p as never, token, 'u1')).toBe('invalid');
+    expect(p.user.update).not.toHaveBeenCalled();
+  });
+
+  it('D2 : après un changement d\'adresse, le lien part tout de suite vers la nouvelle', async () => {
+    const account = { emailVerified: null as Date | null, email: 'a@evil.example' };
+    const p = fakePrisma(account);
+    await issueEmailProof(p as never, { id: 'u1', email: 'a@evil.example' }, send as never);
+    account.email = 'victime@corp.example';
+    expect(
+      await issueEmailProof(p as never, { id: 'u1', email: 'victime@corp.example' }, send as never),
+    ).toBe(true);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[1][0]).toMatchObject({ to: 'victime@corp.example' });
   });
 
   it('refuse un jeton d\'impersonation réutilisé ici', async () => {

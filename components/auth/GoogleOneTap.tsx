@@ -29,6 +29,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { usePathname } from 'next/navigation';
 import { useSession, signIn } from 'next-auth/react';
 import { useEnv } from '@/contexts/EnvContext';
+import { safeCallback } from '@/lib/auth/safe-callback';
 
 const GSI_SCRIPT_SRC = 'https://accounts.google.com/gsi/client';
 const GSI_SCRIPT_ID = 'google-gsi-client';
@@ -76,13 +77,24 @@ export function GoogleOneTap({
    * Transmet le `id_token` au provider Auth.js `google-one-tap`, qui le
    * valide serveur-side puis déroule le flow normal (hook MFA inclus).
    */
+  // D7 : la route landing (`/api/auth/callback/google-one-tap`) reçoit le jeton en JSON. Un
+  // `signIn('google-one-tap')` y tombait sur cette même route, qui refusait le corps (400) : One
+  // Tap était muet sur /login. Le serveur valide le jeton, pose la session et renvoie la cible.
   const handleCredentialResponse = useCallback(
     (response: GoogleCredentialResponse) => {
       if (!response?.credential) return;
-      void signIn('google-one-tap', {
-        credential: response.credential,
-        callbackUrl,
-      });
+      void (async () => {
+        const res = await fetch('/api/auth/callback/google-one-tap', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ credential: response.credential }),
+        }).catch(() => null);
+        const corps = (await res?.json().catch(() => null)) as { ok?: boolean; redirect?: string } | null;
+        if (res?.ok && corps?.ok) {
+          window.location.assign(safeCallback(corps.redirect ?? callbackUrl));
+        }
+      })();
     },
     [callbackUrl],
   );

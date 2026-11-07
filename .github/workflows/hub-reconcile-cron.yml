@@ -64,13 +64,49 @@ jobs:
             --retry 2 --retry-delay 10)
 
           echo "HTTP $HTTP_CODE"
-          cat /tmp/resp.json || true
-          echo
+          # Logs Actions publics : la réponse brute porte les adresses de test (restes) et la liste
+          # des dérives. On n'imprime que des comptes.
+          jq -c '{ok, usersScanned, driftsDetected, appsUnreachable, identity,
+                  testResidue: (if .testResidue then {total: .testResidue.total,
+                    hub: (.testResidue.hub | length), tenantsWithoutUser: .testResidue.tenantsWithoutUser,
+                    notifuseWorkspaces: (.testResidue.notifuseWorkspaces | length?)} else null end)}' \
+            /tmp/resp.json || echo "(réponse non lisible)"
 
           if [ "$HTTP_CODE" != "200" ]; then
             echo "::error::Reconcile tick failed (HTTP $HTTP_CODE)"
             exit 1
           fi
+
+      # Restes de test (comptes de batterie au Hub et dans les apps, workspaces Notifuse, tenants sans
+      # utilisateur). Trois états : mesuré sous le seuil (vert, annotation si non nul), mesuré
+      # au-dessus (rouge + Telegram), non mesuré (annotation : le Hub servi est plus ancien que la mesure).
+      # Seuil explicite : RESIDUE_SEUIL (variable du dépôt), 5 par défaut = les restes connus d'autres
+      # sessions au 07/11. À baisser vers 0 quand ils seront retirés (`hub reconcile` les liste).
+      - name: Restes de test sous le seuil
+        id: residu
+        env:
+          SEUIL: ${{ vars.RESIDUE_SEUIL || '5' }}
+        run: |
+          TOTAL=$(jq -r '.testResidue.total // "absent"' /tmp/resp.json)
+          case "$TOTAL" in
+            absent)
+              echo "::warning::Restes de test non mesurés (le Hub servi ne les renvoie pas)."
+              ;;
+            ''|*[!0-9]*)
+              echo "::error::Restes de test: valeur illisible ($TOTAL)"
+              exit 1
+              ;;
+            *)
+              if [ "$TOTAL" -gt "$SEUIL" ]; then
+                echo "::error::Restes de test: $TOTAL au-dessus du seuil $SEUIL. Lister avec 'hub reconcile', retirer avec delete-tenant."
+                exit 1
+              elif [ "$TOTAL" -gt 0 ]; then
+                echo "::warning::Restes de test: $TOTAL (seuil $SEUIL, restes connus)."
+              else
+                echo "Restes de test: 0"
+              fi
+              ;;
+          esac
 
       - name: Notify Telegram on failure
         if: failure()
@@ -78,10 +114,11 @@ jobs:
           TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RESIDU: ${{ steps.residu.outcome == 'failure' && '1' || '' }}
         run: |
           if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then exit 0; fi
           curl -sf -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
             -d chat_id=${TG_CHAT} \
             -d parse_mode=Markdown \
-            -d "text=Reconcile tenants cron *FAIL*. Run : ${RUN_URL}" \
+            -d "text=Reconcile tenants cron *FAIL*${RESIDU:+ (restes de test au-dessus du seuil)}. Run : ${RUN_URL}" \
             >/dev/null || true

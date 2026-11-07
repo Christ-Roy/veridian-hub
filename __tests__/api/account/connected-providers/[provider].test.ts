@@ -13,6 +13,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const findManyMock = vi.fn();
 const deleteMock = vi.fn();
 
+vi.mock('@/lib/auth/recent-auth', () => ({
+  denyUnlessRecentAuth: async () => null,
+  denyIfImpersonated: async () => null,
+  PREUVE_COMPTE_S: 86400,
+  PREUVE_FACTURATION_S: 604800,
+}));
 vi.mock('@/lib/auth/get-user', () => ({
   requireUser: vi.fn(async () => ({
     id: 'u1',

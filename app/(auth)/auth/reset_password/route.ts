@@ -19,14 +19,16 @@
 // quota transactionnel Brevo. Trois limiters, cf. commentaires ci-dessous.
 
 import { revokeAllSessions } from '@/lib/auth/session-revocation';
+import { retirerLiensNonProuves } from '@/lib/auth/email-proof-provider';
 import { NextRequest, NextResponse } from 'next/server';
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 
 import { prisma } from '@/lib/prisma';
 import { sendMail } from '@/lib/email/send';
 import { getURL } from '@/utils/helpers';
+import { PASSWORD_MAX, PASSWORD_MIN } from '@/lib/auth/password-policy';
 import { extractClientIp } from '@/lib/auth/rate-limit';
 import {
   resetRequestIpLimiter,
@@ -42,7 +44,7 @@ const consumeSchema = z.object({
   token: z.string().min(16),
   // max(72) : bcrypt tronque silencieusement à 72 bytes — au-delà n'apporte
   // rien et ouvre un DoS CPU (hash d'un payload XXL). Même borne que signup.
-  password: z.string().min(8).max(72),
+  password: z.string().min(PASSWORD_MIN).max(PASSWORD_MAX),
 });
 
 const RESET_TTL_MS = 60 * 60 * 1000; // 1h
@@ -137,10 +139,11 @@ async function handleRequest(emailRaw: string): Promise<NextResponse> {
     where: { identifier: user.email },
   });
 
+  // D11 : seul le hash du jeton est stocké ; le jeton clair ne part que dans le lien.
   await prisma.verificationToken.create({
     data: {
       identifier: user.email,
-      token,
+      token: hashResetToken(token),
       expires,
     },
   });
@@ -176,9 +179,15 @@ async function handleRequest(emailRaw: string): Promise<NextResponse> {
   return NextResponse.json({ ok: true });
 }
 
+/** Empreinte stockée du jeton de reset (D11). */
+function hashResetToken(raw: string): string {
+  return createHash('sha256').update(raw).digest('hex');
+}
+
 async function handleConsume(data: { token: string; password: string }): Promise<NextResponse> {
+  const tokenHash = hashResetToken(data.token);
   const record = await prisma.verificationToken.findUnique({
-    where: { token: data.token },
+    where: { token: tokenHash },
   });
 
   if (!record) {
@@ -186,7 +195,7 @@ async function handleConsume(data: { token: string; password: string }): Promise
   }
 
   if (record.expires < new Date()) {
-    await prisma.verificationToken.delete({ where: { token: data.token } }).catch(() => {});
+    await prisma.verificationToken.delete({ where: { token: tokenHash } }).catch(() => {});
     return NextResponse.json({ error: 'Token expired' }, { status: 400 });
   }
 
@@ -197,6 +206,15 @@ async function handleConsume(data: { token: string; password: string }): Promise
 
   if (!user) {
     return NextResponse.json({ error: 'User not found' }, { status: 404 });
+  }
+
+  // D11 : usage unique atomique. La suppression passe AVANT toute écriture : deux
+  // consommations simultanées ne peuvent plus passer toutes les deux.
+  const { count } = await prisma.verificationToken.deleteMany({
+    where: { token: tokenHash, identifier: record.identifier },
+  });
+  if (count !== 1) {
+    return NextResponse.json({ error: 'Invalid or expired token' }, { status: 400 });
   }
 
   const passwordHash = await bcrypt.hash(data.password, 10);
@@ -228,13 +246,14 @@ async function handleConsume(data: { token: string; password: string }): Promise
 
   // Le lien de reset est parti à cette adresse : c'est une preuve. Le mot de passe vient d'être
   // remplacé, donc toutes les sessions ouvertes tombent, ici et dans les apps.
+  // D1 : une adresse prouvée ici retire les liaisons OAuth posées avant la preuve.
   if (!user.emailVerified) {
     await prisma.user.update({ where: { id: user.id }, data: { emailVerified: new Date() } });
+    await retirerLiensNonProuves(prisma, user.id);
   }
-  await revokeAllSessions(prisma, user);
+  // D9 : les apps qui n'ont pas confirmé la coupure sont nommées.
+  const { appsEnEchec } = await revokeAllSessions(prisma, user);
 
-  // Token consommé → suppression
-  await prisma.verificationToken.delete({ where: { token: data.token } }).catch(() => {});
-
-  return NextResponse.json({ ok: true });
+  // Token consommé : supprimé plus haut, avant l'écriture du mot de passe (D11).
+  return NextResponse.json({ ok: true, apps_failed: appsEnEchec });
 }
