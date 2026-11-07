@@ -551,12 +551,16 @@ compte non prouvé annule le mot de passe préexistant et invalide les sessions 
 ou une victime ne valident rien), un reset de mot de passe, une invitation adressée à
 cette adresse.
 
+**`revoke_sessions: true`** sur `POST /api/hub/users/sync` : coupe toutes les sessions de
+l'utilisateur dans l'app, sans toucher au compte. Envoyé par « se déconnecter partout » et par un
+changement de mot de passe.
+
 **Endpoints que chaque app expose au Hub** (HMAC §6.1) :
 
 | Endpoint | Corps | Réponse |
 |---|---|---|
 | `GET /api/hub/users` | vide, signature sur `${ts}.` | `{ users: [{ hub_user_id, email, name }] }`, humains seulement |
-| `POST /api/hub/users/sync` | `{ hub_user_id, name?, email?, deleted? }` | 200, ou 404 `{ error: "user_not_in_app" }` |
+| `POST /api/hub/users/sync` | `{ hub_user_id, name?, email?, deleted?, revoke_sessions? }` | 200, ou 404 `{ error: "user_not_in_app" }` |
 
 Noms uniques pour toutes les apps : pas de route équivalente sous un autre chemin.
 
@@ -2316,9 +2320,8 @@ Quand un user clique "Se déconnecter" dans une app downstream :
 - **Comportement obligatoire** : l'app supprime UNIQUEMENT sa **session locale**
   (cookie `app.veridian.site` scoped sub-domain exact). Le cookie Hub
   cross-subdomain `.veridian.site` reste intact.
-- **Conséquence** : si l'user retourne sur l'app, la couche 2 SSO (quand
-  livrée) le re-loggera automatiquement via le cookie Hub. Pour un full
-  logout, l'user doit aller sur `app.veridian.site` et cliquer logout.
+- **Conséquence** : l'app ne le reconnecte pas toute seule après ce clic (§6bis.8.0, point 2).
+  Pour tout couper, l'user utilise « Se déconnecter partout » sur `app.veridian.site`.
 
 **Pourquoi ce choix** :
 - Standard SaaS B2B (Google Workspace, Slack, GitHub) : logout d'un produit
@@ -2399,6 +2402,40 @@ en lecture seule via couche 2.
 > l'app**. Ajouter `veridian-newapp` au futur ne demande **aucune
 > modification Hub** — uniquement implémenter l'endpoint contrat
 > §6bis.8.3 côté `veridian-newapp` et ajouter ses boutons.
+
+#### 6bis.8.0 Connexion automatique et session longue (gravé v1.8)
+
+Décision Robert du 2026-11-07 : se connecter à toutes les apps sans ressaisie, comme Gmail. **Aucun
+cookie de session sur `.veridian.site`**, ce domaine porte aussi des sites clients. Le cookie reste
+sur le Hub, et le rebond fait le reste.
+
+**Hub.** Session glissante d'un an : l'usage renouvelle, un an d'inactivité déconnecte. La révocation
+se lit en base à chaque lecture de session, sur la date de connexion réelle (`authAt`), jamais sur
+`iat`, que chaque lecture réécrit. Compte supprimé, « se déconnecter partout », mot de passe
+changé ou réinitialisé : la session tombe au passage suivant. Changer `AUTH_SECRET` coupe toutes les
+sessions, c'est le bouton d'urgence. Une connexion réelle récente est exigée pour le changement
+d'email ou de mot de passe et l'administration par session (24 h), et pour la facturation (7 jours).
+
+**Ce que chaque app doit faire**, sur une page protégée, en navigation complète (GET) seulement :
+
+1. Sans session locale, rediriger vers
+   `<hub>/api/auth/bounce/prepare?next=<url demandée encodée>&auto=1`, sauf dans les trois cas suivants.
+2. **Déconnexion explicite** : un clic sur « Se déconnecter » pose un cookie local, levé à la
+   prochaine connexion réussie. Tant qu'il est là, afficher sa page de connexion. Jamais de reconnexion
+   silencieuse. Le bouton « Continuer » de cette page appelle le rebond sans `auto`.
+3. **Un seul essai automatique** : poser avant de partir un cookie local de 5 minutes. S'il est déjà
+   là au retour, afficher la page de connexion au lieu de repartir. Le lever à la connexion réussie.
+   Le Hub s'arrête aussi de son côté, par app, sur 30 s : au troisième `auto=1` il renvoie sur la page
+   demandée, où cet essai unique affiche la connexion ; au quatrième, sur `/login?bounce_failed=1`.
+4. **Jamais** de rebond automatique dans une iframe, sur un POST, ni sur une route d'API (répondre
+   401). Le Hub répond 204 sans rien émettre à une requête qui n'est pas une navigation.
+5. `POST /api/sso/issue-magic-link` reçoit `next` en option : y renvoyer après connexion **si et
+   seulement si** l'URL est sur l'origine de l'app, sinon sur l'accueil.
+6. `revoke_sessions: true` (§3.8) coupe les sessions de l'utilisateur dans l'app.
+
+**Résultat attendu.** Session Hub ouverte : arrivée connectée sur la page demandée, sans saisie.
+Pas de session Hub : écran de connexion du Hub, puis retour à la page demandée. Adresse non prouvée :
+tableau de bord du Hub, lien de preuve envoyé.
 
 #### 6bis.8.1 Quand la couche 4 se déclenche
 

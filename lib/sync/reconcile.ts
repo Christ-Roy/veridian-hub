@@ -31,7 +31,10 @@ import type { PrismaClient } from '@prisma/client';
 
 import { prisma as defaultPrisma } from '@/lib/prisma';
 import { configuredSyncApps, discoverUserApps } from '@/lib/sync/discovery';
+import { buildNotifuseClient } from '@/lib/notifuse/admin-helpers';
+import { NotifuseClient } from '@/lib/notifuse/client';
 import { auditIdentity, identityCounts } from '@/lib/sync/identity-audit';
+import { measureTestResidue, residueCounts, type TestResidue } from '@/lib/sync/test-residue';
 import type {
   DiscoveryResult,
   ReconcileSummary,
@@ -338,10 +341,25 @@ export async function runReconcile(
     });
   }
 
+  let testResidue: TestResidue | undefined;
+  try {
+    // Un `fetchImpl` injecté veut dire pas de réseau : `NotifuseClient` ne passerait pas par lui.
+    const notifuse = options.fetchImpl ? null : buildNotifuseClient();
+    testResidue = await measureTestResidue(
+      p,
+      identity,
+      withoutUser.length,
+      notifuse instanceof NotifuseClient ? (prefix) => notifuse.listTenantsByPrefix(prefix) : undefined,
+    );
+  } catch (err) {
+    errors.push({ message: `test residue: ${err instanceof Error ? err.message : String(err)}` });
+  }
+
   const summary: ReconcileSummary = {
     usersScanned: tenants.length,
     tenantsWithoutUser: withoutUser,
     identity,
+    testResidue,
     appsQueried,
     driftsDetected: drifts.length,
     drifts: drifts.slice(0, 200),
@@ -361,6 +379,7 @@ export async function runReconcile(
       usersScanned: summary.usersScanned,
       tenantsWithoutUser: withoutUser.length,
       identity: identityCounts(identity),
+      testResidue: residueCounts(testResidue),
       appsQueried: summary.appsQueried,
       driftsDetected: summary.driftsDetected,
       appsUnreachable: summary.appsUnreachable,

@@ -30,14 +30,30 @@ function lireSecret(): string {
 
 export type Reponse<T = any> = { status: number; json: T };
 
-/** L'API admin plafonne les appels : on attend le délai annoncé au lieu de conclure à tort. */
+/**
+ * Pendant un déploiement du Hub, ingress et proxys répondent à sa place : un 404 en texte brut,
+ * ou un 502/503/504. Le 07/11, ce 404 a fait conclure « route absente » à une batterie entière,
+ * lancée 2 s avant une mise en ligne. Le Hub, lui, répond toujours en JSON.
+ */
+function hubAbsent(r: Reponse): boolean {
+  if ([502, 503, 504].includes(r.status)) return true;
+  return r.status === 404 && typeof (r.json as { non_json?: string })?.non_json === 'string';
+}
+
+/** Le plafond de l'API admin et un Hub en déploiement ne sont pas des résultats : on attend. */
 export async function admin<T = any>(
   methode: 'GET' | 'POST' | 'DELETE',
   route: string,
   corps?: unknown,
 ): Promise<Reponse<T>> {
+  const fin = Date.now() + 180_000;
   for (let essai = 0; ; essai++) {
     const { reponse, attente } = await appelAdmin<T>(methode, route, corps);
+    if (hubAbsent(reponse)) {
+      if (Date.now() > fin) throw new NonAbouti(`Hub absent depuis 3 min (${route} → ${reponse.status})`);
+      await new Promise((r) => setTimeout(r, 5_000));
+      continue;
+    }
     if (reponse.status !== 429 || essai >= 4) return reponse;
     await new Promise((r) => setTimeout(r, attente));
   }

@@ -1,33 +1,17 @@
 /**
- * Nettoyage : uniquement les comptes notés par CETTE batterie (registre `.run/comptes.jsonl`,
- * préfixe e2e-sso-, domaine veridian.site). Mécanisme prévu : suppression de tenant au Hub
- * (qui pousse la suppression aux apps) + suppression du workspace Notifuse. On vérifie ensuite
- * que les comptes ont disparu du Hub et que reconcile n'a rien gardé d'eux.
+ * Nettoyage : uniquement les comptes notés par la batterie (registres de `.run`, préfixe e2e-sso-,
+ * domaine veridian.site), app par app (`lib/nettoyage.ts`). Puis la mesure : `hub reconcile` ne doit
+ * plus rien citer d'eux, ni au Hub ni dans une app. Le teardown refait ce contrôle après un échec.
  */
 import { expect } from '@playwright/test';
 
 import { cas } from './lib/etat';
-import { lookup, reconcile, rybbitCompte, supprimerNotifuse, supprimerTenantHub } from './lib/hub-admin';
-import { comptesRybbit } from './lib/monde';
-import { comptesNotes, oublierRegistre } from './lib/parcours';
+import { mesurerRestes, nettoyerTout } from './lib/nettoyage';
 
-cas(null, 'les comptes de test sont supprimés et reconcile n\'en garde aucun', async () => {
-  const emails = Array.from(new Set(comptesNotes()));
-  const restes: string[] = [];
-  for (const e of comptesRybbit()) rybbitCompte('supprimer', e); // échec = NON ABOUTI, jamais un faux vert
-  for (const email of emails) {
-    const u = await lookup(email);
-    for (const t of (u.json?.tenants ?? []) as any[]) {
-      if (t.notifuseWorkspaceSlug) await supprimerNotifuse(t.id);
-    }
-    await supprimerTenantHub(email);
-    if ((await lookup(email)).status !== 404) restes.push(email);
-  }
-  expect(restes, 'comptes encore présents au Hub après suppression').toEqual([]);
-  const r = await reconcile();
-  const flat = JSON.stringify(r).toLowerCase();
-  const gardes = emails.filter((e) => flat.includes(e.toLowerCase()));
-  expect(gardes, 'comptes de test encore cités par reconcile').toEqual([]);
-  oublierRegistre();
-  return `${emails.length} compte(s) supprimé(s)`;
-});
+cas(null, 'les comptes de test sont retirés de chaque app et reconcile n\'en mesure aucun', async () => {
+  const { retires, echecs } = await nettoyerTout();
+  expect(echecs.join(' ; '), `retraits en échec : ${echecs.join(' ; ')}`).toBe('');
+  const restes = await mesurerRestes();
+  expect(restes.join(', '), `restes en prod : ${restes.join(', ')}`).toBe('');
+  return `${retires} compte(s) retiré(s), 0 reste mesuré`;
+}, { timeout: 480_000 });

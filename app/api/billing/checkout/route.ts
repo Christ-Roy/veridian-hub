@@ -7,6 +7,7 @@
 // Response 200 : { url: string } → le front fait window.location = data.url
 // Response 4xx : { error, details? }
 
+import { denyUnlessRecentAuth, PREUVE_FACTURATION_S } from '@/lib/auth/recent-auth';
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
@@ -34,6 +35,9 @@ export async function POST(request: NextRequest) {
     if (err instanceof Response) return err;
     throw err;
   }
+
+  const denied = await denyUnlessRecentAuth(PREUVE_FACTURATION_S);
+  if (denied) return denied;
 
   if (!user.email) {
     return NextResponse.json({ error: 'user_no_email' }, { status: 400 });

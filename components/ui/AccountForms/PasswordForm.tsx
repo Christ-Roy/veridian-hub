@@ -3,7 +3,10 @@
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { signOut } from 'next-auth/react';
 import { useState } from 'react';
+
+import { redirectIfReauthRequired } from '@/lib/auth/reauth-redirect';
 
 /**
  * PasswordForm — Auth.js v5
@@ -43,15 +46,13 @@ export default function PasswordForm() {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
+        if (redirectIfReauthRequired(data)) return;
         setError(data.error || 'Échec de la mise à jour du mot de passe');
         return;
       }
 
-      setSuccess(true);
-      setNewPassword('');
-      setConfirmPassword('');
-
-      setTimeout(() => setSuccess(false), 5000);
+      // Le changement a coupé toutes les sessions, celle-ci comprise : retour à la connexion.
+      await signOut({ callbackUrl: '/login' });
     } catch (err: any) {
       setError(err?.message || 'Une erreur inattendue est survenue');
     } finally {

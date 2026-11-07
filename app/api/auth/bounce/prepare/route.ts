@@ -18,7 +18,9 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
+import { listSupportedApps } from '@/lib/auth/bounce-apps';
 import {
+  isRealNavigation,
   parseNext,
   signNextCookie,
   nextCookieName,
@@ -29,10 +31,19 @@ import {
 } from '@/lib/auth/bounce-next';
 import { getHubBaseUrl } from '@/lib/mail/oauth-cookies';
 
+const AUTO_BOUNCE_COOKIE = 'veridian-auto-bounce';
+const AUTO_BOUNCE_MAX = 2;
+// Une vraie boucle fait un tour en quelques secondes. Fenêtre courte : `complete` ne peut pas remettre
+// le compteur à zéro, une boucle y passe aussi à chaque tour.
+const AUTO_BOUNCE_WINDOW_S = 30;
+
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
+  if (!isRealNavigation(req)) {
+    return new NextResponse(null, { status: 204, headers: { 'Cache-Control': 'no-store' } });
+  }
   const url = new URL(req.url);
   const nextRaw = url.searchParams.get('next');
   const deployEnv = process.env.DEPLOY_ENV;
@@ -43,7 +54,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const baseUrl = getHubBaseUrl(req.url);
   const loginUrl = new URL('/login', baseUrl);
 
-  const parsed = parseNext(nextRaw, deployEnv);
+  const candidate = parseNext(nextRaw, deployEnv);
+  // Seule une app déclarée est une cible : `<client>.veridian.site` passe le motif, pas ce filtre.
+  const parsed = candidate && listSupportedApps().includes(candidate.app) ? candidate : null;
 
   if (!parsed) {
     if (nextRaw) {
@@ -74,6 +87,35 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(loginUrl);
   }
 
+  const secure = shouldUseSecureCookie();
+  // Anti-boucle : un retour automatique d'app (`auto=1`) qui revient ici trop vite a échoué. Plus
+  // de rebond silencieux, on montre la connexion ; l'app en fait autant de son côté (§6bis.9).
+  const auto = url.searchParams.get('auto') === '1';
+  // Compté par app : ouvrir trois outils à la suite n'est pas une boucle.
+  const [appDuCompteur, compteur] = (req.cookies.get(AUTO_BOUNCE_COOKIE)?.value ?? '').split(':');
+  const essais = appDuCompteur === parsed.app ? Number(compteur) || 0 : 0;
+  if (auto && essais >= AUTO_BOUNCE_MAX) {
+    // Premier arrêt : on rend la main à l'app sur la page demandée. Son essai unique (§6bis.8.0,
+    // point 3) lui fait afficher sa connexion au lieu de repartir, et plusieurs onglets restaurés
+    // d'un coup ne finissent pas sur le tableau de bord. Si elle revient quand même, on arrête ici.
+    if (essais === AUTO_BOUNCE_MAX) {
+      const rendu = NextResponse.redirect(parsed.url);
+      rendu.cookies.set({
+        name: AUTO_BOUNCE_COOKIE,
+        value: `${parsed.app}:${essais + 1}`,
+        httpOnly: true,
+        sameSite: 'lax',
+        secure,
+        path: '/api/auth/bounce',
+        maxAge: AUTO_BOUNCE_WINDOW_S,
+      });
+      return rendu;
+    }
+    const stop = new URL('/login', baseUrl);
+    stop.searchParams.set('bounce_failed', '1');
+    return NextResponse.redirect(stop);
+  }
+
   // Marque la page /login pour qu'elle sache qu'on est en mode bounce
   // (le cookie suffit en théorie, mais ce flag query permet à /login
   // d'afficher un copy spécial sans relire le cookie côté Server Component
@@ -81,7 +123,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   loginUrl.searchParams.set('mode', 'bounce');
   loginUrl.searchParams.set('app', parsed.app);
 
-  const secure = shouldUseSecureCookie();
   const cookieValue = signNextCookie(parsed.url, secret);
   const cookieName = nextCookieName(secure);
 
@@ -95,6 +136,17 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     path: '/',
     maxAge: Math.floor(NEXT_COOKIE_TTL_MS / 1000),
   });
+  if (auto) {
+    response.cookies.set({
+      name: AUTO_BOUNCE_COOKIE,
+      value: `${parsed.app}:${essais + 1}`,
+      httpOnly: true,
+      sameSite: 'lax',
+      secure,
+      path: '/api/auth/bounce',
+      maxAge: AUTO_BOUNCE_WINDOW_S,
+    });
+  }
   // Nettoie l'autre nom de cookie au cas où (dev↔prod switch).
   response.cookies.delete(
     secure ? NEXT_COOKIE_NAME_INSECURE : NEXT_COOKIE_NAME_SECURE,

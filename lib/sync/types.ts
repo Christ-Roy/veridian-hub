@@ -1,3 +1,4 @@
+import type { TestResidue } from '@/lib/sync/test-residue';
 /**
  * Types partagés pour la stratégie de synchronisation tenants Hub ↔ apps.
  *
@@ -107,6 +108,8 @@ export interface ReconcileSummary {
   tenantsWithoutUser: string[];
   /** Comptes des apps comparés au Hub. Absent si l'audit n'a pas pu tourner. */
   identity?: IdentityAudit;
+  /** Comptes de test et tenants orphelins encore en base (mesure seule). */
+  testResidue?: TestResidue;
   /** Nombre d'apps interrogées (≤ usersScanned × 3). */
   appsQueried: number;
   /** Nombre de drifts détectés (1 drift = 1 (tenant, app) divergent). */

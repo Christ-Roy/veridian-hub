@@ -12,6 +12,18 @@
 
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 
+const recente = vi.hoisted(() => ({ ok: true }));
+vi.mock('@/lib/auth/recent-auth', () => ({
+  isAuthRecent: () => recente.ok,
+  PREUVE_COMPTE_S: 86400,
+  PREUVE_FACTURATION_S: 604800,
+  denyUnlessRecentAuth: vi.fn(async () =>
+    recente.ok
+      ? null
+      : new Response(JSON.stringify({ error: 'recent_auth_required' }), { status: 403 }),
+  ),
+}));
+
 const authMock = vi.fn();
 const isPlatformAdminMock = vi.fn();
 

@@ -66,9 +66,9 @@ describe('auth.config.ts — OAuth providers', () => {
     expect(opts.tenantId).toBeUndefined();
   });
 
-  it('session strategy = jwt avec maxAge 90 jours', () => {
+  it("session strategy = jwt avec maxAge d'un an, renouvelée chaque jour", () => {
     expect(authConfig.session?.strategy).toBe('jwt');
-    expect(authConfig.session?.maxAge).toBe(60 * 60 * 24 * 90);
+    expect(authConfig.session?.maxAge).toBe(60 * 60 * 24 * 365);
   });
 });
 

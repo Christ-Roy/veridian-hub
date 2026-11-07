@@ -10,6 +10,7 @@
  * et risque la divergence sécu (ex: une route oublie de check rate).
  */
 
+import { isAuthRecent, PREUVE_COMPTE_S } from '@/lib/auth/recent-auth';
 import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeEqual } from 'node:crypto';
 
@@ -102,6 +103,16 @@ export async function authenticateAdmin(
     return {
       ok: false,
       response: NextResponse.json({ error: 'forbidden' }, { status: 403 }),
+    };
+  }
+  // Administration par session : connexion réelle récente exigée (session d'un an).
+  if (!isAuthRecent(session.user.authAt, PREUVE_COMPTE_S)) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: 'recent_auth_required', login_url: '/login?reauth=1' },
+        { status: 403 },
+      ),
     };
   }
   // Anti-ré-impersonation : une session impersonée NE doit jamais accéder à

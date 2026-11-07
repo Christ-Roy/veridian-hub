@@ -110,12 +110,10 @@ describe('resolveDownstreamBaseUrl', () => {
     );
   });
 
-  it('fallback analytics = engine, JAMAIS le domaine legacy mort', () => {
-    // `analytics.app.veridian.site` répond 404 depuis la bascule vers le fork
-    // staminads (vérifié en live le 2026-07-28). Le fallback générique
-    // `<app>.app.veridian.site` envoyait donc les clients sur une page morte.
+  it('fallback analytics = l\'app servie, jamais l\'ancien moteur', () => {
+    // `analytics-engine.*` répond 404 (mesuré le 2026-11-07) ; `analytics.app.*` sert le fork Rybbit.
     expect(resolveDownstreamBaseUrl('analytics', {} as NodeJS.ProcessEnv)).toBe(
-      'https://analytics-engine.app.veridian.site',
+      'https://analytics.app.veridian.site',
     );
   });
 

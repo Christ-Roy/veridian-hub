@@ -18,6 +18,7 @@
 // Brevo. Deux risques réels : mail-bombing d'un client visé, et cramage du
 // quota transactionnel Brevo. Trois limiters, cf. commentaires ci-dessous.
 
+import { revokeAllSessions } from '@/lib/auth/session-revocation';
 import { NextRequest, NextResponse } from 'next/server';
 import { randomBytes } from 'crypto';
 import bcrypt from 'bcryptjs';
@@ -225,15 +226,12 @@ async function handleConsume(data: { token: string; password: string }): Promise
     });
   }
 
-  // Le lien de reset est parti à cette adresse : c'est une preuve. Le mot de passe
-  // vient d'être remplacé, donc les sessions ouvertes avec l'ancien tombent aussi.
+  // Le lien de reset est parti à cette adresse : c'est une preuve. Le mot de passe vient d'être
+  // remplacé, donc toutes les sessions ouvertes tombent, ici et dans les apps.
   if (!user.emailVerified) {
-    const now = new Date();
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { emailVerified: now, ...(credsAccount ? { sessionsValidAfter: now } : {}) },
-    });
+    await prisma.user.update({ where: { id: user.id }, data: { emailVerified: new Date() } });
   }
+  await revokeAllSessions(prisma, user);
 
   // Token consommé → suppression
   await prisma.verificationToken.delete({ where: { token: data.token } }).catch(() => {});

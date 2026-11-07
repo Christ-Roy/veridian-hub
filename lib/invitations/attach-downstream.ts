@@ -178,17 +178,24 @@ export function resolveDownstreamBaseUrl(
  * Domaine par défaut de chaque app downstream, utilisé quand la variable
  * `NEXT_PUBLIC_<APP>_URL` n'est pas déployée.
  *
- * ⚠️ `analytics` ne suit PAS la convention `<app>.app.veridian.site` : l'app
- * historique servie sur `analytics.app.veridian.site` est **morte** (vérifié
- * le 2026-07-28 : HTTP 404) et remplacée par le fork staminads servi sur
- * `analytics-engine.app.veridian.site` (HTTP 200). Le fallback générique
- * envoyait donc les clients sur une 404 — pas même un écran de login.
- * Cf. `todo/2026-07-28-autologin-analytics-contrat-et-etat-reel.md`.
+ * ⚠️ HISTORIQUE `analytics`, à lire avant de « corriger » cette ligne. Le
+ * domaine `analytics.app.veridian.site` a servi trois applications
+ * successives, ce qui a produit deux inversions de ce défaut :
+ *   - jusqu'au 2026-07-28 : première génération décommissionnée, le domaine
+ *     répondait 404. Le défaut a donc été pointé sur `analytics-engine.*`
+ *     (fork staminads), qui répondait 200.
+ *   - depuis le 2026-08-18 : `analytics.app.veridian.site` sert la NOUVELLE
+ *     génération (fork Rybbit rebrandé Veridian), qui est la cible produit.
+ *     Le défaut y revient donc.
+ *
+ * `analytics-engine.app.veridian.site` (staminads) **tourne toujours** et sert
+ * encore des clients : ce n'est pas un domaine mort, c'est la génération
+ * précédente. Ne pas l'éteindre en croyant nettoyer.
  */
 const DEFAULT_APP_BASE_URL: Record<SupportedApp, string> = {
   notifuse: 'https://notifuse.app.veridian.site',
   prospection: 'https://prospection.app.veridian.site',
-  analytics: 'https://analytics-engine.app.veridian.site',
+  analytics: 'https://analytics.app.veridian.site',
   cms: 'https://cms.app.veridian.site',
 };
 

@@ -1,5 +1,7 @@
 'use server';
 
+import { auth } from '@/auth';
+import { isAuthRecent, PREUVE_FACTURATION_S } from '@/lib/auth/recent-auth';
 import { stripe } from '@/utils/stripe/config';
 import { getURL, getErrorRedirect } from '@/utils/helpers';
 import { requireUser, userUuid } from '@/lib/auth/get-user';
@@ -67,6 +69,10 @@ export async function resolveStripeCustomerId(
 export async function createStripePortal(currentPath: string): Promise<string> {
   try {
     const user = await requireUser();
+    const session = await auth();
+    if (session?.user?.impersonated !== true && !isAuthRecent(session?.user?.authAt, PREUVE_FACTURATION_S)) {
+      return `/login?reauth=1&callbackUrl=${encodeURIComponent(currentPath)}`;
+    }
     const userUuidValue = userUuid(user);
     if (!user.email) {
       throw new Error('User has no email.');

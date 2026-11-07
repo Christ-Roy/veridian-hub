@@ -2,7 +2,7 @@
  * Pousse une modification d'utilisateur du Hub vers les apps (CONTRAT-HUB §3.8).
  *
  *     POST <app>/api/hub/users/sync   (HMAC §6.1)
- *     { hub_user_id, name?, email?, deleted? }
+ *     { hub_user_id, name?, email?, deleted?, revoke_sessions? }
  *
  * Best-effort : un échec ne bloque jamais le Hub (§1.4), l'écart reste visible dans
  * `hub reconcile` (`lib/sync/identity-audit.ts`), qui sert de rattrapage.
@@ -24,6 +24,8 @@ export type UserPush = {
   name?: string | null;
   email?: string;
   deleted?: boolean;
+  /** Coupe les sessions de l'utilisateur dans l'app (déconnexion partout, mot de passe changé). */
+  revokeSessions?: boolean;
 };
 
 export type PushOutcome = 'ok' | 'not_in_app' | 'endpoint_missing' | 'failed' | 'not_configured';
@@ -38,6 +40,7 @@ async function pushToApp(app: SyncApp, push: UserPush, fetchImpl: typeof fetch):
     ...(push.name !== undefined ? { name: push.name } : {}),
     ...(push.email !== undefined ? { email: push.email } : {}),
     ...(push.deleted ? { deleted: true } : {}),
+    ...(push.revokeSessions ? { revoke_sessions: true } : {}),
   });
   const timestamp = Date.now().toString();
   const signature = createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
@@ -65,13 +68,37 @@ async function pushToApp(app: SyncApp, push: UserPush, fetchImpl: typeof fetch):
   }
 }
 
+/**
+ * Une coupure (compte supprimé, sessions révoquées) ne doit pas se perdre sur un redémarrage d'app :
+ * le compte y resterait ouvert. On réessaie donc, le temps d'un déploiement court. Le reste attend
+ * `hub reconcile`. Mesuré le 07/11 : un `deleted` perdu pendant que Prospection redéployait.
+ */
+const COUPURE_RETRIES_MS = [2_000, 8_000];
+
+async function pushWithRetries(
+  app: SyncApp,
+  push: UserPush,
+  fetchImpl: typeof fetch,
+  delaysMs: readonly number[],
+): Promise<PushOutcome> {
+  let outcome = await pushToApp(app, push, fetchImpl);
+  if (!push.deleted && !push.revokeSessions) return outcome;
+  for (const delay of delaysMs) {
+    if (outcome !== 'failed') break;
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    outcome = await pushToApp(app, push, fetchImpl);
+  }
+  return outcome;
+}
+
 export async function pushUserToApps(
   push: UserPush,
-  opts: { fetchImpl?: typeof fetch; apps?: readonly SyncApp[] } = {},
+  opts: { fetchImpl?: typeof fetch; apps?: readonly SyncApp[]; retryDelaysMs?: readonly number[] } = {},
 ): Promise<Partial<Record<SyncApp, PushOutcome>>> {
   const apps = opts.apps ?? configuredSyncApps();
   const fetchImpl = opts.fetchImpl ?? fetch;
-  const outcomes = await Promise.all(apps.map((app) => pushToApp(app, push, fetchImpl)));
+  const delays = opts.retryDelaysMs ?? COUPURE_RETRIES_MS;
+  const outcomes = await Promise.all(apps.map((app) => pushWithRetries(app, push, fetchImpl, delays)));
   const result = Object.fromEntries(apps.map((app, i) => [app, outcomes[i]])) as Partial<
     Record<SyncApp, PushOutcome>
   >;

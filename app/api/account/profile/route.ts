@@ -11,6 +11,7 @@
  * à jour `providerAccountId` pour rester cohérent avec le legacy bridge.
  */
 
+import { denyUnlessRecentAuth, PREUVE_COMPTE_S } from '@/lib/auth/recent-auth';
 import { issueEmailProof } from '@/lib/auth/email-proof';
 import { pushUserToApps } from '@/lib/identity/push-user';
 import { NextResponse } from 'next/server';
@@ -60,6 +61,11 @@ export async function PATCH(req: Request) {
         { status: 409 },
       );
     }
+  }
+
+  if (email && email !== user.email) {
+    const denied = await denyUnlessRecentAuth(PREUVE_COMPTE_S);
+    if (denied) return denied;
   }
 
   const updateData: { name?: string; email?: string; emailVerified?: Date | null } = {};

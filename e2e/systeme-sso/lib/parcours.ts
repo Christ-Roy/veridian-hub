@@ -42,9 +42,33 @@ export function comptesNotes(): string[] {
     .filter((e) => e.startsWith(PREFIXE_COMPTE) && e.endsWith(`@${DOMAINE_COMPTE}`));
 }
 
-export function oublierRegistre() {
-  if (existsSync(REGISTRE)) writeFileSync(REGISTRE, '');
+function retirerDe(fichier: string, email: string) {
+  if (!existsSync(fichier)) return;
+  const gardees = readFileSync(fichier, 'utf8')
+    .split('\n')
+    .filter((l) => l && JSON.parse(l).email !== email);
+  writeFileSync(fichier, gardees.length ? `${gardees.join('\n')}\n` : '');
 }
+
+export const oublierCompte = (email: string) => retirerDe(REGISTRE, email);
+
+/** Les comptes Rybbit ont leur registre : `monde` repart à zéro à chaque lancement, pas eux. */
+const REGISTRE_RYBBIT = path.join(RUN_DIR, 'comptes-rybbit.jsonl');
+
+export function noterRybbit(email: string) {
+  mkdirSync(RUN_DIR, { recursive: true });
+  appendFileSync(REGISTRE_RYBBIT, JSON.stringify({ email, run: ID_RUN }) + '\n');
+}
+
+export function comptesRybbitNotes(): string[] {
+  if (!existsSync(REGISTRE_RYBBIT)) return [];
+  return readFileSync(REGISTRE_RYBBIT, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => JSON.parse(l).email as string);
+}
+
+export const oublierRybbit = (email: string) => retirerDe(REGISTRE_RYBBIT, email);
 
 function nouveauMdp() {
   return `Tst-${randomBytes(9).toString('base64url')}A9z`;
@@ -80,7 +104,9 @@ export async function creerCompteProuve(browser: Browser, etiquette: string): Pr
   const motDePasse = nouveauMdp();
   noter(email);
   await usersCreate(email, nom);
-  const inv = await invite(email, ['hub', 'prospection', 'notifuse', 'analytics'], 'TEST SYSTEME SSO');
+  // Le Hub staging n'a que Twenty en face : ni Prospection ni Notifuse à provisionner.
+  const surStaging = /staging/.test(HUB_URL);
+  const inv = await invite(email, surStaging ? ['hub'] : ['hub', 'prospection', 'notifuse', 'analytics'], 'TEST SYSTEME SSO');
   const ctx = await browser.newContext();
   try {
     const page = await ctx.newPage();
@@ -100,10 +126,10 @@ export async function creerCompteProuve(browser: Browser, etiquette: string): Pr
     let u: any = null;
     for (let i = 0; i < 40; i++) {
       u = (await lookup(email)).json;
-      if (u?.tenants?.[0]?.prospectionProvisionedAt && u?.tenants?.[0]?.notifuseWorkspaceSlug) break;
+      if (surStaging ? u?.user?.email_verified : u?.tenants?.[0]?.prospectionProvisionedAt && u?.tenants?.[0]?.notifuseWorkspaceSlug) break;
       await new Promise((r) => setTimeout(r, 1500));
     }
-    if (!u?.tenants?.[0]) throw new NonAbouti(`compte de test ${etiquette} : tenant non provisionné après 60 s`);
+    if (!surStaging && !u?.tenants?.[0]) throw new NonAbouti(`compte de test ${etiquette} : tenant non provisionné après 60 s`);
     if (!u.user?.email_verified) {
       throw new NonAbouti(`compte de test ${etiquette} : adresse toujours non prouvée après l'invitation`);
     }
@@ -113,7 +139,7 @@ export async function creerCompteProuve(browser: Browser, etiquette: string): Pr
       nom,
       motDePasse,
       hubUserId: u.user.supabase_user_id ?? null,
-      tenantId: u.tenants[0].id,
+      tenantId: u.tenants?.[0]?.id ?? null,
       etat: await ctx.storageState(),
     };
   } finally {
@@ -244,4 +270,120 @@ export async function sessionApp(ctx: BrowserContext, app: AppKey | 'hub', base?
   const r = await ctx.request.get(`${b}/api/auth/session`).catch(() => null);
   const j = await r?.json().catch(() => null);
   return (j?.user as { email?: string; id?: string } | undefined) ?? null;
+}
+
+/** Page réservée aux connectés, celle qu'on demande pour prouver le retour « sur la page demandée ». */
+export const PAGE_PROTEGEE: Record<AppKey, string> = {
+  prospection: '/prospects',
+  notifuse: '/console/',
+  analytics: '/',
+  twenty: '/settings/profile',
+};
+
+export type VueApp = {
+  connecte: boolean;
+  hote: string;
+  chemin: string;
+  /** Départs vers le rebond automatique : un seul attendu, jamais une rafale. */
+  rebondsAuto: number;
+};
+
+/**
+ * La session telle que l'app la relit côté serveur, depuis la page ouverte. `no-store` : Prospection
+ * met certaines réponses en cache 30 s. Twenty n'a pas encore de lecture : `undefined` = non lu.
+ */
+async function sessionLue(page: Page, app: AppKey): Promise<boolean | undefined> {
+  const lire = (chemin: string, jeton: string | null = null) =>
+    page.evaluate(
+      async ([c, j]) => {
+        const r = await fetch(c as string, {
+          cache: 'no-store',
+          headers: j ? { Authorization: `Bearer ${j}` } : {},
+        });
+        return { status: r.status, corps: await r.json().catch(() => null) };
+      },
+      [chemin, jeton],
+    );
+  if (app === 'prospection') return Boolean((await lire('/api/auth/session')).corps?.user?.email);
+  if (app === 'analytics') return Boolean((await lire('/api/auth/get-session')).corps?.user?.email);
+  if (app === 'notifuse') {
+    const jeton = await page.evaluate(() => localStorage.getItem('auth_token'));
+    if (!jeton) return false;
+    return (await lire('/api/user.me', jeton)).status === 200;
+  }
+  if (app === 'twenty') {
+    const lu = await page.evaluate(async () => {
+      const r = await fetch('/metadata', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json', 'x-twenty-session-cookie': '1' },
+        body: JSON.stringify({ query: '{currentUser{email}}' }),
+      });
+      return (await r.json().catch(() => null)) as { data?: { currentUser?: { email?: string } } } | null;
+    });
+    return Boolean(lu?.data?.currentUser?.email);
+  }
+  return undefined;
+}
+
+/** Le clic « Se déconnecter » de chaque app, celui qui doit interdire la reconnexion silencieuse. */
+export async function seDeconnecterDeApp(ctx: BrowserContext, app: AppKey): Promise<void> {
+  const page = await ctx.newPage();
+  try {
+    if (app === 'notifuse') {
+      await page.goto(`${APP_URL.notifuse}/console/logout`, { waitUntil: 'domcontentloaded' });
+    } else {
+      await page.goto(`${APP_URL[app]}${{ prospection: PAGE_PROTEGEE.prospection, analytics: '/settings/account', twenty: '/settings/profile', notifuse: '' }[app]}`, {
+        waitUntil: 'domcontentloaded',
+      });
+      await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
+      const bouton =
+        app === 'prospection'
+          ? page.locator('[title^="Se déconnecter"]')
+          : page.getByText(/^(Sign out|Se déconnecter|Log ?out|Déconnexion)$/i);
+      await bouton.first().click({ timeout: 20_000 });
+    }
+    await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
+    await page.waitForTimeout(3_000);
+  } catch (e) {
+    throw new NonAbouti(`bouton de déconnexion de ${app} introuvable : ${(e as Error).message.split('\n')[0]}`);
+  } finally {
+    await page.close();
+  }
+}
+
+/**
+ * Le geste réel : ouvrir une page de l'app dans ce navigateur, sans rien saisir, et regarder où l'on
+ * finit, puis relire la session. Vaut quel que soit l'endroit où l'app la garde (cookie, localStorage).
+ * Le rebond part souvent du client après chargement : on attend que l'adresse soit stable 6 s.
+ */
+export async function voirApp(ctx: BrowserContext, app: AppKey, chemin = PAGE_PROTEGEE[app]): Promise<VueApp> {
+  const page = await ctx.newPage();
+  let rebondsAuto = 0;
+  page.on('request', (r) => {
+    if (r.isNavigationRequest() && /\/api\/auth\/bounce\/prepare\?.*auto=1/.test(r.url())) rebondsAuto += 1;
+  });
+  try {
+    await page.goto(`${APP_URL[app]}${chemin}`, { waitUntil: 'domcontentloaded', timeout: 45_000 }).catch(() => {});
+    await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
+    const fin = Date.now() + 40_000;
+    let vue = page.url();
+    let depuis = Date.now();
+    while (Date.now() < fin && Date.now() - depuis < 6_000) {
+      await page.waitForTimeout(500);
+      if (page.url() !== vue) {
+        vue = page.url();
+        depuis = Date.now();
+      }
+    }
+    const u = new URL(page.url());
+    // Twenty sert chaque espace sur `<slug>.crm.*`.
+    const surApp = u.host === hoteDe(APP_URL[app]) || u.host.endsWith(`.${hoteDe(APP_URL[app])}`);
+    const formulaire = (await page.locator('input[type=password]').count().catch(() => 0)) > 0;
+    let connecte = surApp && !/login|signin|sign-in|welcome|session-ended|auth\//.test(u.pathname) && !formulaire;
+    if (connecte) connecte = (await sessionLue(page, app).catch(() => false)) ?? true;
+    return { connecte, hote: u.host, chemin: u.pathname, rebondsAuto };
+  } finally {
+    await page.close();
+  }
 }

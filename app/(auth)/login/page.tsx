@@ -20,11 +20,12 @@ interface LoginPageProps {
     next?: string;
     mode?: string;
     app?: string;
+    reauth?: string;
   }>;
 }
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
-  const { next: nextRaw, mode, app: appQuery } = await searchParams;
+  const { next: nextRaw, mode, app: appQuery, reauth } = await searchParams;
   const deployEnv = process.env.DEPLOY_ENV;
 
   // 1. Cas "appel direct depuis une app downstream" : `?next=...` sans mode bounce
@@ -36,6 +37,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
   // 2. Détermine si on est en mode bounce (cookie signé doit exister).
   let bounceApp: string | null = null;
+  let bounceOrigin: string | null = null;
   if (mode === 'bounce') {
     const secret = process.env.AUTH_SECRET;
     const cookieStore = await cookies();
@@ -49,6 +51,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         const parsed = parseNext(next, deployEnv);
         if (parsed) {
           bounceApp = parsed.app;
+          bounceOrigin = new URL(parsed.url).origin;
         }
       }
     }
@@ -66,8 +69,8 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
     if (bounceApp) {
       return redirect('/api/auth/bounce/complete');
     }
-    // Cas B — user loggué pas de bounce : flow normal.
-    return redirect('/dashboard');
+    // Cas B — user loggué pas de bounce : flow normal, sauf preuve récente demandée.
+    if (!reauth) return redirect('/dashboard');
   }
 
   const { allowOauth, allowEmail } = getAuthTypes();
@@ -103,6 +106,15 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
               bounceApp={safeAppHint}
             />
           </Card>
+          {/* Un compte local non relié n'a pas sa place ici : le retour lui rend l'écran de son outil,
+              qui n'ouvre pas un second rebond automatique (§6bis.8.0, point 3). */}
+          {bounceOrigin && (
+            <p className="mt-4 text-center text-sm text-muted-foreground">
+              <a href={bounceOrigin} className="underline hover:text-foreground">
+                Revenir à la connexion de l&apos;outil
+              </a>
+            </p>
+          )}
         </div>
       </div>
 
