@@ -63,7 +63,7 @@ export function assertSafeContext(env: NodeJS.ProcessEnv = process.env): void {
   if (env.OAUTH_TEST_PROVIDER !== 'true') return;
 
   // DEPLOY_ENV=production → refus catégorique
-  if (env.DEPLOY_ENV === 'production') {
+  if (env.DEPLOY_ENV === 'production' || env.DEPLOY_ENV === 'prod') {
     throw new Error(
       '[mock-oauth-provider] FATAL: OAUTH_TEST_PROVIDER=true with ' +
         `DEPLOY_ENV=production — refusing to boot. ` +
@@ -96,7 +96,7 @@ export function assertSafeContext(env: NodeJS.ProcessEnv = process.env): void {
  */
 export function isMockOauthEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
   if (env.OAUTH_TEST_PROVIDER !== 'true') return false;
-  if (env.DEPLOY_ENV === 'production') return false;
+  if (env.DEPLOY_ENV === 'production' || env.DEPLOY_ENV === 'prod') return false;
   // Staging OU local dev/test
   return (
     env.DEPLOY_ENV === 'staging' ||

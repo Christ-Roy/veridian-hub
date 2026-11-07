@@ -89,7 +89,8 @@ export type DeployEnv = 'production' | 'staging' | 'development' | 'test' | stri
  *   qui pointerait sur staging)
  */
 export function whitelistRegexFor(deployEnv: DeployEnv | undefined): RegExp[] {
-  if (deployEnv === 'production') return [NEXT_WHITELIST_REGEX_PROD];
+  // D13 : la prod déploie `DEPLOY_ENV=prod` ; « production » reste accepté (valeur historique).
+  if (deployEnv === 'production' || deployEnv === 'prod') return [NEXT_WHITELIST_REGEX_PROD];
   if (deployEnv === 'staging') return [NEXT_WHITELIST_REGEX_STAGING];
   // dev / test : on accepte les deux pour ne pas bloquer les tests
   return [NEXT_WHITELIST_REGEX_PROD, NEXT_WHITELIST_REGEX_STAGING];
