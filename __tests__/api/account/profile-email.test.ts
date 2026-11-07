@@ -14,7 +14,9 @@ const { users, updateMock } = vi.hoisted(() => ({
 vi.mock('@/lib/auth/get-user', () => ({
   requireUser: async () => ({ id: 'u1', email: 'moi@x.fr', name: 'Moi', supabaseUserId: null }),
 }));
+vi.mock('@/auth', () => ({ auth: vi.fn(async () => ({ user: { id: 'u1' } })) }));
 vi.mock('@/lib/auth/recent-auth', () => ({
+  denyIfImpersonated: async () => null,
   denyUnlessRecentAuth: async () => null,
   PREUVE_COMPTE_S: 86400,
 }));

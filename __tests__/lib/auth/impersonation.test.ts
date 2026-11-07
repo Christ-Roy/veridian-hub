@@ -22,6 +22,7 @@ import {
   createImpersonationToken,
   consumeImpersonationToken,
   encodeImpersonationSessionJwt,
+  impersonationExpiree,
   secureCookiesEnabled,
   sessionCookieName,
   isImpersonatedSession,
@@ -296,5 +297,36 @@ describe('isImpersonatedSession', () => {
     expect(isImpersonatedSession({ user: {} })).toBe(false);
     expect(isImpersonatedSession(null)).toBe(false);
     expect(isImpersonatedSession(undefined)).toBe(false);
+  });
+});
+
+describe('impersonationExpiree (D5)', () => {
+  const now = 1_800_000_000;
+  it('une impersonation de plus d une heure est expirée, même si la session Auth.js est re-signée', () => {
+    expect(impersonationExpiree({ impersonated: true, authAt: now - IMPERSONATION_SESSION_TTL_S - 1 }, now)).toBe(true);
+  });
+  it('une impersonation encore dans l heure reste valable', () => {
+    expect(impersonationExpiree({ impersonated: true, authAt: now - IMPERSONATION_SESSION_TTL_S + 1 }, now)).toBe(false);
+  });
+  it('une impersonation sans date de début est refusée (échec fermé)', () => {
+    expect(impersonationExpiree({ impersonated: true }, now)).toBe(true);
+  });
+  it('une session normale n est jamais concernée', () => {
+    expect(impersonationExpiree({ impersonated: undefined, authAt: now - 10 * 365 * 86400 }, now)).toBe(false);
+  });
+});
+
+describe('encodeImpersonationSessionJwt : date de début (D5)', () => {
+  it('le JWT porte authAt (début réel), que la re-signature Auth.js ne réécrit pas', async () => {
+    const before = Math.floor(Date.now() / 1000);
+    const jwt = await encodeImpersonationSessionJwt({
+      user: { id: 'u-42', email: 'target@veridian.site' },
+      impersonatedBy: 'robert@veridian.site',
+      secret: TEST_SECRET,
+      secure: false,
+    });
+    const decoded = await decode({ token: jwt, secret: TEST_SECRET, salt: sessionCookieName(false) });
+    expect(typeof decoded?.authAt).toBe('number');
+    expect(decoded?.authAt as number).toBeGreaterThanOrEqual(before);
   });
 });

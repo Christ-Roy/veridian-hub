@@ -14,7 +14,7 @@
  *   email/password à l'avenir.
  */
 
-import { denyUnlessRecentAuth, PREUVE_COMPTE_S } from '@/lib/auth/recent-auth';
+import { denyIfImpersonated, denyUnlessRecentAuth, PREUVE_COMPTE_S } from '@/lib/auth/recent-auth';
 import { revokeAllSessions } from '@/lib/auth/session-revocation';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -36,6 +36,8 @@ export async function POST(req: Request) {
     throw resp;
   }
 
+  const interdite = await denyIfImpersonated();
+  if (interdite) return interdite;
   const denied = await denyUnlessRecentAuth(PREUVE_COMPTE_S);
   if (denied) return denied;
 

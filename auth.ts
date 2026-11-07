@@ -20,6 +20,7 @@ import { createCreateUserEvent } from '@/lib/auth/create-user-event';
 import { buildMockOauthProvider } from '@/lib/auth/mock-oauth-provider';
 import { buildGoogleOneTapProvider } from '@/lib/auth/google-one-tap-provider';
 import { createOauthEventLogger } from '@/lib/auth/oauth-event-log';
+import { impersonationExpiree } from '@/lib/auth/impersonation';
 import { normaliserEmail } from '@/lib/auth/email-normalize';
 
 const credentialsSchema = z.object({
@@ -189,6 +190,8 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
         token.authAt = Math.floor(Date.now() / 1000);
         return token;
       }
+      // Impersonation : une heure après son début réel, quoi que dise la durée re-signée (D5).
+      if (impersonationExpiree(token)) return null;
       // Session d'un an : la révocation doit se lire ici, à chaque lecture de session, sinon un
       // jeton volé ou un compte supprimé resterait valable jusqu'à son expiration.
       if (typeof token.uid === 'string' && (await isSessionRevoked(prisma, token))) {

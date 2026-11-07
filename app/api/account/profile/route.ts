@@ -11,7 +11,7 @@
  * à jour `providerAccountId` pour rester cohérent avec le legacy bridge.
  */
 
-import { denyUnlessRecentAuth, PREUVE_COMPTE_S } from '@/lib/auth/recent-auth';
+import { denyIfImpersonated, denyUnlessRecentAuth, PREUVE_COMPTE_S } from '@/lib/auth/recent-auth';
 import { issueEmailProof } from '@/lib/auth/email-proof';
 import { normaliserEmail } from '@/lib/auth/email-normalize';
 import { pushUserToApps } from '@/lib/identity/push-user';
@@ -66,6 +66,9 @@ export async function PATCH(req: Request) {
   }
 
   if (email && email !== user.email) {
+    // D5 : une session d'assistance ne change pas l'adresse du client.
+    const interdite = await denyIfImpersonated();
+    if (interdite) return interdite;
     const denied = await denyUnlessRecentAuth(PREUVE_COMPTE_S);
     if (denied) return denied;
   }
