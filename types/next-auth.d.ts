@@ -17,6 +17,8 @@ declare module 'next-auth' {
       id?: string;
       /** `iat` du JWT, comparé à `User.sessionsValidAfter` par `getCurrentUser`. */
       issuedAt?: number;
+      /** Dernière connexion réelle (secondes). Ne glisse pas avec le renouvellement. */
+      authAt?: number;
       /** `true` si la session provient d'une impersonation admin. */
       impersonated?: boolean;
       /** Email du platform admin à l'origine de l'impersonation, sinon null. */
@@ -28,6 +30,8 @@ declare module 'next-auth' {
 declare module 'next-auth/jwt' {
   interface JWT {
     uid?: string;
+    /** Dernière connexion réelle (secondes). */
+    authAt?: number;
     /** `true` sur un JWT issu d'une impersonation admin. */
     impersonated?: boolean;
     /** Email du platform admin à l'origine de l'impersonation. */

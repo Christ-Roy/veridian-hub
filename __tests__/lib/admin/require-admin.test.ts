@@ -18,6 +18,18 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+
+const recente = vi.hoisted(() => ({ ok: true }));
+vi.mock('@/lib/auth/recent-auth', () => ({
+  isAuthRecent: () => recente.ok,
+  PREUVE_COMPTE_S: 86400,
+  PREUVE_FACTURATION_S: 604800,
+  denyUnlessRecentAuth: vi.fn(async () =>
+    recente.ok
+      ? null
+      : new Response(JSON.stringify({ error: 'recent_auth_required' }), { status: 403 }),
+  ),
+}));
 import { NextRequest } from 'next/server';
 
 const authMock = vi.fn();
@@ -87,6 +99,16 @@ describe('requireAdmin — chemin session Auth.js', () => {
     expect(res).not.toBeNull();
     expect(res!.status).toBe(403);
   });
+  it('admin dont la dernière connexion est trop ancienne : 403, preuve récente exigée', async () => {
+    recente.ok = false;
+    authMock.mockResolvedValueOnce({ user: { email: 'admin@x' } });
+    isPlatformAdminMock.mockReturnValueOnce(true);
+    const res = await requireAdmin(new NextRequest('https://app.veridian.site/api/admin/x'));
+    recente.ok = true;
+    expect(res?.status).toBe(403);
+    expect(await res?.json()).toMatchObject({ error: 'recent_auth_required' });
+  });
+
 
   it('autorise (null) quand session user est admin', async () => {
     authMock.mockResolvedValueOnce({ user: { email: 'admin@x', id: 'u1' } });

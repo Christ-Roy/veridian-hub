@@ -20,11 +20,12 @@ interface LoginPageProps {
     next?: string;
     mode?: string;
     app?: string;
+    reauth?: string;
   }>;
 }
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
-  const { next: nextRaw, mode, app: appQuery } = await searchParams;
+  const { next: nextRaw, mode, app: appQuery, reauth } = await searchParams;
   const deployEnv = process.env.DEPLOY_ENV;
 
   // 1. Cas "appel direct depuis une app downstream" : `?next=...` sans mode bounce
@@ -66,8 +67,8 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
     if (bounceApp) {
       return redirect('/api/auth/bounce/complete');
     }
-    // Cas B — user loggué pas de bounce : flow normal.
-    return redirect('/dashboard');
+    // Cas B — user loggué pas de bounce : flow normal, sauf preuve récente demandée.
+    if (!reauth) return redirect('/dashboard');
   }
 
   const { allowOauth, allowEmail } = getAuthTypes();

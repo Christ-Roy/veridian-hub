@@ -53,6 +53,20 @@ const nextConfig = {
     'contabo-bastion',
   ],
 
+  // Aucun site tiers ne peut afficher le Hub dans une iframe : la connexion et le rebond y ouvriraient une
+  // session à l'insu de l'utilisateur.
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
+          { key: 'Content-Security-Policy', value: "frame-ancestors 'self'" },
+        ],
+      },
+    ];
+  },
+
   // Routes auth dépréciées — anciennement des pages stub `redirect('/login')`.
   // Supprimées au profit de redirects 308 gérés par Next (pas de bundle React
   // pour 4 lignes de redirect). /login reste l'entrée canonique d'auth.

@@ -55,6 +55,41 @@ describe('GET /api/auth/bounce/prepare', () => {
     expect(loc).not.toContain('mode=bounce');
     expect(res.cookies.get(NEXT_COOKIE_NAME_SECURE)?.value).toBeFalsy();
   });
+  it('site client sous veridian.site, non déclaré comme app : refusé', async () => {
+    const { GET } = await import('@/app/api/auth/bounce/prepare/route');
+    const res = await GET(makeReq('https://avse-monetique.veridian.site/'));
+    expect(res.headers.get('location')).toMatch(/\/login$/);
+    expect(res.cookies.get(NEXT_COOKIE_NAME_SECURE)).toBeUndefined();
+  });
+
+  it.each([
+    ['iframe', { 'sec-fetch-dest': 'iframe' }],
+    ['fetch', { 'sec-fetch-mode': 'cors' }],
+    ['routeur Next', { rsc: '1' }],
+  ])('%s : 204, ni redirection ni cookie', async (_l, en) => {
+    const { GET } = await import('@/app/api/auth/bounce/prepare/route');
+    const req = makeReq('https://notifuse.app.veridian.site/');
+    const vus = en as Record<string, string>;
+    vi.spyOn(req.headers, 'get').mockImplementation((n: string) => vus[n.toLowerCase()] ?? null);
+    const res = await GET(req);
+    expect(res.status).toBe(204);
+    expect(res.cookies.get(NEXT_COOKIE_NAME_SECURE)).toBeUndefined();
+  });
+
+  it('auto=1 : au-delà de 2 essais rapprochés, plus de rebond, écran de connexion', async () => {
+    const { GET } = await import('@/app/api/auth/bounce/prepare/route');
+    const url = 'https://app.veridian.site/api/auth/bounce/prepare?auto=1&next=' +
+      encodeURIComponent('https://notifuse.app.veridian.site/');
+    const premier = await GET(new NextRequest(url));
+    expect(premier.headers.get('location')).toContain('mode=bounce');
+    expect(premier.cookies.get('veridian-auto-bounce')?.value).toBe('1');
+    const req = new NextRequest(url);
+    req.cookies.set('veridian-auto-bounce', '2');
+    const stop = await GET(req);
+    expect(stop.headers.get('location')).toContain('bounce_failed=1');
+    expect(stop.cookies.get(NEXT_COOKIE_NAME_SECURE)).toBeUndefined();
+  });
+
 
   it('next=https://evil.com → ignoré, redirect /login sans cookie', async () => {
     const { GET } = await import('@/app/api/auth/bounce/prepare/route');
@@ -79,13 +114,13 @@ describe('GET /api/auth/bounce/prepare', () => {
     expect(loc).toContain('mode=bounce');
   });
 
-  it('next valide (newapp.veridian.site, regex large) → cookie signé + redirect mode=bounce&app=newapp', async () => {
+  it('next valide (notifuse.app.veridian.site) → cookie signé + redirect mode=bounce&app=newapp', async () => {
     const { GET } = await import('@/app/api/auth/bounce/prepare/route');
-    const res = await GET(makeReq('https://newapp.veridian.site/signin'));
+    const res = await GET(makeReq('https://notifuse.app.veridian.site/signin'));
     const loc = res.headers.get('location');
     expect(loc).toContain('/login');
     expect(loc).toContain('mode=bounce');
-    expect(loc).toContain('app=newapp');
+    expect(loc).toContain('app=notifuse');
 
     const cookie = res.cookies.get(NEXT_COOKIE_NAME_SECURE);
     expect(cookie).toBeDefined();
@@ -97,7 +132,7 @@ describe('GET /api/auth/bounce/prepare', () => {
 
     // Cookie déchiffrable + restitue le next original
     const decoded = verifyNextCookie(cookie!.value, TEST_SECRET);
-    expect(decoded).toBe('https://newapp.veridian.site/signin');
+    expect(decoded).toBe('https://notifuse.app.veridian.site/signin');
   });
 
   it('next nominal notifuse → cookie + redirect mode=bounce&app=notifuse', async () => {

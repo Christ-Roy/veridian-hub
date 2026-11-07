@@ -12,12 +12,13 @@ import MicrosoftEntraID from 'next-auth/providers/microsoft-entra-id';
 import { isDevHarnessEnabled } from '@/lib/dev/harness-guard';
 
 export const authConfig = {
-  // Cookies session : 90 jours (3 mois)
-  // Décision P1.4 : éviter que les tenants perdent leur compte facilement.
-  // Le 2FA email opt-in compense pour la sécurité.
+  // Session glissante d'un an, comme Gmail (demande de Robert, 07/11/2026) : l'usage la renouvelle
+  // chaque jour, un an d'inactivité déconnecte. La contrepartie vit dans `auth.ts` (révocation lue
+  // en base à chaque lecture) et dans `lib/auth/recent-auth.ts` (preuve récente pour les actions
+  // sensibles). Changer `AUTH_SECRET` coupe toutes les sessions : c'est le bouton d'urgence.
   session: {
     strategy: 'jwt',
-    maxAge: 60 * 60 * 24 * 90, // 90 jours
+    maxAge: 60 * 60 * 24 * 365, // 1 an
     updateAge: 60 * 60 * 24, // 1 jour
   },
   pages: {

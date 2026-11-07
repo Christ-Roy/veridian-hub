@@ -63,6 +63,11 @@ export function RefillLeadsForm({
       });
       const data = await res.json();
 
+      if (data.error === 'recent_auth_required') {
+        window.location.href = `${data.login_url}&callbackUrl=${encodeURIComponent(window.location.pathname)}`;
+        return;
+      }
+
       if (!res.ok || !data.url) {
         const message = mapErrorCode(data.error) ?? 'Impossible de lancer le paiement.';
         toast.error('Erreur', { description: message, duration: 6000 });

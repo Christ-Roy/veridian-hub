@@ -258,3 +258,23 @@ function constantTimeStringEqual(a: string, b: string): boolean {
   if (ab.length !== bb.length) return false;
   return timingSafeEqual(ab, bb);
 }
+
+/**
+ * Vraie navigation de l'utilisateur, ni routeur Next (RSC, préchargement), ni `fetch`, ni iframe.
+ * Rien ne doit partir en dehors : un lien coûte au plafond des apps, un préchargement peut consommer
+ * un lien à usage unique, et un rebond automatique dans une iframe ouvrirait une session à l'insu
+ * de l'utilisateur. Les navigateurs anciens n'envoient pas ces en-têtes : absents, on laisse passer.
+ */
+export function isRealNavigation(req: {
+  headers: { get(name: string): string | null };
+  nextUrl: { searchParams: URLSearchParams };
+}): boolean {
+  if (req.headers.get('rsc') || req.nextUrl.searchParams.has('_rsc')) return false;
+  if (req.headers.get('next-router-prefetch')) return false;
+  const purpose = req.headers.get('purpose') ?? req.headers.get('sec-purpose');
+  if (purpose?.includes('prefetch')) return false;
+  const mode = req.headers.get('sec-fetch-mode');
+  if (mode && mode !== 'navigate') return false;
+  const dest = req.headers.get('sec-fetch-dest');
+  return !dest || dest === 'document';
+}

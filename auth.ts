@@ -14,6 +14,7 @@ import { prisma } from '@/lib/prisma';
 import { issueAndSendMfaCode } from '@/lib/mfa';
 import { authConfig } from './auth.config';
 import { applyProviderEmailProof, providerProvesEmail } from '@/lib/auth/email-proof-provider';
+import { isSessionRevoked } from '@/lib/auth/session-revocation';
 import { createSignInCallback } from '@/lib/auth/sign-in-callback';
 import { createCreateUserEvent } from '@/lib/auth/create-user-event';
 import { buildMockOauthProvider } from '@/lib/auth/mock-oauth-provider';
@@ -179,6 +180,13 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
     async jwt({ token, user }) {
       if (user) {
         token.uid = user.id;
+        token.authAt = Math.floor(Date.now() / 1000);
+        return token;
+      }
+      // Session d'un an : la révocation doit se lire ici, à chaque lecture de session, sinon un
+      // jeton volé ou un compte supprimé resterait valable jusqu'à son expiration.
+      if (typeof token.uid === 'string' && (await isSessionRevoked(prisma, token))) {
+        return null;
       }
       // Les claims `impersonated` / `impersonatedBy` sont posés directement
       // dans le JWT par /api/auth/impersonate-callback (encode @auth/core).
@@ -192,6 +200,9 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       }
       if (typeof token?.iat === 'number' && session.user) {
         session.user.issuedAt = token.iat;
+      }
+      if (typeof token?.authAt === 'number' && session.user) {
+        session.user.authAt = token.authAt;
       }
       // Expose le marqueur d'impersonation côté session pour que les Server
       // Components / routes admin puissent (a) afficher une bannière et

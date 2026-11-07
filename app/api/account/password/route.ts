@@ -14,6 +14,8 @@
  *   email/password à l'avenir.
  */
 
+import { denyUnlessRecentAuth, PREUVE_COMPTE_S } from '@/lib/auth/recent-auth';
+import { revokeAllSessions } from '@/lib/auth/session-revocation';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
@@ -33,6 +35,9 @@ export async function POST(req: Request) {
     if (resp instanceof Response) return resp;
     throw resp;
   }
+
+  const denied = await denyUnlessRecentAuth(PREUVE_COMPTE_S);
+  if (denied) return denied;
 
   const json = await req.json().catch(() => null);
   const parsed = bodySchema.safeParse(json);
@@ -88,5 +93,8 @@ export async function POST(req: Request) {
     });
   }
 
-  return NextResponse.json({ ok: true });
+  // Un mot de passe changé coupe toutes les sessions, y compris celle-ci et celles des apps.
+  await revokeAllSessions(prisma, user);
+
+  return NextResponse.json({ ok: true, reconnect: true });
 }

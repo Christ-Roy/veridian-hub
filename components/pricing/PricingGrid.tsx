@@ -80,6 +80,11 @@ export function PricingGrid({
       });
       const data = await res.json();
 
+      if (data.error === 'recent_auth_required') {
+        window.location.href = `${data.login_url}&callbackUrl=${encodeURIComponent(window.location.pathname)}`;
+        return;
+      }
+
       if (!res.ok || !data.url) {
         toast.error('Erreur de checkout', {
           description: data.error || 'Réessaye dans quelques secondes',

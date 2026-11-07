@@ -1,3 +1,4 @@
+import { isAuthRecent, PREUVE_COMPTE_S } from '@/lib/auth/recent-auth';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/auth';
@@ -27,6 +28,12 @@ export async function requireAdmin(request: NextRequest): Promise<NextResponse |
   }
   if (!isPlatformAdmin(session.user)) {
     return NextResponse.json({ error: 'Forbidden — admin access only' }, { status: 403 });
+  }
+  if (!isAuthRecent(session.user.authAt, PREUVE_COMPTE_S)) {
+    return NextResponse.json(
+      { error: 'recent_auth_required', login_url: '/login?reauth=1' },
+      { status: 403 },
+    );
   }
   return null;
 }

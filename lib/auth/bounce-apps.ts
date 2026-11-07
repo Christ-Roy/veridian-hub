@@ -69,6 +69,8 @@ export interface IssueMagicLinkInput {
   email: string;
   /** Adresse prouvée au Hub : seule condition pour qu'une app relie par email. */
   emailProven?: boolean;
+  /** Page demandée : l'app y renvoie après connexion, si elle est sur sa propre origine. */
+  next?: string;
 }
 
 export interface IssueMagicLinkSuccess {
@@ -193,6 +195,7 @@ export async function issueMagicLinkForApp(
     hub_user_id: input.hubUserId,
     email: input.email,
     ...(input.emailProven ? { email_proven: true } : {}),
+    ...(input.next ? { next: input.next } : {}),
   });
 
   const timestamp = String(nowMs());
