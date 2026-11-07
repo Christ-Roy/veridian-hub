@@ -18,7 +18,7 @@
 >   restent maintenus.
 > - `CI-ARCHITECTURE.md` — pipeline CI/CD cross-app. Idem, pas de duplication.
 >
-> **Versionnage** : `v1.8` (2026-11-06). Toute évolution majeure → bump version + section
+> **Versionnage** : `v1.9` (2026-11-07). Toute évolution majeure → bump version + section
 > "Changements" en bas.
 >
 > **Compagnon technique** : `CONTRAT-HUB-API-REF.md` (même dossier, symlinké
@@ -521,7 +521,7 @@ Cf §8.9 pour l'implémentation côté Hub Dashboard.
 **Fallback Hub-down** : les apps continuent de fonctionner avec leurs `users.id`
 locaux. La colonne `hub_user_id` est utile pour Hub seulement.
 
-### 3.8 Le Hub, seule source de vérité des utilisateurs (gravé v1.8)
+### 3.8 Le Hub, seule source de vérité des utilisateurs (gravé v1.8, précisé v1.9)
 
 > Décision Robert du 2026-11-06. Prévaut sur toute mention contraire de ce contrat.
 
@@ -545,11 +545,16 @@ signifie « non attesté », y compris pour une impersonation. Une app ne relie 
 existant par email que si ce champ est présent ; sinon elle se fie au seul `hub_user_id`.
 Une app qui n'a pas de lien par email peut l'ignorer.
 
-Valent preuve : un fournisseur OAuth qui certifie l'adresse (une telle connexion sur un
-compte non prouvé annule le mot de passe préexistant et invalide les sessions déjà
-émises), le lien par mail cliqué **dans une session de ce compte** (un scanner de mail
-ou une victime ne valident rien), un reset de mot de passe, une invitation adressée à
-cette adresse.
+Valent preuve : un fournisseur OAuth qui certifie l'adresse (Google : `email_verified` ;
+Microsoft : revendication `xms_edov`, fournisseur inactif en prod tant que
+`MICROSOFT_OAUTH_CLIENT_ID` est absent). Une telle connexion sur un compte non prouvé annule
+le mot de passe préexistant et invalide les sessions déjà émises. Valent aussi : le lien par
+mail cliqué **dans une session de ce compte** (un scanner de mail ou une victime ne valident
+rien), un reset de mot de passe, une invitation adressée à cette adresse.
+
+**La preuve est liée à l'adresse** : le lien de preuve (48 h, haché) ne vaut que pour l'adresse
+pour laquelle il a été émis ; changer d'adresse l'invalide. **Un fournisseur OAuth ne relie
+jamais un compte existant sur une adresse qu'il n'atteste pas**, sauf si la liaison existe déjà.
 
 **`revoke_sessions: true`** sur `POST /api/hub/users/sync` : coupe toutes les sessions de
 l'utilisateur dans l'app, sans toucher au compte. Envoyé par « se déconnecter partout » et par un
@@ -2403,18 +2408,45 @@ en lecture seule via couche 2.
 > modification Hub** — uniquement implémenter l'endpoint contrat
 > §6bis.8.3 côté `veridian-newapp` et ajouter ses boutons.
 
-#### 6bis.8.0 Connexion automatique et session longue (gravé v1.8)
+#### 6bis.8.0 Connexion automatique et session longue (gravé v1.8, réécrit v1.9)
 
 Décision Robert du 2026-11-07 : se connecter à toutes les apps sans ressaisie, comme Gmail. **Aucun
 cookie de session sur `.veridian.site`**, ce domaine porte aussi des sites clients. Le cookie reste
-sur le Hub, et le rebond fait le reste.
+sur le Hub, et le rebond fait le reste. Parcours par parcours, avec leur preuve :
+`PARCOURS-IDENTITE.md`.
 
-**Hub.** Session glissante d'un an : l'usage renouvelle, un an d'inactivité déconnecte. La révocation
-se lit en base à chaque lecture de session, sur la date de connexion réelle (`authAt`), jamais sur
-`iat`, que chaque lecture réécrit. Compte supprimé, « se déconnecter partout », mot de passe
-changé ou réinitialisé : la session tombe au passage suivant. Changer `AUTH_SECRET` coupe toutes les
-sessions, c'est le bouton d'urgence. Une connexion réelle récente est exigée pour le changement
-d'email ou de mot de passe et l'administration par session (24 h), et pour la facturation (7 jours).
+**Session du Hub.** Glissante d'un an : l'usage renouvelle, un an d'inactivité déconnecte.
+- **`authAt`** est la date de connexion réelle. **Toute session fabriquée par le Hub la porte** : Auth.js (mot de
+  passe, Google, Microsoft : callback `jwt`), One Tap, MFA (`/api/auth/mfa/verify`), impersonation. Tout nouveau
+  `encode()` de JWT de session doit entrer dans la liste de `__tests__/contrat/authat-creation-session.test.ts`.
+- **Révocation** : lue en base à chaque lecture de session, en comparant `authAt` à `users.sessions_valid_after`.
+  **Jamais `iat`**, que chaque lecture réécrit (faille mesurée en prod le 07/11). Un jeton sans `authAt` tombe dès
+  qu'une révocation existe. Compte supprimé : session révoquée. Base injoignable : on ne déconnecte personne.
+- **Coupures** : « se déconnecter partout », mot de passe changé ou réinitialisé, compte supprimé : la session du Hub
+  tombe au passage suivant et `revoke_sessions: true` part vers les apps. La réponse du Hub nomme les apps qui n'ont
+  pas confirmé (`failed`, `endpoint_missing`) ; `not_in_app` et `not_configured` ne sont pas des échecs.
+- **`AUTH_SECRET`** : le changer coupe toutes les sessions **du Hub** et les cookies d'étape en cours (rebond, MFA).
+  Il ne coupe pas les sessions déjà ouvertes dans les apps, qui ne les perdent que par `revoke_sessions` ou leur
+  propre expiration. Il ne touche ni le cookie hint (`SESSION_HINT_SECRET`) ni les signatures Hub vers apps.
+- **Impersonation** : une heure à partir de son début réel (`authAt`), hors « déconnecter partout » et hors
+  changement d'email ou de mot de passe.
+- **MFA** : la session n'est émise qu'après le code (cookie signé d'étape 1 de 5 min, code à usage unique, 5 essais par
+  fenêtre de 10 min). One Tap refuse un compte à double vérification. 0 compte MFA en prod au 07/11.
+- **One Tap** : même durée et même `authAt` que les autres sessions, sans quoi la révocation et la preuve récente ne
+  voient pas la session.
+- **Preuve de connexion récente** (`authAt`, `lib/auth/recent-auth.ts`) : 24 h pour le changement d'email ou de mot de
+  passe, la double vérification, le détachement d'un fournisseur et l'administration par session ; 7 jours pour la
+  facturation (checkout et recharge de leads). Écran : `/login?reauth=1`.
+- **IP client** : `cf-connecting-ip`, jamais le premier `X-Forwarded-For` (forgeable).
+- **`next` et `callbackUrl`** : `next` (rebond) ne vise que `<app>.app.veridian.site` d'une app déclarée (staging à part,
+  `DEPLOY_ENV=prod` comptant comme la production) ; `callbackUrl` (formulaires du Hub) n'est qu'un chemin interne.
+
+**Rebond, côté Hub.** `GET /api/auth/bounce/prepare` puis `complete`, navigation de page seulement (iframe, fetch,
+préchargement : 204 sans rien émettre). Cible = app déclarée dans `APP_ENV_MAP`, adresse prouvée, lien rendu par
+l'app en https sur `*.veridian.site`. **Anti-boucle, par app, fenêtre de 30 s** (cookie `veridian-auto-bounce`,
+jamais remis à zéro par `complete`) : les 2 premiers `auto=1` rebondissent ; le **3e est rendu à l'app sur la page
+demandée** (où son essai unique, point 3, affiche la connexion) ; le **4e s'arrête sur `/login?bounce_failed=1`**.
+Ouvrir trois outils différents à la suite n'est pas une boucle.
 
 **Ce que chaque app doit faire**, sur une page protégée, en navigation complète (GET) seulement :
 
@@ -2425,17 +2457,39 @@ d'email ou de mot de passe et l'administration par session (24 h), et pour la fa
    silencieuse. Le bouton « Continuer » de cette page appelle le rebond sans `auto`.
 3. **Un seul essai automatique** : poser avant de partir un cookie local de 5 minutes. S'il est déjà
    là au retour, afficher la page de connexion au lieu de repartir. Le lever à la connexion réussie.
-   Le Hub s'arrête aussi de son côté, par app, sur 30 s : au troisième `auto=1` il renvoie sur la page
-   demandée, où cet essai unique affiche la connexion ; au quatrième, sur `/login?bounce_failed=1`.
 4. **Jamais** de rebond automatique dans une iframe, sur un POST, ni sur une route d'API (répondre
-   401). Le Hub répond 204 sans rien émettre à une requête qui n'est pas une navigation.
+   401).
 5. `POST /api/sso/issue-magic-link` reçoit `next` en option : y renvoyer après connexion **si et
    seulement si** l'URL est sur l'origine de l'app, sinon sur l'accueil.
 6. `revoke_sessions: true` (§3.8) coupe les sessions de l'utilisateur dans l'app.
 
+**Tests de contrat que chaque app doit avoir en CI** (un par point, chacun vu échouer avant d'être cru) :
+
+1. Sans session locale, une navigation GET protégée redirige vers `prepare` avec `next` encodé et `auto=1` ; une
+   requête d'API répond 401 sans redirection.
+2. Après le clic « Se déconnecter », la page protégée affiche la connexion et ne redirige pas vers le Hub ; le cookie est levé
+   par une connexion réussie.
+3. Cookie d'essai présent au retour : page de connexion, pas de second départ ; cookie levé à la connexion réussie.
+4. Iframe (`Sec-Fetch-Dest: iframe`), POST et route d'API : jamais de rebond automatique.
+5. `issue-magic-link` avec `next` d'une autre origine, `//hote`, `javascript:` : atterrissage sur l'accueil ; sur son origine : sur `next`.
+6. `sync` avec `revoke_sessions: true` : la session ouverte avant l'appel est refusée après, y compris un cookie rejoué.
+
 **Résultat attendu.** Session Hub ouverte : arrivée connectée sur la page demandée, sans saisie.
 Pas de session Hub : écran de connexion du Hub, puis retour à la page demandée. Adresse non prouvée :
 tableau de bord du Hub, lien de preuve envoyé.
+
+**Mesure.**
+- **Garde rapide** : `__tests__/contrat/` (révocation sans `iat`, `authAt` à chaque création de session, cibles des
+  redirections du rebond, origines, navigation réelle, index des tests qui tiennent le reste).
+- **Batterie système** : `pnpm test:systeme` (`e2e/systeme-sso/README.md`), vrai navigateur contre ce qui est servi.
+- **Sonde de prod** : étape « Sonde identité » de `hub-ci.yml`, lectures seules, après chaque déploiement.
+- **Comptes de test** : `e2e-sso-<run>-<a|b|np>@veridian.site`, créés par le chemin réel, notés avant usage, retirés
+  par `delete-tenant` ; la batterie échoue s'il en reste.
+- **`hub reconcile`** (dry-run, n'écrit rien) : par app `ok`, `endpoint_missing` ou `unreachable` (jamais « aucun
+  écart » sans comparaison), plus `testResidue` (comptes de test au Hub et dans les apps, workspaces de test Notifuse,
+  tenants sans utilisateur). Le cron horaire alerte au-dessus de `RESIDUE_SEUIL` (5 par défaut, restes connus).
+- **Coupure** : le Hub est à une instance, un déploiement le coupe 19 à 51 s (mesures du 07/11) ; les sessions d'app
+  déjà ouvertes continuent de servir, le rebond et les connexions neuves échouent le temps de la coupure.
 
 #### 6bis.8.1 Quand la couche 4 se déclenche
 
@@ -2483,7 +2537,7 @@ externalise tout au Hub.
    - Refuser `app.veridian.site` lui-même (pas de bounce vers Hub —
      redirect normal `/dashboard`).
 3. **Persister `next` pendant le flow OAuth** : cookie temporaire
-   `__Secure-veridian-next` (HttpOnly, sameSite=lax, TTL 5 min, scope
+   `__Secure-veridian-next` (HttpOnly, sameSite=lax, TTL 10 min, scope
    exact `app.veridian.site`) OU param state Auth.js. **Jamais** dans
    l'URL OAuth public (fuite Referer).
 4. **Après OAuth réussi** (Google ou Microsoft) :
@@ -4166,6 +4220,18 @@ chaque app retry indéfiniment avec backoff plafond 1h.
 ---
 
 ## 16. Changements
+
+### v1.9 — 2026-11-07 (parcours d'identité tenu et mesuré)
+
+- **§6bis.8.0 réécrit** : `authAt` sur toute session fabriquée (Auth.js, One Tap, MFA, impersonation), révocation
+  jamais sur `iat`, anti-boucle par app (3e essai rendu à l'app, 4e arrêt), `AUTH_SECRET` (ce qu'il coupe et ce qu'il ne
+  coupe pas), preuve récente, tests de contrat que chaque app doit avoir, mesure (garde, batterie, sonde, `hub reconcile`).
+- **§3.8** : la preuve d'adresse est liée à l'adresse ; un fournisseur OAuth ne relie jamais un compte existant sur une
+  adresse non attestée ; Microsoft inactif en prod.
+- **§6bis.8.2** : le cookie `next` dure 10 min (la spec disait 5).
+- **Nouveau** : `PARCOURS-IDENTITE.md` (chaque parcours, sa preuve, ce qui est accepté ou en écart).
+- **Écarts connus, non corrigés** : retrait de membre sans `remove-member` (§5.19), un seul cookie `next` pour deux
+  onglets, pas d'anti-bot à l'inscription, `impersonatedBy` sans identité d'admin.
 
 ### v1.8 — 2026-11-06 (identité sans base commune)
 
