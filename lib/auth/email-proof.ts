@@ -48,6 +48,23 @@ function hashToken(token: string): string {
 }
 
 /**
+ * Préfixe des jetons d'un compte, toutes adresses confondues. Les jetons d'une ancienne
+ * adresse se retrouvent par ce préfixe, pour être supprimés au renvoi.
+ */
+function userProofPrefix(userId: string): string {
+  return `${EMAIL_PROOF_IDENTIFIER_PREFIX}${userId}:`;
+}
+
+/**
+ * Identifiant d'un jeton : le compte ET l'adresse à prouver. Un jeton émis pour `a@evil`
+ * ne prouve donc plus rien une fois l'adresse du compte changée (D2). L'empreinte évite
+ * d'écrire l'adresse en clair dans la table.
+ */
+function proofIdentifier(userId: string, email: string): string {
+  return `${userProofPrefix(userId)}${hashToken(email.trim().toLowerCase())}`;
+}
+
+/**
  * Envoie le lien de preuve. Renvoie `false` si un lien récent existe déjà : le
  * client n'a rien de plus à faire que lire le mail déjà parti.
  */
@@ -56,7 +73,7 @@ export async function issueEmailProof(
   user: { id: string; email: string },
   send: typeof sendMail = sendMail,
 ): Promise<boolean> {
-  const identifier = `${EMAIL_PROOF_IDENTIFIER_PREFIX}${user.id}`;
+  const identifier = proofIdentifier(user.id, user.email);
   const ttlMs = EMAIL_PROOF_TTL_HOURS * 60 * 60 * 1000;
   const recent = await prisma.verificationToken.findFirst({
     where: { identifier, expires: { gt: new Date(Date.now() + ttlMs - RESEND_COOLDOWN_MS) } },
@@ -64,7 +81,11 @@ export async function issueEmailProof(
   });
   if (recent) return false;
 
-  await prisma.verificationToken.deleteMany({ where: { identifier } });
+  // Un seul jeton vivant par compte : celui de l'adresse courante remplace aussi ceux
+  // des adresses précédentes.
+  await prisma.verificationToken.deleteMany({
+    where: { identifier: { startsWith: userProofPrefix(user.id) } },
+  });
   const token = randomBytes(32).toString('base64url');
   await prisma.verificationToken.create({
     data: { identifier, token: hashToken(token), expires: new Date(Date.now() + ttlMs) },
@@ -93,8 +114,16 @@ export async function consumeEmailProof(
   });
   if (!row || !row.identifier.startsWith(EMAIL_PROOF_IDENTIFIER_PREFIX)) return 'invalid';
   if (row.expires.getTime() <= Date.now()) return 'invalid';
-  if (row.identifier !== `${EMAIL_PROOF_IDENTIFIER_PREFIX}${sessionUserId}`) {
+  if (!row.identifier.startsWith(userProofPrefix(sessionUserId))) {
     return 'wrong_account';
+  }
+  // Jeton d'une adresse que le compte n'a plus : périmé, même s'il est encore en base.
+  const current = await prisma.user.findUnique({
+    where: { id: sessionUserId },
+    select: { email: true },
+  });
+  if (!current?.email || row.identifier !== proofIdentifier(sessionUserId, current.email)) {
+    return 'invalid';
   }
   await prisma.verificationToken.deleteMany({ where: { identifier: row.identifier } });
   await prisma.user.update({
