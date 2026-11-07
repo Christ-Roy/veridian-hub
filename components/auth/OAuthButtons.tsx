@@ -63,7 +63,7 @@ export function SignupLink() {
   return (
     <>
       Pas encore de compte ?{' '}
-      <Link href="/signup" className="underline underline-offset-4">
+      <Link href="/signup" className="inline-block py-3 underline underline-offset-4">
         Créer un compte
       </Link>
     </>
@@ -75,7 +75,7 @@ export function LoginLink() {
   return (
     <>
       Déjà un compte ?{' '}
-      <Link href="/login" className="underline underline-offset-4">
+      <Link href="/login" className="inline-block py-3 underline underline-offset-4">
         Se connecter
       </Link>
     </>

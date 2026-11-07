@@ -70,15 +70,37 @@ export function resolveError(code: string | null | undefined): ErrorEntry | null
   return ERROR_MAP[code] ?? ERROR_MAP.Default;
 }
 
+/** Messages sans code d'erreur : rebond raté (`bounce_failed=1`) et reconnexion demandée (`reauth=1`). */
+export function resolveNotice(params: { get(name: string): string | null }): (ErrorEntry & { code: string }) | null {
+  if (params.get('bounce_failed') === '1') {
+    return {
+      code: 'bounce_failed',
+      title: 'Reconnexion à l’outil impossible',
+      message: 'Nous n’avons pas pu vous reconnecter à l’outil. Connectez-vous à nouveau ci-dessous.',
+      variant: 'destructive',
+    };
+  }
+  if (params.get('reauth') === '1') {
+    return {
+      code: 'reauth',
+      title: 'Confirmation demandée',
+      message: 'Pour votre sécurité, reconnectez-vous pour effectuer cette action.',
+      variant: 'default',
+    };
+  }
+  return null;
+}
+
 export function LoginErrorBanner() {
   const searchParams = useSearchParams();
   const code = searchParams.get('error');
-  const entry = resolveError(code);
+  const entry = resolveError(code) ?? resolveNotice(searchParams);
+  const shownCode = code ?? (entry && 'code' in entry ? entry.code : null);
 
   if (!entry) return null;
 
   return (
-    <Alert variant={entry.variant} role="alert" data-error-code={code}>
+    <Alert variant={entry.variant} role="alert" data-error-code={shownCode}>
       <AlertTitle>{entry.title}</AlertTitle>
       <AlertDescription>{entry.message}</AlertDescription>
     </Alert>

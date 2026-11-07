@@ -8,14 +8,13 @@ import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { PasswordInput } from '@/components/ui/password-input';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
+import { PASSWORD_RULE_TEXT, passwordPolicyError } from '@/lib/auth/password-policy';
 
 import type { OnboardingInvite } from './types';
 
-/** Règles de robustesse affichées en direct sous le champ. */
+/** Règle affichée en direct sous le champ : la même que sur les routes serveur (lib/auth/password-policy). */
 const RULES: { id: string; label: string; test: (v: string) => boolean }[] = [
-  { id: 'longueur', label: 'Au moins 10 caractères', test: (v) => v.length >= 10 },
-  { id: 'majuscule', label: 'Une majuscule', test: (v) => /[A-ZÀ-ÖØ-Þ]/.test(v) },
-  { id: 'chiffre', label: 'Un chiffre', test: (v) => /\d/.test(v) },
+  { id: 'longueur', label: PASSWORD_RULE_TEXT, test: (v) => passwordPolicyError(v) === null },
 ];
 
 /**

@@ -28,11 +28,16 @@ export default async function SecuritySettingsPage() {
     redirect('/login');
   }
 
+  const motDePasse = await prisma.account.findFirst({
+    where: { userId: user.id, provider: 'credentials', access_token: { not: null } },
+    select: { id: true },
+  });
+
   return (
     <div className="max-w-2xl mx-auto p-6 space-y-6">
       <DashboardPageHeader
         title="Sécurité"
-        description="Renforce la protection de ton compte Veridian."
+        description="Renforcez la protection de votre compte Veridian."
         icon={ShieldCheck}
       />
 
@@ -40,13 +45,13 @@ export default async function SecuritySettingsPage() {
         <div>
           <h2 className="text-lg font-medium">Validation par email</h2>
           <p className="text-sm text-muted-foreground mt-1">
-            Quand tu te connectes depuis un nouvel appareil, Veridian t&apos;envoie un code
-            à 6 chiffres par email. Ta session reste active pendant un an pour éviter
+            Quand vous vous connectez avec votre mot de passe, Veridian vous envoie un code
+            à 6 chiffres par email. Votre session reste active pendant un an pour éviter
             les reconnexions fréquentes.
           </p>
         </div>
 
-        <SecurityMfaToggle initialEnabled={user.mfaEnabled} email={user.email} />
+        <SecurityMfaToggle initialEnabled={user.mfaEnabled} email={user.email} hasPassword={Boolean(motDePasse)} />
       </Card>
 
       <Card className="p-6 space-y-4">

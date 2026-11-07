@@ -22,6 +22,7 @@ import { randomUUID } from 'crypto';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 
+import { PASSWORD_MAX, PASSWORD_MIN } from '@/lib/auth/password-policy';
 import { issueEmailProof } from '@/lib/auth/email-proof';
 import { prisma } from '@/lib/prisma';
 import { signupLimiter, extractClientIp } from '@/lib/auth/rate-limit';
@@ -33,7 +34,7 @@ const signupSchema = z.object({
   // max(72) : bcrypt tronque silencieusement à 72 bytes — au-delà n'ajoute
   // aucune sécurité et expose à un DoS (hash CPU + stockage sur payload XXL,
   // ex. password 2 MB). Borne explicite côté Zod → 400 avant tout hash.
-  password: z.string().min(8).max(72),
+  password: z.string().min(PASSWORD_MIN).max(PASSWORD_MAX),
 });
 
 export async function POST(request: NextRequest) {
@@ -72,7 +73,7 @@ export async function POST(request: NextRequest) {
   const parsed = signupSchema.safeParse(payload);
   if (!parsed.success) {
     return NextResponse.json(
-      { error: 'Invalid email or password (min 8 chars)' },
+      { error: 'Adresse email ou mot de passe invalide (mot de passe : 8 à 72 caractères).' },
       { status: 400 }
     );
   }

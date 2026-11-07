@@ -147,7 +147,7 @@ export function LoginForm({
                 <FieldLabel htmlFor="password">Mot de passe</FieldLabel>
                 <Link
                   href="/signin/forgot_password"
-                  className="ml-auto text-sm underline-offset-4 hover:underline"
+                  className="ml-auto inline-flex min-h-11 items-center text-sm underline-offset-4 hover:underline"
                 >
                   Mot de passe oublié ?
                 </Link>

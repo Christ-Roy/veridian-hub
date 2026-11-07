@@ -28,7 +28,7 @@ const INVITE: OnboardingInvite = {
   expiresAt: '2026-08-15T18:00:00.000Z',
 };
 
-/** Mot de passe qui satisfait les trois règles (10+, majuscule, chiffre). */
+/** Mot de passe qui satisfait la règle (8 à 72 caractères). */
 const VALIDE = 'Motdepasse1';
 
 function setup(props: Partial<React.ComponentProps<typeof PasswordScreen>> = {}) {
@@ -42,47 +42,39 @@ function setup(props: Partial<React.ComponentProps<typeof PasswordScreen>> = {})
   return { ...utils, onSubmit, motDePasse, confirmation, bouton };
 }
 
-describe('PasswordScreen — règles de robustesse', () => {
-  it('démarre avec les trois règles non satisfaites et le bouton bloqué', () => {
+describe('PasswordScreen — règle unique (8 à 72 caractères, comme le serveur)', () => {
+  it('démarre avec la règle affichée et le bouton bloqué', () => {
     const { bouton } = setup();
 
-    expect(screen.getByText('Au moins 10 caractères')).toBeInTheDocument();
-    expect(screen.getByText('Une majuscule')).toBeInTheDocument();
-    expect(screen.getByText('Un chiffre')).toBeInTheDocument();
+    expect(screen.getByText('Entre 8 et 72 caractères.')).toBeInTheDocument();
     expect(bouton).toBeDisabled();
   });
 
-  it('laisse le bouton bloqué tant qu’une seule règle manque', () => {
+  it('refuse 7 caractères', () => {
     const { motDePasse, confirmation, bouton } = setup();
 
-    // 10+ caractères et une majuscule, mais aucun chiffre.
-    fireEvent.change(motDePasse, { target: { value: 'Motdepassesansnombre' } });
-    fireEvent.change(confirmation, {
-      target: { value: 'Motdepassesansnombre' },
-    });
+    fireEvent.change(motDePasse, { target: { value: 'abcdefg' } });
+    fireEvent.change(confirmation, { target: { value: 'abcdefg' } });
     expect(bouton).toBeDisabled();
   });
 
-  it('refuse un mot de passe trop court même bien composé', () => {
+  it('accepte 8 caractères sans majuscule ni chiffre imposés', () => {
     const { motDePasse, confirmation, bouton } = setup();
 
-    fireEvent.change(motDePasse, { target: { value: 'Abc12345' } }); // 8 signes
-    fireEvent.change(confirmation, { target: { value: 'Abc12345' } });
-    expect(bouton).toBeDisabled();
-  });
-
-  it('accepte une majuscule accentuée comme majuscule', () => {
-    // La regex couvre l'intervalle latin étendu : un client francophone qui
-    // commence par « Étoile » ne doit pas être bloqué sur une règle qu'il voit
-    // pourtant satisfaite.
-    const { motDePasse, confirmation, bouton } = setup();
-
-    fireEvent.change(motDePasse, { target: { value: 'Étoile1234' } });
-    fireEvent.change(confirmation, { target: { value: 'Étoile1234' } });
+    fireEvent.change(motDePasse, { target: { value: 'abcdefgh' } });
+    fireEvent.change(confirmation, { target: { value: 'abcdefgh' } });
     expect(bouton).not.toBeDisabled();
   });
 
-  it('débloque le bouton dès que les trois règles et la confirmation passent', () => {
+  it('refuse plus de 72 caractères', () => {
+    const { motDePasse, confirmation, bouton } = setup();
+
+    fireEvent.change(motDePasse, { target: { value: 'a'.repeat(73) } });
+    fireEvent.change(confirmation, { target: { value: 'a'.repeat(73) } });
+    expect(bouton).toBeDisabled();
+  });
+
+  it('débloque le bouton dès que la règle et la confirmation passent', () => {
     const { motDePasse, confirmation, bouton } = setup();
 
     fireEvent.change(motDePasse, { target: { value: VALIDE } });

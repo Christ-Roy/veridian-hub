@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card } from '@/components/ui/card';
+import { passwordPolicyError } from '@/lib/auth/password-policy';
 
 function ResetContent() {
   const router = useRouter();
@@ -35,8 +36,9 @@ function ResetContent() {
       setError('Lien de reset invalide ou manquant.');
       return;
     }
-    if (password.length < 8) {
-      setError('Le mot de passe doit contenir au moins 8 caractères.');
+    const regle = passwordPolicyError(password);
+    if (regle) {
+      setError(regle);
       return;
     }
     if (password !== confirmPassword) {
@@ -51,7 +53,7 @@ function ResetContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token, password }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
         setError(data?.error || 'Erreur lors de la mise à jour du mot de passe.');
@@ -86,7 +88,6 @@ function ResetContent() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              minLength={8}
               disabled={isSubmitting || success}
               autoComplete="new-password"
             />
@@ -100,7 +101,6 @@ function ResetContent() {
               value={confirmPassword}
               onChange={(e) => setConfirmPassword(e.target.value)}
               required
-              minLength={8}
               disabled={isSubmitting || success}
               autoComplete="new-password"
             />

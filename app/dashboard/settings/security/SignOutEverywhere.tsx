@@ -4,18 +4,34 @@ import { useState } from 'react';
 import { signOut } from 'next-auth/react';
 import { toast } from 'sonner';
 
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
+import { MESSAGE_RESEAU } from '@/lib/ui/messages';
 
 /** Coupe toutes les sessions du compte, sur ce navigateur, les autres, et dans les outils. */
 export function SignOutEverywhere() {
   const [enCours, setEnCours] = useState(false);
+  const [ouvert, setOuvert] = useState(false);
 
   async function deconnecter() {
     setEnCours(true);
     const res = await fetch('/api/account/sessions/revoke-all', { method: 'POST' }).catch(() => null);
     if (!res?.ok) {
-      toast.error('La déconnexion a échoué', { description: 'Réessayez dans un instant.' });
+      toast.error('La déconnexion a échoué', {
+        description: res ? 'Réessayez dans un instant.' : MESSAGE_RESEAU,
+      });
       setEnCours(false);
+      setOuvert(false);
       return;
     }
     // D9 : une app qui n'a pas confirmé la coupure garde sa session : on le dit, sans le cacher.
@@ -36,9 +52,34 @@ export function SignOutEverywhere() {
       <p className="text-sm text-muted-foreground">
         Coupe votre accès sur tous vos appareils et dans tous vos outils Veridian.
       </p>
-      <Button variant="outline" onClick={deconnecter} disabled={enCours}>
-        Se déconnecter partout
-      </Button>
+      <AlertDialog open={ouvert} onOpenChange={(o) => !enCours && setOuvert(o)}>
+        <AlertDialogTrigger asChild>
+          <Button variant="outline" className="w-full sm:w-auto" disabled={enCours}>
+            {enCours ? 'Déconnexion...' : 'Se déconnecter partout'}
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Se déconnecter partout ?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Vous serez déconnecté de cet appareil, de tous les autres et de tous les outils
+              Veridian. Il faudra vous reconnecter partout.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={enCours}>Annuler</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={enCours}
+              onClick={(e) => {
+                e.preventDefault();
+                void deconnecter();
+              }}
+            >
+              {enCours ? 'Déconnexion...' : 'Me déconnecter partout'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

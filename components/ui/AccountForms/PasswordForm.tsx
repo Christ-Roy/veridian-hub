@@ -6,6 +6,8 @@ import { Label } from '@/components/ui/label';
 import { signOut } from 'next-auth/react';
 import { useState } from 'react';
 
+import { PASSWORD_RULE_TEXT, passwordPolicyError } from '@/lib/auth/password-policy';
+import { MESSAGE_RESEAU } from '@/lib/ui/messages';
 import { redirectIfReauthRequired } from '@/lib/auth/reauth-redirect';
 
 /**
@@ -26,8 +28,9 @@ export default function PasswordForm() {
     setError(null);
     setSuccess(false);
 
-    if (newPassword.length < 6) {
-      setError('Le mot de passe doit contenir au moins 6 caractères');
+    const regle = passwordPolicyError(newPassword);
+    if (regle) {
+      setError(regle);
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -53,17 +56,17 @@ export default function PasswordForm() {
 
       // Le changement a coupé toutes les sessions, celle-ci comprise : retour à la connexion.
       await signOut({ callbackUrl: '/login' });
-    } catch (err: any) {
-      setError(err?.message || 'Une erreur inattendue est survenue');
+    } catch {
+      setError(MESSAGE_RESEAU);
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form onSubmit={handleSubmit} className="space-y-4" noValidate>
       {error && (
-        <div className="p-4 rounded-md bg-destructive/10 border border-destructive/20">
+        <div role="alert" className="p-4 rounded-md bg-destructive/10 border border-destructive/20">
           <p className="text-sm text-destructive font-medium">{error}</p>
         </div>
       )}
@@ -85,11 +88,10 @@ export default function PasswordForm() {
           value={newPassword}
           onChange={(e) => setNewPassword(e.target.value)}
           required
-          minLength={6}
           disabled={isSubmitting}
         />
         <p className="text-xs text-muted-foreground">
-          Au moins 6 caractères
+          {PASSWORD_RULE_TEXT}
         </p>
       </div>
 
@@ -102,7 +104,6 @@ export default function PasswordForm() {
           value={confirmPassword}
           onChange={(e) => setConfirmPassword(e.target.value)}
           required
-          minLength={6}
           disabled={isSubmitting}
         />
       </div>

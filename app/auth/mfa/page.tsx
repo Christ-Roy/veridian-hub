@@ -49,12 +49,12 @@ function MfaContent() {
         setStatus('error');
         setErrorMsg(
           payload?.error === 'invalid_code'
-            ? 'Code incorrect ou expiré. Réessaye ou demande un nouveau code.'
+            ? 'Code incorrect ou expiré. Réessayez ou demandez un nouveau code.'
             : payload?.error === 'too_many_attempts'
-              ? 'Trop d’essais. Reconnecte-toi dans quelques minutes.'
+              ? 'Trop d’essais. Reconnectez-vous dans quelques minutes.'
               : payload?.error === 'mfa_step1_required'
-                ? 'Ta connexion a expiré. Reconnecte-toi.'
-                : 'Une erreur est survenue. Réessaye.'
+                ? 'Votre connexion a expiré. Reconnectez-vous.'
+                : 'Une erreur est survenue. Réessayez.'
         );
         return;
       }
@@ -65,7 +65,7 @@ function MfaContent() {
     } catch (err) {
       console.error(err);
       setStatus('error');
-      setErrorMsg('Erreur réseau. Réessaye.');
+      setErrorMsg('Erreur réseau. Réessayez.');
     }
   }
 
@@ -98,7 +98,7 @@ function MfaContent() {
         <div className="text-center space-y-1">
           <h1 className="text-lg font-semibold">Validation par email</h1>
           <p className="text-sm text-muted-foreground">
-            Nous t&apos;avons envoyé un code à 6 chiffres. Il expire dans 10 minutes.
+            Nous vous avons envoyé un code à 6 chiffres. Il expire dans 10 minutes.
           </p>
         </div>
 
@@ -136,7 +136,7 @@ function MfaContent() {
             type="button"
             onClick={onResend}
             disabled={resendAvailableIn > 0}
-            className="underline disabled:no-underline disabled:opacity-50"
+            className="min-h-11 px-3 underline disabled:no-underline disabled:opacity-50"
           >
             {resendAvailableIn > 0
               ? `Renvoyer un code dans ${resendAvailableIn}s`
@@ -147,7 +147,7 @@ function MfaContent() {
           )}
           {resendStatus === 'rate_limited' && (
             <p className="mt-1 text-destructive">
-              Trop de demandes. Réessaye dans une heure.
+              Trop de demandes. Réessayez dans une heure.
             </p>
           )}
         </div>
@@ -156,7 +156,7 @@ function MfaContent() {
           <button
             type="button"
             onClick={() => router.push('/login')}
-            className="text-xs text-muted-foreground underline"
+            className="min-h-11 px-3 text-xs text-muted-foreground underline"
           >
             Retour à la connexion
           </button>

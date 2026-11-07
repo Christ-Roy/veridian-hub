@@ -28,6 +28,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { sendMail } from '@/lib/email/send';
 import { getURL } from '@/utils/helpers';
+import { PASSWORD_MAX, PASSWORD_MIN } from '@/lib/auth/password-policy';
 import { extractClientIp } from '@/lib/auth/rate-limit';
 import {
   resetRequestIpLimiter,
@@ -43,7 +44,7 @@ const consumeSchema = z.object({
   token: z.string().min(16),
   // max(72) : bcrypt tronque silencieusement à 72 bytes — au-delà n'apporte
   // rien et ouvre un DoS CPU (hash d'un payload XXL). Même borne que signup.
-  password: z.string().min(8).max(72),
+  password: z.string().min(PASSWORD_MIN).max(PASSWORD_MAX),
 });
 
 const RESET_TTL_MS = 60 * 60 * 1000; // 1h

@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { redirectIfReauthRequired } from '@/lib/auth/reauth-redirect';
 import { toast } from 'sonner';
+import { MESSAGE_RESEAU } from '@/lib/ui/messages';
 
 /**
  * EmailForm — Auth.js v5
@@ -43,8 +44,8 @@ export default function EmailForm({
       }
       toast.success('Email mis à jour. Vérifiez votre boîte de réception pour confirmer.');
       router.refresh();
-    } catch (err: any) {
-      toast.error(err?.message || 'Erreur réseau');
+    } catch {
+      toast.error(MESSAGE_RESEAU);
     } finally {
       setIsSubmitting(false);
     }
@@ -70,12 +71,12 @@ export default function EmailForm({
         </div>
       }
     >
-      <div className="mt-8 mb-4 text-xl font-semibold">
+      <div className="mt-8 mb-4">
         <form id="emailForm" onSubmit={handleSubmit}>
           <input
             type="email"
             name="newEmail"
-            className="input-base w-1/2"
+            className="input-base w-full max-w-md min-h-11 border border-input"
             defaultValue={userEmail ?? ''}
             placeholder="Votre email"
             maxLength={64}

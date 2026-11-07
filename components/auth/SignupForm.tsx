@@ -14,6 +14,8 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { PASSWORD_RULE_TEXT, passwordPolicyError } from '@/lib/auth/password-policy';
+import { MESSAGE_RESEAU } from '@/lib/ui/messages';
 import { safeCallback } from "@/lib/auth/safe-callback";
 import { signIn } from "next-auth/react";
 import { LoginErrorBanner } from "@/components/auth/LoginErrorBanner";
@@ -48,18 +50,26 @@ export function SignupForm({
       setError('Les mots de passe ne correspondent pas.');
       return;
     }
-    if (password.length < 8) {
-      setError('Le mot de passe doit contenir au moins 8 caractères.');
+    const regle = passwordPolicyError(password);
+    if (regle) {
+      setError(regle);
       return;
     }
 
     setIsSubmitting(true);
 
-    const res = await fetch('/api/auth/signup', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
+    let res: Response;
+    try {
+      res = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+    } catch {
+      setError(MESSAGE_RESEAU);
+      setIsSubmitting(false);
+      return;
+    }
 
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
@@ -68,11 +78,16 @@ export function SignupForm({
       return;
     }
 
-    const signInRes = await signIn('credentials', {
-      email,
-      password,
-      redirect: false,
-    });
+    let signInRes: Awaited<ReturnType<typeof signIn>> | undefined;
+    try {
+      signInRes = await signIn('credentials', {
+        email,
+        password,
+        redirect: false,
+      });
+    } catch {
+      signInRes = { error: 'network' } as typeof signInRes;
+    }
 
     if (signInRes?.error) {
       setError('Compte créé, mais erreur de connexion. Connectez-vous manuellement.');
@@ -90,7 +105,7 @@ export function SignupForm({
   };
 
   return (
-    <form className={cn("flex flex-col gap-6", className)} onSubmit={handleSubmit} {...props}>
+    <form className={cn("flex flex-col gap-6", className)} onSubmit={handleSubmit} noValidate {...props}>
       <FieldGroup>
         <div className="flex flex-col items-center gap-1 text-center">
           <h1 className="text-2xl font-bold">Créer votre compte</h1>
@@ -128,10 +143,9 @@ export function SignupForm({
                 id="password"
                 name="password"
                 autoComplete="new-password"
-                minLength={8}
                 required
               />
-              <FieldDescription>Au moins 8 caractères.</FieldDescription>
+              <FieldDescription>{PASSWORD_RULE_TEXT}</FieldDescription>
             </Field>
             <Field>
               <FieldLabel htmlFor="confirmPassword">Confirmer le mot de passe</FieldLabel>
@@ -139,7 +153,6 @@ export function SignupForm({
                 id="confirmPassword"
                 name="confirmPassword"
                 autoComplete="new-password"
-                minLength={8}
                 required
               />
             </Field>
