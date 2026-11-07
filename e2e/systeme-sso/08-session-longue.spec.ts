@@ -6,8 +6,7 @@
  * `SSO_SABOTAGE=<scenario>` retire le geste que le scénario prouve : il DOIT alors échouer. C'est
  * l'épreuve de la batterie elle-même, à rejouer quand ce fichier change (README).
  */
-import { readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { execFileSync } from 'node:child_process';
 
 import { expect, type Browser, type BrowserContext, type Cookie } from '@playwright/test';
 
@@ -55,19 +54,23 @@ async function dashboardOuvert(ctx: BrowserContext) {
   return ouvert;
 }
 
-/** Lu au moment du test, jamais affiché : variable d'environnement, sinon credentials de la machine. */
+/**
+ * Lu dans Nomad au moment du test, jamais affiché : c'est la valeur que le Hub utilise vraiment. La
+ * copie de `.all-creds.env` a déjà divergé (mesuré le 07/11), elle ne fait pas foi.
+ */
 function secretAuth(): string {
   if (process.env.SSO_AUTH_SECRET) return process.env.SSO_AUTH_SECRET;
-  const cle = SUR_STAGING ? 'HUB_STAGING_AUTH_SECRET' : 'HUB_AUTH_SECRET';
+  const job = SUR_STAGING ? 'hub-staging' : 'hub';
   try {
-    for (const l of readFileSync(`${homedir()}/credentials/.all-creds.env`, 'utf8').split('\n')) {
-      const m = l.match(new RegExp(`^\\s*${cle}\\s*=\\s*(.*)$`));
-      if (m) return m[1].trim().replace(/^["']|["']$/g, '');
-    }
+    const v = execFileSync('nomad-v', ['raw', 'var', 'get', '-item', SUR_STAGING ? 'AUTH_SECRET' : 'HUB_AUTH_SECRET', `nomad/jobs/${job}`], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    if (v) return v;
   } catch {
     /* traité ci-dessous */
   }
-  throw new NonAbouti(`${cle} illisible : à jouer depuis le bastion, ou SSO_AUTH_SECRET`);
+  throw new NonAbouti('HUB_AUTH_SECRET illisible dans Nomad : à jouer depuis le bastion, ou SSO_AUTH_SECRET');
 }
 
 /** Réécrit ce jeton réel avec une autre durée : même compte, seule l'échéance change. */
@@ -239,8 +242,8 @@ async function prouverCoupure(browser: Browser, c: Compte, couper: () => Promise
       const v = await voirApp(ctx, app, '/');
       if (v.connecte) restes.push(`${app} (${v.chemin})`);
     }
-    // En texte : le rapport ne garde que trois lignes, et il faut y lire quelle app a survécu.
-    expect(restes.join(', '), 'apps encore ouvertes après la coupure').toBe('');
+    // Dans le message : le rapport n'en garde que trois lignes, et il faut y lire quelle app a survécu.
+    expect(restes.join(', '), `apps encore ouvertes après la coupure : ${restes.join(', ')}`).toBe('');
     return `Hub, cookie rejoué et ${APPS.length} app(s) coupés`;
   } finally {
     await ctx.close();

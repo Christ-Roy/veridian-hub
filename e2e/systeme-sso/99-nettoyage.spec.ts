@@ -27,7 +27,7 @@ cas(null, 'les comptes de test sont supprimés et reconcile n\'en garde aucun', 
   const r = await reconcile();
   const flat = JSON.stringify(r).toLowerCase();
   const gardes = emails.filter((e) => flat.includes(e.toLowerCase()));
-  expect(gardes, 'comptes de test encore cités par reconcile').toEqual([]);
+  expect(gardes.join(', '), `comptes de test encore cités par reconcile : ${gardes.join(', ')}`).toBe('');
   oublierRegistre();
   return `${emails.length} compte(s) supprimé(s)`;
 });

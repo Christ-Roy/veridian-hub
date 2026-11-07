@@ -12,6 +12,8 @@ on:
       - 'docs/**'
       - 'runbooks/**'
       - '**/*.md'
+      # La batterie système ne part pas dans l'image : la modifier ne doit pas couper la prod.
+      - 'e2e/systeme-sso/**'
   pull_request:
     branches: [main]
     paths-ignore:
@@ -20,6 +22,8 @@ on:
       - 'docs/**'
       - 'runbooks/**'
       - '**/*.md'
+      # La batterie système ne part pas dans l'image : la modifier ne doit pas couper la prod.
+      - 'e2e/systeme-sso/**'
   workflow_dispatch:
 
 concurrency:
