@@ -57,4 +57,34 @@ describe('pushUserToApps', () => {
     );
     expect(r).toEqual({ notifuse: 'failed', analytics: 'not_configured' });
   });
+
+  it('une coupure perdue sur un redémarrage d\'app est réessayée', async () => {
+    const fetchImpl = vi.fn(async () => respond(200));
+    fetchImpl.mockImplementationOnce(async () => respond(502));
+    const r = await pushUserToApps(
+      { hubUserId: 'u1', deleted: true },
+      { apps: ['notifuse'], fetchImpl: fetchImpl as never, retryDelaysMs: [0, 0] },
+    );
+    expect(r).toEqual({ notifuse: 'ok' });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it('une app qui reste en panne : trois essais, puis l\'échec est rendu', async () => {
+    const fetchImpl = vi.fn(async () => respond(502));
+    const r = await pushUserToApps(
+      { hubUserId: 'u1', revokeSessions: true },
+      { apps: ['notifuse'], fetchImpl: fetchImpl as never, retryDelaysMs: [0, 0] },
+    );
+    expect(r).toEqual({ notifuse: 'failed' });
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it('un simple changement de nom n\'est pas réessayé : reconcile le rattrape', async () => {
+    const fetchImpl = vi.fn(async () => respond(502));
+    await pushUserToApps(
+      { hubUserId: 'u1', name: 'N' },
+      { apps: ['notifuse'], fetchImpl: fetchImpl as never, retryDelaysMs: [0, 0] },
+    );
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
 });

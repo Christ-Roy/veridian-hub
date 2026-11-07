@@ -33,6 +33,9 @@ import { getHubBaseUrl } from '@/lib/mail/oauth-cookies';
 
 const AUTO_BOUNCE_COOKIE = 'veridian-auto-bounce';
 const AUTO_BOUNCE_MAX = 2;
+// Une vraie boucle fait un tour en quelques secondes. Fenêtre courte : `complete` ne peut pas remettre
+// le compteur à zéro, une boucle y passe aussi à chaque tour.
+const AUTO_BOUNCE_WINDOW_S = 30;
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -125,7 +128,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       sameSite: 'lax',
       secure,
       path: '/api/auth/bounce',
-      maxAge: 60,
+      maxAge: AUTO_BOUNCE_WINDOW_S,
     });
   }
   // Nettoie l'autre nom de cookie au cas où (dev↔prod switch).
