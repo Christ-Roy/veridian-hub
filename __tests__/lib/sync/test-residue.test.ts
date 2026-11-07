@@ -28,6 +28,16 @@ describe('restes de test', () => {
     expect(r.total).toBe(17);
   });
 
+  it('compte les workspaces Notifuse, et une lecture impossible reste visible', async () => {
+    const lus = await measureTestResidue(avec([]), audit([]), 0, async (p) => (p === 'e2e' ? ['e2essox'] : []));
+    expect(lus.notifuseWorkspaces).toEqual(['e2essox']);
+    expect(lus.total).toBe(1);
+    const panne = await measureTestResidue(avec([]), audit([]), 0, async () => {
+      throw new Error('down');
+    });
+    expect(panne.notifuseWorkspaces).toBeNull();
+  });
+
   it('zéro quand tout est propre, et les logs ne portent aucune adresse', async () => {
     const r = await measureTestResidue(avec([]), audit(['vrai@client.fr']), 0);
     expect(r.total).toBe(0);

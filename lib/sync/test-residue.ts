@@ -10,6 +10,8 @@ import type { IdentityAudit } from '@/lib/sync/types';
 
 const PREFIXES = ['e2e-', 'e2e_', 'e2e+', 'parcours+', 'exploration+', 'brunon5robert+'];
 
+const WORKSPACE_PREFIXES = ['e2e', 'tst'];
+
 export function isTestAccount(email: string): boolean {
   const e = email.toLowerCase();
   return PREFIXES.some((p) => e.startsWith(p)) || e.endsWith('@yopmail.com');
@@ -18,6 +20,8 @@ export function isTestAccount(email: string): boolean {
 export type TestResidue = {
   hub: string[];
   apps: Record<string, string[]>;
+  /** Workspaces de test Notifuse : chacun garde une base, c'est eux qui ont saturé. `null` = non lu. */
+  notifuseWorkspaces: string[] | null;
   tenantsWithoutUser: number;
   total: number;
 };
@@ -26,6 +30,7 @@ export async function measureTestResidue(
   prisma: Pick<PrismaClient, 'user'>,
   identity: IdentityAudit | undefined,
   tenantsWithoutUser: number,
+  listNotifuseWorkspaces?: (prefix: string) => Promise<string[]>,
 ): Promise<TestResidue> {
   const rows = await prisma.user.findMany({
     where: {
@@ -43,8 +48,17 @@ export async function measureTestResidue(
       [...a.withoutHub, ...a.unlinked].filter(isTestAccount),
     ]),
   );
-  const total = hub.length + Object.values(apps).reduce((n, l) => n + l.length, 0) + tenantsWithoutUser;
-  return { hub, apps, tenantsWithoutUser, total };
+  const notifuseWorkspaces = listNotifuseWorkspaces
+    ? await Promise.all(WORKSPACE_PREFIXES.map(listNotifuseWorkspaces))
+        .then((l) => l.flat())
+        .catch(() => null)
+    : null;
+  const total =
+    hub.length +
+    Object.values(apps).reduce((n, l) => n + l.length, 0) +
+    (notifuseWorkspaces?.length ?? 0) +
+    tenantsWithoutUser;
+  return { hub, apps, notifuseWorkspaces, tenantsWithoutUser, total };
 }
 
 /** Version sans adresse, pour les logs. */
@@ -53,6 +67,7 @@ export function residueCounts(r: TestResidue | undefined) {
   return {
     hub: r.hub.length,
     apps: Object.fromEntries(Object.entries(r.apps).map(([a, l]) => [a, l.length])),
+    notifuseWorkspaces: r.notifuseWorkspaces?.length ?? null,
     tenantsWithoutUser: r.tenantsWithoutUser,
     total: r.total,
   };

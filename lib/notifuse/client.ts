@@ -99,6 +99,16 @@ export class NotifuseClient {
     );
   }
 
+  /** Workspaces dont l'identifiant commence par ce préfixe, orphelins compris (restes de test). */
+  async listTenantsByPrefix(prefix: string): Promise<string[]> {
+    const q = new URLSearchParams({ prefix, include_orphans: 'true', limit: '500' });
+    const res = await this.hmacRequest<{
+      managed?: { tenant_id: string }[];
+      orphans?: { tenant_id: string }[];
+    }>('GET', `/api/veridian/admin/tenants?${q}`, null);
+    return [...(res.managed ?? []), ...(res.orphans ?? [])].map((t) => t.tenant_id);
+  }
+
   async getStatus(tenantId: string): Promise<StatusResponse> {
     return this.hmacRequest<StatusResponse>(
       'GET',
