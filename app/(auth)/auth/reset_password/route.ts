@@ -21,7 +21,7 @@
 import { revokeAllSessions } from '@/lib/auth/session-revocation';
 import { retirerLiensNonProuves } from '@/lib/auth/email-proof-provider';
 import { NextRequest, NextResponse } from 'next/server';
-import { randomBytes } from 'crypto';
+import { createHash, randomBytes } from 'crypto';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 
@@ -138,10 +138,11 @@ async function handleRequest(emailRaw: string): Promise<NextResponse> {
     where: { identifier: user.email },
   });
 
+  // D11 : seul le hash du jeton est stocké ; le jeton clair ne part que dans le lien.
   await prisma.verificationToken.create({
     data: {
       identifier: user.email,
-      token,
+      token: hashResetToken(token),
       expires,
     },
   });
@@ -177,9 +178,15 @@ async function handleRequest(emailRaw: string): Promise<NextResponse> {
   return NextResponse.json({ ok: true });
 }
 
+/** Empreinte stockée du jeton de reset (D11). */
+function hashResetToken(raw: string): string {
+  return createHash('sha256').update(raw).digest('hex');
+}
+
 async function handleConsume(data: { token: string; password: string }): Promise<NextResponse> {
+  const tokenHash = hashResetToken(data.token);
   const record = await prisma.verificationToken.findUnique({
-    where: { token: data.token },
+    where: { token: tokenHash },
   });
 
   if (!record) {
@@ -187,7 +194,7 @@ async function handleConsume(data: { token: string; password: string }): Promise
   }
 
   if (record.expires < new Date()) {
-    await prisma.verificationToken.delete({ where: { token: data.token } }).catch(() => {});
+    await prisma.verificationToken.delete({ where: { token: tokenHash } }).catch(() => {});
     return NextResponse.json({ error: 'Token expired' }, { status: 400 });
   }
 
@@ -198,6 +205,15 @@ async function handleConsume(data: { token: string; password: string }): Promise
 
   if (!user) {
     return NextResponse.json({ error: 'User not found' }, { status: 404 });
+  }
+
+  // D11 : usage unique atomique. La suppression passe AVANT toute écriture : deux
+  // consommations simultanées ne peuvent plus passer toutes les deux.
+  const { count } = await prisma.verificationToken.deleteMany({
+    where: { token: tokenHash, identifier: record.identifier },
+  });
+  if (count !== 1) {
+    return NextResponse.json({ error: 'Invalid or expired token' }, { status: 400 });
   }
 
   const passwordHash = await bcrypt.hash(data.password, 10);
@@ -237,7 +253,5 @@ async function handleConsume(data: { token: string; password: string }): Promise
   await revokeAllSessions(prisma, user);
 
   // Token consommé → suppression
-  await prisma.verificationToken.delete({ where: { token: data.token } }).catch(() => {});
-
   return NextResponse.json({ ok: true });
 }

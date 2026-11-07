@@ -15,6 +15,10 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createHash } from 'node:crypto';
+
+// D11 : le jeton est stocké haché (sha256), comme la preuve d'adresse.
+const sha = (t: string) => createHash('sha256').update(t).digest('hex');
 
 type UserRecord = { id: string; email: string; accounts: any[] };
 
@@ -46,10 +50,18 @@ vi.mock('@/lib/prisma', () => ({
         return data;
       }),
       deleteMany: vi.fn(async ({ where }: any) => {
+        // Respecte le jeton et l'identifiant demandés, et renvoie le nombre supprimé (D11).
+        let count = 0;
         for (const [k, v] of Array.from(tokenStore)) {
-          if (v.identifier === where.identifier) tokenStore.delete(k);
+          const ok =
+            (where.identifier === undefined || v.identifier === where.identifier) &&
+            (where.token === undefined || k === where.token);
+          if (ok) {
+            tokenStore.delete(k);
+            count++;
+          }
         }
-        return { count: 0 };
+        return { count };
       }),
       delete: vi.fn(async ({ where }: any) => {
         tokenStore.delete(where.token);
@@ -323,10 +335,11 @@ describe('POST /auth/reset_password — le flow reste fonctionnel', () => {
     const payload = sendMailMock.mock.calls[0][0] as any;
     expect(payload.to).toBe('flow@test.io');
     expect(payload.html).toContain('/auth/reset?token=');
-    // Un token a bien été persisté et il est dans le lien.
-    const [token] = Array.from(tokenStore.keys());
-    expect(token).toBeTruthy();
-    expect(payload.html).toContain(token);
+    // D11 : la base ne garde que l'empreinte ; le jeton clair est dans le lien.
+    const raw = /token=([0-9a-f]{64})/.exec(payload.html)?.[1];
+    expect(raw).toBeTruthy();
+    expect(tokenStore.has(sha(raw!))).toBe(true);
+    expect(tokenStore.has(raw!)).toBe(false);
   });
 
   it('consomme un token valide et met à jour le hash du compte credentials', async () => {
@@ -334,9 +347,9 @@ describe('POST /auth/reset_password — le flow reste fonctionnel', () => {
     seedUser('consume@test.io', [
       { id: 'acc-1', provider: 'credentials', access_token: 'ancien-hash' },
     ]);
-    tokenStore.set('tok-valide-0123456789', {
+    tokenStore.set(sha('tok-valide-0123456789'), {
       identifier: 'consume@test.io',
-      token: 'tok-valide-0123456789',
+      token: sha('tok-valide-0123456789'),
       expires: new Date(Date.now() + 60_000),
     });
 
@@ -348,7 +361,35 @@ describe('POST /auth/reset_password — le flow reste fonctionnel', () => {
     expect(accountUpdates[0].where.id).toBe('acc-1');
     expect(accountUpdates[0].data.access_token).not.toBe('ancien-hash');
     // Token consommé → supprimé.
-    expect(tokenStore.has('tok-valide-0123456789')).toBe(false);
+    expect(tokenStore.has(sha('tok-valide-0123456789'))).toBe(false);
+  });
+
+  it('D11 : deux consommations simultanées du même jeton : une seule passe', async () => {
+    const { POST } = await loadRoute();
+    seedUser('course@test.io', [{ id: 'acc-c', provider: 'credentials', access_token: 'ancien' }]);
+    tokenStore.set(sha('tok-course-0123456789'), {
+      identifier: 'course@test.io',
+      token: sha('tok-course-0123456789'),
+      expires: new Date(Date.now() + 60_000),
+    });
+    const [a, b] = await Promise.all([
+      POST(makeReq({ token: 'tok-course-0123456789', password: 'nouveaupass' }, '10.14.0.7')),
+      POST(makeReq({ token: 'tok-course-0123456789', password: 'autrepass00' }, '10.14.0.8')),
+    ]);
+    expect([a.status, b.status].sort()).toEqual([200, 400]);
+    expect(accountUpdates).toHaveLength(1);
+  });
+
+  it('D11 : un jeton stocké en clair n\'est plus accepté (seul son empreinte compte)', async () => {
+    const { POST } = await loadRoute();
+    seedUser('clair@test.io', []);
+    tokenStore.set('tok-clair-0123456789', {
+      identifier: 'clair@test.io',
+      token: 'tok-clair-0123456789',
+      expires: new Date(Date.now() + 60_000),
+    });
+    const res = await POST(makeReq({ token: 'tok-clair-0123456789', password: 'nouveaupass' }, '10.14.0.9'));
+    expect(res.status).toBe(400);
   });
 
   it('PREMIÈRE CONNEXION : crée l’Account credentials si le user n’en a pas', async () => {
@@ -356,9 +397,9 @@ describe('POST /auth/reset_password — le flow reste fonctionnel', () => {
     // clients sans mot de passe. Le rate-limit ne doit pas l'avoir cassé.
     const { POST } = await loadRoute();
     seedUser('premiere@test.io', []);
-    tokenStore.set('tok-premiere-0123456789', {
+    tokenStore.set(sha('tok-premiere-0123456789'), {
       identifier: 'premiere@test.io',
-      token: 'tok-premiere-0123456789',
+      token: sha('tok-premiere-0123456789'),
       expires: new Date(Date.now() + 60_000),
     });
 
@@ -386,9 +427,9 @@ describe('POST /auth/reset_password — le flow reste fonctionnel', () => {
   it('refuse un token expiré (400) et le purge', async () => {
     const { POST } = await loadRoute();
     seedUser('expire@test.io', []);
-    tokenStore.set('tok-expire-0123456789', {
+    tokenStore.set(sha('tok-expire-0123456789'), {
       identifier: 'expire@test.io',
-      token: 'tok-expire-0123456789',
+      token: sha('tok-expire-0123456789'),
       expires: new Date(Date.now() - 1000),
     });
 
@@ -396,7 +437,7 @@ describe('POST /auth/reset_password — le flow reste fonctionnel', () => {
       makeReq({ token: 'tok-expire-0123456789', password: 'longenough' }, '10.17.0.1')
     );
     expect(res.status).toBe(400);
-    expect(tokenStore.has('tok-expire-0123456789')).toBe(false);
+    expect(tokenStore.has(sha('tok-expire-0123456789'))).toBe(false);
   });
 });
 

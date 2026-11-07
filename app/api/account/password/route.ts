@@ -24,7 +24,11 @@ import { requireUser } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
 
 const bodySchema = z.object({
-  newPassword: z.string().min(6, 'Password must be at least 6 characters long'),
+  // D11 : mêmes bornes qu'à l'inscription. bcrypt ne lit que 72 octets : au-delà, le reste est ignoré.
+  newPassword: z
+    .string()
+    .min(8, 'Le mot de passe doit faire au moins 8 caractères')
+    .max(72, 'Le mot de passe doit faire au plus 72 caractères'),
 });
 
 export async function POST(req: Request) {
@@ -94,6 +98,9 @@ export async function POST(req: Request) {
       },
     });
   }
+
+  // D11 : un lien de reset encore en attente ne doit pas survivre à un changement par les réglages.
+  await prisma.verificationToken.deleteMany({ where: { identifier: user.email } });
 
   // Un mot de passe changé coupe toutes les sessions, y compris celle-ci et celles des apps.
   await revokeAllSessions(prisma, user);
