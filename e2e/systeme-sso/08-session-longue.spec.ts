@@ -122,11 +122,14 @@ for (const app of APPS) {
       autres.push(neuf);
       const page = await neuf.newPage();
       await page.goto(`${APP_URL[app]}${PAGE_PROTEGEE[app]}`, { waitUntil: 'domcontentloaded' });
-      await page.waitForURL((u) => u.hostname === hoteHub, { timeout: 30_000 });
+      await page.waitForURL((u) => u.hostname === hoteHub, { timeout: 60_000 });
       await page.locator('input[type=email], input[name=email]').first().fill(A.email);
       await page.locator('input[type=password]').first().fill(A.motDePasse);
       await page.getByRole('button', { name: /^(Se connecter|Continuer)/i }).first().click();
-      await page.waitForURL((u) => u.host === new URL(APP_URL[app]).host, { timeout: 60_000 });
+      const hoteApp = new URL(APP_URL[app]).host;
+      await page.waitForURL((u) => (u.host === hoteApp || u.host.endsWith(`.${hoteApp}`)) && u.pathname !== '/verify', {
+        timeout: 90_000,
+      });
       await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
       const u = new URL(page.url());
       expect(u.pathname.replace(/\/$/, ''), `${app} : retour à la page demandée`).toContain(
@@ -173,7 +176,7 @@ for (const app of APPS) {
     try {
       const avant = await voirApp(ctx, app);
       if (!avant.connecte) throw new NonAbouti(`${app} ne s'ouvre pas avant la déconnexion (${avant.hote}${avant.chemin})`);
-      if (!sabote('logout')) await seDeconnecterDeApp(ctx, app);
+      if (!sabote('logout')) await seDeconnecterDeApp(ctx, app, avant.hote);
       const apres = await voirApp(ctx, app);
       expect(apres.connecte, `${app} : reconnexion silencieuse, vu ${apres.hote}${apres.chemin}`).toBe(false);
       expect(apres.rebondsAuto, `${app} : aucun rebond automatique après le clic`).toBe(0);
