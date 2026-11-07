@@ -13,7 +13,7 @@ import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
 import { APPS } from '@/lib/pricing/plans';
 import { getEnabledGatedApps } from '@/lib/tenant-apps';
-import { resolveDownstreamBaseUrl } from '@/lib/invitations/attach-downstream';
+import { resolveAnalyticsCardTarget } from '@/lib/analytics/dashboard-target';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 /**
@@ -131,7 +131,11 @@ export default async function DashboardPage({
   const hasServiceAnalytics = !!analyticsMeta?.fallback_url;
   // Une card service est "active" si : activée par l'admin (flag TenantApp,
   // défaut OFF) OU déjà servie via metadata link-app OU plan lifetime vitrine.
-  const showActiveAnalytics =
+  // NB : `showActiveAnalytics` est complété plus bas par la découverte — si
+  // l'app d'analytics reconnaît cet email et lui donne au moins un site, la
+  // carte s'affiche même sans activation manuelle. Un client qui a un site
+  // doit le voir ; l'inverse était un oubli d'activation silencieux.
+  const showActiveAnalyticsBase =
     isAnalyticsEnabled || hasLifetimeSiteVitrine || hasServiceAnalytics;
   const showActiveCms = isCmsEnabled || hasLifetimeSiteVitrine || hasServiceCms;
 
@@ -152,12 +156,19 @@ export default async function DashboardPage({
     ? `${prospectionBaseUrl}/api/auth/token?t=${tenant.prospectionLoginToken}`
     : null;
 
-  // URL de l'app Analytics servie au client. Le domaine historique
-  // `analytics.app.veridian.site` est MORT (404 vérifié le 2026-07-28) —
-  // l'app vivante est le fork staminads sur `analytics-engine.*`. On passe
-  // par le résolveur partagé pour ne pas re-coder un défaut en dur ici.
-  // Cf. `todo/2026-07-28-autologin-analytics-contrat-et-etat-reel.md`.
-  const analyticsBaseUrl = resolveDownstreamBaseUrl('analytics');
+  // Cible de la carte Analytics. On demande à l'app d'analytics quels sites
+  // CET email peut ouvrir, plutôt que de relire une URL figée au provisioning.
+  // Un seul site → on y emmène le client directement ; plusieurs → la racine.
+  // Découverte muette ou non câblée → on retombe sur l'ancien comportement.
+  // Cf. `lib/analytics/dashboard-target.ts` pour le raisonnement complet.
+  const analyticsTarget = await resolveAnalyticsCardTarget({
+    // Adresse non prouvée : on ne demande rien, sinon la carte révélerait les sites d'un tiers.
+    email: emailProven ? user.email : null,
+    metadataFallbackUrl: analyticsMeta?.fallback_url,
+    metadataTenantName: analyticsMeta?.tenant_name,
+  });
+  const showActiveAnalytics =
+    showActiveAnalyticsBase || analyticsTarget.siteCount > 0;
 
   const notifuseUrl = process.env.NOTIFUSE_API_URL || '';
   const notifuseAvailable = !notifuseUrl.includes('localhost') && notifuseUrl.length > 0;
@@ -223,12 +234,12 @@ export default async function DashboardPage({
           {showActiveAnalytics && (
             <ServiceCard
               name={
-                analyticsMeta?.tenant_name
-                  ? `${APPS.analytics.display_name} — ${analyticsMeta.tenant_name}`
+                analyticsTarget.siteName
+                  ? `${APPS.analytics.display_name} — ${analyticsTarget.siteName}`
                   : APPS.analytics.display_name
               }
               description={APPS.analytics.tagline}
-              url={analyticsMeta?.fallback_url ?? analyticsBaseUrl}
+              url={analyticsTarget.url}
               icon="BarChart3"
               appKey="analytics"
               badge="BETA"

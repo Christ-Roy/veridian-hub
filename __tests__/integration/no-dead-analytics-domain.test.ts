@@ -1,44 +1,61 @@
 /**
- * Test invariant CI — le domaine Analytics MORT ne doit jamais revenir en dur
- * dans le code applicatif.
+ * Invariant CI — le domaine Analytics servi AU CLIENT suit la génération
+ * courante, et personne ne le recolle en dur.
  *
- * CONTEXTE : `analytics.app.veridian.site` servait l'app Analytics historique
- * (Next.js/Prisma). Elle est **décommissionnée** — le domaine répond HTTP 404
- * (vérifié en live le 2026-07-28). L'app vivante est le fork staminads servi
- * sur `analytics-engine.app.veridian.site` (HTTP 200).
+ * POURQUOI CE TEST A CHANGÉ DE SENS (à lire avant de le « corriger »)
+ * ------------------------------------------------------------------
+ * Écrit le 2026-07-28, il interdisait `analytics.app.veridian.site` : ce
+ * domaine servait alors la première génération, décommissionnée, et répondait
+ * 404. L'app vivante était le fork staminads sur `analytics-engine.*`.
  *
- * Le Hub avait gardé l'ancien domaine à deux endroits qui touchaient
- * directement le client final :
- *   - la card « Veridian Analytics » du dashboard (bouton « Ouvrir » → 404)
- *   - le fallback générique `<app>.app.veridian.site` de
- *     `resolveDownstreamBaseUrl`, utilisé par les invitations cross-app
+ * Depuis le 2026-08-18, `analytics.app.veridian.site` sert la NOUVELLE
+ * génération (fork Rybbit rebrandé Veridian), qui est la cible produit. Le
+ * garde-fou s'était donc retourné contre nous : il faisait échouer la bonne
+ * configuration.
  *
- * Ce test empêche la régression : le fallback correct vit désormais dans
- * `DEFAULT_APP_BASE_URL` (`lib/invitations/attach-downstream.ts`), et personne
- * ne doit re-coller l'ancien domaine ailleurs.
+ * L'invariant durable n'est pas « tel domaine est interdit » — il aurait
+ * fallu le réécrire à chaque génération. C'est : **le code qui envoie un
+ * client vers l'analytics ne code aucun domaine en dur, il passe par le
+ * résolveur.** Ainsi une prochaine bascule est une variable d'environnement,
+ * pas une chasse aux chaînes de caractères.
  *
- * Cf. `todo/2026-07-28-autologin-analytics-contrat-et-etat-reel.md`.
+ * `analytics-engine.app.veridian.site` n'est PAS mort : la génération
+ * précédente tourne toujours et sert encore des clients. Les usages internes
+ * qui la visent volontairement sont listés en exception ci-dessous.
  */
 
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 
-/** Domaine décommissionné, hors préfixe `analytics-engine.`. */
-const DEAD_DOMAIN = /(?<!-engine)\banalytics\.app\.veridian\.site/;
+/** N'importe quel domaine d'analytics écrit en dur. */
+const HARDCODED_ANALYTICS_DOMAIN = /\banalytics(-engine)?\.app\.veridian\.site/;
 
 /** Dossiers applicatifs scannés — le code qui tourne réellement. */
 const SCANNED_DIRS = ['app', 'lib', 'components'];
 
 /**
- * Exceptions légitimes :
- *  - `lib/mail/oauth-cookies.ts` : liste d'origines HISTORIQUES autorisées pour
- *    le retour OAuth. Retirer un domaine de cette allow-list casserait le
- *    retour des sessions encore en vol — c'est une liste d'accueil, pas une
- *    cible d'appel.
- *  - les commentaires qui documentent précisément que ce domaine est mort.
+ * Exceptions légitimes, chacune pour une raison différente :
+ *
+ *  - `lib/invitations/attach-downstream.ts` : c'est LE résolveur. Les défauts
+ *    doivent bien s'écrire quelque part, et c'est ici.
+ *  - `lib/mail/oauth-cookies.ts` : allow-list d'origines HISTORIQUES pour le
+ *    retour OAuth. Retirer un domaine casserait les sessions encore en vol —
+ *    c'est une liste d'accueil, pas une cible d'appel.
+ *  - `lib/analytics/track-event.ts` : le Hub mesure son PROPRE usage sur la
+ *    génération précédente. Cible interne, pas un lien servi à un client.
+ *  - `lib/prospect/engine-client.ts` : pull des events prospect depuis la
+ *    génération précédente, où vit l'historique. Idem, interne.
+ *
+ * Les deux dernières disparaîtront quand ces flux auront migré ; tant qu'elles
+ * sont là, elles sont volontaires et documentées.
  */
-const ALLOWED_FILES = new Set(['lib/mail/oauth-cookies.ts']);
+const ALLOWED_FILES = new Set([
+  'lib/invitations/attach-downstream.ts',
+  'lib/mail/oauth-cookies.ts',
+  'lib/analytics/track-event.ts',
+  'lib/prospect/engine-client.ts',
+]);
 
 function collectFiles(dir: string): string[] {
   const abs = path.join(process.cwd(), dir);
@@ -53,8 +70,8 @@ function collectFiles(dir: string): string[] {
   return out;
 }
 
-describe('Invariant CI — domaine Analytics décommissionné', () => {
-  it('aucun fichier applicatif ne cible analytics.app.veridian.site', () => {
+describe('Invariant CI — domaine Analytics servi au client', () => {
+  it('aucun fichier applicatif ne code un domaine Analytics en dur', () => {
     const offenders: string[] = [];
 
     for (const dir of SCANNED_DIRS) {
@@ -63,9 +80,9 @@ describe('Invariant CI — domaine Analytics décommissionné', () => {
         const content = fs.readFileSync(path.join(process.cwd(), file), 'utf8');
 
         content.split('\n').forEach((line, i) => {
-          if (!DEAD_DOMAIN.test(line)) return;
-          // Une ligne de commentaire qui documente que le domaine est mort
-          // est légitime — c'est ce qui explique le choix au lecteur suivant.
+          if (!HARDCODED_ANALYTICS_DOMAIN.test(line)) return;
+          // Un commentaire qui documente l'historique est légitime — c'est ce
+          // qui évite au lecteur suivant de refaire l'erreur.
           const trimmed = line.trim();
           const isComment =
             trimmed.startsWith('*') ||
@@ -79,18 +96,29 @@ describe('Invariant CI — domaine Analytics décommissionné', () => {
 
     expect(
       offenders,
-      `Ces lignes ciblent le domaine Analytics MORT (404) au lieu de ` +
-        `analytics-engine.app.veridian.site — utiliser resolveDownstreamBaseUrl('analytics') :\n` +
+      `Ces lignes codent un domaine Analytics en dur au lieu de passer par ` +
+        `resolveDownstreamBaseUrl('analytics') ou resolveAnalyticsCardTarget() :\n` +
         offenders.join('\n'),
     ).toEqual([]);
   });
 
-  it("le fallback du résolveur pointe sur l'engine vivant", async () => {
+  it('le défaut du résolveur pointe sur la génération courante', async () => {
     const { resolveDownstreamBaseUrl } = await import(
       '@/lib/invitations/attach-downstream'
     );
     expect(resolveDownstreamBaseUrl('analytics', {} as NodeJS.ProcessEnv)).toBe(
-      'https://analytics-engine.app.veridian.site',
+      'https://analytics.app.veridian.site',
     );
+  });
+
+  it("la variable d'environnement prime sur le défaut", async () => {
+    const { resolveDownstreamBaseUrl } = await import(
+      '@/lib/invitations/attach-downstream'
+    );
+    expect(
+      resolveDownstreamBaseUrl('analytics', {
+        NEXT_PUBLIC_ANALYTICS_URL: 'https://analytics-engine.app.veridian.site/',
+      } as NodeJS.ProcessEnv),
+    ).toBe('https://analytics-engine.app.veridian.site');
   });
 });
