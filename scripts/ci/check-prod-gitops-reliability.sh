@@ -32,15 +32,17 @@ require_fixed "$hcl" 'attempts = 10' 'restart Nomad prod non borné ou absent'
 require_fixed "$hcl" 'name     = "hub-selfheal"' 'service self-heal absent'
 require_fixed "$hcl" 'limit           = 4' 'check_restart applicatif absent'
 require_fixed "$hcl" 'init  = true' 'init Docker anti-zombies absent'
-require_fixed "$hcl" '{{ $dbMode := or .HUB_DATABASE_MODE.Value "local-colocated" }}' 'mode DB Hub prod explicite absent'
+# Base hors du job depuis le 07/11/2026 (job hub-db de nomad-veridian) : un deploiement du Hub ne touche plus sa base.
+require_fixed "$hcl" '{{ $dbMode := or .HUB_DATABASE_MODE.Value "nomad-service" }}' 'mode DB Hub prod explicite absent'
+reject_fixed "$hcl" 'task "veridian-core-db"' 'la base est revenue dans le job hub : elle vit dans le job hub-db'
+reject_fixed "$hcl" 'task "pgbackrest"' "l'archivage est revenu dans le job hub : il vit dans le job hub-db"
 require_fixed "$hcl" '{{ range nomadService $dbServiceName }}' 'mode DB service-discovery Hub absent'
 require_fixed "$hcl" 'HUB_DATABASE_HOST={{ $dbHost }}' 'endpoint DB Hub prod non rendu'
 require_fixed "$hcl" 'DATABASE_URL=postgresql://{{ $dbUser }}:' 'DATABASE_URL Hub prod non composée'
 require_fixed "$hcl" 'cpu        = 500' 'réservation CPU app inattendue'
-require_fixed "$hcl" 'cpu        = 300' 'réservation CPU DB inattendue'
 require_fixed "$hcl" 'memory     = 384' 'réservation mémoire app inattendue'
-[ "$(grep -Fc 'memory_max = 7000' "$hcl")" -eq 2 ] \
-  || fail 'fusibles mémoire app/DB inattendus'
+[ "$(grep -Fc 'memory_max = 7000' "$hcl")" -eq 1 ] \
+  || fail 'fusible mémoire app inattendu'
 
 # Déploiement par VERBES CONTRAINTS (constat C4). Plan, check-index, pré-pull,
 # sauvegarde R2 prod et suivi du déploiement vivent dans le script serveur
