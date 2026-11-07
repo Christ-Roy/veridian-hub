@@ -35,6 +35,7 @@ export async function POST() {
       { status: 429, headers: { 'Retry-After': String(rate.retryAfterSeconds) } },
     );
   }
-  await revokeAllSessions(prisma, user);
-  return NextResponse.json({ ok: true });
+  // D9 : les apps qui n'ont pas confirmé la coupure sont nommées (l'écran l'affiche).
+  const { appsEnEchec } = await revokeAllSessions(prisma, user);
+  return NextResponse.json({ ok: true, apps_failed: appsEnEchec });
 }

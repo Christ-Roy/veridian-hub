@@ -250,8 +250,9 @@ async function handleConsume(data: { token: string; password: string }): Promise
     await prisma.user.update({ where: { id: user.id }, data: { emailVerified: new Date() } });
     await retirerLiensNonProuves(prisma, user.id);
   }
-  await revokeAllSessions(prisma, user);
+  // D9 : les apps qui n'ont pas confirmé la coupure sont nommées.
+  const { appsEnEchec } = await revokeAllSessions(prisma, user);
 
-  // Token consommé → suppression
-  return NextResponse.json({ ok: true });
+  // Token consommé : supprimé plus haut, avant l'écriture du mot de passe (D11).
+  return NextResponse.json({ ok: true, apps_failed: appsEnEchec });
 }

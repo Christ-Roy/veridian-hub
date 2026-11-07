@@ -103,7 +103,7 @@ export async function POST(req: Request) {
   await prisma.verificationToken.deleteMany({ where: { identifier: user.email } });
 
   // Un mot de passe changé coupe toutes les sessions, y compris celle-ci et celles des apps.
-  await revokeAllSessions(prisma, user);
+  const { appsEnEchec } = await revokeAllSessions(prisma, user);
 
-  return NextResponse.json({ ok: true, reconnect: true });
+  return NextResponse.json({ ok: true, reconnect: true, apps_failed: appsEnEchec });
 }

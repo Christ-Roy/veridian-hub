@@ -34,17 +34,27 @@ export async function isSessionRevoked(
   return authAt < Math.floor(row.sessionsValidAfter.getTime() / 1000);
 }
 
-/** Coupe toutes les sessions d'un compte, ici et dans les apps. */
+/**
+ * Coupe toutes les sessions d'un compte, ici et dans les apps.
+ *
+ * Renvoie les apps qui n'ont PAS confirmé la coupure (`failed` ou `endpoint_missing`) : leur
+ * session reste valable tant qu'elles ne l'ont pas reçue. `not_in_app` (l'app n'a pas ce
+ * compte) et `not_configured` (app absente de cet environnement) ne sont pas des échecs. Sans
+ * cet accusé, le Hub répondait « déconnecté » pendant que l'app gardait la session (D9).
+ */
 export async function revokeAllSessions(
   prisma: Pick<PrismaClient, 'user'>,
   user: { id: string; supabaseUserId: string | null },
-): Promise<void> {
+): Promise<{ appsEnEchec: string[] }> {
   await prisma.user.update({
     where: { id: user.id },
     data: { sessionsValidAfter: new Date() },
   });
-  if (user.supabaseUserId) {
-    const { pushUserToApps } = await import('@/lib/identity/push-user');
-    await pushUserToApps({ hubUserId: user.supabaseUserId, revokeSessions: true });
-  }
+  if (!user.supabaseUserId) return { appsEnEchec: [] };
+  const { pushUserToApps } = await import('@/lib/identity/push-user');
+  const resultat = await pushUserToApps({ hubUserId: user.supabaseUserId, revokeSessions: true });
+  const appsEnEchec = Object.entries(resultat)
+    .filter(([, issue]) => issue === 'failed' || issue === 'endpoint_missing')
+    .map(([app]) => app);
+  return { appsEnEchec };
 }

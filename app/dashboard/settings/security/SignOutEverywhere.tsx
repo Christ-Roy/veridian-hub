@@ -18,6 +18,16 @@ export function SignOutEverywhere() {
       setEnCours(false);
       return;
     }
+    // D9 : une app qui n'a pas confirmé la coupure garde sa session : on le dit, sans le cacher.
+    const corps = (await res.json().catch(() => null)) as { apps_failed?: string[] } | null;
+    const enEchec = corps?.apps_failed ?? [];
+    if (enEchec.length > 0) {
+      toast.warning("Déconnecté du Hub. Certains outils n'ont pas confirmé la coupure", {
+        description: `À vérifier : ${enEchec.join(', ')}. La coupure y sera reprise sous peu.`,
+        duration: 8000,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+    }
     await signOut({ callbackUrl: '/login' });
   }
 

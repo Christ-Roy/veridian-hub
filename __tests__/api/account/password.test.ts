@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const { deleteManyMock, revokeMock } = vi.hoisted(() => ({
   deleteManyMock: vi.fn(async () => ({ count: 0 })),
-  revokeMock: vi.fn(async () => undefined),
+  revokeMock: vi.fn(async () => ({ appsEnEchec: [] as string[] })),
 }));
 
 vi.mock('@/lib/auth/get-user', () => ({
