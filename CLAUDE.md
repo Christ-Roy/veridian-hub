@@ -81,7 +81,8 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   parcours et état prouvé ou accepté : `docs/PARCOURS-IDENTITE.md`.
 - **Sonde de prod** : étape « Sonde identité » de `hub-ci.yml` (lectures seules). Le cron de reconcile
   alerte au-dessus de `RESIDUE_SEUIL` (0 par défaut).
-- **Coupure** : un déploiement coupe le Hub environ 19 s (07/11), la base est dans le groupe Nomad.
+- **Coupure** : aucune (08/11, prouvé à la sonde). Base dans le job `hub-db` (nomad-veridian), app en bleu-vert : canari,
+  health check Traefik, retry. Tags Traefik changés = déploiement annoncé (deux versions aux tags différents : 12 s de 404).
   Regrouper les changements. `e2e/systeme-sso/**` ne redéploie rien.
 
 ## Que faire si

@@ -41,6 +41,13 @@ require_fixed "$hcl" 'HUB_DATABASE_HOST={{ $dbHost }}' 'endpoint DB Hub prod non
 require_fixed "$hcl" 'DATABASE_URL=postgresql://{{ $dbUser }}:' 'DATABASE_URL Hub prod non composée'
 require_fixed "$hcl" 'cpu        = 500' 'réservation CPU app inattendue'
 require_fixed "$hcl" 'memory     = 384' 'réservation mémoire app inattendue'
+# Bleu-vert, 0 coupure prouvee le 08/11 : canari promu automatiquement, Traefik ne sert qu'une instance saine.
+# Les canary_tags donnent a Traefik deux definitions du meme routeur : il le retire, 11 a 14 s de 404.
+require_fixed "$hcl" 'canary            = 1' 'canari absent : un deploiement arrete le Hub avant que la nouvelle version serve'
+require_fixed "$hcl" 'auto_promote      = true' 'canari non promu automatiquement'
+grep -Eq '^[[:space:]]*canary_tags[[:space:]]*=' "$hcl" && fail 'canary_tags interdits : routeur Traefik en conflit, 404 a chaque deploiement'
+require_fixed "$hcl" 'loadbalancer.healthcheck.path=/api/health' 'health check Traefik absent : le canari recevrait du trafic en demarrant'
+require_fixed "$hcl" 'shutdown_delay = "30s"' 'shutdown_delay trop court pour le rafraichissement de Traefik (15 s)'
 [ "$(grep -Fc 'memory_max = 7000' "$hcl")" -eq 1 ] \
   || fail 'fusible mémoire app inattendu'
 
