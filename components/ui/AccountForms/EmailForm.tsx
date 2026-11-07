@@ -1,6 +1,7 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import CardWrapper from '@/components/ui/card-wrapper';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -29,6 +30,7 @@ export default function EmailForm({
 
     if (!newEmail || newEmail === userEmail) return;
 
+    toast.dismiss(); // un seul message à la fois
     setIsSubmitting(true);
     try {
       const res = await fetch('/api/account/profile', {
@@ -56,7 +58,7 @@ export default function EmailForm({
       title="Votre email"
       description="Saisissez l'adresse email que vous souhaitez utiliser pour vous connecter."
       footer={
-        <div className="flex flex-col items-start justify-between sm:flex-row sm:items-center">
+        <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
           <p className="pb-4 sm:pb-0">
             Nous vous enverrons un email pour confirmer le changement.
           </p>
@@ -73,10 +75,10 @@ export default function EmailForm({
     >
       <div className="mt-8 mb-4">
         <form id="emailForm" onSubmit={handleSubmit}>
-          <input
+          <Input
             type="email"
             name="newEmail"
-            className="input-base w-full max-w-md min-h-11 border border-input"
+            className="max-w-md border-muted-foreground/40"
             defaultValue={userEmail ?? ''}
             placeholder="Votre email"
             maxLength={64}

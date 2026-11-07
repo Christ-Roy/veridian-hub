@@ -1,6 +1,7 @@
 'use client';
 
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import CardWrapper from '@/components/ui/card-wrapper';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
@@ -23,6 +24,7 @@ export default function NameForm({ userName }: { userName: string }) {
 
     if (!newName || newName === userName) return;
 
+    toast.dismiss(); // un seul message à la fois
     setIsSubmitting(true);
     try {
       const res = await fetch('/api/account/profile', {
@@ -49,7 +51,7 @@ export default function NameForm({ userName }: { userName: string }) {
       title="Votre nom"
       description="Saisissez votre nom complet, ou un nom d'affichage qui vous convient."
       footer={
-        <div className="flex flex-col items-start justify-between sm:flex-row sm:items-center">
+        <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
           <p className="pb-4 sm:pb-0">64 caractères maximum</p>
           <Button
             variant="slim"
@@ -64,10 +66,10 @@ export default function NameForm({ userName }: { userName: string }) {
     >
       <div className="mt-8 mb-4">
         <form id="nameForm" onSubmit={handleSubmit}>
-          <input
+          <Input
             type="text"
             name="fullName"
-            className="input-base w-full max-w-md min-h-11 border border-input"
+            className="max-w-md border-muted-foreground/40"
             defaultValue={userName}
             placeholder="Votre nom"
             maxLength={64}

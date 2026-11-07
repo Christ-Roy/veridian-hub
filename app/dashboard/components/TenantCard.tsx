@@ -86,7 +86,7 @@ export function TenantCard({
   return (
     <Card className="flex flex-col h-full hover:shadow-lg transition-shadow">
       <CardHeader>
-        <div className="flex items-start justify-between">
+        <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
             <AppIdentity app="mail" />
             <div>
@@ -97,7 +97,7 @@ export function TenantCard({
             </div>
           </div>
           {configured && (
-            <Badge variant="success">Actif</Badge>
+            <Badge variant="success" className="shrink-0">Actif</Badge>
           )}
         </div>
       </CardHeader>

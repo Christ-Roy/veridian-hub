@@ -51,7 +51,7 @@ export function CrmCard({ configured, enabled = false }: CrmCardProps) {
 
       if (!res.ok || !data.magicLinkUrl) {
         toast.error('Impossible d\'ouvrir le CRM', {
-          description: data.message || data.error || 'Réessaye dans quelques secondes.',
+          description: data.message || data.error || 'Réessayez dans quelques secondes.',
           duration: 5000,
         });
         return;
@@ -85,7 +85,7 @@ export function CrmCard({ configured, enabled = false }: CrmCardProps) {
           {!enabled ? (
             <Badge variant="outline">Bientôt</Badge>
           ) : (
-            configured && <Badge variant="secondary">Actif</Badge>
+            configured && <Badge variant="secondary" className="shrink-0">Actif</Badge>
           )}
         </div>
         <CardDescription>

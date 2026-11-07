@@ -16,6 +16,16 @@ type Props = {
 export const MESSAGE_MOT_DE_PASSE_REQUIS =
   'Définissez d’abord un mot de passe dans vos paramètres : la validation par email s’applique à la connexion par mot de passe.';
 
+/** Permet de couper l'adresse après « @ » et « . » plutôt qu'au milieu d'un mot. */
+function emailCoupable(email: string) {
+  return email.split(/(?<=[@.])/).map((morceau, i) => (
+    <span key={i}>
+      {i > 0 && <wbr />}
+      {morceau}
+    </span>
+  ));
+}
+
 export function SecurityMfaToggle({ initialEnabled, email, hasPassword }: Props) {
   const [enabled, setEnabled] = useState(initialEnabled);
   const [pending, setPending] = useState(false);
@@ -57,7 +67,7 @@ export function SecurityMfaToggle({ initialEnabled, email, hasPassword }: Props)
       <div className="min-w-0 flex-1 text-sm">
         <p className="font-medium">{enabled ? 'Activée' : 'Désactivée'}</p>
         <p className="text-muted-foreground">
-          Les codes seront envoyés à <span className="break-all font-mono">{email}</span>.
+          Les codes seront envoyés à <span className="break-words font-mono">{emailCoupable(email)}</span>.
         </p>
         {!enabled && !peutActiver && (
           <p className="mt-1 text-muted-foreground" data-testid="mfa-mot-de-passe-requis">

@@ -53,7 +53,7 @@ export async function POST(_request: NextRequest) {
       return NextResponse.json(
         {
           error: 'magic_link_failed',
-          message: "Impossible de régénérer le lien d'accès au CRM. Réessaye dans quelques secondes.",
+          message: "Impossible de régénérer le lien d'accès au CRM. Réessayez dans quelques secondes.",
         },
         { status: 502 },
       );

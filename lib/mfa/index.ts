@@ -24,7 +24,7 @@ export const MFA_MAX_CODES_PER_HOUR = 5;
 
 export class MfaRateLimitError extends Error {
   constructor() {
-    super('Trop de codes 2FA demandés. Réessaye dans une heure.');
+    super('Trop de codes 2FA demandés. Réessayez dans une heure.');
     this.name = 'MfaRateLimitError';
   }
 }

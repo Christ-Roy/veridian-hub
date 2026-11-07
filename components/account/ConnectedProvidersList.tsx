@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
+import { KeyRound, Link2 } from 'lucide-react';
+import { GoogleIcon, MicrosoftIcon } from '@/components/auth/provider-icons';
 import { signIn } from 'next-auth/react';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -12,10 +14,10 @@ type Provider = {
   type: string;
 };
 
-const PROVIDER_LABELS: Record<string, { name: string; icon: string }> = {
-  google: { name: 'Google', icon: '🔵' },
-  'microsoft-entra-id': { name: 'Microsoft', icon: '🔴' },
-  credentials: { name: 'Email + Mot de passe', icon: '🔐' },
+const PROVIDER_LABELS: Record<string, { name: string; icon: ReactNode }> = {
+  google: { name: 'Google', icon: <GoogleIcon /> },
+  'microsoft-entra-id': { name: 'Microsoft', icon: <MicrosoftIcon /> },
+  credentials: { name: 'Email + Mot de passe', icon: <KeyRound className="h-5 w-5" /> },
 };
 
 const OAUTH_PROVIDERS = ['google', 'microsoft-entra-id'] as const;
@@ -88,7 +90,7 @@ export default function ConnectedProvidersList() {
       {providers && providers.length > 0 ? (
         <ul className="divide-y rounded-lg border">
           {providers.map((p) => {
-            const meta = PROVIDER_LABELS[p.provider] ?? { name: p.provider, icon: '🔗' };
+            const meta = PROVIDER_LABELS[p.provider] ?? { name: p.provider, icon: <Link2 className="h-5 w-5" /> };
             const isOauth = OAUTH_PROVIDERS.includes(p.provider as (typeof OAUTH_PROVIDERS)[number]);
             return (
               <li
@@ -96,7 +98,7 @@ export default function ConnectedProvidersList() {
                 className="flex items-center gap-3 p-3"
                 data-provider={p.provider}
               >
-                <span className="text-xl" aria-hidden>{meta.icon}</span>
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center" aria-hidden>{meta.icon}</span>
                 <div className="flex-1 min-w-0">
                   <p className="font-medium">{meta.name}</p>
                   <p className="text-sm text-muted-foreground truncate">

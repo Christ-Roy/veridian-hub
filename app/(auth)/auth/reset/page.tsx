@@ -128,7 +128,7 @@ function ResetContent() {
         </form>
 
         <div className="mt-6 text-center text-sm text-muted-foreground">
-          <Link href="/login" className="underline hover:text-foreground">
+          <Link href="/login" className="inline-flex min-h-11 items-center underline hover:text-foreground">
             Retour à la connexion
           </Link>
         </div>

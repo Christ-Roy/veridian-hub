@@ -86,7 +86,7 @@ export function ProspectionCard({
   return (
     <Card className="flex flex-col h-full hover:shadow-lg transition-shadow">
       <CardHeader>
-        <div className="flex items-start justify-between">
+        <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
             <AppIdentity app="prospection" />
             <div>
@@ -97,7 +97,7 @@ export function ProspectionCard({
             </div>
           </div>
           {configured && (
-            <Badge variant="success">
+            <Badge variant="success" className="shrink-0">
               Actif
             </Badge>
           )}
@@ -121,7 +121,7 @@ export function ProspectionCard({
                     clic régénère un lien frais — il n'y a plus deux états à
                     distinguer pour le client. */}
                 <span>
-                  <strong>Connexion automatique activée</strong> — clique pour ouvrir ton tableau de bord
+                  <strong>Connexion automatique activée</strong> — cliquez pour ouvrir votre tableau de bord
                 </span>
               </AlertDescription>
             </Alert>
