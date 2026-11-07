@@ -17,9 +17,9 @@ Résultat lisible dans `e2e/systeme-sso/.run/resultat.txt` et `.json`.
 | ✅ PASSE | la condition est vraie, mesurée dans le navigateur |
 | ❌ ÉCHOUE | une assertion est fausse sur une app dont le correctif EST servi |
 | ⚪ NON ABOUTI | on n'a pas pu mesurer (compte non créé, API muette, Twenty non servi, témoin positif absent) |
-| 🟡 ATTENDU ROUGE | échoue sur une app dont la **version servie** (relue par `nomad job inspect`) n'a pas encore le correctif ; n'interrompt rien, affiche la version |
+| 🟡 ATTENDU ROUGE | échoue sur une image listée dans `avant` : **version servie** (relue par `nomad job inspect`) sans encore le correctif ; n'interrompt rien, affiche la version |
 
-Les marqueurs de correctif sont dans `lib/cibles.ts` (`SERVI`). Quand un correctif est en ligne, la version relue le
+Le classement est dans `lib/cibles.ts` (`SERVI`) : seule une image listée dans `avant` rend un échec « attendu rouge », et toute autre version est stricte. Forcer : `SSO_APPS_CORRIGEES=notifuse,analytics`.
 contient et le cas devient strict. Forcer : `SSO_APPS_CORRIGEES=notifuse,analytics`.
 
 ## Les cas

@@ -14,17 +14,24 @@ export const APP_URL: Record<AppKey, string> = {
   twenty: process.env.TWENTY_URL || 'https://crm.staging.veridian.site',
 };
 
-/** Nom Nomad du job de chaque app + marqueur(s) qui prouvent que le correctif est servi. */
+/**
+ * Nom Nomad du job de chaque app. `corrige` ne sert qu'au Hub (version minimale). `avant` liste
+ * les images d'app anterieures au correctif : seules elles rendent un echec « attendu rouge ».
+ */
 export const SERVI: Record<
   'hub' | AppKey,
-  { job: string | null; corrige: string[]; note: string }
+  { job: string | null; corrige: string[]; avant: string[]; note: string }
 > = {
-  hub: { job: 'hub', corrige: ['v0.5.42'], note: 'preuve d\'adresse + rebond sur les hôtes réels' },
-  prospection: { job: 'prospection', corrige: ['0d25f6d'], note: 'identité Hub' },
-  // e5d4f7bd contient 61e3b290 (descendant, vérifié par merge-base le 06/11)
-  notifuse: { job: 'notifuse', corrige: ['61e3b290', 'e5d4f7bd'], note: 'identité Hub' },
-  analytics: { job: 'analytics-rybbit', corrige: ['prod-271633e'], note: 'identité Hub (Rybbit)' },
-  twenty: { job: null, corrige: [], note: 'staging, si servi' },
+  hub: {
+    job: 'hub',
+    corrige: ['v0.5.49'],
+    avant: [],
+    note: 'preuve d\'adresse, rebond sur les hôtes réels, synchro d\'identité',
+  },
+  prospection: { job: 'prospection', corrige: [], avant: [], note: 'identité Hub' },
+  notifuse: { job: 'notifuse', corrige: [], avant: [], note: 'identité Hub' },
+  analytics: { job: 'analytics-rybbit', corrige: [], avant: [], note: 'identité Hub (Rybbit)' },
+  twenty: { job: null, corrige: [], avant: [], note: 'staging, si servi' },
 };
 
 /** Libellé et préfixe de tous les comptes de test créés par la batterie. */

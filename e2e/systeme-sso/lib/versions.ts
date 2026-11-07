@@ -71,5 +71,7 @@ export function estCorrige(cle: keyof typeof SERVI, v: Versions): boolean {
       return true;
     }
   }
-  return SERVI[cle].corrige.some((m) => lu.includes(m));
+  // Depuis le 07/11, tous les correctifs sont servis : une version inconnue n'excuse plus un
+  // echec. Seule une version listee dans `avant` (image anterieure au correctif) le peut.
+  return !SERVI[cle].avant.some((m) => lu.includes(m));
 }
