@@ -8,8 +8,7 @@
 > lead, il ne se contourne pas. Détail : CLAUDE.md racine veridian-platform.
 
 
-> Ex Web-Dashboard. Application orchestratrice du SaaS.
-> Voir le CLAUDE.md racine (`../CLAUDE.md`) pour la vision globale.
+> Application orchestratrice du SaaS.
 
 ## Ce que c'est
 
