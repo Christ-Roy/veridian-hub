@@ -28,7 +28,7 @@ export type Compte = {
 };
 
 /** Chaque compte créé est noté AVANT usage : le nettoyage retrouve les siens, et seulement les siens. */
-function noter(email: string) {
+export function noter(email: string) {
   mkdirSync(RUN_DIR, { recursive: true });
   appendFileSync(REGISTRE, JSON.stringify({ email, run: ID_RUN, a: new Date().toISOString() }) + '\n');
 }

@@ -96,6 +96,12 @@ export const statutNotifuse = (tenantId: string) =>
     'GET',
     `notifuse/status?tenantId=${encodeURIComponent(tenantId)}`,
   );
+export const identite = (email: string, changement: { new_email?: string; name?: string }) =>
+  adminOk<{ hub_user_id: string; email: string; name: string; push: Record<string, string> }>(
+    'POST',
+    'users/identity',
+    { email, ...changement },
+  );
 export const reconcile = () => adminOk('POST', 'reconcile-trigger');
 export const listTenants = () => adminOk<{ tenants: any[] }>('GET', 'list-tenants');
 export const supprimerTenantHub = (email: string) =>

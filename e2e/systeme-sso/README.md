@@ -33,6 +33,7 @@ contient et le cas devient strict. Forcer : `SSO_APPS_CORRIGEES=notifuse,analyti
 | `03-liens-morts` | lien consommé / inconnu / expiré (`SSO_EXPIRY=0` ignore l expiration (TTL 10 min)) |
 | `04-rebond` | session Hub ouverte : rebond sans saisie, deux fois de suite |
 | `05-plan` | plan posé au Hub relu dans l'app, dans les deux sens |
+| `05-synchro-identite` | nom et email changés au Hub, relus dans chaque app par `GET /api/hub/users` (§3.8) |
 | `06-reconcile` | aucune dérive nouvelle, et aucun de nos comptes cité par l'audit d'identité |
 | `07-isolation` | A ne voit rien de B ni d'un autre tenant (B = présence qui rend l'absence probante) |
 | `99-nettoyage` | suppression des comptes de test, vérifiée au Hub et dans reconcile |

@@ -11,6 +11,7 @@
  * à jour `providerAccountId` pour rester cohérent avec le legacy bridge.
  */
 
+import { issueEmailProof } from '@/lib/auth/email-proof';
 import { pushUserToApps } from '@/lib/identity/push-user';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -83,8 +84,13 @@ export async function PATCH(req: Request) {
       .catch(() => { /* non bloquant */ });
   }
 
-  // Le nom part tout de suite. Une nouvelle adresse attend sa preuve
-  // (cf. app/api/auth/email-proof/confirm/route.ts).
+  // Une nouvelle adresse reçoit son lien de preuve et n'atteint les apps qu'une fois
+  // prouvée (cf. app/api/auth/email-proof/confirm/route.ts). Le nom part tout de suite.
+  if (email && email !== user.email) {
+    void issueEmailProof(prisma, { id: user.id, email }).catch((err) => {
+      console.error('[account/profile] email proof failed (non-blocking):', err);
+    });
+  }
   if (name !== undefined && user.supabaseUserId) {
     void pushUserToApps({ hubUserId: user.supabaseUserId, name }).catch(() => undefined);
   }
