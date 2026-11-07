@@ -20,7 +20,6 @@ Résultat lisible dans `e2e/systeme-sso/.run/resultat.txt` et `.json`.
 | 🟡 ATTENDU ROUGE | échoue sur une image listée dans `avant` : **version servie** (relue par `nomad job inspect`) sans encore le correctif ; n'interrompt rien, affiche la version |
 
 Le classement est dans `lib/cibles.ts` (`SERVI`) : seule une image listée dans `avant` rend un échec « attendu rouge », et toute autre version est stricte. Forcer : `SSO_APPS_CORRIGEES=notifuse,analytics`.
-contient et le cas devient strict. Forcer : `SSO_APPS_CORRIGEES=notifuse,analytics`.
 
 ## Les cas
 

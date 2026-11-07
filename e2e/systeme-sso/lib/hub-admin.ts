@@ -30,11 +30,24 @@ function lireSecret(): string {
 
 export type Reponse<T = any> = { status: number; json: T };
 
+/** L'API admin plafonne les appels : on attend le délai annoncé au lieu de conclure à tort. */
 export async function admin<T = any>(
   methode: 'GET' | 'POST' | 'DELETE',
   route: string,
   corps?: unknown,
 ): Promise<Reponse<T>> {
+  for (let essai = 0; ; essai++) {
+    const { reponse, attente } = await appelAdmin<T>(methode, route, corps);
+    if (reponse.status !== 429 || essai >= 4) return reponse;
+    await new Promise((r) => setTimeout(r, attente));
+  }
+}
+
+async function appelAdmin<T>(
+  methode: 'GET' | 'POST' | 'DELETE',
+  route: string,
+  corps?: unknown,
+): Promise<{ reponse: Reponse<T>; attente: number }> {
   let res: Response;
   try {
     res = await fetch(`${HUB_URL}/api/admin/${route}`, {
@@ -57,7 +70,11 @@ export async function admin<T = any>(
   } catch {
     json = { non_json: txt.slice(0, 200) };
   }
-  return { status: res.status, json };
+  const annonce = Number(res.headers.get('retry-after'));
+  return {
+    reponse: { status: res.status, json },
+    attente: (Number.isFinite(annonce) && annonce > 0 ? annonce + 1 : 30) * 1000,
+  };
 }
 
 /** Appel admin qui doit réussir, sinon NON ABOUTI (ce n'est pas l'objet testé). */
