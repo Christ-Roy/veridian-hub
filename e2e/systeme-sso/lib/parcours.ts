@@ -42,9 +42,33 @@ export function comptesNotes(): string[] {
     .filter((e) => e.startsWith(PREFIXE_COMPTE) && e.endsWith(`@${DOMAINE_COMPTE}`));
 }
 
-export function oublierRegistre() {
-  if (existsSync(REGISTRE)) writeFileSync(REGISTRE, '');
+function retirerDe(fichier: string, email: string) {
+  if (!existsSync(fichier)) return;
+  const gardees = readFileSync(fichier, 'utf8')
+    .split('\n')
+    .filter((l) => l && JSON.parse(l).email !== email);
+  writeFileSync(fichier, gardees.length ? `${gardees.join('\n')}\n` : '');
 }
+
+export const oublierCompte = (email: string) => retirerDe(REGISTRE, email);
+
+/** Les comptes Rybbit ont leur registre : `monde` repart à zéro à chaque lancement, pas eux. */
+const REGISTRE_RYBBIT = path.join(RUN_DIR, 'comptes-rybbit.jsonl');
+
+export function noterRybbit(email: string) {
+  mkdirSync(RUN_DIR, { recursive: true });
+  appendFileSync(REGISTRE_RYBBIT, JSON.stringify({ email, run: ID_RUN }) + '\n');
+}
+
+export function comptesRybbitNotes(): string[] {
+  if (!existsSync(REGISTRE_RYBBIT)) return [];
+  return readFileSync(REGISTRE_RYBBIT, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => JSON.parse(l).email as string);
+}
+
+export const oublierRybbit = (email: string) => retirerDe(REGISTRE_RYBBIT, email);
 
 function nouveauMdp() {
   return `Tst-${randomBytes(9).toString('base64url')}A9z`;
@@ -307,7 +331,7 @@ export async function seDeconnecterDeApp(ctx: BrowserContext, app: AppKey): Prom
     if (app === 'notifuse') {
       await page.goto(`${APP_URL.notifuse}/console/logout`, { waitUntil: 'domcontentloaded' });
     } else {
-      await page.goto(`${APP_URL[app]}${app === 'twenty' ? '/settings/profile' : PAGE_PROTEGEE[app]}`, {
+      await page.goto(`${APP_URL[app]}${{ prospection: PAGE_PROTEGEE.prospection, analytics: '/settings/account', twenty: '/settings/profile', notifuse: '' }[app]}`, {
         waitUntil: 'domcontentloaded',
       });
       await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});

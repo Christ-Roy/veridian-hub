@@ -11,7 +11,7 @@ import type { Browser } from '@playwright/test';
 import type { AppKey } from './cibles';
 import { NonAbouti } from './etat';
 import { rybbitCompte } from './hub-admin';
-import { type Atterrissage, type Compte, creerCompteNonProuve, creerCompteProuve, ID_RUN, ouvrirApp } from './parcours';
+import { type Atterrissage, type Compte, creerCompteNonProuve, creerCompteProuve, ID_RUN, noterRybbit, ouvrirApp } from './parcours';
 import { RUN_DIR } from './versions';
 import type { BrowserContext } from '@playwright/test';
 
@@ -68,11 +68,9 @@ export function assurerRybbit(c: Compte) {
   const m = lire();
   if ((m.rybbit ?? []).includes(c.email)) return;
   m.rybbit = [...(m.rybbit ?? []), c.email];
-  ecrire(m); // noté AVANT la création : un crash ne doit pas orpheliner le compte
+  ecrire(m);
+  noterRybbit(c.email); // noté AVANT la création : un crash ne doit pas orpheliner le compte
   rybbitCompte('creer', c.email);
-}
-export function comptesRybbit(): string[] {
-  return lire().rybbit ?? [];
 }
 
 export function reconcileBase() {

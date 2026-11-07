@@ -9,7 +9,7 @@
 set -uo pipefail
 cd "$(dirname "$0")/../e2e/systeme-sso"
 
-mkdir -p .run && rm -f .run/versions.json .run/resultat.* .run/monde-*.json  # le registre des comptes est conservé : un crash ne doit rien orpheliner
+mkdir -p .run && rm -f .run/versions.json .run/resultat.* .run/monde-*.json .run/restes.json  # le registre des comptes est conservé : un crash ne doit rien orpheliner
 
 # Une seule batterie à la fois : elles partagent .run et le plafond de l'API admin.
 exec 9>.run/verrou
@@ -50,4 +50,13 @@ node -e '
 const r=require("./.run/resultat.json").compte;
 // Zero cas joue (filtre sans correspondance) : rien de mesure, donc pas un succes.
 if(Object.values(r).reduce((x,y)=>x+y,0)===0){console.error("✗ NON ABOUTI : aucun cas joué");process.exit(2)}
-process.exit((r.ECHOUE||0)>0?1:(r.NON_ABOUTI||0)>0?2:0)'
+const fs=require("fs");
+// Le teardown a mesuré ce que la prod garde de cette batterie : un reste fait échouer la commande.
+let v=null;try{v=JSON.parse(fs.readFileSync("./.run/restes.json","utf8"))}catch{}
+if(!v){console.error("✗ NON ABOUTI : aucun verdict de nettoyage écrit");process.exit(2)}
+const restes=[...(v.echecs||[]),...(v.restes||[])];
+if(restes.length){console.error("✗ RESTES EN PROD ("+restes.length+") : "+restes.join(" · "));process.exit(1)}
+if((r.ECHOUE||0)>0)process.exit(1);
+if(v.nonAbouti){console.error("⚪ RESTES NON MESURÉS : "+v.nonAbouti);process.exit(2)}
+console.log("✅ RESTES : 0 mesuré en prod");
+process.exit((r.NON_ABOUTI||0)>0?2:0)'

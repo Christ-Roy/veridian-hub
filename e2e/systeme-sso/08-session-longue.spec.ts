@@ -14,6 +14,7 @@ import { APP_URL, HUB_URL, type AppKey } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
 import { supprimerTenantHub } from './lib/hub-admin';
 import { assurerRybbit, compte, contexteDe, ouvrirApp } from './lib/monde';
+import { nettoyerCompte } from './lib/nettoyage';
 import { PAGE_PROTEGEE, seDeconnecterDeApp, voirApp, type Compte } from './lib/parcours';
 
 const SUR_STAGING = /staging/.test(HUB_URL);
@@ -315,14 +316,17 @@ cas(null, 'se déconnecter partout : le Hub et les apps coupent, la reconnexion 
   } finally {
     await ctx.close();
   }
+  await nettoyerCompte(C.email);
   return `${detail}, reconnexion réussie`;
 }, { timeout: 420_000 });
 
 cas(null, 'compte supprimé : plus aucun accès, avec sa session encore en main', async ({ browser }) => {
   const D = await compte(browser, 'D');
   if (!SUR_STAGING) assurerRybbit(D);
-  return prouverCoupure(browser, D, async () => {
+  const detail = await prouverCoupure(browser, D, async () => {
     if (sabote('supprime')) return;
     await supprimerTenantHub(D.email);
   });
+  await nettoyerCompte(D.email);
+  return detail;
 }, { timeout: 420_000 });
