@@ -68,6 +68,26 @@ export function comptesRybbitNotes(): string[] {
     .map((l) => JSON.parse(l).email as string);
 }
 
+/** Espaces Twenty de test : retirés au nettoyage, le `deleted` du Hub les laisserait. */
+const REGISTRE_TWENTY = path.join(RUN_DIR, 'espaces-twenty.jsonl');
+
+export function noterEspaceTwenty(email: string, tenantId: string) {
+  mkdirSync(RUN_DIR, { recursive: true });
+  appendFileSync(REGISTRE_TWENTY, JSON.stringify({ email, tenantId }) + '\n');
+}
+
+export function espacesTwenty(email: string): string[] {
+  if (!existsSync(REGISTRE_TWENTY)) return [];
+  return readFileSync(REGISTRE_TWENTY, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => JSON.parse(l) as { email: string; tenantId: string })
+    .filter((l) => l.email === email)
+    .map((l) => l.tenantId);
+}
+
+export const oublierEspacesTwenty = (email: string) => retirerDe(REGISTRE_TWENTY, email);
+
 export const oublierRybbit = (email: string) => retirerDe(REGISTRE_RYBBIT, email);
 
 function nouveauMdp() {
