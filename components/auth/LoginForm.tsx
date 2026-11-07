@@ -16,6 +16,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { LoginErrorBanner } from "@/components/auth/LoginErrorBanner";
 import { OAuthButtons, SignupLink } from "@/components/auth/OAuthButtons";
+import { safeCallback } from "@/lib/auth/safe-callback";
 
 export interface LoginFormProps extends React.ComponentProps<"form"> {
   allowEmail?: boolean;
@@ -45,7 +46,7 @@ export function LoginForm({
   // détourner le flow.
   const callbackUrl = bounceApp
     ? '/api/auth/bounce/complete'
-    : requestedCallbackUrl ?? '/dashboard';
+    : safeCallback(requestedCallbackUrl);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

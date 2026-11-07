@@ -14,6 +14,7 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { safeCallback } from "@/lib/auth/safe-callback";
 import { signIn } from "next-auth/react";
 import { LoginErrorBanner } from "@/components/auth/LoginErrorBanner";
 import { OAuthButtons, LoginLink } from "@/components/auth/OAuthButtons";
@@ -29,7 +30,8 @@ export function SignupForm({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get('callbackUrl') ?? '/dashboard';
+  // D8 : même validation que /login, le paramètre vient de l'URL.
+  const callbackUrl = safeCallback(searchParams.get('callbackUrl'));
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
