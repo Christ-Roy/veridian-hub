@@ -60,8 +60,8 @@ require_fixed "$prod_hcl" 'HUB_DATABASE_MODE.Value "local-colocated"' \
   "prod: fallback local-colocated absent"
 require_fixed "$prod_hcl" '{{ $dbServiceName := or .HUB_DATABASE_SERVICE_NAME.Value "veridian-core-db" }}' \
   "prod: nom logique DB historique absent"
-require_fixed "$staging_hcl" 'HUB_DATABASE_MODE.Value "patroni-haproxy"' \
-  "staging: mode Patroni/HAProxy absent"
+require_fixed "$staging_hcl" 'HUB_DATABASE_MODE.Value "single-haproxy"' \
+  "staging: mode base simple derrière HAProxy absent"
 require_fixed "$staging_hcl" 'HUB_DATABASE_SERVICE_NAME={{ or .HUB_DATABASE_SERVICE_NAME.Value "hub-staging-db" }}' \
   "staging: nom du service DB staging absent"
 require_fixed "$staging_hcl" '{{ range $index, $service := nomadService "hub-staging-db" }}' \
