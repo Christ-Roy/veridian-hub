@@ -29,6 +29,7 @@ import {
   oauthStartLimiter,
   oauthCallbackLimiter,
   credentialsLoginLimiter,
+  credentialsLoginIpLimiter,
 } from '@/lib/auth/rate-limit';
 
 beforeEach(() => {
@@ -37,6 +38,7 @@ beforeEach(() => {
   oauthStartLimiter.reset();
   oauthCallbackLimiter.reset();
   credentialsLoginLimiter.reset();
+  credentialsLoginIpLimiter.reset();
 });
 
 const buildReq = (
@@ -109,6 +111,38 @@ describe('Rate-limit wrapper Auth.js — /api/auth/callback/credentials (anti-br
     expect(blocked.headers.get('Retry-After')).toBeTruthy();
     // Le limiter générique callback (30/min) n'a PAS été consommé,
     // c'est bien credentialsLoginLimiter (5/min) qui a tapé.
+  });
+
+  const login = (email: string, ip = '7.7.7.7') =>
+    new Request('http://hub.test/api/auth/callback/credentials', {
+      method: 'POST',
+      headers: { 'x-forwarded-for': ip, 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ email, password: 'x' }).toString(),
+    });
+
+  it('une même IP : un collègue reste libre quand un autre a épuisé ses essais', async () => {
+    const { POST } = await import('@/app/api/auth/[...nextauth]/route');
+    for (let i = 0; i < 5; i++) {
+      expect((await POST(login('a@ent.fr'))).status).toBe(200);
+    }
+    expect((await POST(login('A@ent.fr'))).status).toBe(429);
+    expect((await POST(login('b@ent.fr'))).status).toBe(200);
+  });
+
+  it('une même IP : 60 connexions de personnes différentes passent, la 61e est refusée', async () => {
+    const { POST } = await import('@/app/api/auth/[...nextauth]/route');
+    for (let i = 0; i < 60; i++) {
+      expect((await POST(login(`p${i}@ent.fr`))).status).toBe(200);
+    }
+    expect((await POST(login('p61@ent.fr'))).status).toBe(429);
+    expect((await POST(login('autre@ailleurs.fr', '9.9.9.9'))).status).toBe(200);
+  });
+
+  it('le corps reste intact pour Auth.js après lecture de l\'email', async () => {
+    const { POST } = await import('@/app/api/auth/[...nextauth]/route');
+    await POST(login('a@ent.fr'));
+    const req = upstreamPostMock.mock.calls.at(-1)?.[0] as Request;
+    expect(await req.text()).toContain('email=a%40ent.fr');
   });
 
   it('callback Google reste à 30/min (pas impacté par limiter credentials)', async () => {

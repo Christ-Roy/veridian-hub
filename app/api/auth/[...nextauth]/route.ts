@@ -14,10 +14,21 @@ import {
   oauthStartLimiter,
   oauthCallbackLimiter,
   credentialsLoginLimiter,
+  credentialsLoginIpLimiter,
   extractClientIp,
 } from '@/lib/auth/rate-limit';
 import { buildClearedSessionHintSetCookie } from '@/lib/auth/session-hint-cookie';
 import { NextRequest, NextResponse } from 'next/server';
+
+/** Email présenté à la connexion, lu sur une copie : Auth.js a besoin du corps intact. */
+async function loginEmail(req: NextRequest): Promise<string> {
+  try {
+    const form = await req.clone().formData();
+    return String(form.get('email') ?? '').trim().toLowerCase();
+  } catch {
+    return '';
+  }
+}
 
 function pickLimiter(pathname: string) {
   // Pathname typique : /api/auth/signin, /api/auth/signin/google,
@@ -62,7 +73,16 @@ async function withRateLimit(
   // enforceWithBypass : bypass E2E staging via header secret valide
   // (cf. RateLimiter.enforceWithBypass). En prod le bypass est ignoré
   // par `shouldBypassRateLimit` → comportement identique au legacy.
-  const result = limiter.enforceWithBypass(ip, req.headers);
+  let result: ReturnType<typeof limiter.enforceWithBypass>;
+  if (limiter === credentialsLoginLimiter) {
+    // Le plafond large par IP d'abord : une rafale d'adresses ne consomme que lui.
+    const ipResult = credentialsLoginIpLimiter.enforceWithBypass(ip, req.headers);
+    result = ipResult.ok
+      ? limiter.enforceWithBypass(`${ip}|${await loginEmail(req)}`, req.headers)
+      : ipResult;
+  } else {
+    result = limiter.enforceWithBypass(ip, req.headers);
+  }
   if (!result.ok) {
     console.warn(
       JSON.stringify({

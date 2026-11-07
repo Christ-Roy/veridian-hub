@@ -287,13 +287,19 @@ export const signupLimiter = new RateLimiter({
 // 5 tentatives/min/IP — suffisant pour un humain qui se trompe 2-3 fois,
 // très restrictif pour un bot.
 //
-// Pour aller plus loin (rate-limit par couple IP+email pour empêcher un
-// botnet de répartir l'attaque), il faudrait parser le body x-www-form-
-// urlencoded avant Auth.js. À faire si attaques observées.
+// La clé est le couple IP + email : plusieurs personnes d'une même entreprise sortent par
+// la même IP et ne doivent pas se bloquer entre elles. Le second plafond, par IP seule et
+// bien plus large, borne le balayage de nombreuses adresses depuis une même machine.
 export const credentialsLoginLimiter = new RateLimiter({
   capacity: 5,
   windowMs: 60_000,
   name: 'credentials-login',
+});
+
+export const credentialsLoginIpLimiter = new RateLimiter({
+  capacity: 60,
+  windowMs: 60_000,
+  name: 'credentials-login-ip',
 });
 
 // Anti-flood sur POST /api/invitations/create (machine-to-machine HMAC).
