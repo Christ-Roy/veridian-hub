@@ -2425,8 +2425,8 @@ d'email ou de mot de passe et l'administration par session (24 h), et pour la fa
    silencieuse. Le bouton « Continuer » de cette page appelle le rebond sans `auto`.
 3. **Un seul essai automatique** : poser avant de partir un cookie local de 5 minutes. S'il est déjà
    là au retour, afficher la page de connexion au lieu de repartir. Le lever à la connexion réussie.
-   Le Hub s'arrête aussi de son côté : au troisième `auto=1` sur la même app en 30 s, il renvoie sur
-   `/login?bounce_failed=1`. Le compteur est par app : ouvrir trois outils à la suite n'est pas une boucle.
+   Le Hub s'arrête aussi de son côté, par app, sur 30 s : au troisième `auto=1` il renvoie sur la page
+   demandée, où cet essai unique affiche la connexion ; au quatrième, sur `/login?bounce_failed=1`.
 4. **Jamais** de rebond automatique dans une iframe, sur un POST, ni sur une route d'API (répondre
    401). Le Hub répond 204 sans rien émettre à une requête qui n'est pas une navigation.
 5. `POST /api/sso/issue-magic-link` reçoit `next` en option : y renvoyer après connexion **si et

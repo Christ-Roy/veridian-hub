@@ -285,7 +285,45 @@ async function sessionLue(page: Page, app: AppKey): Promise<boolean | undefined>
     if (!jeton) return false;
     return (await lire('/api/user.me', jeton)).status === 200;
   }
+  if (app === 'twenty') {
+    const lu = await page.evaluate(async () => {
+      const r = await fetch('/metadata', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json', 'x-twenty-session-cookie': '1' },
+        body: JSON.stringify({ query: '{currentUser{email}}' }),
+      });
+      return (await r.json().catch(() => null)) as { data?: { currentUser?: { email?: string } } } | null;
+    });
+    return Boolean(lu?.data?.currentUser?.email);
+  }
   return undefined;
+}
+
+/** Le clic « Se déconnecter » de chaque app, celui qui doit interdire la reconnexion silencieuse. */
+export async function seDeconnecterDeApp(ctx: BrowserContext, app: AppKey): Promise<void> {
+  const page = await ctx.newPage();
+  try {
+    if (app === 'notifuse') {
+      await page.goto(`${APP_URL.notifuse}/console/logout`, { waitUntil: 'domcontentloaded' });
+    } else {
+      await page.goto(`${APP_URL[app]}${app === 'twenty' ? '/settings/profile' : PAGE_PROTEGEE[app]}`, {
+        waitUntil: 'domcontentloaded',
+      });
+      await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
+      const bouton =
+        app === 'prospection'
+          ? page.locator('[title^="Se déconnecter"]')
+          : page.getByText(/^(Sign out|Se déconnecter|Log ?out|Déconnexion)$/i);
+      await bouton.first().click({ timeout: 20_000 });
+    }
+    await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
+    await page.waitForTimeout(3_000);
+  } catch (e) {
+    throw new NonAbouti(`bouton de déconnexion de ${app} introuvable : ${(e as Error).message.split('\n')[0]}`);
+  } finally {
+    await page.close();
+  }
 }
 
 /**
@@ -313,7 +351,8 @@ export async function voirApp(ctx: BrowserContext, app: AppKey, chemin = PAGE_PR
       }
     }
     const u = new URL(page.url());
-    const surApp = u.host === hoteDe(APP_URL[app]);
+    // Twenty sert chaque espace sur `<slug>.crm.*`.
+    const surApp = u.host === hoteDe(APP_URL[app]) || u.host.endsWith(`.${hoteDe(APP_URL[app])}`);
     const formulaire = (await page.locator('input[type=password]').count().catch(() => 0)) > 0;
     let connecte = surApp && !/login|signin|sign-in|welcome|session-ended|auth\//.test(u.pathname) && !formulaire;
     if (connecte) connecte = (await sessionLue(page, app).catch(() => false)) ?? true;

@@ -14,7 +14,7 @@ import { APP_URL, HUB_URL, type AppKey } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
 import { supprimerTenantHub } from './lib/hub-admin';
 import { assurerRybbit, compte, contexteDe, ouvrirApp } from './lib/monde';
-import { PAGE_PROTEGEE, voirApp, type Compte } from './lib/parcours';
+import { PAGE_PROTEGEE, seDeconnecterDeApp, voirApp, type Compte } from './lib/parcours';
 
 const SUR_STAGING = /staging/.test(HUB_URL);
 // Twenty n'existe qu'en staging : il se joue contre le Hub staging, les autres contre le Hub prod.
@@ -157,6 +157,49 @@ for (const app of APPS) {
   }, { timeout: 240_000 });
 }
 
+for (const app of APPS) {
+  cas(app, 'clic sur Se déconnecter, session Hub ouverte : pas de reconnexion silencieuse ni de boucle', async ({ browser }) => {
+    const A = await compte(browser, 'A');
+    prevoirCompte(A, app);
+    const ctx = await contexteDe(browser, A);
+    try {
+      const avant = await voirApp(ctx, app);
+      if (!avant.connecte) throw new NonAbouti(`${app} ne s'ouvre pas avant la déconnexion (${avant.hote}${avant.chemin})`);
+      if (!sabote('logout')) await seDeconnecterDeApp(ctx, app);
+      const apres = await voirApp(ctx, app);
+      expect(apres.connecte, `${app} : reconnexion silencieuse, vu ${apres.hote}${apres.chemin}`).toBe(false);
+      expect(apres.rebondsAuto, `${app} : aucun rebond automatique après le clic`).toBe(0);
+      expect(await sessionHub(ctx), 'le clic dans une app laisse la session Hub ouverte').toBeTruthy();
+      return `reste sur ${apres.hote}${apres.chemin}, session Hub conservée`;
+    } finally {
+      await ctx.close();
+    }
+  }, { timeout: 240_000 });
+}
+
+cas(null, 'plusieurs rebonds réussis de suite : la page demandée, jamais le tableau de bord', async ({ browser }) => {
+  const app = APPS[0];
+  const A = await compte(browser, 'A');
+  prevoirCompte(A, app);
+  const ctx = await contexteDe(browser, A);
+  const hoteApp = new URL(APP_URL[app]).host;
+  try {
+    const page = await ctx.newPage();
+    for (let i = 1; i <= 4; i += 1) {
+      // Comme un onglet qui a perdu sa session : aucun état de l'app, le Hub reste ouvert.
+      await ctx.clearCookies({ domain: hoteApp });
+      await page.goto(`${APP_URL[app]}${PAGE_PROTEGEE[app]}`, { waitUntil: 'domcontentloaded' });
+      await page.waitForURL((u) => u.host.endsWith(hoteApp), { timeout: 45_000 }).catch(() => {});
+      await page.waitForTimeout(1_500);
+      const fin = new URL(page.url());
+      expect(`${fin.host}${fin.pathname}`, `essai ${i} : jamais le tableau de bord du Hub`).not.toContain(`${hoteHub}/dashboard`);
+    }
+    return `4 ouvertures rapprochées de ${app}, toujours sur l'app`;
+  } finally {
+    await ctx.close();
+  }
+}, { timeout: 240_000 });
+
 cas(null, 'la session dure un an et se renouvelle à l\'usage', async ({ browser }) => {
   const A = await compte(browser, 'A');
   const ctx = await contexteDe(browser, A);
@@ -190,7 +233,7 @@ cas(null, 'aucun rebond automatique dans une iframe', async ({ browser }) => {
   }
 });
 
-cas(null, 'anti-boucle : trois essais sur une app s\'arrêtent, une autre app reste ouverte', async ({ browser }) => {
+cas(null, 'anti-boucle : au troisième essai retour à l\'app, au quatrième arrêt, une autre app reste ouverte', async ({ browser }) => {
   const ctx = await browser.newContext();
   const prepare = (app: AppKey) =>
     ctx.request.get(`${HUB_URL}/api/auth/bounce/prepare?auto=1&next=${encodeURIComponent(`${APP_URL[app]}/`)}`, {
@@ -200,12 +243,11 @@ cas(null, 'anti-boucle : trois essais sur une app s\'arrêtent, une autre app re
   try {
     await prepare(a);
     await prepare(a);
-    const stop = await prepare(a);
-    expect(stop.headers().location ?? '', 'troisième essai sur la même app').toContain('bounce_failed=1');
-    if (!b) return 'une seule app ici : arrêt au troisième essai';
-    const autre = await prepare(b);
-    expect(autre.headers().location ?? '', 'autre app, juste après').toContain('mode=bounce');
-    return `${a} arrêtée au troisième essai, ${b} toujours ouverte`;
+    expect((await prepare(a)).headers().location ?? '', 'troisième essai : rendu à l\'app').toContain(new URL(APP_URL[a]).host);
+    expect((await prepare(a)).headers().location ?? '', 'quatrième essai : arrêt').toContain('bounce_failed=1');
+    if (!b) return 'une seule app ici : retour à l\'app, puis arrêt';
+    expect((await prepare(b)).headers().location ?? '', 'autre app, juste après').toContain('mode=bounce');
+    return `${a} rendue puis arrêtée, ${b} toujours ouverte`;
   } finally {
     await ctx.close();
   }

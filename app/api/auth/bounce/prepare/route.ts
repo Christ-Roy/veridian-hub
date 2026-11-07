@@ -87,6 +87,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.redirect(loginUrl);
   }
 
+  const secure = shouldUseSecureCookie();
   // Anti-boucle : un retour automatique d'app (`auto=1`) qui revient ici trop vite a échoué. Plus
   // de rebond silencieux, on montre la connexion ; l'app en fait autant de son côté (§6bis.9).
   const auto = url.searchParams.get('auto') === '1';
@@ -94,6 +95,22 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   const [appDuCompteur, compteur] = (req.cookies.get(AUTO_BOUNCE_COOKIE)?.value ?? '').split(':');
   const essais = appDuCompteur === parsed.app ? Number(compteur) || 0 : 0;
   if (auto && essais >= AUTO_BOUNCE_MAX) {
+    // Premier arrêt : on rend la main à l'app sur la page demandée. Son essai unique (§6bis.8.0,
+    // point 3) lui fait afficher sa connexion au lieu de repartir, et plusieurs onglets restaurés
+    // d'un coup ne finissent pas sur le tableau de bord. Si elle revient quand même, on arrête ici.
+    if (essais === AUTO_BOUNCE_MAX) {
+      const rendu = NextResponse.redirect(parsed.url);
+      rendu.cookies.set({
+        name: AUTO_BOUNCE_COOKIE,
+        value: `${parsed.app}:${essais + 1}`,
+        httpOnly: true,
+        sameSite: 'lax',
+        secure,
+        path: '/api/auth/bounce',
+        maxAge: AUTO_BOUNCE_WINDOW_S,
+      });
+      return rendu;
+    }
     const stop = new URL('/login', baseUrl);
     stop.searchParams.set('bounce_failed', '1');
     return NextResponse.redirect(stop);
@@ -106,7 +123,6 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   loginUrl.searchParams.set('mode', 'bounce');
   loginUrl.searchParams.set('app', parsed.app);
 
-  const secure = shouldUseSecureCookie();
   const cookieValue = signNextCookie(parsed.url, secret);
   const cookieName = nextCookieName(secure);
 

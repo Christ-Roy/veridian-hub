@@ -76,7 +76,7 @@ describe('GET /api/auth/bounce/prepare', () => {
     expect(res.cookies.get(NEXT_COOKIE_NAME_SECURE)).toBeUndefined();
   });
 
-  it('auto=1 : au-delà de 2 essais rapprochés, plus de rebond, écran de connexion', async () => {
+  it('auto=1 : au troisième essai, retour à l\'app ; au quatrième, écran de connexion', async () => {
     const { GET } = await import('@/app/api/auth/bounce/prepare/route');
     const url = 'https://app.veridian.site/api/auth/bounce/prepare?auto=1&next=' +
       encodeURIComponent('https://notifuse.app.veridian.site/');
@@ -85,7 +85,13 @@ describe('GET /api/auth/bounce/prepare', () => {
     expect(premier.cookies.get('veridian-auto-bounce')?.value).toBe('notifuse:1');
     const req = new NextRequest(url);
     req.cookies.set('veridian-auto-bounce', 'notifuse:2');
-    const stop = await GET(req);
+    const rendu = await GET(req);
+    expect(rendu.headers.get('location')).toBe('https://notifuse.app.veridian.site/');
+    expect(rendu.cookies.get('veridian-auto-bounce')?.value).toBe('notifuse:3');
+    expect(rendu.cookies.get(NEXT_COOKIE_NAME_SECURE)).toBeUndefined();
+    const encore = new NextRequest(url);
+    encore.cookies.set('veridian-auto-bounce', 'notifuse:3');
+    const stop = await GET(encore);
     expect(stop.headers.get('location')).toContain('bounce_failed=1');
     expect(stop.cookies.get(NEXT_COOKIE_NAME_SECURE)).toBeUndefined();
     // Ouvrir un autre outil juste après n'est pas une boucle.
