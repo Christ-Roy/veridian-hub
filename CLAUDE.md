@@ -17,10 +17,7 @@ Le Hub gère l'inscription (Auth.js v5), le billing (Stripe), et le
 provisioning automatique des apps pour chaque nouveau tenant (Notifuse,
 Prospection). Twenty retiré de la stack 2026-05-18.
 
-> 📅 Migration Supabase → Auth.js v5 + Prisma : 2026-05-08
-> (cf memory `session_2026-05-08_hub_authjs.md`).
-> 📅 ENV résiduelles Supabase dégagées du compose : 2026-05-13 (PR #90).
-> Hub ne dépend plus de Supabase Auth/API en runtime.
+> Supabase retiré du Hub (migration Auth.js v5 + Prisma le 2026-05-08).
 
 ## Stack
 
@@ -80,8 +77,43 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   `HUB_URL=https://hub.staging.veridian.site`. Après une modification, rejouer chaque
   `SSO_SABOTAGE=<scénario>` : il doit échouer. Elle retire ses comptes, et échoue s'il en reste.
 - **Restes de test** : `testResidue` de `hub reconcile`.
+- **Garde rapide** : `__tests__/contrat/` (revocation sans `iat`, `authAt` sur toute création de session,
+  cibles du rebond, origines). Un nouveau `encode(` de JWT de session s'ajoute à sa liste. Détail par
+  parcours et état prouvé ou accepté : `docs/PARCOURS-IDENTITE.md`.
+- **Sonde de prod** : étape « Sonde identité » de `hub-ci.yml` (lectures seules). Le cron de reconcile
+  alerte au-dessus de `RESIDUE_SEUIL` (5 par défaut = restes connus).
 - **Coupure** : un déploiement coupe le Hub environ 19 s (07/11), la base est dans le groupe Nomad.
   Regrouper les changements. `e2e/systeme-sso/**` ne redéploie rien.
+
+## Que faire si
+
+Outil admin : `hub` (`hub doctor` d'abord : santé, secret, auth admin). Aucune de ces commandes n'affiche de secret.
+
+- **Un client ne peut plus se connecter** : `hub tenant <email>` (adresse prouvée ? apps liées ?), `hub audit --since <date>`.
+  Adresse non prouvée : aucun lien d'app, `hub invite <email>` renouvelle l'accès (`--no-email` : lien seul). Voir sa vue : `hub open <email>`.
+- **Un rebond échoue** : `/auth/bounce/error?code=` dit pourquoi (`not_configured` : variable `<APP>_API_URL` ou
+  `<APP>_HUB_API_SECRET` absente du job ; `unreachable` : l'app). `nomad-v logs hub` (tag `[bounce]`). 3 rebonds
+  rapides sur une app : l'anti-boucle est normal, 30 s d'attente.
+- **Le Hub est en 502** : `nomad-v state`, `nomad-v allocs hub`. Après un **reboot de nœud**, le réseau CNI n'est pas
+  reconstruit : `nomad-v run hub` ne répare rien et `hub-selfheal` non plus. Runbook :
+  `~/.claude/skills/nomad/reference/cluster-ops.md`, section « Piège CNI orphelin » (`nomad-v raw job restart -reschedule -yes hub`,
+  puis purge des DNAT orphelins). Un déploiement coupe 19 à 51 s (07/11) : attendre `/api/health` avant de conclure.
+- **Couper un compte en urgence** : `hub app-access <email> --app twenty|analytics|cms --enabled false`, `hub unlink <email> --app <app>`
+  ou `hub delete-tenant <email> --confirm` (irréversible, propage aux apps). Pas de commande admin « révoquer les sessions
+  seulement » : le client le fait depuis Réglages > Sécurité ; sinon `AUTH_SECRET`.
+- **Cookie volé suspecté** : le client « se déconnecte partout » (coupe Hub et apps, la réponse nomme les apps en échec) ;
+  changer son mot de passe fait pareil. Un cookie simplement déconnecté reste valable jusqu'à expiration.
+- **`AUTH_SECRET` à changer** : coupe TOUTES les sessions du Hub et les rebonds en cours ; ne coupe pas les sessions
+  déjà ouvertes dans les apps. Secret dans la Nomad Variable `nomad/jobs/hub` : lire une clé avec
+  `nomad-v raw var get -item AUTH_SECRET nomad/jobs/hub`, écrire avec `nomad var put -out none -in json nomad/jobs/hub -`
+  (remplace le bloc entier : repartir du JSON complet), puis `nomad-v run hub`. Compter une reconnexion générale.
+- **Restes de test** : `hub reconcile` (`testResidue.total`, 5 connus au 07/11), retrait `hub delete-tenant <email> --confirm`.
+  Le cron alerte au-dessus de `RESIDUE_SEUIL`. La batterie les retire elle-même et échoue s'il en reste.
+- **Batterie rouge** : lire `e2e/systeme-sso/.run/resultat.txt`. ÉCHOUE = vrai défaut (si l'image servie n'est pas
+  listée « avant »). NON ABOUTI = on n'a pas mesuré (Hub en déploiement, jeton Nomad, compte non créé). Relancer
+  un filtre : `bash scripts/test-systeme-sso.sh 08-`. Épreuve : `SSO_SABOTAGE=<scénario>` doit échouer.
+- **Jeton Nomad 403** : une rotation a révoqué celui du shell. `nomad-v` relit `~/credentials/nomad-bastion.env` ;
+  `nomad-v acl status` montre les jetons et leurs échéances. Ne jamais se replier sur le jeton management.
 
 ## Commandes
 
@@ -115,21 +147,8 @@ Un audit CVE ou un test rouge saute le déploiement sans bruit : lire `gh run vi
 
 ## Provisioning flow
 
-```
-User Signup (Auth.js) → /api/auth/signup → provision.ts (parallèle)
-                                                    |
-                            +-------------+---------+
-                            |             |
-                         Notifuse    Prospection
-                          REST        REST
-                            |             |
-                            v             v
-                       table Tenant (Prisma : userId UUID, workspaceType, ...)
-```
-
-L'UUID `User.supabaseUserId` est un nom legacy : c'est juste l'**UUID
-bridge** utilisé comme `user_id` côté Notifuse / Prospection. Pas un
-appel Supabase.
+Signup (Auth.js) → `/api/auth/signup` → `utils/tenants/provision.ts` → Notifuse et Prospection (REST, en
+parallèle) → table `Tenant`. `User.supabaseUserId` est un nom legacy : l'UUID de pont (`hub_user_id`).
 
 ## Règles
 
@@ -164,34 +183,15 @@ branding, custom domains, limites de plan, webhooks downstream
 SEULES différenciations = durée Free 15j + white-label Business+.
 L'app ne doit JAMAIS être défigurée par des limites visibles.
 
-### Tickets pricing/trial actifs côté Hub
-
-Ne PAS maintenir une liste de tickets en dur ici — elle pourrit en liens
-cassés dès qu'un ticket migre vers `todo/done/`. Le backlog vivant est
-injecté en début de session par le hook SessionStart (bloc `§3 CURRENT
-REPO`). Pour la vue cross-app : `veridian-platform/TODO.md` (régénéré par
-`./scripts/refresh-todo.sh`).
-
-Source de vérité de l'avancement billing/trial :
-`docs/PRICING-VERIDIAN.md` §"Implémentations actuelles — Hub" (matrice
-⏳/✅ par brique, mise à jour à chaque livraison).
+Backlog pricing/trial : injecté au démarrage (hook SessionStart), `veridian-platform/TODO.md` pour la vue
+cross-app, avancement dans `docs/PRICING-VERIDIAN.md` §"Implémentations actuelles — Hub".
 
 ## CI/CD
 
 - `.github/workflows/hub-ci.yml` : test → audit (npm) → docker → **trivy** → deploy-prod (sur `main`) → e2e-prod-smoke → rollback-prod (si fail)
-- **Pas de cron Trivy dans ce dépôt.** `hub-security-cron.yml` a été retiré le
-  2026-09-23 : il scannait `ghcr.io/christ-roy/veridian-hub:latest`, un tag
-  différent de ce qui tourne réellement en prod (`v0.5.27` au moment du
-  retrait — vérifié par comparaison de digests, les deux tags pointaient vers
-  des images distinctes). Le cron rendait donc « 0 CVE » sans jamais avoir
-  regardé l'image déployée. La surveillance continue des CVE sur l'image
-  RÉELLEMENT en cours d'exécution est désormais portée par `sec-scan`
-  (job Nomad système, scanne par identifiant d'image et non par tag) et lue
-  via le CLI `secu` sur le bastion Contabo — cf
-  `~/.claude/hooks/securite/invariant-cve-surface-publique.sh` et
-  `~/all-cron/security/secu` côté infra Veridian. `_trivy-image.yml` reste
-  utilisé par `hub-ci.yml` (scan à la construction), ce n'est que le CRON
-  redondant sur l'image `:latest` qui disparaît.
+- **Pas de cron Trivy** (`hub-security-cron.yml` retiré le 2026-09-23 : il scannait `:latest`, pas
+  l'image déployée). Les CVE de l'image en cours : `sec-scan` via le CLI `secu`. `_trivy-image.yml`
+  reste le scan à la construction.
 - Déploiement : **job Nomad** (Dokploy décommissionné 2026-07-10). Job HCL
   versionné dans `~/nomad-veridian/jobs/saas-prod/` (staging dans `saas-staging/`).
   Debug/logs `nomad-v logs hub`, redeploy `nomad-v run hub` / `nomad-v deploy <fichier>`,
