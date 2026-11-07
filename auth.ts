@@ -20,6 +20,7 @@ import { createCreateUserEvent } from '@/lib/auth/create-user-event';
 import { buildMockOauthProvider } from '@/lib/auth/mock-oauth-provider';
 import { buildGoogleOneTapProvider } from '@/lib/auth/google-one-tap-provider';
 import { createOauthEventLogger } from '@/lib/auth/oauth-event-log';
+import { normaliserEmail } from '@/lib/auth/email-normalize';
 
 const credentialsSchema = z.object({
   email: z.string().email(),
@@ -128,7 +129,12 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
         password: { label: 'Password', type: 'password' },
       },
       async authorize(credentials) {
-        const parsed = credentialsSchema.safeParse(credentials);
+        // D6 : même forme que la base (minuscules, sans espaces) : « Robert@X.com » se connecte.
+        const parsed = credentialsSchema.safeParse({
+          ...credentials,
+          email:
+            typeof credentials?.email === 'string' ? normaliserEmail(credentials.email) : credentials?.email,
+        });
         if (!parsed.success) {
           return null;
         }
