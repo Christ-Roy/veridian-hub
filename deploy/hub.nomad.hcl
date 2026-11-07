@@ -67,9 +67,9 @@ job "hub" {
     # auto_revert : un deploy prod qui n'atteint jamais healthy restaure la
     # dernière version saine (zéro trou prod). min_healthy_time : l'alloc doit
     # rester saine 15s avant d'être comptée healthy (anti-flap).
-    # Bleu-vert (07/11/2026) : le canari demarre a cote de l'ancienne allocation, hors routage (`canary_tags`),
-    # puis la promotion le route et arrete l'ancienne apres `shutdown_delay`. Avant : l'ancienne s'arretait d'abord,
-    # 11 a 14 s de 404 et 502 a chaque deploiement.
+    # Bleu-vert (07/11/2026) : le canari demarre a cote de l'ancienne allocation ; Traefik ne le sert qu'une fois sain
+    # (health check actif des tags du service), puis la promotion arrete l'ancienne apres `shutdown_delay`.
+    # Avant : l'ancienne s'arretait d'abord, 11 a 14 s de 404 et 502 a chaque deploiement.
     update {
       max_parallel      = 1
       canary            = 1
@@ -121,9 +121,15 @@ job "hub" {
         "traefik.http.routers.hubprod.entrypoints=websecure",
         "traefik.http.routers.hubprod.tls=true",
         "traefik.http.routers.hubprod.tls.certresolver=letsencrypt",
+        "traefik.http.routers.hubprod.middlewares=hub-retry@nomad",
+        # Bleu-vert : Traefik n'envoie du trafic a une instance que si elle repond a /api/health, et rejoue sur l'autre une
+        # connexion refusee. Les canary_tags du premier essai ouvraient 11 s de 404 a la promotion (07/11, 23:40).
+        "traefik.http.services.hub.loadbalancer.healthcheck.path=/api/health",
+        "traefik.http.services.hub.loadbalancer.healthcheck.interval=2s",
+        "traefik.http.services.hub.loadbalancer.healthcheck.timeout=1s",
+        "traefik.http.middlewares.hub-retry.retry.attempts=4",
+        "traefik.http.middlewares.hub-retry.retry.initialinterval=200ms",
       ]
-      # Le canari n'est pas route tant qu'il n'est pas promu : il demarre (~60 s) sans recevoir de trafic.
-      canary_tags = ["traefik.enable=false"]
       check {
         type     = "http"
         path     = "/api/health"
