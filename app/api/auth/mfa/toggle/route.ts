@@ -1,3 +1,4 @@
+import { denyUnlessRecentAuth, PREUVE_COMPTE_S } from '@/lib/auth/recent-auth';
 // POST /api/auth/mfa/toggle — active ou désactive le 2FA email pour l'user
 // courant. Nécessite une session valide (Auth.js).
 
@@ -16,6 +17,9 @@ export async function POST(request: Request) {
   if (!session?.user?.id) {
     return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 });
   }
+  // D12 : changer la double vérification exige une connexion récente.
+  const preuveRecente = await denyUnlessRecentAuth(PREUVE_COMPTE_S);
+  if (preuveRecente) return preuveRecente;
 
   const json = await request.json().catch(() => null);
   const parsed = bodySchema.safeParse(json);

@@ -35,6 +35,12 @@ let mockUser: any = {
   supabaseUserId: 'uuid-buyer',
 };
 
+vi.mock('@/lib/auth/recent-auth', () => ({
+  denyUnlessRecentAuth: async () => null,
+  denyIfImpersonated: async () => null,
+  PREUVE_COMPTE_S: 86400,
+  PREUVE_FACTURATION_S: 604800,
+}));
 vi.mock('@/lib/auth/get-user', () => ({
   requireUser: vi.fn(async () => {
     if (!mockUser) {
