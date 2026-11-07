@@ -324,6 +324,41 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Run prod smoke (Auth.js + /login)
         run: npx playwright test e2e/prod-smoke/ --reporter=list
+      # Sonde d'identité : lectures seules, aucune écriture, aucun compte. Un écart fait échouer le
+      # job, donc déclenche le rollback comme le reste du smoke. Chaque contrôle est repris 3 fois
+      # (coupure de déploiement de 20 à 50 s mesurée le 07/11). Rejeu et épreuve : docs/PARCOURS-IDENTITE.md.
+      - name: Sonde identité (rebond, session, en-têtes)
+        env:
+          HUB_URL: https://app.veridian.site
+        run: |
+          set -u
+          ECHECS=0
+          APP='https%3A%2F%2Fprospection.app.veridian.site%2F'
+          CLIENT='https%3A%2F%2Fboutique-dupont.veridian.site%2F'
+          # verifie <nom> <attendu : motif egrep> <commande qui affiche l'observé>
+          verifie() {
+            nom="$1"; motif="$2"; shift 2
+            for essai in 1 2 3; do
+              obs="$("$@" 2>/dev/null | tr -d '\r' | head -c 400)" || true
+              if printf '%s' "$obs" | grep -Eqi "$motif"; then echo "OK   $nom"; return 0; fi
+              sleep 8
+            done
+            echo "::error::Sonde identité : $nom. Attendu /$motif/, observé: $obs"
+            ECHECS=$((ECHECS+1))
+          }
+          statut() { curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$@"; }
+          lieu() { curl -s -o /dev/null -D - --max-time 20 "$@" | grep -i '^location:' | head -1; }
+          entetes() { curl -s -o /dev/null -D - --max-time 20 "$@"; }
+
+          verifie "/login répond 200" '^200$' statut "$HUB_URL/login"
+          verifie "/api/auth/session vide sans cookie" '^null$' curl -s --max-time 20 "$HUB_URL/api/auth/session"
+          verifie "frame-ancestors présent sur /login" "frame-ancestors" entetes "$HUB_URL/login"
+          verifie "prepare sans session : /login en mode rebond" "location: https://app.veridian.site/login\\?mode=bounce&app=prospection" lieu "$HUB_URL/api/auth/bounce/prepare?auto=1&next=$APP"
+          verifie "prepare vers un site client : refusé, /login simple" "location: https://app.veridian.site/login$" lieu "$HUB_URL/api/auth/bounce/prepare?auto=1&next=$CLIENT"
+          verifie "prepare vers un hôte étranger : refusé" "location: https://app.veridian.site/login$" lieu "$HUB_URL/api/auth/bounce/prepare?auto=1&next=https%3A%2F%2Fevil.example%2F"
+          verifie "complete dans une iframe : 204 sans rien émettre" '^204$' statut -H 'Sec-Fetch-Dest: iframe' -H 'Sec-Fetch-Mode: navigate' "$HUB_URL/api/auth/bounce/complete"
+          verifie "prepare dans une iframe : 204 sans cookie" '^204$' statut -H 'Sec-Fetch-Dest: iframe' -H 'Sec-Fetch-Mode: navigate' "$HUB_URL/api/auth/bounce/prepare?auto=1&next=$APP"
+          [ "$ECHECS" -eq 0 ] || { echo "::error::$ECHECS contrôle(s) d'identité en échec"; exit 1; }
       - name: Upload trace on failure
         if: failure()
         uses: actions/upload-artifact@v4
