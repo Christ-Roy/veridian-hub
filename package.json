@@ -8,6 +8,7 @@
     "lint": "eslint app components lib utils --ext .js,.jsx,.ts,.tsx",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:systeme": "bash scripts/test-systeme-sso.sh",
     "test:coverage": "vitest run --coverage",
     "prettier-fix": "prettier --write .",
     "stripe:login": "stripe login",

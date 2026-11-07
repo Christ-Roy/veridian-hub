@@ -13,7 +13,7 @@
  */
 
 /** Identifiant d'une app downstream gérée par le sync. */
-export type SyncApp = 'notifuse' | 'prospection' | 'analytics';
+export type SyncApp = 'notifuse' | 'prospection' | 'analytics' | 'crm';
 
 // Le CMS (Payload) n'en fait pas partie : il reste à part, sans discovery ni
 // secret HMAC côté Hub, et il s'éteint peu à peu (décision Robert, 06/11).
@@ -21,6 +21,7 @@ export const SYNC_APPS: readonly SyncApp[] = [
   'notifuse',
   'prospection',
   'analytics',
+  'crm',
 ] as const;
 
 /**

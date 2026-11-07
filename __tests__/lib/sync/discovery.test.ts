@@ -202,6 +202,7 @@ describe('discoverUserApps (cross-app aggregator)', () => {
     });
     expect(Object.keys(result.apps).sort()).toEqual([
       'analytics',
+      'crm',
       'notifuse',
       'prospection',
     ]);
@@ -236,5 +237,19 @@ describe('discoverUserApps (cross-app aggregator)', () => {
         expect.objectContaining({ app: 'prospection', workspaceId: 'ws-prosp' }),
       ]),
     });
+  });
+});
+
+describe('configuredSyncApps', () => {
+  it('ne compte que les apps câblées : pas de fausse dérive pour Twenty en prod', async () => {
+    const { configuredSyncApps } = await import('@/lib/sync/discovery');
+    vi.stubEnv('CRM_API_URL', '');
+    vi.stubEnv('CRM_HUB_API_SECRET', '');
+    expect(configuredSyncApps()).not.toContain('crm');
+    vi.stubEnv('CRM_API_URL', 'https://crm.test');
+    expect(configuredSyncApps()).not.toContain('crm');
+    vi.stubEnv('CRM_HUB_API_SECRET', 'secret');
+    expect(configuredSyncApps()).toContain('crm');
+    vi.unstubAllEnvs();
   });
 });

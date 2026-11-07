@@ -78,6 +78,15 @@ const pinnedSubmodule = '6b37256a1f4c9d80e2b5137af0c94d6e7a812b30';
 EOF
 run_case "SHA git 40 hex" passe
 
+# --- Cas 5bis : digest d'image épinglée (public, ne DOIT PAS être refusé) ---
+H64=$(printf 'digest-image' | sha256sum | cut -d' ' -f1)
+printf 'image = "ghcr.io/x/y:16@sha256:%s"\n' "$H64" > cas.ts
+run_case "digest d'image @sha256" passe
+
+# --- Cas 5ter : le même hex sans @sha256 reste refusé -----------------------
+printf 'const t = "%s";\n' "$H64" > cas.ts
+run_case "64 hex hors digest" refuse
+
 # --- Cas 6 : dérogation explicite (ne DOIT PAS être refusée) ---------------
 # Vecteur SHA-256 légitime, marqué. La dérogation doit relâcher la ligne
 # nommée, et elle seule.

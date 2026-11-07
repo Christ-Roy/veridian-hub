@@ -66,3 +66,23 @@ export async function applyProviderEmailProof(
     );
   }
 }
+
+/**
+ * Lecture serveur du champ `email_proven` envoyé aux apps (CONTRAT-HUB §3.8) : vrai
+ * seulement si `emailVerified` est posé en base. Une impersonation admin passe la garde
+ * mais n'atteste rien. En cas de doute (user absent, base en erreur) : pas d'attestation.
+ */
+export async function isEmailProvenInDb(
+  prisma: Pick<PrismaClient, 'user'>,
+  hubUserId: string,
+): Promise<boolean> {
+  try {
+    const row = await prisma.user.findUnique({
+      where: { supabaseUserId: hubUserId },
+      select: { emailVerified: true },
+    });
+    return Boolean(row?.emailVerified);
+  } catch {
+    return false;
+  }
+}

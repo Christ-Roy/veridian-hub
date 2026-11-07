@@ -1,3 +1,4 @@
+import { isEmailProvenInDb } from '@/lib/auth/email-proof-provider';
 import { NextResponse } from 'next/server';
 
 import { requireUser, userUuid } from '@/lib/auth/get-user';
@@ -47,6 +48,7 @@ export async function POST() {
         name: displayName,
         userId: uuid,
         plan: 'freemium',
+        emailProven: await isEmailProvenInDb(prisma, uuid),
       });
     } catch (err) {
       if (err instanceof ProspectionError) {

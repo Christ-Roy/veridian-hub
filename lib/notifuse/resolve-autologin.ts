@@ -36,6 +36,8 @@
 
 import type { PrismaClient } from '@prisma/client';
 
+import { isEmailProvenInDb } from '@/lib/auth/email-proof-provider';
+
 import { NotifuseClient } from './client';
 import { NotifuseError } from './types';
 import { validateWorkspaceId } from './workspace-id';
@@ -88,7 +90,7 @@ export type ResolveAutoLoginResult =
   | ResolveAutoLoginFailure;
 
 export type ResolveAutoLoginDeps = {
-  prisma: Pick<PrismaClient, 'tenant'>;
+  prisma: Pick<PrismaClient, 'tenant' | 'user'>;
   client: Pick<
     NotifuseClient,
     'generateMagicLink' | 'getHealth' | 'provisionWorkspace'
@@ -209,6 +211,7 @@ export async function resolveNotifuseAutoLogin(
       tenantId: workspaceId,
       ownerEmail,
       hubUserId: tenant.userId ?? undefined,
+      emailProven: tenant.userId ? await isEmailProvenInDb(prisma, tenant.userId) : false,
     });
   } catch (err) {
     return {

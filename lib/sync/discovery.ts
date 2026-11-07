@@ -57,6 +57,10 @@ const APP_ENV_MAPPING: Record<
     urlEnv: 'ANALYTICS_API_URL',
     secretEnv: 'ANALYTICS_HUB_API_SECRET',
   },
+  crm: {
+    urlEnv: 'CRM_API_URL',
+    secretEnv: 'CRM_HUB_API_SECRET',
+  },
 };
 
 export interface DiscoverOptions {
@@ -84,6 +88,14 @@ export function readAppUrl(app: SyncApp): string | null {
   const url = process.env[APP_ENV_MAPPING[app].urlEnv];
   if (!url) return null;
   return url.replace(/\/+$/, '');
+}
+
+/**
+ * Apps câblées dans cet environnement. Twenty n'existe qu'en staging : le compter en prod
+ * créerait une fausse dérive par tenant, comme le CMS le faisait.
+ */
+export function configuredSyncApps(): SyncApp[] {
+  return SYNC_APPS.filter((app) => readAppUrl(app) && readAppSecret(app));
 }
 
 /**
@@ -234,6 +246,7 @@ export async function discoverUserApps(
     notifuse: { found: false },
     prospection: { found: false },
     analytics: { found: false },
+    crm: { found: false },
   };
 
   apps.forEach((app, i) => {
