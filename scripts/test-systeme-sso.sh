@@ -24,7 +24,10 @@ if [ -z "${PW_CHROMIUM:-}" ]; then
   export PW_CHROMIUM
 fi
 
-nice -n 19 node node_modules/.bin/playwright test -c playwright.config.ts "$@"
+# Le lanceur est à côté (lien ci-dessus) ou à la racine du dépôt après `pnpm install`.
+PW_BIN=node_modules/.bin/playwright
+[ -e "$PW_BIN" ] || PW_BIN=../../node_modules/.bin/playwright
+nice -n 19 "$PW_BIN" test -c playwright.config.ts "$@"
 PW=$?
 
 [ -f .run/resultat.json ] || { echo "✗ NON ABOUTI : aucun résultat écrit (code Playwright $PW)"; exit 2; }
