@@ -30,6 +30,7 @@ contient et le cas devient strict. Forcer : `SSO_APPS_CORRIGEES=notifuse,analyti
 | `00-reference` | dérives `hub reconcile` héritées, relevées avant tout compte |
 | `01-arrivee` | compte à adresse prouvée : session à son e-mail et identifiant Hub, ses données |
 | `02-sans-preuve` | inscription publique non confirmée : n'entre pas, aucun lien émis (témoin positif exigé) |
+| `02-preuve-mail` | page du lien de preuve rendue dans un navigateur, bouton cliqué, jeton faux refusé |
 | `03-liens-morts` | lien consommé / inconnu / expiré (`SSO_EXPIRY=0` ignore l expiration (TTL 10 min)) |
 | `04-rebond` | session Hub ouverte : rebond sans saisie, deux fois de suite |
 | `05-plan` | plan posé au Hub relu dans l'app, dans les deux sens |

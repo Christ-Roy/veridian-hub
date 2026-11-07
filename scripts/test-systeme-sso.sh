@@ -33,4 +33,6 @@ PW=$?
 [ -f .run/resultat.json ] || { echo "✗ NON ABOUTI : aucun résultat écrit (code Playwright $PW)"; exit 2; }
 node -e '
 const r=require("./.run/resultat.json").compte;
+// Zero cas joue (filtre sans correspondance) : rien de mesure, donc pas un succes.
+if(Object.values(r).reduce((x,y)=>x+y,0)===0){console.error("✗ NON ABOUTI : aucun cas joué");process.exit(2)}
 process.exit((r.ECHOUE||0)>0?1:(r.NON_ABOUTI||0)>0?2:0)'
