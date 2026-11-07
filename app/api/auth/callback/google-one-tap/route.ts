@@ -42,6 +42,7 @@ import { applyProviderEmailProof } from '@/lib/auth/email-proof-provider';
 import { NextResponse, type NextRequest } from 'next/server';
 import { randomUUID } from 'node:crypto';
 import { encode } from 'next-auth/jwt';
+import { authConfig } from '@/auth.config';
 import { z } from 'zod';
 
 import { prisma } from '@/lib/prisma';
@@ -69,8 +70,6 @@ const ONE_TAP_BODY_SCHEMA = z.object({
   credential: z.string().min(1).max(8192),
 });
 
-/** TTL session forgée par One Tap — aligné sur auth.config.ts (90 jours). */
-const ONE_TAP_SESSION_TTL_S = 60 * 60 * 24 * 90;
 
 export async function OPTIONS(request: NextRequest) {
   return landingCorsPreflightResponse(request, {
@@ -160,8 +159,17 @@ export async function POST(request: NextRequest) {
   // ─── Bootstrap user (réutilise le pattern provider) ────────────────────
   let user = await prisma.user.findUnique({
     where: { email },
-    select: { id: true, email: true, name: true, image: true, supabaseUserId: true },
+    select: { id: true, email: true, name: true, image: true, supabaseUserId: true, mfaEnabled: true },
   });
+
+  // D7 : un compte à double vérification ne passe pas par One Tap, qui court-circuite le callback
+  // signIn (MFA). Il se connecte par mot de passe + code.
+  if (user?.mfaEnabled) {
+    return NextResponse.json(
+      { ok: false, error: 'mfa_required' },
+      { status: 403, headers: corsHeaders },
+    );
+  }
 
   let freshlyCreated = false;
   if (!user) {
@@ -173,7 +181,7 @@ export async function POST(request: NextRequest) {
         emailVerified: new Date(),
         supabaseUserId: randomUUID(),
       },
-      select: { id: true, email: true, name: true, image: true, supabaseUserId: true },
+      select: { id: true, email: true, name: true, image: true, supabaseUserId: true, mfaEnabled: true },
     });
     freshlyCreated = true;
   } else if (!user.supabaseUserId) {
@@ -183,7 +191,8 @@ export async function POST(request: NextRequest) {
     });
   }
   if (!freshlyCreated) {
-    await applyProviderEmailProof(prisma, user.id);
+    // Le fournisseur qui prouve garde sa propre ligne `account` (D1).
+    await applyProviderEmailProof(prisma, user.id, 'google');
   }
 
   const existingAccount = await prisma.account.findUnique({
@@ -241,10 +250,13 @@ export async function POST(request: NextRequest) {
   const sessionJwt = await encode({
     salt: cookieName,
     secret,
-    maxAge: ONE_TAP_SESSION_TTL_S,
+    // D7 : même durée que les sessions Auth.js (un an), et la date de connexion réelle :
+    // sans elle, la révocation et la preuve récente ne voyaient pas cette session.
+    maxAge: authConfig.session.maxAge,
     token: {
       uid: user.id,
       sub: user.id,
+      authAt: Math.floor(Date.now() / 1000),
       email: user.email,
       name: user.name ?? null,
       picture: user.image ?? null,
@@ -263,7 +275,7 @@ export async function POST(request: NextRequest) {
     },
     { status: 200, headers: corsHeaders },
   );
-  setSessionCookieOnResponse(response, sessionJwt, { maxAge: ONE_TAP_SESSION_TTL_S });
+  setSessionCookieOnResponse(response, sessionJwt, { maxAge: authConfig.session.maxAge });
 
   // Pose en parallèle le cookie hint cross-subdomain — c'est ce qui permet
   // à la landing veridian.site de détecter la session sans round-trip API.

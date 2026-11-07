@@ -15,6 +15,7 @@
  *  - Replay : 2 calls avec même token = 2 sessions OK (idempotent côté user)
  */
 
+import { encode } from 'next-auth/jwt';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@/lib/auth/email-proof-provider', () => ({
@@ -381,5 +382,63 @@ describe('OPTIONS /api/auth/callback/google-one-tap preflight', () => {
     expect(res.status).toBe(204);
     expect(res.headers.get('Access-Control-Allow-Methods')).toContain('POST');
     expect(res.headers.get('Access-Control-Allow-Origin')).toBe('https://veridian.site');
+  });
+});
+
+// D7 : la session forgée par One Tap porte la date de connexion réelle, dure un an comme les
+// autres sessions, et ne contourne pas la double vérification (MFA).
+describe('POST /api/auth/callback/google-one-tap — D7 session forgée', () => {
+  const UN_AN_S = 60 * 60 * 24 * 365;
+
+  it('le JWT forgé porte authAt et une durée d\'un an', async () => {
+    verifyGoogleIdTokenMock.mockResolvedValue({
+      sub: 'google-sub-7',
+      email: 'existant@example.com',
+      email_verified: true,
+      name: 'Existant',
+      picture: null,
+    });
+    userFindUniqueMock.mockResolvedValue({
+      id: 'u7',
+      email: 'existant@example.com',
+      name: 'Existant',
+      image: null,
+      supabaseUserId: 'uuid-7',
+      mfaEnabled: false,
+    });
+    accountFindUniqueMock.mockResolvedValue({ userId: 'u7' });
+    provisionWorkspaceMock.mockResolvedValue({ workspaceId: 'ws7', created: false });
+    vi.mocked(encode).mockClear();
+
+    const res = await POST(makeReq({ credential: 'valid-jwt' }));
+    expect(res.status).toBe(200);
+    const arg = vi.mocked(encode).mock.calls.at(-1)?.[0] as { token: Record<string, unknown>; maxAge: number };
+    expect(typeof arg.token.authAt).toBe('number');
+    expect(arg.maxAge).toBe(UN_AN_S);
+  });
+
+  it('compte avec double vérification : refusé, aucune session forgée', async () => {
+    verifyGoogleIdTokenMock.mockResolvedValue({
+      sub: 'google-sub-8',
+      email: 'mfa@example.com',
+      email_verified: true,
+      name: 'Mfa',
+      picture: null,
+    });
+    userFindUniqueMock.mockResolvedValue({
+      id: 'u8',
+      email: 'mfa@example.com',
+      name: 'Mfa',
+      image: null,
+      supabaseUserId: 'uuid-8',
+      mfaEnabled: true,
+    });
+    accountFindUniqueMock.mockResolvedValue({ userId: 'u8' });
+    vi.mocked(encode).mockClear();
+
+    const res = await POST(makeReq({ credential: 'valid-jwt' }));
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe('mfa_required');
+    expect(encode).not.toHaveBeenCalled();
   });
 });
