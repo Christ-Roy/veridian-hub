@@ -11,6 +11,21 @@ cd "$(dirname "$0")/../e2e/systeme-sso"
 
 mkdir -p .run && rm -f .run/versions.json .run/resultat.* .run/monde-*.json  # le registre des comptes est conservé : un crash ne doit rien orpheliner
 
+# Une seule batterie à la fois : elles partagent .run et le plafond de l'API admin.
+exec 9>.run/verrou
+flock -n 9 || { echo "✗ NON ABOUTI : une autre batterie tourne déjà dans ce dossier"; exit 2; }
+
+# Le Hub doit être là avant de mesurer quoi que ce soit (un déploiement le coupe ~30 s).
+HUB="${HUB_URL:-https://app.veridian.site}"
+FIN=$(( $(date +%s) + ${SSO_ATTENTE_HUB:-180} ))
+until curl -fsS -m 10 "$HUB/api/health" 2>/dev/null | grep -q '"status":"ok"'; do
+  if [ "$(date +%s)" -ge "$FIN" ]; then
+    echo "✗ NON ABOUTI : le Hub ne répond pas sur $HUB/api/health. Vérifier HUB_URL et le déploiement en cours."
+    exit 2
+  fi
+  sleep 5
+done
+
 # @playwright/test : celui du dépôt s'il est installé, sinon un jeu de modules déjà présent sur la machine.
 if [ ! -e node_modules/@playwright/test ] && [ ! -e ../../node_modules/@playwright/test ]; then
   SRC="${PW_MODULES:-$HOME/veridian.site/node_modules}"
