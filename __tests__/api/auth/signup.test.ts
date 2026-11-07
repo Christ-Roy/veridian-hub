@@ -75,6 +75,28 @@ function makeReq(body: any) {
 }
 
 describe('POST /api/auth/signup', () => {
+  it('piège rempli : refus, et aucun compte créé', async () => {
+    const { POST } = await import('@/app/api/auth/signup/route');
+    const req = {
+      json: async () => ({ email: 'robot@exemple.fr', password: 'Password1!', hp_reference: 'x' }),
+      headers: new Headers({ 'x-forwarded-for': '10.99.0.2' }),
+    } as any;
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+    expect(userStore.has('robot@exemple.fr')).toBe(false);
+  });
+
+  it('piège vide : le champ ne bloque pas une vraie inscription', async () => {
+    const { POST } = await import('@/app/api/auth/signup/route');
+    const req = {
+      json: async () => ({ email: 'humain@exemple.fr', password: 'Password1!', hp_reference: '' }),
+      headers: new Headers({ 'x-forwarded-for': '10.99.0.3' }),
+    } as any;
+    const res = await POST(req);
+    expect(res.status).toBeLessThan(300);
+    expect(userStore.has('humain@exemple.fr')).toBe(true);
+  });
+
   it('rejects invalid JSON', async () => {
     const { POST } = await import('@/app/api/auth/signup/route');
     const req = {

@@ -80,7 +80,7 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   cibles du rebond, origines). Un nouveau `encode(` de JWT de session s'ajoute à sa liste. Détail par
   parcours et état prouvé ou accepté : `docs/PARCOURS-IDENTITE.md`.
 - **Sonde de prod** : étape « Sonde identité » de `hub-ci.yml` (lectures seules). Le cron de reconcile
-  alerte au-dessus de `RESIDUE_SEUIL` (5 par défaut = restes connus).
+  alerte au-dessus de `RESIDUE_SEUIL` (0 par défaut).
 - **Coupure** : un déploiement coupe le Hub environ 19 s (07/11), la base est dans le groupe Nomad.
   Regrouper les changements. `e2e/systeme-sso/**` ne redéploie rien.
 

@@ -80,12 +80,11 @@ jobs:
       # Restes de test (comptes de batterie au Hub et dans les apps, workspaces Notifuse, tenants sans
       # utilisateur). Trois états : mesuré sous le seuil (vert, annotation si non nul), mesuré
       # au-dessus (rouge + Telegram), non mesuré (annotation : le Hub servi est plus ancien que la mesure).
-      # Seuil explicite : RESIDUE_SEUIL (variable du dépôt), 5 par défaut = les restes connus d'autres
-      # sessions au 07/11. À baisser vers 0 quand ils seront retirés (`hub reconcile` les liste).
+      # Seuil explicite : RESIDUE_SEUIL (variable du dépôt), 0 par défaut : tout reste alerte. Liste : `hub reconcile`.
       - name: Restes de test sous le seuil
         id: residu
         env:
-          SEUIL: ${{ vars.RESIDUE_SEUIL || '5' }}
+          SEUIL: ${{ vars.RESIDUE_SEUIL || '0' }}
         run: |
           TOTAL=$(jq -r '.testResidue.total // "absent"' /tmp/resp.json)
           case "$TOTAL" in

@@ -26,6 +26,7 @@ import { PASSWORD_MAX, PASSWORD_MIN } from '@/lib/auth/password-policy';
 import { issueEmailProof } from '@/lib/auth/email-proof';
 import { prisma } from '@/lib/prisma';
 import { signupLimiter, extractClientIp } from '@/lib/auth/rate-limit';
+import { SIGNUP_HONEYPOT_FIELD } from '@/lib/auth/signup-honeypot';
 import { provisionDefaultWorkspace } from '@/lib/workspace/provision';
 import { trackGoal, hubSessionId } from '@/lib/analytics/track-event';
 
@@ -68,6 +69,16 @@ export async function POST(request: NextRequest) {
     payload = await request.json();
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+  }
+
+  // Piège à robots : un champ invisible qu'aucun humain ne remplit. Refus franc plutôt que faux
+  // succès : si un gestionnaire de mots de passe le remplissait, la personne doit le savoir.
+  if ((payload as { [SIGNUP_HONEYPOT_FIELD]?: unknown } | null)?.[SIGNUP_HONEYPOT_FIELD]) {
+    console.warn(JSON.stringify({ tag: '[signup-honeypot]', level: 'warn', ip, ts: new Date().toISOString() }));
+    return NextResponse.json(
+      { error: 'Inscription impossible. Rechargez la page et réessayez.' },
+      { status: 400 },
+    );
   }
 
   const parsed = signupSchema.safeParse(payload);

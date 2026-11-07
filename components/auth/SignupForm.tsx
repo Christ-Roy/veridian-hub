@@ -1,5 +1,6 @@
 'use client';
 
+import { SIGNUP_HONEYPOT_FIELD } from '@/lib/auth/signup-honeypot';
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import {
@@ -63,7 +64,11 @@ export function SignupForm({
       res = await fetch('/api/auth/signup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({
+          email,
+          password,
+          [SIGNUP_HONEYPOT_FIELD]: new FormData(form).get(SIGNUP_HONEYPOT_FIELD) ?? '',
+        }),
       });
     } catch {
       setError(MESSAGE_RESEAU);
@@ -121,6 +126,11 @@ export function SignupForm({
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
+
+        {/* Piège à robots : hors de l'écran, hors du clavier, hors des lecteurs d'écran. */}
+        <div aria-hidden="true" className="absolute -left-[9999px] h-px w-px overflow-hidden">
+          <input type="text" name={SIGNUP_HONEYPOT_FIELD} tabIndex={-1} autoComplete="off" defaultValue="" />
+        </div>
 
         {allowEmail && (
           <>

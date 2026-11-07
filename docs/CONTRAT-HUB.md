@@ -2487,7 +2487,7 @@ tableau de bord du Hub, lien de preuve envoyé.
   par `delete-tenant` ; la batterie échoue s'il en reste.
 - **`hub reconcile`** (dry-run, n'écrit rien) : par app `ok`, `endpoint_missing` ou `unreachable` (jamais « aucun
   écart » sans comparaison), plus `testResidue` (comptes de test au Hub et dans les apps, workspaces de test Notifuse,
-  tenants sans utilisateur). Le cron horaire alerte au-dessus de `RESIDUE_SEUIL` (5 par défaut, restes connus).
+  tenants sans utilisateur). Le cron horaire alerte au-dessus de `RESIDUE_SEUIL` (0 par défaut).
 - **Coupure** : le Hub est à une instance, un déploiement le coupe 19 à 51 s (mesures du 07/11) ; les sessions d'app
   déjà ouvertes continuent de servir, le rebond et les connexions neuves échouent le temps de la coupure.
 

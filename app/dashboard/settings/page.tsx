@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { Separator } from '@/components/ui/separator';
 import NameForm from '@/components/ui/AccountForms/NameForm';
 import EmailForm from '@/components/ui/AccountForms/EmailForm';
 import PasswordForm from '@/components/ui/AccountForms/PasswordForm';
@@ -10,7 +11,6 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { DashboardPageHeader } from '@/components/dashboard/PageHeader';
 import { WorkspaceRenameForm } from "./WorkspaceRenameForm";
@@ -60,19 +60,9 @@ export default async function SettingsPage() {
 
       <div className="flex flex-col gap-5">
         {/* Profile Settings */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Profil</CardTitle>
-            <CardDescription>
-              Mettez à jour vos informations personnelles
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <NameForm userName={dbUser?.name ?? user.name ?? ''} />
-            <Separator />
-            <EmailForm userEmail={user.email ?? ''} />
-          </CardContent>
-        </Card>
+        {/* Chaque formulaire porte sa carte : imbriquées, elles retiraient 50 px aux champs. */}
+        <NameForm userName={dbUser?.name ?? user.name ?? ''} />
+        <EmailForm userEmail={user.email ?? ''} />
 
         {/* Security Settings */}
         <Card>
