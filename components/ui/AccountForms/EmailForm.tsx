@@ -78,7 +78,7 @@ export default function EmailForm({
           <Input
             type="email"
             name="newEmail"
-            className="max-w-md border-muted-foreground/40"
+            className="w-full border-muted-foreground/40"
             defaultValue={userEmail ?? ''}
             placeholder="Votre email"
             maxLength={64}

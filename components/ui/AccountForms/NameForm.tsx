@@ -69,7 +69,7 @@ export default function NameForm({ userName }: { userName: string }) {
           <Input
             type="text"
             name="fullName"
-            className="max-w-md border-muted-foreground/40"
+            className="w-full border-muted-foreground/40"
             defaultValue={userName}
             placeholder="Votre nom"
             maxLength={64}
