@@ -124,6 +124,8 @@ job "hub" {
         "traefik.http.routers.hubprod.middlewares=hub-retry@nomad",
         # Bleu-vert : Traefik n'envoie du trafic a une instance que si elle repond a /api/health, et rejoue sur l'autre une
         # connexion refusee. Les canary_tags du premier essai ouvraient 11 s de 404 a la promotion (07/11, 23:40).
+        # Ne pas changer ces tags dans un deploiement ordinaire : deux versions aux tags differents donnent a Traefik deux
+        # definitions du meme routeur, il l'ecarte, 12 s de 404 (mesure le 07/11 a 23:57). Changer les tags = deploiement annonce.
         "traefik.http.services.hub.loadbalancer.healthcheck.path=/api/health",
         "traefik.http.services.hub.loadbalancer.healthcheck.interval=2s",
         "traefik.http.services.hub.loadbalancer.healthcheck.timeout=1s",
