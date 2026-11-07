@@ -14,9 +14,8 @@
 
 import { createHmac } from 'node:crypto';
 
-import { readAppSecret, readAppUrl } from '@/lib/sync/discovery';
+import { configuredSyncApps, readAppSecret, readAppUrl } from '@/lib/sync/discovery';
 import type { SyncApp } from '@/lib/sync/types';
-import { SYNC_APPS } from '@/lib/sync/types';
 
 const TIMEOUT_MS = 5_000;
 
@@ -70,7 +69,7 @@ export async function pushUserToApps(
   push: UserPush,
   opts: { fetchImpl?: typeof fetch; apps?: readonly SyncApp[] } = {},
 ): Promise<Partial<Record<SyncApp, PushOutcome>>> {
-  const apps = opts.apps ?? SYNC_APPS;
+  const apps = opts.apps ?? configuredSyncApps();
   const fetchImpl = opts.fetchImpl ?? fetch;
   const outcomes = await Promise.all(apps.map((app) => pushToApp(app, push, fetchImpl)));
   const result = Object.fromEntries(apps.map((app, i) => [app, outcomes[i]])) as Partial<

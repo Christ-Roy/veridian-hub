@@ -30,7 +30,7 @@
 import type { PrismaClient } from '@prisma/client';
 
 import { prisma as defaultPrisma } from '@/lib/prisma';
-import { discoverUserApps } from '@/lib/sync/discovery';
+import { configuredSyncApps, discoverUserApps } from '@/lib/sync/discovery';
 import { auditIdentity, identityCounts } from '@/lib/sync/identity-audit';
 import type {
   DiscoveryResult,
@@ -38,7 +38,6 @@ import type {
   SyncApp,
   TenantDrift,
 } from '@/lib/sync/types';
-import { SYNC_APPS } from '@/lib/sync/types';
 
 /**
  * Snapshot du tenant côté Hub utilisé pour le diff. On lit les colonnes
@@ -286,7 +285,7 @@ export async function runReconcile(
   const startedAt = new Date().toISOString();
   const startMs = Date.now();
   const limit = options.limit ?? 100;
-  const apps = options.apps ?? SYNC_APPS;
+  const apps = options.apps ?? configuredSyncApps();
   const autoRepair = options.autoRepair === true;
   const p = options.prisma ?? defaultPrisma;
   const errors: ReconcileSummary['errors'] = [];

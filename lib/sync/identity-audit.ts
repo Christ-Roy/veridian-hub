@@ -12,9 +12,8 @@
 
 import type { PrismaClient } from '@prisma/client';
 
-import { readAppSecret, readAppUrl, signGet } from '@/lib/sync/discovery';
+import { configuredSyncApps, readAppSecret, readAppUrl, signGet } from '@/lib/sync/discovery';
 import type { IdentityAudit, IdentityAuditApp, SyncApp } from '@/lib/sync/types';
-import { SYNC_APPS } from '@/lib/sync/types';
 
 const TIMEOUT_MS = 10_000;
 
@@ -80,7 +79,7 @@ export async function auditIdentity(
   prisma: Pick<PrismaClient, 'user'>,
   opts: { apps?: readonly SyncApp[]; fetchImpl?: typeof fetch } = {},
 ): Promise<IdentityAudit> {
-  const apps = opts.apps ?? SYNC_APPS;
+  const apps = opts.apps ?? configuredSyncApps();
   const fetchImpl = opts.fetchImpl ?? fetch;
   const hubUsers = await prisma.user.findMany({
     select: { supabaseUserId: true, email: true, name: true },
