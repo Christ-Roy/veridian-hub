@@ -163,20 +163,25 @@ export class RateLimiter {
 }
 
 /**
- * Extrait l'IP du caller depuis les headers standards.
- * Priorité : `x-forwarded-for` (Traefik/proxy), `x-real-ip`, fallback `unknown`.
+ * Extrait l'IP du caller (clé des limiteurs).
  *
- * On prend la première IP de `x-forwarded-for` (la plus à gauche = client
- * originel, le reste = chaîne de proxies).
+ * Ordre : `cf-connecting-ip` (posé par Cloudflare, qui écrase toute valeur envoyée par le
+ * client), puis `x-real-ip`, puis le DERNIER élément de `x-forwarded-for`.
+ *
+ * Jamais le premier élément de `X-Forwarded-For` : c'est celui que l'appelant écrit lui-même.
+ * Avec le premier, un en-tête forgé changeait de clé à chaque requête et vidait le limiteur
+ * (D4 : `credentialsLoginLimiter`, `signupLimiter`, reset...).
  */
 export function extractClientIp(headers: Headers): string {
+  const cf = headers.get('cf-connecting-ip')?.trim();
+  if (cf) return cf;
+  const realIp = headers.get('x-real-ip')?.trim();
+  if (realIp) return realIp;
   const xff = headers.get('x-forwarded-for');
   if (xff) {
-    const first = xff.split(',')[0]?.trim();
-    if (first) return first;
+    const last = xff.split(',').pop()?.trim();
+    if (last) return last;
   }
-  const realIp = headers.get('x-real-ip');
-  if (realIp) return realIp.trim();
   return 'unknown';
 }
 
