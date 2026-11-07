@@ -68,4 +68,28 @@ describe('LoginForm — callbackUrl validé (D8)', () => {
   it('sans callbackUrl : /dashboard', async () => {
     expect(await connecter(null)).toBe('/dashboard');
   });
+
+  // D10 : Hub coupé ou erreur de configuration : message honnête, bouton rendu.
+  it('signIn qui rejette : message « Connexion impossible », bouton réactivé', async () => {
+    signInMock.mockRejectedValue(new Error('network'));
+    const { container, findByText } = render(<LoginForm />);
+    const form = container.querySelector('form')!;
+    (form.querySelector('input[name="email"]') as HTMLInputElement).value = 'a@b.fr';
+    (form.querySelector('input[name="password"]') as HTMLInputElement).value = 'motdepasse';
+    fireEvent.submit(form);
+    expect(await findByText(/Connexion impossible/)).toBeTruthy();
+    const bouton = form.querySelector('button[type="submit"]') as HTMLButtonElement;
+    expect(bouton.disabled).toBe(false);
+  });
+
+  it('erreur de configuration renvoyée par Auth.js : pas de faux « mot de passe invalide »', async () => {
+    signInMock.mockResolvedValue({ error: 'Configuration' });
+    const { container, findByText, queryByText } = render(<LoginForm />);
+    const form = container.querySelector('form')!;
+    (form.querySelector('input[name="email"]') as HTMLInputElement).value = 'a@b.fr';
+    (form.querySelector('input[name="password"]') as HTMLInputElement).value = 'motdepasse';
+    fireEvent.submit(form);
+    expect(await findByText(/Connexion impossible/)).toBeTruthy();
+    expect(queryByText(/mot de passe invalide/)).toBeNull();
+  });
 });

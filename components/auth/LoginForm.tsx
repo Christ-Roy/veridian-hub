@@ -59,25 +59,36 @@ export function LoginForm({
     const email = String(formData.get('email') ?? '');
     const password = String(formData.get('password') ?? '');
 
-    const res = await signIn('credentials', {
-      email,
-      password,
-      redirect: false,
-    });
+    // D10 : Hub coupé, cookie tiers bloqué ou erreur de configuration ne doivent ni laisser le
+    // bouton bloqué, ni afficher un faux « mot de passe invalide ».
+    try {
+      const res = await signIn('credentials', {
+        email,
+        password,
+        redirect: false,
+      });
 
-    if (res?.error) {
-      setError('Email ou mot de passe invalide.');
+      if (res?.error) {
+        setError(
+          res.error === 'CredentialsSignin'
+            ? 'Email ou mot de passe invalide.'
+            : 'Connexion impossible pour le moment. Réessayez dans un instant.',
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Le rebond finit sur une autre origine : une navigation complète, pas le routeur.
+      if (bounceApp) {
+        window.location.assign(callbackUrl);
+        return;
+      }
+      router.push(callbackUrl);
+      router.refresh();
+    } catch {
+      setError('Connexion impossible pour le moment. Réessayez dans un instant.');
       setIsSubmitting(false);
-      return;
     }
-
-    // Le rebond finit sur une autre origine : une navigation complète, pas le routeur.
-    if (bounceApp) {
-      window.location.assign(callbackUrl);
-      return;
-    }
-    router.push(callbackUrl);
-    router.refresh();
   };
 
   return (
