@@ -186,7 +186,8 @@ cas(null, 'plusieurs rebonds réussis de suite : la page demandée, jamais le ta
   const hoteApp = new URL(APP_URL[app]).host;
   try {
     const page = await ctx.newPage();
-    for (let i = 1; i <= 4; i += 1) {
+    // Trois, pas quatre : au quatrième en 30 s, l'arrêt sur le Hub est le comportement voulu (test ci-dessous).
+    for (let i = 1; i <= 3; i += 1) {
       // Comme un onglet qui a perdu sa session : aucun état de l'app, le Hub reste ouvert.
       await ctx.clearCookies({ domain: hoteApp });
       await page.goto(`${APP_URL[app]}${PAGE_PROTEGEE[app]}`, { waitUntil: 'domcontentloaded' });
@@ -195,7 +196,7 @@ cas(null, 'plusieurs rebonds réussis de suite : la page demandée, jamais le ta
       const fin = new URL(page.url());
       expect(`${fin.host}${fin.pathname}`, `essai ${i} : jamais le tableau de bord du Hub`).not.toContain(`${hoteHub}/dashboard`);
     }
-    return `4 ouvertures rapprochées de ${app}, toujours sur l'app`;
+    return `3 ouvertures rapprochées de ${app}, toujours sur l'app`;
   } finally {
     await ctx.close();
   }

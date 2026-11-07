@@ -104,7 +104,9 @@ export async function creerCompteProuve(browser: Browser, etiquette: string): Pr
   const motDePasse = nouveauMdp();
   noter(email);
   await usersCreate(email, nom);
-  const inv = await invite(email, ['hub', 'prospection', 'notifuse', 'analytics'], 'TEST SYSTEME SSO');
+  // Le Hub staging n'a que Twenty en face : ni Prospection ni Notifuse à provisionner.
+  const surStaging = /staging/.test(HUB_URL);
+  const inv = await invite(email, surStaging ? ['hub'] : ['hub', 'prospection', 'notifuse', 'analytics'], 'TEST SYSTEME SSO');
   const ctx = await browser.newContext();
   try {
     const page = await ctx.newPage();
@@ -124,10 +126,10 @@ export async function creerCompteProuve(browser: Browser, etiquette: string): Pr
     let u: any = null;
     for (let i = 0; i < 40; i++) {
       u = (await lookup(email)).json;
-      if (u?.tenants?.[0]?.prospectionProvisionedAt && u?.tenants?.[0]?.notifuseWorkspaceSlug) break;
+      if (surStaging ? u?.user?.email_verified : u?.tenants?.[0]?.prospectionProvisionedAt && u?.tenants?.[0]?.notifuseWorkspaceSlug) break;
       await new Promise((r) => setTimeout(r, 1500));
     }
-    if (!u?.tenants?.[0]) throw new NonAbouti(`compte de test ${etiquette} : tenant non provisionné après 60 s`);
+    if (!surStaging && !u?.tenants?.[0]) throw new NonAbouti(`compte de test ${etiquette} : tenant non provisionné après 60 s`);
     if (!u.user?.email_verified) {
       throw new NonAbouti(`compte de test ${etiquette} : adresse toujours non prouvée après l'invitation`);
     }
@@ -137,7 +139,7 @@ export async function creerCompteProuve(browser: Browser, etiquette: string): Pr
       nom,
       motDePasse,
       hubUserId: u.user.supabase_user_id ?? null,
-      tenantId: u.tenants[0].id,
+      tenantId: u.tenants?.[0]?.id ?? null,
       etat: await ctx.storageState(),
     };
   } finally {

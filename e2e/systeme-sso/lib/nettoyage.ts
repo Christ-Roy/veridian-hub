@@ -10,7 +10,7 @@ import path from 'node:path';
 import { NonAbouti } from './etat';
 import { lookup, reconcile, rybbitCompte, supprimerTenantHub } from './hub-admin';
 import { comptesNotes, comptesRybbitNotes, oublierCompte, oublierRybbit } from './parcours';
-import { PREFIXE_COMPTE } from './cibles';
+import { HUB_URL, PREFIXE_COMPTE } from './cibles';
 import { RUN_DIR } from './versions';
 
 const attendre = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -85,7 +85,8 @@ export async function mesurerRestes(): Promise<string[]> {
   ];
   return [
     ...tous.filter((x) => x.includes(`:${PREFIXE_COMPTE}`)),
-    ...workspacesRestants().map((w) => `notifuse-workspace:${w}`),
+    // Le Hub staging n'a pas de Notifuse : ce décompte-là ne vaut qu'en prod.
+    ...(/staging/.test(HUB_URL) ? [] : workspacesRestants()).map((w) => `notifuse-workspace:${w}`),
   ];
 }
 

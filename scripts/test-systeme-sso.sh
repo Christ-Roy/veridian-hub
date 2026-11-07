@@ -9,6 +9,14 @@
 set -uo pipefail
 cd "$(dirname "$0")/../e2e/systeme-sso"
 
+# Le jeton Nomad hérité du shell peut être révoqué par une rotation (07/11) : on relit le jeton de
+# lecture dans le fichier qui fait foi, sans jamais l'afficher.
+if [ -r "$HOME/credentials/nomad-bastion.env" ]; then
+  LU="$(set -a; . "$HOME/credentials/nomad-bastion.env" >/dev/null 2>&1; printf '%s' "${NOMAD_READ_TOKEN:-}")"
+  [ -n "$LU" ] && export NOMAD_TOKEN="$LU"
+  unset LU
+fi
+
 mkdir -p .run && rm -f .run/versions.json .run/resultat.* .run/monde-*.json .run/restes.json  # le registre des comptes est conservé : un crash ne doit rien orpheliner
 
 # Une seule batterie à la fois : elles partagent .run et le plafond de l'API admin.
