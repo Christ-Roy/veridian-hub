@@ -19,6 +19,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const userFindUniqueMock = vi.hoisted(() => vi.fn(async (): Promise<unknown> => null));
 vi.mock('@/lib/prisma', () => ({ prisma: { user: { findUnique: userFindUniqueMock } } }));
+const ensureCrmMock = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/crm/provision', () => ({ ensureCrmWorkspace: (...a: unknown[]) => ensureCrmMock(...a) }));
 const mockDenyUnlessEmailProven = vi.hoisted(() => vi.fn(async (): Promise<unknown> => null));
 vi.mock('@/lib/auth/email-proof', () => ({
   denyUnlessEmailProven: mockDenyUnlessEmailProven,
@@ -50,6 +52,8 @@ beforeEach(() => {
   process.env.DEPLOY_ENV = 'production';
   process.env.NOTIFUSE_API_URL = 'https://notifuse.veridian.site';
   process.env.NOTIFUSE_HUB_API_SECRET = 'hub-secret-test';
+  process.env.CRM_API_URL = 'https://crm.app.veridian.site';
+  process.env.CRM_HUB_API_SECRET = 'crm-secret-test';
   // @ts-expect-error — patch global fetch pour les tests
   globalThis.fetch = fetchMock;
 });
@@ -386,5 +390,45 @@ describe('GET /api/auth/bounce/complete', () => {
     const { GET } = await import('@/app/api/auth/bounce/complete/route');
     await GET(makeReq({ cookie }));
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  describe('CRM : la première ouverture crée l\'espace', () => {
+    const user = { id: 'user-1', email: 'a@b.c', name: 'Alice', image: null, supabaseUserId: 'uuid-1' };
+    const refus = () => new Response(JSON.stringify({ error: 'user_not_in_app' }), { status: 400 });
+    const lien = () => new Response(JSON.stringify({ magic_link_url: 'https://crm.app.veridian.site/auth/token?t=Z' }), { status: 200 });
+
+    it('user_not_in_app → espace garanti, puis lien émis', async () => {
+      getCurrentUserMock.mockResolvedValue(user);
+      fetchMock.mockResolvedValueOnce(refus()).mockResolvedValueOnce(lien());
+      ensureCrmMock.mockResolvedValue({ ok: true, workspaceId: 'ws-1', created: true });
+      const cookie = signNextCookie('https://crm.app.veridian.site/', TEST_SECRET);
+      const { GET } = await import('@/app/api/auth/bounce/complete/route');
+      const res = await GET(makeReq({ cookie }));
+      expect(res.headers.get('location')).toBe('https://crm.app.veridian.site/auth/token?t=Z');
+      expect(ensureCrmMock).toHaveBeenCalledWith(expect.anything(), { hubUserId: 'uuid-1', email: 'a@b.c', name: 'Alice' }, expect.anything());
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('création impossible → page d\'erreur, une seule nouvelle tentative au plus', async () => {
+      getCurrentUserMock.mockResolvedValue(user);
+      fetchMock.mockResolvedValue(refus());
+      ensureCrmMock.mockResolvedValue({ ok: false, error: 'crm_http_502', status: 502 });
+      const cookie = signNextCookie('https://crm.app.veridian.site/', TEST_SECRET);
+      const { GET } = await import('@/app/api/auth/bounce/complete/route');
+      const res = await GET(makeReq({ cookie }));
+      const loc = new URL(res.headers.get('location')!);
+      expect(loc.pathname).toBe('/auth/bounce/error');
+      expect(loc.searchParams.get('code')).toBe('user_not_in_app');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('une autre app refusée ne crée jamais d\'espace CRM', async () => {
+      getCurrentUserMock.mockResolvedValue(user);
+      fetchMock.mockResolvedValue(refus());
+      const cookie = signNextCookie('https://notifuse.veridian.site/', TEST_SECRET);
+      const { GET } = await import('@/app/api/auth/bounce/complete/route');
+      await GET(makeReq({ cookie }));
+      expect(ensureCrmMock).not.toHaveBeenCalled();
+    });
   });
 });

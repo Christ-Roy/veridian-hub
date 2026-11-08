@@ -34,7 +34,7 @@ vi.mock('@/lib/prisma', () => ({
   prisma: { user: { findUnique: findUniqueMock }, tenant: { findFirst: tenantFindFirstMock, update: tenantUpdateMock }, tenantApp: {} },
 }));
 vi.mock('@/lib/crm/provision', () => ({
-  provisionCrmWorkspace: (...args: unknown[]) => provisionMock(...args),
+  ensureCrmWorkspace: (...args: unknown[]) => provisionMock(...args),
 }));
 vi.mock('@/lib/tenant-apps', async () => {
   const actual = await vi.importActual<any>('@/lib/tenant-apps');
@@ -170,32 +170,31 @@ describe('POST /api/admin/tenants/app-access', () => {
 
     it('503 si le CRM n\'est pas configuré, l\'app reste coupée', async () => {
       findUniqueMock.mockResolvedValue(proved);
-      tenantFindFirstMock.mockResolvedValue({ id: 'tenant-1', name: 'ACME' });
       provisionMock.mockResolvedValue({ ok: false, error: 'crm_not_configured' });
       const res = await POST(req({ user_email: 'a@x.io', app: 'twenty', enabled: true }));
       expect(res.status).toBe(503);
       expect(setTenantAppEnabledMock).not.toHaveBeenCalled();
     });
 
-    it('200 : provisionne avec le tenant et le hub_user_id, puis active', async () => {
+    it('404 sans tenant Hub', async () => {
       findUniqueMock.mockResolvedValue(proved);
-      tenantFindFirstMock.mockResolvedValue({ id: 'tenant-1', name: 'ACME', metadata: { garde: 1 } });
+      provisionMock.mockResolvedValue({ ok: false, error: 'tenant_not_found', status: 404 });
+      const res = await POST(req({ user_email: 'a@x.io', app: 'twenty', enabled: true }));
+      expect(res.status).toBe(404);
+    });
+
+    it('200 : garantit l\'espace avec le hub_user_id, puis active', async () => {
+      findUniqueMock.mockResolvedValue(proved);
       provisionMock.mockResolvedValue({ ok: true, workspaceId: 'ws-1', created: true });
       setTenantAppEnabledMock.mockResolvedValue({ appKey: 'twenty', enabled: true });
       const res = await POST(req({ user_email: 'A@X.io', app: 'twenty', enabled: true }));
       expect(res.status).toBe(200);
-      expect(provisionMock).toHaveBeenCalledWith({
-        tenantId: 'tenant-1',
-        hubUserId: 'uuid-1',
-        email: 'a@x.io',
-        workspaceName: 'ACME',
-      });
+      expect(provisionMock).toHaveBeenCalledWith(
+        expect.anything(),
+        { hubUserId: 'uuid-1', email: 'a@x.io', name: 'Alice' },
+        expect.objectContaining({ actorEmail: expect.any(String) }),
+      );
       expect(await res.json()).toMatchObject({ app: 'twenty', enabled: true, crm_workspace_id: 'ws-1' });
-      // reconcile lit metadata.crm : sans lui, l'espace est compté en dérive tenant_extra_app
-      expect(tenantUpdateMock).toHaveBeenCalledWith({
-        where: { id: 'tenant-1' },
-        data: { metadata: { garde: 1, crm: expect.objectContaining({ workspace_id: 'ws-1' }) } },
-      });
     });
 
     it('désactiver ne rappelle pas le CRM', async () => {

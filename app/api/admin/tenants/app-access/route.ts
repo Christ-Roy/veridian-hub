@@ -27,7 +27,7 @@ import {
   setTenantAppEnabled,
   type GatedAppKey,
 } from '@/lib/tenant-apps';
-import { provisionCrmWorkspace } from '@/lib/crm/provision';
+import { ensureCrmWorkspace } from '@/lib/crm/provision';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -77,41 +77,18 @@ export async function POST(request: NextRequest) {
         { status: 409 },
       );
     }
-    const tenant = await prisma.tenant.findFirst({
-      where: { userId: user.supabaseUserId },
-      select: { id: true, name: true, metadata: true },
-      orderBy: { createdAt: 'asc' },
-    });
-    if (!tenant) {
-      return NextResponse.json({ error: 'tenant_not_found' }, { status: 404 });
-    }
-    const provision = await provisionCrmWorkspace({
-      tenantId: tenant.id,
-      hubUserId: user.supabaseUserId,
-      email,
-      workspaceName: tenant.name || user.name || email.split('@')[0],
-    });
+    const provision = await ensureCrmWorkspace(
+      prisma,
+      { hubUserId: user.supabaseUserId, email, name: user.name },
+      { actorEmail: resolveActor(request.headers, authResult.sessionEmail) },
+    );
     if (!provision.ok) {
       return NextResponse.json(
-        { error: 'crm_provision_failed', detail: provision.error },
-        { status: provision.error === 'crm_not_configured' ? 503 : 502 },
+        { error: provision.error === 'tenant_not_found' ? 'tenant_not_found' : 'crm_provision_failed', detail: provision.error },
+        { status: provision.error === 'tenant_not_found' ? 404 : provision.error === 'crm_not_configured' ? 503 : 502 },
       );
     }
     crmWorkspaceId = provision.workspaceId;
-    // Le Hub sait qu'il a cet espace : reconcile le lit dans metadata.crm (sinon dérive tenant_extra_app).
-    const current =
-      tenant.metadata && typeof tenant.metadata === 'object' && !Array.isArray(tenant.metadata)
-        ? (tenant.metadata as Record<string, unknown>)
-        : {};
-    await prisma.tenant.update({
-      where: { id: tenant.id },
-      data: {
-        metadata: {
-          ...current,
-          crm: { workspace_id: provision.workspaceId, provisioned_at: new Date().toISOString() },
-        },
-      },
-    });
   }
 
   const result = await setTenantAppEnabled(prisma, {
