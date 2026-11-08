@@ -7,13 +7,12 @@
  * l'épreuve de la batterie elle-même, à rejouer quand ce fichier change (README).
  */
 import { execFileSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
 
 import { expect, type Browser, type BrowserContext, type Cookie } from '@playwright/test';
 
 import { APP_URL, HUB_URL, type AppKey } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
-import { creerEspaceTwenty, supprimerTenantHub } from './lib/hub-admin';
+import { activerTwentyAuHub, supprimerTenantHub } from './lib/hub-admin';
 import { assurerRybbit, compte, contexteDe, ouvrirApp } from './lib/monde';
 import { nettoyerCompte } from './lib/nettoyage';
 import { espacesTwenty, noterEspaceTwenty, PAGE_PROTEGEE, seDeconnecterDeApp, voirApp, type Compte } from './lib/parcours';
@@ -28,10 +27,9 @@ const NOM_COOKIE = HUB_URL.startsWith('https') ? '__Secure-authjs.session-token'
 const prevoirCompte = async (c: Compte, app: AppKey) => {
   if (app === 'analytics') assurerRybbit(c);
   if (app === 'twenty' && !espacesTwenty(c.email).length) {
-    if (!c.hubUserId) throw new NonAbouti('compte de test sans hub_user_id');
-    const id = randomUUID();
-    noterEspaceTwenty(c.email, id); // noté AVANT la création : un plantage ne doit rien laisser
-    await creerEspaceTwenty(id, c.email, c.hubUserId);
+    if (!c.tenantId) throw new NonAbouti('compte de test sans tenant Hub');
+    noterEspaceTwenty(c.email, c.tenantId); // noté AVANT la création : un plantage ne doit rien laisser
+    await activerTwentyAuHub(c.email); // l'espace naît au Hub, jamais par un appel direct
   }
 };
 

@@ -7,6 +7,8 @@ import { expect } from '@playwright/test';
 import { devraitEtreArrive } from './lib/assertions';
 import { APP_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
+import { activerTwentyAuHub } from './lib/hub-admin';
+import { noterEspaceTwenty } from './lib/parcours';
 import { compte, contexteDe, noterArrivee, ouvrirApp , assurerRybbit } from './lib/monde';
 
 const T = 'un compte à adresse prouvée arrive à son nom et voit ses données';
@@ -75,12 +77,45 @@ cas('analytics', T, async ({ browser }) => {
   }
 });
 
-cas('twenty', T, async () => {
+cas('twenty', T, async ({ browser }) => {
   const r = await fetch(`${APP_URL.twenty}/healthz`, { signal: AbortSignal.timeout(10_000) }).catch(() => null);
   if (!r || r.status >= 400) {
     throw new NonAbouti(
-      `Twenty staging non servi (${APP_URL.twenty}/healthz → ${r ? 'HTTP ' + r.status : 'injoignable'}) : cas non joué`,
+      `Twenty non servi (${APP_URL.twenty}/healthz → ${r ? 'HTTP ' + r.status : 'injoignable'}) : cas non joué`,
     );
   }
-  throw new NonAbouti('Twenty servi, mais le parcours Twenty n\'est pas encore écrit dans la batterie');
+  const A = await compte(browser, 'A');
+  if (!A.tenantId) throw new NonAbouti('compte de test sans tenant Hub');
+  noterEspaceTwenty(A.email, A.tenantId); // noté AVANT la création : un plantage ne doit rien laisser
+  const espace = await activerTwentyAuHub(A.email);
+  const ctx = await contexteDe(browser, A);
+  const a = await ouvrirApp(ctx, 'twenty');
+  let ok = false;
+  try {
+    // Twenty sert chaque espace sur son sous-domaine : l'arrivée se juge sur le domaine de l'app.
+    const hoteApp = new URL(APP_URL.twenty).host;
+    expect(a.hote === hoteApp || a.hote.endsWith(`.${hoteApp}`), `Twenty : arrivée sur ${a.hote}${a.chemin}`).toBe(true);
+    expect(a.formulaireMotDePasse, 'Twenty : aucun mot de passe redemandé').toBe(false);
+    const page = await ctx.newPage();
+    await page.goto(a.url, { waitUntil: 'domcontentloaded' });
+    const lu = await page.evaluate(async () => {
+      const res = await fetch('/metadata', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'content-type': 'application/json', 'x-twenty-session-cookie': '1' },
+        body: JSON.stringify({ query: '{currentUser{email} currentWorkspace{id}}' }),
+      });
+      return (await res.json().catch(() => null)) as {
+        data?: { currentUser?: { email?: string }; currentWorkspace?: { id?: string } };
+      } | null;
+    });
+    await page.close();
+    expect(lu?.data?.currentUser?.email?.toLowerCase(), 'Twenty : session au nom du compte').toBe(A.email.toLowerCase());
+    expect(lu?.data?.currentWorkspace?.id, 'Twenty : son espace, celui créé par le Hub').toBe(espace);
+    ok = true;
+    return `espace ${espace} créé par le Hub, session ${A.email} sur ${a.hote}`;
+  } finally {
+    noterArrivee('twenty', ok, a);
+    await ctx.close();
+  }
 });
