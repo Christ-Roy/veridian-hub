@@ -124,7 +124,7 @@ export const impersonate = (email: string) =>
     { email },
   );
 export const lookup = (email: string) => admin('POST', 'users-lookup', { email });
-export const planHub = (tenantId: string, app: 'prospection' | 'notifuse', plan: string) =>
+export const planHub = (tenantId: string, app: 'prospection' | 'notifuse' | 'analytics' | 'crm', plan: string) =>
   adminOk('POST', `tenants/${tenantId}/plan`, { app, plan, reason: 'TEST SYSTEME SSO' });
 export const statutNotifuse = (tenantId: string) =>
   adminOk<{ plan: string; status: string }>(
@@ -217,4 +217,44 @@ export async function activerTwentyAuHub(email: string): Promise<string> {
 export async function retirerEspaceTwenty(tenantId: string): Promise<void> {
   const r = await appelTwenty('DELETE', `/api/tenants/${tenantId}`);
   if (!r.ok && r.status !== 404) throw new Error(`espace Twenty ${tenantId} non retiré : HTTP ${r.status}`);
+}
+
+/** Active Analytics au Hub (`app-access`), qui pose alors le plan chez Rybbit (free, sauf plan déjà posé). */
+export async function activerAnalyticsAuHub(email: string): Promise<string | undefined> {
+  const r = await admin<{ analytics_plan?: string }>('POST', 'tenants/app-access', { user_email: email, app: 'analytics', enabled: true });
+  if (r.status !== 200) throw new Error(`activation Analytics au Hub refusée : HTTP ${r.status} ${JSON.stringify(r.json).slice(0, 160)}`);
+  return r.json?.analytics_plan;
+}
+
+function secretDe(nom: string): string {
+  try {
+    const txt = readFileSync(path.join(os.homedir(), 'credentials', '.all-creds.env'), 'utf8');
+    const m = txt.match(new RegExp(`^\\s*${nom}\\s*=\\s*(.*)$`, 'm'));
+    if (m) return m[1].trim().replace(/^['"]|['"]$/g, '');
+  } catch {
+    /* tombe sur NonAbouti ci-dessous */
+  }
+  throw new NonAbouti(`${nom} introuvable dans ~/credentials/.all-creds.env`);
+}
+
+/**
+ * Plan lu CHEZ l'app, par sa découverte signée (`GET /api/users/by-email`), comme le lit `hub reconcile`.
+ * `null` si l'app ne connaît pas le compte. Secret lu au moment du test, jamais affiché.
+ */
+export async function planDansApp(app: 'analytics' | 'twenty', email: string, hubUserId?: string | null): Promise<string[] | null> {
+  const nom = app === 'analytics'
+    ? 'ANALYTICS_HUB_API_SECRET'
+    : new URL(APP_URL.twenty).hostname.includes('.staging.') ? 'CRM_HUB_API_SECRET_STAGING' : 'CRM_HUB_API_SECRET_PROD';
+  const ts = Date.now().toString();
+  const signature = createHmac('sha256', secretDe(nom)).update(`${ts}.`).digest('hex');
+  const joint = hubUserId ? `&hub_user_id=${encodeURIComponent(hubUserId)}` : '';
+  const r = await fetch(`${APP_URL[app]}/api/users/by-email?email=${encodeURIComponent(email)}${joint}`, {
+    headers: { 'X-Veridian-Timestamp': ts, 'X-Veridian-Hub-Signature': signature },
+    signal: AbortSignal.timeout(20_000),
+  }).catch(() => null);
+  if (!r) throw new NonAbouti(`${app} : découverte injoignable`);
+  if (r.status === 404) return null;
+  if (!r.ok) throw new NonAbouti(`${app} : découverte HTTP ${r.status}`);
+  const j = (await r.json().catch(() => null)) as { workspaces?: { plan?: string }[] } | null;
+  return (j?.workspaces ?? []).flatMap((w) => (w.plan ? [w.plan] : []));
 }

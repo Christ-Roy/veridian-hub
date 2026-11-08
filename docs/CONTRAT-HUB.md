@@ -804,8 +804,12 @@ offerts.
 L'immunité des plans offerts (un tenant `grant_manual` ne se fait pas
 downgrader par un event Stripe) est aussi rappelée §3.3 ci-dessous.
 
-Les apps **client-only** (CMS, Analytics) ne sont **pas** concernées par
-`update-plan` — elles n'ont pas de billing Stripe end-user.
+**Analytics (Rybbit) et CRM (Twenty)** reçoivent `update-plan` depuis le 08/11 (Robert : la grille
+s'applique aux apps). Même payload v2, plus `hub_user_id` (le propriétaire du tenant). L'app **stocke**
+le plan, sans aucune limite (générosité maximale) ; seule la marque blanche est réservée à Business+.
+Le Hub le pose par `hub plan --app analytics|crm`, à l'activation (`app-access`, première ouverture du
+CRM) et à chaque abonnement Stripe d'un bundle (`lib/plans/app-plan.ts`), et le retient dans
+`metadata.<app>_plan`. La découverte de l'app le rend, `hub reconcile` compare. Un refus n'écrit rien.
 
 ### 5.3 `POST /api/tenants/attach-owner`
 

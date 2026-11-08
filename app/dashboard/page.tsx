@@ -154,6 +154,7 @@ export default async function DashboardPage({
   const analyticsTarget = await resolveAnalyticsCardTarget({
     // Adresse non prouvée : on ne demande rien, sinon la carte révélerait les sites d'un tiers.
     email: emailProven ? user.email : null,
+    hubUserId: emailProven ? userUuid(user) : null,
     metadataFallbackUrl: analyticsMeta?.fallback_url,
     metadataTenantName: analyticsMeta?.tenant_name,
   });

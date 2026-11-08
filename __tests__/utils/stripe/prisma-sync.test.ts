@@ -42,6 +42,12 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 
+const setAppPlanMock = vi.hoisted(() => vi.fn(async (): Promise<unknown> => ({ ok: true, previousPlan: null })));
+vi.mock('@/lib/plans/app-plan', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/plans/app-plan')>()),
+  setAppPlan: setAppPlanMock,
+}));
+
 // ─── Mocks Stripe ───────────────────────────────────────────────────────────
 
 const subscriptionsRetrieveMock = vi.fn();
@@ -465,5 +471,45 @@ describe('manageSubscriptionStatusChange — purge tenant_trials (anti-résidus)
     const apps = result.applied.map((a) => a.app).sort();
     expect(apps).toEqual(['notifuse', 'prospection']);
     errSpy.mockRestore();
+  });
+});
+
+describe('manageSubscriptionStatusChange — analytics et crm suivent le palier du bundle', () => {
+  const tenant = (metadata: Record<string, unknown>) => ({
+    id: 'tenant-1', notifuseWorkspaceSlug: null, notifusePlan: 'free', prospectionPlan: 'freemium', metadata,
+  });
+
+  it('bundle veridian-business actif : business poussé aux apps que le tenant a', async () => {
+    subscriptionsRetrieveMock.mockResolvedValueOnce(makeSub({ metadata: { plan_key: 'veridian-business' } }));
+    tenantFindFirstMock.mockResolvedValueOnce(tenant({ analytics: { linked_at: 'x' }, crm: { workspace_id: 'w' } }));
+    const { manageSubscriptionStatusChange } = await import('@/utils/stripe/prisma-sync');
+    const result = await manageSubscriptionStatusChange('sub_test_1', CUSTOMER, true);
+    const appels = setAppPlanMock.mock.calls.map((c) => (c as unknown as [unknown, { app: string; plan: string; planSource: string }])[1]);
+    expect(appels).toEqual([
+      expect.objectContaining({ app: 'analytics', plan: 'business', planSource: 'stripe' }),
+      expect.objectContaining({ app: 'crm', plan: 'business', planSource: 'stripe' }),
+    ]);
+    expect(result.failures).toEqual([]);
+  });
+
+  it('abonnement annulé : free en downgrade_auto ; refus de l\'app compté en échec', async () => {
+    subscriptionsRetrieveMock.mockResolvedValueOnce(makeSub({ metadata: { plan_key: 'veridian-pro' }, status: 'canceled' }));
+    tenantFindFirstMock.mockResolvedValueOnce(tenant({ analytics: {} }));
+    setAppPlanMock.mockResolvedValueOnce({ ok: false, error: 'tenant_not_found' });
+    const { manageSubscriptionStatusChange } = await import('@/utils/stripe/prisma-sync');
+    const result = await manageSubscriptionStatusChange('sub_test_1', CUSTOMER, false);
+    expect((setAppPlanMock.mock.calls[0] as unknown as [unknown, { plan: string; planSource: string }])[1]).toMatchObject({ plan: 'free', planSource: 'downgrade_auto' });
+    expect(result.failures).toEqual([{ app: 'analytics', targetPlan: 'free', error: 'tenant_not_found' }]);
+  });
+
+  it('plan offert (grant_manual) ou abonnement hors bundle : rien poussé', async () => {
+    subscriptionsRetrieveMock.mockResolvedValueOnce(makeSub({ metadata: { plan_key: 'veridian-pro' }, status: 'canceled' }));
+    tenantFindFirstMock.mockResolvedValueOnce(tenant({ analytics: {}, analytics_plan: 'enterprise', analytics_plan_source: 'grant_manual' }));
+    const { manageSubscriptionStatusChange } = await import('@/utils/stripe/prisma-sync');
+    await manageSubscriptionStatusChange('sub_test_1', CUSTOMER, false);
+    subscriptionsRetrieveMock.mockResolvedValueOnce(makeSub({ metadata: { plan_key: 'notifuse-pro' } }));
+    tenantFindFirstMock.mockResolvedValueOnce(tenant({ crm: {} }));
+    await manageSubscriptionStatusChange('sub_test_1', CUSTOMER, true);
+    expect(setAppPlanMock).not.toHaveBeenCalled();
   });
 });

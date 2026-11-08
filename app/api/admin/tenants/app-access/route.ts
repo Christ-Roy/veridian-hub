@@ -28,6 +28,7 @@ import {
   type GatedAppKey,
 } from '@/lib/tenant-apps';
 import { ensureCrmWorkspace } from '@/lib/crm/provision';
+import { isCanonicalPlan, readAppPlan, setAppPlan } from '@/lib/plans/app-plan';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -98,6 +99,29 @@ export async function POST(request: NextRequest) {
     actorEmail: resolveActor(request.headers, authResult.sessionEmail),
   });
 
+  // Analytics : le plan du Hub (sinon free) est posé chez Rybbit dès l'activation. Sans compte
+  // Rybbit relié, Rybbit répond tenant_not_found et rien n'est écrit : l'écart se lit dans reconcile.
+  let analyticsPlan: string | undefined;
+  if (parsed.data.app === 'analytics' && parsed.data.enabled) {
+    const tenant = await prisma.tenant.findFirst({
+      where: { userId: user.supabaseUserId },
+      select: { id: true, metadata: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (tenant) {
+      const actuel = readAppPlan(tenant.metadata, 'analytics').plan;
+      const pushed = await setAppPlan(prisma, {
+        tenantId: tenant.id,
+        app: 'analytics',
+        plan: isCanonicalPlan(actuel) ? actuel : 'free',
+        planSource: 'grant_manual',
+        reason: 'activation analytics',
+        setBy: resolveActor(request.headers, authResult.sessionEmail),
+      });
+      analyticsPlan = pushed.ok ? 'posé' : `non posé : ${pushed.error}`;
+    }
+  }
+
   const actor = resolveActor(request.headers, authResult.sessionEmail);
   await writeAuditLog(prisma, {
     action: 'admin.tenant.app_access',
@@ -118,5 +142,6 @@ export async function POST(request: NextRequest) {
     app: result.appKey,
     enabled: result.enabled,
     ...(crmWorkspaceId ? { crm_workspace_id: crmWorkspaceId } : {}),
+    ...(analyticsPlan ? { analytics_plan: analyticsPlan } : {}),
   });
 }

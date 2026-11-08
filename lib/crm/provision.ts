@@ -12,6 +12,7 @@ import type { PrismaClient } from '@prisma/client';
 
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
 import { pushUserToApps } from '@/lib/identity/push-user';
+import { isCanonicalPlan, readAppPlan, setAppPlan } from '@/lib/plans/app-plan';
 import { setTenantAppEnabled } from '@/lib/tenant-apps';
 
 const PROVISION_PATH = '/api/tenants/provision';
@@ -125,5 +126,23 @@ export async function ensureCrmWorkspace(
     enabled: true,
     actorEmail: opts.actorEmail ?? null,
   });
+  // Le plan suit l'espace dès sa création (CONTRAT-BILLING §3) : celui du Hub, sinon free. Meilleur
+  // effort : l'espace existe, un refus du plan se lit dans reconcile, il ne bloque pas l'ouverture.
+  const actuel = readAppPlan(current, 'crm').plan;
+  const plan = await setAppPlan(
+    db,
+    {
+      tenantId: tenant.id,
+      app: 'crm',
+      plan: isCanonicalPlan(actuel) ? actuel : 'free',
+      planSource: 'grant_manual',
+      reason: 'création de l\'espace CRM',
+      setBy: opts.actorEmail ?? 'hub',
+    },
+    opts,
+  ).catch((err: unknown) => ({ ok: false as const, error: err instanceof Error ? err.message : String(err) }));
+  if (!plan.ok) {
+    console.warn(JSON.stringify({ tag: '[crm][plan]', level: 'warn', tenant_id: tenant.id, error: plan.error }));
+  }
   return provision;
 }

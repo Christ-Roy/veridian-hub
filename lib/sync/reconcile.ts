@@ -50,6 +50,8 @@ import type {
 interface HubTenantSnapshot {
   hubTenantId: string;
   userEmail: string;
+  /** `supabase_user_id` du propriétaire : jointure transmise aux apps qui la lisent. */
+  hubUserId?: string;
   notifusePlan: string | null;
   prospectionPlan: string | null;
   notifuseWorkspaceSlug: string | null;
@@ -268,6 +270,7 @@ async function selectActiveTenants(
     tenants.push({
       hubTenantId: r.id,
       userEmail: email,
+      hubUserId: r.userId,
       notifusePlan: r.notifusePlan,
       prospectionPlan: r.prospectionPlan,
       notifuseWorkspaceSlug: r.notifuseWorkspaceSlug,
@@ -313,6 +316,7 @@ export async function runReconcile(
     try {
       const discovery = await discoverUserApps(t.userEmail, {
         apps,
+        hubUserId: t.hubUserId,
         fetchImpl: options.fetchImpl,
         timeoutMs: options.timeoutMs,
       });

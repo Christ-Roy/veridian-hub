@@ -12,6 +12,7 @@
 //   getPlanByStripePriceId() qui regarde le catalogue ET le mapping legacy.
 
 import { pushProspectionPlan } from '@/lib/prospection/plan-push';
+import { bundleTier, PLAN_APPS, readAppPlan, setAppPlan, tenantHasApp, type PlanApp } from '@/lib/plans/app-plan';
 import Stripe from 'stripe';
 
 import { prisma } from '@/lib/prisma';
@@ -34,13 +35,13 @@ import { grantWelcomeLeadsBestEffort } from '@/utils/tenants/provision';
 export interface PropagationResult {
   tenantId: string | null;
   /** Plans cibles appliqués (DB) — sert au log + dashboard admin. */
-  applied: Array<{ app: 'notifuse' | 'prospection'; targetPlan: string; immune: boolean }>;
+  applied: Array<{ app: 'notifuse' | 'prospection' | PlanApp; targetPlan: string; immune: boolean }>;
   /**
    * Apps downstream qui ont échoué après tous les retry HMAC du client. Si
    * non-vide → alerter Robert Telegram. Vide = tout est passé (ou app n'a pas
    * de propagation HMAC active comme Prospection au 2026-05-21).
    */
-  failures: Array<{ app: 'notifuse' | 'prospection'; targetPlan: string; error: string }>;
+  failures: Array<{ app: 'notifuse' | 'prospection' | PlanApp; targetPlan: string; error: string }>;
 }
 
 /**
@@ -448,6 +449,34 @@ export async function manageSubscriptionStatusChange(
         `[stripe-sync] update-plan KO prospection tenant=${tenant.id} plan=${targetProspection}: ${pushed.error}`,
       );
       result.failures.push({ app: 'prospection', targetPlan: targetProspection, error: pushed.error });
+    }
+  }
+
+  // ─── 4. Analytics et CRM : le palier du bundle (`lib/plans/app-plan.ts`) ───
+  // Un plan offert (grant_manual) n'est jamais touché par Stripe ; hors bundle, rien ne bouge.
+  const tier = bundleTier(planKey, isActive);
+  if (tier) {
+    for (const app of PLAN_APPS) {
+      if (!tenantHasApp(tenant.metadata, app)) continue;
+      if (readAppPlan(tenant.metadata, app).source === 'grant_manual') {
+        result.applied.push({ app, targetPlan: tier, immune: true });
+        continue;
+      }
+      const pushed = await setAppPlan(prisma, {
+        tenantId: tenant.id,
+        app,
+        plan: tier,
+        planSource: isActive ? 'stripe' : 'downgrade_auto',
+        reason: `stripe ${subscription.id}`,
+        setBy: 'stripe',
+        stripeSubscriptionId: subscription.id,
+      });
+      if (pushed.ok) {
+        result.applied.push({ app, targetPlan: tier, immune: 'immune' in pushed });
+      } else {
+        console.error(`[stripe-sync] update-plan KO ${app} tenant=${tenant.id} plan=${tier}: ${pushed.error}`);
+        result.failures.push({ app, targetPlan: tier, error: pushed.error });
+      }
     }
   }
 

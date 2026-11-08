@@ -63,6 +63,8 @@ export interface ResolveAnalyticsTargetDeps {
 export interface ResolveAnalyticsTargetInput {
   /** Email du user connecté. Absent → on saute la découverte. */
   email?: string | null;
+  /** Jointure Hub du user connecté : l'app la préfère à l'adresse (compte à une autre adresse). */
+  hubUserId?: string | null;
   /** `tenant.metadata.analytics.fallback_url`, s'il existe. */
   metadataFallbackUrl?: string | null;
   /** `tenant.metadata.analytics.tenant_name`, s'il existe. */
@@ -108,7 +110,7 @@ export async function resolveAnalyticsCardTarget(
   if (input.email) {
     let sites: ReturnType<typeof usableSnapshots> = [];
     try {
-      sites = usableSnapshots(await discover('analytics', input.email));
+      sites = usableSnapshots(await discover('analytics', input.email, { hubUserId: input.hubUserId }));
     } catch {
       // `discoverAppForEmail` ne lève pas, mais on ne parie pas le tableau de
       // bord d'un client là-dessus : toute surprise retombe sur le fallback.
