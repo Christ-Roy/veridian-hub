@@ -35,6 +35,7 @@ export async function pushProspectionPlan(input: {
   plan: string;
   planSource: PlanSource;
   reason?: string | null;
+  trial?: { status: string; endsAt: string | null };
 }): Promise<PlanPushResult> {
   const plan = CANONICAL_PLAN[input.plan];
   if (!plan) return { ok: false, error: `plan_not_canonical: ${input.plan}` };
@@ -63,6 +64,7 @@ export async function pushProspectionPlan(input: {
       planSource: input.planSource,
       idempotencyKey: `hub:${input.hubTenantId}:${randomUUID()}`,
       reason: input.reason ?? undefined,
+      trial: input.trial,
     });
     return { ok: true, prospectionTenantId: target };
   } catch (err) {

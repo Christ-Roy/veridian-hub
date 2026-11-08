@@ -185,6 +185,7 @@ export async function discoverAppForEmail(
             tenant_id?: string;
             role?: string;
             plan?: string;
+            trial_status?: string | null;
             status?: string;
             magic_link_capable?: boolean;
             fallback_url?: string;
@@ -208,6 +209,7 @@ export async function discoverAppForEmail(
         tenantId: w.tenant_id,
         role: w.role,
         plan: w.plan,
+        trialStatus: 'trial_status' in w ? (w.trial_status ?? null) : undefined,
         status:
           w.status === 'active' || w.status === 'suspended' || w.status === 'deleted'
             ? w.status

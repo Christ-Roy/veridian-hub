@@ -28,6 +28,7 @@ vi.mock('@/lib/prisma', () => ({
     subscription: {
       findFirst: (...a: unknown[]) => subscriptionFindFirstMock(...a),
       upsert: (...a: unknown[]) => subscriptionUpsertMock(...a),
+      findMany: vi.fn(async () => []),
     },
     user: {
       updateMany: (...a: unknown[]) => userUpdateManyMock(...a),
@@ -38,6 +39,7 @@ vi.mock('@/lib/prisma', () => ({
     },
     tenantTrial: {
       updateMany: (...a: unknown[]) => tenantTrialUpdateManyMock(...a),
+      findMany: vi.fn(async () => []),
     },
   },
 }));

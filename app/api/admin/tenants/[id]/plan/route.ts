@@ -28,6 +28,7 @@ import { isNotifusePlan, NOTIFUSE_PLANS, NotifuseError } from '@/lib/notifuse/ty
 import { prisma } from '@/lib/prisma';
 import { pushProspectionPlan } from '@/lib/prospection/plan-push';
 import { CANONICAL_PLANS, isCanonicalPlan, PLAN_APPS, setAppPlan, tenantHasApp, type PlanApp } from '@/lib/plans/app-plan';
+import { trialStatusForTenant } from '@/lib/plans/trial-status';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -175,6 +176,7 @@ export async function POST(
       await client.updatePlan({
         tenantId: tenant.notifuseWorkspaceSlug,
         plan: body.plan,
+        trial: await trialStatusForTenant(prisma, tenantId),
       });
     } catch (err) {
       if (err instanceof NotifuseError) {
@@ -271,6 +273,7 @@ export async function POST(
       plan: prospectionPlan,
       planSource: 'grant_manual',
       reason: body.reason,
+      trial: await trialStatusForTenant(prisma, tenantId),
     });
     if (!pushed.ok) {
       return NextResponse.json(

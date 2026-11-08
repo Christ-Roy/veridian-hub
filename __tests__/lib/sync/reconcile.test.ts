@@ -13,7 +13,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-import { diffTenantApp, runReconcile } from '@/lib/sync/reconcile';
+import { diffTenantApp, measureNotWired, remediationFor, runReconcile } from '@/lib/sync/reconcile';
 import type {
   DiscoveryAppResult,
   DiscoveryResult,
@@ -306,7 +306,11 @@ describe('diffTenantApp — dérives relevées en prod le 06/11', () => {
       startedAt: 'now',
       durationMs: 1,
     };
-    expect(diffTenantApp(t, 'analytics', owner, 'now')).toHaveLength(0);
+    // Activée sans plan posé : écart à part, le plan de l'app ne vient de personne.
+    expect(diffTenantApp(t, 'analytics', owner, 'now')).toMatchObject([{ kind: 'plan_unset' }]);
+    const avecPlan = { ...t, metadata: { ...t.metadata, analytics_plan: 'free' } };
+    const ownerFree = { ...owner, apps: { ...owner.apps, analytics: { found: true as const, snapshots: [snapshot('analytics', { role: 'owner', plan: 'free' })] } } };
+    expect(diffTenantApp(avecPlan, 'analytics', ownerFree, 'now')).toHaveLength(0);
     const gone = { ...owner, apps: { ...owner.apps, analytics: { found: false as const } } };
     expect(diffTenantApp(t, 'analytics', gone, 'now')).toMatchObject([
       { kind: 'tenant_missing_app' },
@@ -489,5 +493,58 @@ describe('runReconcile', () => {
     });
     expect(summary.appsUnreachable).toBe(1);
     expect(summary.drifts[0]).toMatchObject({ kind: 'app_unreachable' });
+  });
+});
+
+describe('plan et statut d\'essai, app par app (Robert, 08/11 : « toujours savoir les écarts »)', () => {
+  const disc = (snapshots: Array<Record<string, unknown>>) => ({
+    email: 'user@x.com',
+    apps: {
+      notifuse: { found: false as const },
+      prospection: { found: false as const },
+      analytics: { found: true as const, snapshots: snapshots.map((o) => ({ app: 'analytics' as const, workspaceId: 'ws', observedAt: 'now', role: 'owner', ...o })) },
+      crm: { found: false as const },
+    },
+    startedAt: 'now',
+    durationMs: 1,
+  });
+  const t = { ...baseTenant, trialStatus: 'trial_active', metadata: { analytics: {}, analytics_plan: 'pro' } as Record<string, unknown> };
+
+  it('statut d\'essai différent de celui du Hub : trial_mismatch', () => {
+    expect(diffTenantApp(t, 'analytics', disc([{ plan: 'pro', trialStatus: 'expired' }]), 'now')).toMatchObject([
+      { kind: 'trial_mismatch', hubValue: { trial_status: 'trial_active' }, appValue: 'expired' },
+    ]);
+  });
+  it('statut jamais reçu par l\'app (null) : trial_mismatch', () => {
+    expect(diffTenantApp(t, 'analytics', disc([{ plan: 'pro', trialStatus: null }]), 'now')).toMatchObject([{ kind: 'trial_mismatch' }]);
+  });
+  it('app qui ne rend pas le champ : pas d\'écart ici, compté dans « non câblé »', () => {
+    expect(diffTenantApp(t, 'analytics', disc([{ plan: 'pro' }]), 'now')).toHaveLength(0);
+  });
+  it('même statut : aucun écart', () => {
+    expect(diffTenantApp(t, 'analytics', disc([{ plan: 'pro', trialStatus: 'trial_active' }]), 'now')).toHaveLength(0);
+  });
+
+  it('chaque écart a sa marche à suivre, sans adresse client', () => {
+    const kinds = ['plan_mismatch', 'trial_mismatch', 'plan_unset', 'tenant_missing_app', 'tenant_extra_app', 'status_mismatch', 'app_unreachable'] as const;
+    for (const kind of kinds) {
+      const r = remediationFor({ hubTenantId: 't1', app: 'analytics', kind, hubValue: { plan: 'pro' } });
+      expect(r, kind).toBeTruthy();
+      expect(r).not.toMatch(/@/);
+    }
+    expect(remediationFor({ hubTenantId: 't1', app: 'crm', kind: 'plan_mismatch', hubValue: 'business' })).toContain('hub plan t1 --app crm --plan business');
+  });
+
+  it('non câblé : mesuré (app sans statut d\'essai, machine d\'états jamais nourrie) et daté', async () => {
+    const vu = new Map([
+      ['notifuse', { comptes: 3, avecEssai: 0 }],
+      ['analytics', { comptes: 2, avecEssai: 2 }],
+    ] as const);
+    const vide = await measureNotWired({ tenantTrial: { count: async () => 0 } } as never, new Map(vu));
+    expect(vide.some((l) => l.startsWith('notifuse : statut d\'essai non rendu'))).toBe(true);
+    expect(vide.some((l) => l.startsWith('analytics'))).toBe(false);
+    expect(vide.some((l) => l.startsWith('essai : aucun tenant'))).toBe(true);
+    const nourrie = await measureNotWired({ tenantTrial: { count: async () => 4 } } as never, new Map());
+    expect(nourrie.some((l) => l.startsWith('essai : aucun tenant'))).toBe(false);
   });
 });

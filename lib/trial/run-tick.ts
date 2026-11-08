@@ -67,6 +67,8 @@ import {
   buildTrialStartedEmail,
 } from '@/lib/email/templates/trial';
 import { computeTrialEndsAt } from '@/lib/trial/transitions';
+import { PLAN_APPS, readAppPlan, setAppPlan, tenantHasApp } from '@/lib/plans/app-plan';
+import { trialStatusForTenant } from '@/lib/plans/trial-status';
 import {
   TRIAL_ELIGIBLE_WAIT_HOURS,
   TRIAL_NOTIFY_ENDING_SOON_DAYS,
@@ -503,9 +505,9 @@ function resolveNotifuseClient(): NotifuseClient {
 }
 
 /**
- * Dispatch update-plan vers l'app cible. Pour l'instant seul Notifuse est
- * branché — Prospection / Analytics ne consomment pas encore update-plan
- * dans la state machine trial (leur signal d'engagement n'est pas défini).
+ * Dispatch update-plan vers l'app cible, avec le statut d'essai du tenant. Le signal d'engagement
+ * vient de Notifuse ; Analytics et le CRM suivent la même transition (même plan, `stripe_trial` à
+ * l'activation, `downgrade_auto` à l'expiration), sauf plan offert (immune).
  */
 async function callUpdatePlan(
   notifuseClient: NotifuseClient,
@@ -514,12 +516,39 @@ async function callUpdatePlan(
   plan: NotifusePlan,
 ): Promise<void> {
   if (app === 'notifuse') {
-    await notifuseClient.updatePlan({ tenantId, plan });
+    // Statut illisible : la transition passe quand même (Notifuse reçoit le plan, sans le statut).
+    const trial = await trialStatusForTenant(prisma, tenantId).catch((err: unknown) => {
+      console.error(`[cron-trial-tick] statut d'essai illisible tenant=${tenantId}:`, err);
+      return undefined;
+    });
+    await notifuseClient.updatePlan({ tenantId, plan, ...(trial ? { trial } : {}) });
+    await suivreAnalyticsEtCrm(tenantId, plan).catch((err: unknown) =>
+      console.error(`[cron-trial-tick] analytics/crm tenant=${tenantId}:`, err),
+    );
     return;
   }
   console.warn(
     `[cron-trial-tick] update-plan skipped for app=${app} (no client wired yet) tenant=${tenantId} plan=${plan}`,
   );
+}
+
+/** Analytics et CRM suivent la transition de l'essai, sauf plan offert. */
+async function suivreAnalyticsEtCrm(tenantId: string, plan: NotifusePlan): Promise<void> {
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { metadata: true } });
+  for (const appPlan of PLAN_APPS) {
+    if (!tenant || !tenantHasApp(tenant.metadata, appPlan)) continue;
+    if (readAppPlan(tenant.metadata, appPlan).source === 'grant_manual') continue;
+    const canonical = plan === 'pro' || plan === 'business' || plan === 'enterprise' ? plan : 'free';
+    const r = await setAppPlan(prisma, {
+      tenantId,
+      app: appPlan,
+      plan: canonical,
+      planSource: canonical === 'free' ? 'downgrade_auto' : 'stripe_trial',
+      reason: 'machine d\'états de l\'essai',
+      setBy: 'trial-tick',
+    });
+    if (!r.ok) console.error(`[cron-trial-tick] update-plan KO ${appPlan} tenant=${tenantId}: ${r.error}`);
+  }
 }
 
 function isUuid(value: string): boolean {

@@ -67,6 +67,8 @@ export interface ProvisionResponse {
 export interface UpdatePlanInput {
   tenantId: string;
   plan: NotifusePlan;
+  /** Statut d'essai du tenant (`lib/plans/trial-status.ts`) : stocké par l'app, jamais appliqué sans son drapeau. */
+  trial?: { status: string; endsAt: string | null };
 }
 
 export interface SuspendInput {

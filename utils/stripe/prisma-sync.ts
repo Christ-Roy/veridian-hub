@@ -13,6 +13,7 @@
 
 import { pushProspectionPlan } from '@/lib/prospection/plan-push';
 import { bundleTier, PLAN_APPS, readAppPlan, setAppPlan, tenantHasApp, type PlanApp } from '@/lib/plans/app-plan';
+import { trialStatusForTenant } from '@/lib/plans/trial-status';
 import Stripe from 'stripe';
 
 import { prisma } from '@/lib/prisma';
@@ -385,6 +386,12 @@ export async function manageSubscriptionStatusChange(
     }
   }
 
+  // Statut d'essai, envoyé avec le plan à chaque app (`lib/plans/trial-status.ts`).
+  const trial = await trialStatusForTenant(prisma, tenant.id).catch((err: unknown) => {
+    console.error(`[stripe-sync] statut d'essai illisible tenant=${tenant!.id}:`, err);
+    return undefined;
+  });
+
   // ─── 2. Propagation HMAC Hub → Notifuse (§7.4) ───
   // Si l'app a son workspace provisionné. Si immune → on skip (le tenant ne
   // doit pas être bougé par Stripe).
@@ -406,6 +413,7 @@ export async function manageSubscriptionStatusChange(
         await client.updatePlan({
           tenantId: tenant.id,
           plan: safePlan,
+          trial,
         });
         console.log(
           `[stripe-sync] HMAC update-plan OK notifuse tenant=${tenant.id} plan=${targetNotifuse}`,
@@ -442,6 +450,7 @@ export async function manageSubscriptionStatusChange(
           email: owner.email,
           plan: targetProspection,
           planSource: 'stripe',
+          trial,
         })
       : ({ ok: false, error: 'owner_not_found' } as const);
     if (!pushed.ok) {

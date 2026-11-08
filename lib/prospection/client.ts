@@ -47,6 +47,8 @@ export interface UpdatePlanInput {
   planSource: string;
   idempotencyKey: string;
   reason?: string;
+  /** Statut d'essai du tenant (`lib/plans/trial-status.ts`) : stocké par l'app, jamais appliqué sans son drapeau. */
+  trial?: { status: string; endsAt: string | null };
 }
 
 export interface ProvisionResponse {
@@ -105,6 +107,7 @@ export class ProspectionClient {
       effective_at: new Date().toISOString(),
       idempotency_key: input.idempotencyKey,
       ...(input.reason ? { reason: input.reason } : {}),
+      ...(input.trial ? { trial_status: input.trial.status, trial_ends_at: input.trial.endsAt } : {}),
     });
   }
 

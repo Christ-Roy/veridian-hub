@@ -73,7 +73,7 @@ export async function provisionCrmWorkspace(
   return { ok: true, workspaceId: data.workspace_id, created: data.created === true };
 }
 
-type CrmDb = Pick<PrismaClient, 'tenant' | 'tenantApp'>;
+type CrmDb = Pick<PrismaClient, 'tenant' | 'tenantApp' | 'tenantTrial' | 'subscription'>;
 
 /**
  * Garantit l'espace CRM d'un utilisateur à adresse prouvée : à l'activation admin et à la première

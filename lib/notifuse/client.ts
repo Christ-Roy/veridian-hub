@@ -75,6 +75,7 @@ export class NotifuseClient {
     await this.hmacRequest<unknown>('POST', '/api/tenants/update-plan', {
       tenant_id: input.tenantId,
       plan: input.plan,
+      ...(input.trial ? { trial_status: input.trial.status, trial_ends_at: input.trial.endsAt } : {}),
     });
   }
 

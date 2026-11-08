@@ -53,6 +53,8 @@ vi.mock('@/lib/prisma', () => ({
     provisioningLog: {
       create: vi.fn(async () => ({})),
     },
+    tenantTrial: { findMany: vi.fn(async () => []) },
+    subscription: { findMany: vi.fn(async () => []) },
   },
 }));
 
@@ -121,7 +123,7 @@ describe('POST /api/admin/tenants/[id]/plan', () => {
     const { POST } = await import('@/app/api/admin/tenants/[id]/plan/route');
     const res = await POST(makeReq({ app: 'notifuse', plan: 'pro' }), ctx('t-1'));
     expect(res.status).toBe(200);
-    expect(updatePlanMock).toHaveBeenCalledWith({ tenantId: 'ws-1', plan: 'pro' });
+    expect(updatePlanMock).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'ws-1', plan: 'pro' }));
     expect(updateTenantMock).toHaveBeenCalled();
     const body = await res.json();
     expect(body.app).toBe('notifuse');
@@ -135,10 +137,10 @@ describe('POST /api/admin/tenants/[id]/plan', () => {
       ctx('t-1'),
     );
     expect(res.status).toBe(200);
-    expect(updatePlanMock).toHaveBeenCalledWith({
+    expect(updatePlanMock).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: 'ws-1',
       plan: 'lifetime_site_vitrine',
-    });
+    }));
   });
 
   it('tenant non provisionné dans Prospection : écrit le Hub seul et le dit', async () => {

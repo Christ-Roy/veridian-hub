@@ -3,7 +3,8 @@
  *
  * Même chemin que Notifuse et Prospection : `POST <app>/api/tenants/update-plan`, CONTRAT-BILLING §3
  * v2, signé §6.1, plus `hub_user_id` (Rybbit ne connaît pas les tenants du Hub, il connaît ses
- * comptes). L'app stocke, rien n'est limité (PRICING-VERIDIAN : générosité maximale).
+ * comptes) et le statut d'essai (`trial_status`, `trial_ends_at`, `lib/plans/trial-status.ts`).
+ * L'app stocke, rien n'est limité (PRICING-VERIDIAN : générosité maximale).
  *
  * Le Hub retient le plan dans `metadata.<app>_plan` (et `_plan_source`), que `hub reconcile` compare
  * au plan rendu par la découverte de l'app. Un refus de l'app n'écrit rien : pas d'écart silencieux.
@@ -13,6 +14,7 @@ import { createHmac, randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
+import { trialStatusForTenant, type TenantTrialStatus } from '@/lib/plans/trial-status';
 
 export const PLAN_APPS = ['analytics', 'crm'] as const;
 export type PlanApp = (typeof PLAN_APPS)[number];
@@ -72,6 +74,7 @@ export async function pushAppPlan(
     planSource: PlanSource;
     reason?: string | null;
     stripeSubscriptionId?: string | null;
+    trial?: TenantTrialStatus;
   },
   opts: { env?: NodeJS.ProcessEnv; fetchImpl?: typeof fetch; nowMs?: () => number } = {},
 ): Promise<PushResult> {
@@ -87,6 +90,8 @@ export async function pushAppPlan(
     stripe_subscription_id: input.stripeSubscriptionId ?? null,
     idempotency_key: randomUUID(),
     reason: (input.reason ?? 'hub').slice(0, 500),
+    trial_status: input.trial?.status ?? 'none',
+    trial_ends_at: input.trial?.endsAt ?? null,
   });
   const timestamp = String((opts.nowMs ?? Date.now)());
   const signature = createHmac('sha256', config.hubSecret).update(`${timestamp}.${body}`).digest('hex');
@@ -113,7 +118,7 @@ export async function pushAppPlan(
   return { ok: true, previousPlan: data?.previous_plan ?? null };
 }
 
-type PlanDb = Pick<PrismaClient, 'tenant'>;
+type PlanDb = Pick<PrismaClient, 'tenant' | 'tenantTrial' | 'subscription'>;
 
 /**
  * Pose le plan d'une app pour un tenant : poussée à l'app, puis écriture au Hub si elle l'accepte.
@@ -134,7 +139,8 @@ export async function setAppPlan(
 ): Promise<PushResult> {
   const tenant = await db.tenant.findUnique({ where: { id: input.tenantId }, select: { id: true, userId: true } });
   if (!tenant) return { ok: false, error: 'tenant_not_found', status: 404 };
-  const pushed = await pushAppPlan({ ...input, hubTenantId: tenant.id, hubUserId: tenant.userId }, opts);
+  const trial = await trialStatusForTenant(db, tenant.id);
+  const pushed = await pushAppPlan({ ...input, hubTenantId: tenant.id, hubUserId: tenant.userId, trial }, opts);
   if (!pushed.ok || 'immune' in pushed) return pushed;
   // Relu juste avant l'écriture : une autre écriture de metadata (activation, Stripe) ne se perd pas.
   const fresh = await db.tenant.findUnique({ where: { id: tenant.id }, select: { metadata: true } });

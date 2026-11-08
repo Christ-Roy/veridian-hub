@@ -24,7 +24,12 @@ function fausseBase(metadata: Record<string, unknown> = { analytics: { linked_at
     ligne.metadata = data.metadata;
     return ligne;
   });
-  return { db: { tenant: { findUnique: vi.fn(async () => ligne), update } } as any, ligne, update };
+  const db = {
+    tenant: { findUnique: vi.fn(async () => ligne), update },
+    tenantTrial: { findMany: vi.fn(async () => [{ state: 'trial_active', trialEndsAt: new Date('2026-12-01T00:00:00Z') }]) },
+    subscription: { findMany: vi.fn(async () => []) },
+  };
+  return { db: db as any, ligne, update };
 }
 
 describe('pushAppPlan', () => {
@@ -70,6 +75,14 @@ describe('pushAppPlan', () => {
 });
 
 describe('setAppPlan', () => {
+  it('envoie le statut d\'essai du tenant avec le plan', async () => {
+    const { db } = fausseBase();
+    const fetchImpl = reponse(200, {});
+    await setAppPlan(db, { tenantId: 't-1', app: 'analytics', plan: 'pro', planSource: 'stripe_trial' }, { env, fetchImpl: fetchImpl as never });
+    const corps = JSON.parse(String((fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+    expect(corps).toMatchObject({ trial_status: 'trial_active', trial_ends_at: '2026-12-01T00:00:00.000Z' });
+  });
+
   it('accepté par l\'app : écrit metadata.<app>_plan sans perdre le reste', async () => {
     const { db, ligne } = fausseBase({ analytics: { linked_at: 'x' }, autre: 1 });
     const r = await setAppPlan(db, { tenantId: 't-1', app: 'analytics', plan: 'business', planSource: 'grant_manual', setBy: 'admin' }, { env, fetchImpl: reponse(200, {}) as never });

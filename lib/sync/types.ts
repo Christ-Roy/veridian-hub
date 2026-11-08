@@ -39,6 +39,11 @@ export interface TenantSnapshot {
   tenantId?: string;
   role?: string;
   plan?: string;
+  /**
+   * Statut d'essai stocké par l'app (`lib/plans/trial-status.ts`). `undefined` : l'app ne rend pas le
+   * champ (non câblé) ; `null` : elle le rend mais n'en a reçu aucun.
+   */
+  trialStatus?: string | null;
   status?: 'active' | 'suspended' | 'deleted';
   magicLinkCapable?: boolean;
   /** Fallback URL si magic link n'est pas dispo (login natif de l'app). */
@@ -85,7 +90,9 @@ export type DriftKind =
   | 'status_mismatch'      // Hub local status ≠ snapshot.status
   | 'tenant_missing_app'   // Hub croit que l'app existe, snapshot 404
   | 'tenant_extra_app'     // app a un workspace, Hub n'a pas la trace
-  | 'app_unreachable';     // app down (5xx, timeout)
+  | 'app_unreachable'      // app down (5xx, timeout)
+  | 'trial_mismatch'       // statut d'essai du Hub ≠ celui stocké par l'app
+  | 'plan_unset';          // analytics / crm : app activée au Hub, aucun plan posé
 
 /** Un drift détecté par le cron reconcile pour un (tenant, app). */
 export interface TenantDrift {
@@ -95,6 +102,8 @@ export interface TenantDrift {
   hubValue: unknown;
   appValue: unknown;
   observedAt: string;
+  /** Ce qu'il faut faire, en une commande quand c'est possible. Jamais d'adresse client. */
+  remediation?: string;
 }
 
 /** Summary d'un run de reconciliation (renvoyé par la route cron). */
@@ -126,4 +135,9 @@ export interface ReconcileSummary {
   mode: 'dry-run' | 'auto-repair';
   /** Erreurs non-bloquantes rencontrées pendant le run. */
   errors: Array<{ tenantId?: string; app?: SyncApp; message: string }>;
+  /**
+   * Ce qui n'est pas encore branché, mesuré à chaque run (ou connu et daté) : « ce qui manque » se
+   * lit ici, pas dans la mémoire de quelqu'un.
+   */
+  notWired: string[];
 }
