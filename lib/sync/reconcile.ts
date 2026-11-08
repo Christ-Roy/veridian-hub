@@ -227,7 +227,10 @@ export function diffTenantApp(
   }
   // Statut d'essai : comparé seulement si l'app le rend (`undefined` = non câblé, compté à part).
   const rendus = appResult.snapshots.filter((s) => s.trialStatus !== undefined);
-  if (t.trialStatus && rendus.length > 0 && !rendus.some((s) => s.trialStatus === t.trialStatus)) {
+  // « Jamais reçu » (null) face à « aucun essai » (none) n'est pas un écart : l'app n'a rien à savoir.
+  const memeEssai = (s: { trialStatus?: string | null }) =>
+    s.trialStatus === t.trialStatus || (s.trialStatus === null && t.trialStatus === 'none');
+  if (t.trialStatus && rendus.length > 0 && !rendus.some(memeEssai)) {
     drifts.push({
       hubTenantId: t.hubTenantId,
       app,

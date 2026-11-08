@@ -518,6 +518,10 @@ describe('plan et statut d\'essai, app par app (Robert, 08/11 : « toujours savo
   it('statut jamais reçu par l\'app (null) : trial_mismatch', () => {
     expect(diffTenantApp(t, 'analytics', disc([{ plan: 'pro', trialStatus: null }]), 'now')).toMatchObject([{ kind: 'trial_mismatch' }]);
   });
+  it('jamais reçu (null) face à aucun essai au Hub (none) : pas d\'écart', () => {
+    const sansEssai = { ...t, trialStatus: 'none' };
+    expect(diffTenantApp(sansEssai, 'analytics', disc([{ plan: 'pro', trialStatus: null }]), 'now')).toHaveLength(0);
+  });
   it('app qui ne rend pas le champ : pas d\'écart ici, compté dans « non câblé »', () => {
     expect(diffTenantApp(t, 'analytics', disc([{ plan: 'pro' }]), 'now')).toHaveLength(0);
   });
