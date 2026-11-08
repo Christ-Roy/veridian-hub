@@ -70,6 +70,12 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
 - **Batterie** : `pnpm test:systeme`, à jouer depuis le bastion, sur ce qui est servi. Twenty :
   `HUB_URL=https://hub.staging.veridian.site`. Après une modification, rejouer chaque
   `SSO_SABOTAGE=<scénario>` : il doit échouer. Elle retire ses comptes, et échoue s'il en reste.
+- **Rebond refusé** : jamais muet (08/11, Robert renvoyé sans un mot). Tout refus va sur `/auth/bounce/error` qui
+  l'explique (`user_not_in_app`, `hub_user_conflict` : un compte d'app n'appartient qu'au premier compte Hub relié),
+  et laisse `[bounce][refus]` (app, code, hub_user_id, jamais l'adresse). Batterie : `09-adresses` ; `10-creation`
+  (OAuth jusqu'au fournisseur ; inscription pendant un déploiement : `SSO_PENDANT_DEPLOIEMENT=1 … 10-` après un push).
+- **Microsoft (08/11)** : l'application Entra refuse les comptes personnels (`unauthorized_client`), celui de Robert
+  compris. En attente du réglage d'audience par Robert dans Azure ; le cas OAuth Microsoft de `10-` reste rouge d'ici là.
 - **Restes de test** : `testResidue` de `hub reconcile`.
 - **Garde rapide** : `__tests__/contrat/` (revocation sans `iat`, `authAt` sur toute création de session,
   cibles du rebond, origines). Un nouveau `encode(` de JWT de session s'ajoute à sa liste. Détail par
@@ -87,9 +93,8 @@ Outil admin : `hub` (`hub doctor` d'abord : santé, secret, auth admin). Aucune 
 - **Un client ne peut plus se connecter** : `hub tenant <email>` (adresse prouvée ? apps liées ?), `hub audit --since <date>`.
   Adresse non prouvée : aucun lien d'app, `hub invite <email>` renouvelle l'accès (`--no-email` : lien seul). Voir sa vue : `hub open <email>`.
 - **Un rebond échoue** : `/auth/bounce/error?code=` dit pourquoi (`not_configured` : variable `<APP>_API_URL` ou
-  `<APP>_HUB_API_SECRET` absente du job ; `unreachable` : l'app ; `user_not_in_app` : l'app ne connaît pas ce compte,
-  souvent une autre adresse ; `hub_user_conflict` : compte d'app relié à un autre compte Hub). Chaque refus : ligne
-  `[bounce][refus]` (app, code, hub_user_id) dans `nomad-v logs hub`. 3 rebonds rapides : anti-boucle, 30 s.
+  `<APP>_HUB_API_SECRET` absente du job ; `unreachable` : l'app ; refus d'identité : voir « Rebond refusé »).
+  `nomad-v logs hub` (tag `[bounce][refus]`). 3 rebonds rapides : anti-boucle, 30 s.
 - **Le Hub est en 502** : `nomad-v state`, `nomad-v allocs hub`. Après un **reboot de nœud**, le réseau CNI n'est pas
   reconstruit : `nomad-v run hub` ne répare rien et `hub-selfheal` non plus. Runbook :
   `~/.claude/skills/nomad/reference/cluster-ops.md`, section « Piège CNI orphelin » (`nomad-v raw job restart -reschedule -yes hub`,
@@ -113,13 +118,7 @@ Outil admin : `hub` (`hub doctor` d'abord : santé, secret, auth admin). Aucune 
 
 ## Commandes
 
-```bash
-cd hub
-pnpm install
-pnpm dev          # Dev mode (port 3000 par défaut)
-pnpm build        # Build prod
-pnpm test         # Vitest (150+ tests)
-```
+`pnpm install` · `pnpm dev` (port 3000) · `pnpm build` · `pnpm test` (Vitest, 3000+ tests).
 
 ## Identité (décision Robert, 06/11/2026)
 
