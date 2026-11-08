@@ -242,9 +242,6 @@ ANALYTICS_API_URL=https://analytics.app.veridian.site
 # reconstruire l'image. Sans elle, le défaut en dur de attach-downstream.ts
 # s'applique — et il pointait encore sur l'ancien moteur.
 NEXT_PUBLIC_ANALYTICS_URL=https://analytics.app.veridian.site
-CRM_METADATA_URL=https://crm.app.veridian.site/metadata
-CRM_REST_URL=https://crm.app.veridian.site/rest
-CRM_FRONTEND_URL=https://crm.app.veridian.site
 
 {{ with nomadVar "nomad/jobs/hub" }}
 {{ $dbMode := or .HUB_DATABASE_MODE.Value "nomad-service" }}
@@ -281,7 +278,6 @@ AUTH_SECRET={{ .HUB_AUTH_SECRET }}
 ADMIN_SECRET={{ .ADMIN_SECRET }}
 CRON_SECRET={{ .CRON_SECRET }}
 VAULT_ENC_KEY={{ .VAULT_ENC_KEY }}
-CRM_VAULT_KEY={{ .CRM_VAULT_KEY }}
 SESSION_HINT_SECRET={{ .SESSION_HINT_SECRET }}
 GOOGLE_OAUTH_CLIENT_ID={{ .GOOGLE_OAUTH_CLIENT_ID }}
 GOOGLE_OAUTH_CLIENT_SECRET={{ .GOOGLE_OAUTH_CLIENT_SECRET }}

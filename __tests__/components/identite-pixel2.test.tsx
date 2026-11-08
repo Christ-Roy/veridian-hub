@@ -105,7 +105,6 @@ describe('Vouvoiement sur les écrans d’identité', () => {
     'app/dashboard/settings/security/SecurityMfaToggle.tsx',
     'app/dashboard/settings/security/SignOutEverywhere.tsx',
     'lib/mfa/index.ts',
-    'app/dashboard/components/CrmCard.tsx',
     'app/dashboard/components/ProspectionCard.tsx',
     'components/auth/LoginForm.tsx',
     'components/auth/SignupForm.tsx',

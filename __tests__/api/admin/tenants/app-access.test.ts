@@ -17,7 +17,11 @@ const {
   setTenantAppEnabledMock,
   writeAuditLogMock,
   authenticateAdminMock,
+  tenantFindFirstMock,
+  provisionMock,
 } = vi.hoisted(() => ({
+  tenantFindFirstMock: vi.fn(),
+  provisionMock: vi.fn(),
   findUniqueMock: vi.fn(),
   setTenantAppEnabledMock: vi.fn(),
   writeAuditLogMock: vi.fn(),
@@ -25,7 +29,10 @@ const {
 }));
 
 vi.mock('@/lib/prisma', () => ({
-  prisma: { user: { findUnique: findUniqueMock }, tenantApp: {} },
+  prisma: { user: { findUnique: findUniqueMock }, tenant: { findFirst: tenantFindFirstMock }, tenantApp: {} },
+}));
+vi.mock('@/lib/crm/provision', () => ({
+  provisionCrmWorkspace: (...args: unknown[]) => provisionMock(...args),
 }));
 vi.mock('@/lib/tenant-apps', async () => {
   const actual = await vi.importActual<any>('@/lib/tenant-apps');
@@ -66,6 +73,8 @@ beforeEach(() => {
   setTenantAppEnabledMock.mockReset();
   writeAuditLogMock.mockReset();
   authenticateAdminMock.mockReset();
+  tenantFindFirstMock.mockReset();
+  provisionMock.mockReset();
   authenticateAdminMock.mockResolvedValue(authOK);
   process.env.ADMIN_SECRET = 'admin-test-secret';
 });
@@ -112,21 +121,21 @@ describe('POST /api/admin/tenants/app-access', () => {
 
   it('200 happy path activation + audit log', async () => {
     findUniqueMock.mockResolvedValue({ id: 'u1', supabaseUserId: 'uuid-1' });
-    setTenantAppEnabledMock.mockResolvedValue({ appKey: 'twenty', enabled: true });
+    setTenantAppEnabledMock.mockResolvedValue({ appKey: 'analytics', enabled: true });
 
-    const res = await POST(req({ user_email: 'A@X.io', app: 'twenty', enabled: true }));
+    const res = await POST(req({ user_email: 'A@X.io', app: 'analytics', enabled: true }));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toMatchObject({
       user_email: 'a@x.io', // normalisé lowercase
       user_id: 'uuid-1',
-      app: 'twenty',
+      app: 'analytics',
       enabled: true,
     });
     // le helper a reçu le bon UUID bridge
     expect(setTenantAppEnabledMock).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ userUuid: 'uuid-1', appKey: 'twenty', enabled: true }),
+      expect.objectContaining({ userUuid: 'uuid-1', appKey: 'analytics', enabled: true }),
     );
     // audit écrit
     expect(writeAuditLogMock).toHaveBeenCalledWith(
@@ -144,5 +153,49 @@ describe('POST /api/admin/tenants/app-access', () => {
     const body = await res.json();
     expect(body.enabled).toBe(false);
     expect(body.app).toBe('analytics');
+  });
+  describe('CRM (twenty) : un espace par utilisateur, créé à l\'activation', () => {
+    const proved = { id: 'u1', supabaseUserId: 'uuid-1', emailVerified: new Date(), name: 'Alice' };
+
+    it('409 si l\'adresse n\'est pas prouvée, rien n\'est créé ni activé', async () => {
+      findUniqueMock.mockResolvedValue({ ...proved, emailVerified: null });
+      const res = await POST(req({ user_email: 'a@x.io', app: 'twenty', enabled: true }));
+      expect(res.status).toBe(409);
+      expect(provisionMock).not.toHaveBeenCalled();
+      expect(setTenantAppEnabledMock).not.toHaveBeenCalled();
+    });
+
+    it('503 si le CRM n\'est pas configuré, l\'app reste coupée', async () => {
+      findUniqueMock.mockResolvedValue(proved);
+      tenantFindFirstMock.mockResolvedValue({ id: 'tenant-1', name: 'ACME' });
+      provisionMock.mockResolvedValue({ ok: false, error: 'crm_not_configured' });
+      const res = await POST(req({ user_email: 'a@x.io', app: 'twenty', enabled: true }));
+      expect(res.status).toBe(503);
+      expect(setTenantAppEnabledMock).not.toHaveBeenCalled();
+    });
+
+    it('200 : provisionne avec le tenant et le hub_user_id, puis active', async () => {
+      findUniqueMock.mockResolvedValue(proved);
+      tenantFindFirstMock.mockResolvedValue({ id: 'tenant-1', name: 'ACME' });
+      provisionMock.mockResolvedValue({ ok: true, workspaceId: 'ws-1', created: true });
+      setTenantAppEnabledMock.mockResolvedValue({ appKey: 'twenty', enabled: true });
+      const res = await POST(req({ user_email: 'A@X.io', app: 'twenty', enabled: true }));
+      expect(res.status).toBe(200);
+      expect(provisionMock).toHaveBeenCalledWith({
+        tenantId: 'tenant-1',
+        hubUserId: 'uuid-1',
+        email: 'a@x.io',
+        workspaceName: 'ACME',
+      });
+      expect(await res.json()).toMatchObject({ app: 'twenty', enabled: true, crm_workspace_id: 'ws-1' });
+    });
+
+    it('désactiver ne rappelle pas le CRM', async () => {
+      findUniqueMock.mockResolvedValue(proved);
+      setTenantAppEnabledMock.mockResolvedValue({ appKey: 'twenty', enabled: false });
+      const res = await POST(req({ user_email: 'a@x.io', app: 'twenty', enabled: false }));
+      expect(res.status).toBe(200);
+      expect(provisionMock).not.toHaveBeenCalled();
+    });
   });
 });

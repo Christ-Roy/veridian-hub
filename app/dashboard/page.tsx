@@ -3,7 +3,6 @@ import { EmailProofBanner } from './components/EmailProofBanner';
 import { redirect } from 'next/navigation';
 import { TenantCard } from './components/TenantCard';
 import { ProspectionCard } from './components/ProspectionCard';
-import { CrmCard } from './components/CrmCard';
 import { ServiceCard } from './components/ServiceCard';
 import { ShadowAppCard } from './components/ShadowAppCard';
 import { OnboardingChecklist } from './components/OnboardingChecklist';
@@ -42,23 +41,14 @@ export default async function DashboardPage({
   const params = await searchParams;
   const showDebug = process.env.NODE_ENV === 'development' && params.debug === '1';
 
-  // CRM tenant lookup — best-effort, n'empêche pas le dashboard si fail.
-  const crmTenant = await prisma.crmTenant
-    .findFirst({
-      where: { userId: user.id, status: 'active' },
-      select: { id: true },
-    })
-    .catch((err) => {
-      console.error('[Dashboard] Failed to fetch CRM tenant:', err);
-      return null;
-    });
-
   // Apps GATED activées pour ce tenant (twenty/CRM, analytics, cms) — pilotées
   // par Robert via l'Admin API. Défaut OFF : sans activation explicite, ces
   // cards restent en mode "Bientôt" (ShadowAppCard). Prospection + Notifuse
   // ne sont PAS concernés (toujours grand public). Lecture par UUID bridge.
   const enabledApps = await getEnabledGatedApps(prisma, userUuid(user));
-  const isTwentyEnabled = enabledApps.has('twenty');
+  // L'espace CRM est créé à l'activation (app-access) ; la carte ouvre le CRM, qui rebondit par le Hub.
+  const crmUrl = process.env.CRM_API_URL;
+  const isTwentyEnabled = enabledApps.has('twenty') && !!crmUrl;
   const isAnalyticsEnabled = enabledApps.has('analytics');
   const isCmsEnabled = enabledApps.has('cms');
 
@@ -271,6 +261,22 @@ export default async function DashboardPage({
               ]}
             />
           )}
+          {isTwentyEnabled && crmUrl && (
+            <ServiceCard
+              name="Veridian CRM"
+              description="Vos contacts, sociétés et affaires au même endroit."
+              url={crmUrl}
+              icon="Users"
+              appKey="crm"
+              badge="BETA"
+              features={[
+                'Contacts, sociétés et opportunités',
+                'Vues, filtres et tableaux de bord',
+                'Automatisations sans code',
+                'Accès API et MCP pour vos outils',
+              ]}
+            />
+          )}
         </div>
       </section>
 
@@ -293,19 +299,6 @@ export default async function DashboardPage({
           </div>
         </section>
       )}
-
-      {/* Section "Prochainement" : outils annoncés, pas encore disponibles. */}
-      <section className="mb-12">
-        <div className="mb-4">
-          <h2 className="text-2xl font-semibold tracking-tight">Prochainement</h2>
-          <p className="text-sm text-muted-foreground">
-            De nouveaux outils arrivent bientôt dans votre espace Veridian.
-          </p>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          <CrmCard configured={!!crmTenant} enabled={isTwentyEnabled} />
-        </div>
-      </section>
 
       <Card className="relief-card mt-12 border">
         <CardHeader className="pb-3">

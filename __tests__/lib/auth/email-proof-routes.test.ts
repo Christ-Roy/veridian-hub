@@ -33,7 +33,6 @@ describe('routes menant à une session d\'app', () => {
       'app/api/prospection/regenerate-login/route.ts',
       'app/api/auth/bounce/complete/route.ts',
       'app/api/admin/notifuse/magic-link/route.ts',
-      'app/api/dashboard/crm/activate/route.ts',
     ]) {
       expect(flagged).toContain(known);
     }

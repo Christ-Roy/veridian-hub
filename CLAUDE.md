@@ -14,7 +14,7 @@
 
 Le Hub gère l'inscription (Auth.js v5), le billing (Stripe), et le
 provisioning automatique des apps pour chaque nouveau tenant (Notifuse,
-Prospection). Twenty retiré de la stack 2026-05-18.
+Prospection). CRM (Twenty) : espace créé par `app-access --app twenty`, entrée par rebond.
 
 > Supabase retiré du Hub (migration Auth.js v5 + Prisma le 2026-05-08).
 
