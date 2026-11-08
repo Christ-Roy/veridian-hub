@@ -72,8 +72,11 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   l'explique (`user_not_in_app`, `hub_user_conflict` : un compte d'app n'appartient qu'au premier compte Hub relié),
   et laisse `[bounce][refus]` (app, code, hub_user_id, jamais l'adresse). Batterie : `09-adresses` ; `10-creation`
   (OAuth jusqu'au fournisseur ; inscription pendant un déploiement : `SSO_PENDANT_DEPLOIEMENT=1 … 10-` après un push).
-- **Microsoft (08/11)** : l'application Entra refuse les comptes personnels (`unauthorized_client`), celui de Robert
-  compris. En attente du réglage d'audience par Robert dans Azure ; le cas OAuth Microsoft de `10-` reste rouge d'ici là.
+- **Variables du job** : toute variable lue par le code est rendue par `deploy/hub.nomad.hcl` (source de la CI) ou
+  déclarée facultative avec sa raison (`__tests__/contrat/variables-job.test.ts`). 08/11 : `MICROSOFT_OAUTH_*` manquait,
+  `client_id=undefined`. Une clé de `nomad/jobs/hub` se pose AVANT le déploiement qui la rend.
+- **Essai** : le signal de Notifuse (voie legacy, 5e mail) nourrit `tenant_trials` ; le flow réel est coupé par
+  `TRIAL_MACHINE_ENABLED` (décision de Robert), ouvert aux seuls comptes `e2e-sso-*` (cas 12).
 - **Plans d'Analytics et du CRM** : posés par `hub plan --app analytics|crm`, l'activation et Stripe
   (`lib/plans/app-plan.ts`), avec le statut d'essai (`lib/plans/trial-status.ts`). Les apps stockent, aucune
   limite ni lecture seule (drapeau coupé, décision de Robert). Ce qui manque : `hub reconcile --ecarts`.
