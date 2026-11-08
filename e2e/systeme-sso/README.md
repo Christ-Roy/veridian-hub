@@ -58,8 +58,8 @@ suppriment **que** ceux-là, par `delete-tenant` (qui propage aux apps) + suppre
 
 ## Limites connues
 
-- Rybbit n'a jamais été vu **vert** dans cette batterie tant que son correctif n'est pas servi : le chemin positif du
-  cas Analytics est écrit mais non éprouvé.
+- Rybbit : chemin positif vu **vert** le 08/11 (`09-adresses`, compte relié par `hub_user_id` à une autre adresse,
+  session Rybbit lue à l'adresse de l'app, image `prod-96c2e60`), et vu échouer par `SSO_SABOTAGE=adresse-liee`.
 - Plan Analytics/Twenty : le Hub n'en pose pas, cas NON ABOUTI.
 - Twenty : tant que le staging n'est pas servi, NON ABOUTI ; le parcours Twenty reste à écrire.
 - Le secret admin vient de `ADMIN_SECRET` ou du fichier de credentials de la machine ; il n'est jamais écrit ni affiché.

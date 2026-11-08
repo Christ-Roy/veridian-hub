@@ -3,7 +3,8 @@
  *
  * OAuth : le consentement chez Google ou Microsoft demande un humain (anti-robot, double facteur).
  * On mesure en prod ce qui se mesure : le Hub envoie chez le fournisseur avec SON adresse de retour,
- * et le fournisseur l'accepte (pas de `redirect_uri_mismatch` ni d'AADSTS50011). La suite, création
+ * et le fournisseur l'accepte (pas de `redirect_uri_mismatch` ; chez Microsoft, adresse d'un compte
+ * personnel saisie, sans mot de passe : ni AADSTS ni `unauthorized_client`). La suite, création
  * du compte au retour, est NON ABOUTIE ici et prouvée au niveau contrat :
  * `__tests__/lib/auth/sign-in-callback.test.ts` (scénarios A, B), `create-user-event.test.ts`
  * (hub_user_id posé au premier retour OAuth), `__tests__/api/auth/dual-provider.test.ts`.
@@ -24,8 +25,15 @@ import { compte, contexteDe, ouvrirApp } from './lib/monde';
 
 const FOURNISSEURS = [
   { id: 'google', hote: 'accounts.google.com', refus: /redirect_uri_mismatch|invalid_client|Erreur 400/i },
-  { id: 'microsoft-entra-id', hote: 'login.microsoftonline.com', refus: /AADSTS(50011|700016|90002)/ },
+  { id: 'microsoft-entra-id', hote: 'login.microsoftonline.com', refus: /AADSTS\d+|unauthorized_client|unable to complete your request/i },
 ] as const;
+
+/**
+ * Microsoft (`/common`) ne juge le client et l'adresse de retour qu'une fois le compte saisi : on saisit
+ * l'adresse d'un compte personnel réel, sans mot de passe (08/11 : `unauthorized_client … not enabled for
+ * consumers` pour le compte de Robert, l'application Entra n'acceptant que les comptes professionnels).
+ */
+const SONDE_MICROSOFT = process.env.SSO_SONDE_MICROSOFT || 'robert.brunon@veridian.site';
 
 for (const f of FOURNISSEURS) {
   cas(null, `OAuth ${f.id} : le Hub envoie chez le fournisseur avec son adresse de retour, acceptée`, async ({ browser }) => {
@@ -48,6 +56,14 @@ for (const f of FOURNISSEURS) {
       const page = await ctx.newPage();
       const rep = await page.goto(vers.toString(), { waitUntil: 'domcontentloaded' });
       await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => {});
+      if (f.id === 'microsoft-entra-id') {
+        const champ = page.locator('input[type=email]');
+        if (!(await champ.count())) throw new NonAbouti('Microsoft : pas de champ d\'adresse, page inattendue');
+        await champ.fill(SONDE_MICROSOFT);
+        await page.keyboard.press('Enter');
+        await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => {});
+        await page.waitForTimeout(3_000);
+      }
       const texte = await page.locator('body').innerText().catch(() => '');
       const final = new URL(page.url());
       expect(f.refus.test(texte) || final.searchParams.get('error') !== null, `${f.id} refuse : « ${texte.slice(0, 160).replace(/\s+/g, ' ')} »`).toBe(false);

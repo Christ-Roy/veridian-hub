@@ -68,9 +68,10 @@ Les trois niveaux de preuve :
   `__tests__/lib/auth/email-proof.test.ts` (OAuth prouvé annule le mot de passe).
 - **État** : PROUVÉ en test. Batterie (`10-creation`) : le Hub envoie chez Google et Microsoft avec son adresse
   de retour, et le fournisseur l'accepte (`SSO_SABOTAGE=oauth-retour` doit échouer). NON ABOUTI de bout en bout :
-  le consentement demande un humain. **Microsoft : fournisseur inactif en prod** (pas de `MICROSOFT_OAUTH_CLIENT_ID`).
-  À l'activer : poser la revendication `xms_edov` dans l'inscription d'application Entra, sinon plus aucune
-  liaison Microsoft ne passe (c'est voulu).
+  le consentement demande un humain. **ÉCART Microsoft (mesuré le 08/11)** : l'application Entra n'accepte que les comptes professionnels ;
+  un compte Microsoft personnel (celui de Robert) lit `unauthorized_client … not enabled for consumers` chez
+  Microsoft. Correctif : audience « comptes professionnels et personnels » dans l'inscription d'application.
+  La liaison d'un compte existant exige `xms_edov`, sinon elle est refusée (c'est voulu).
 
 ## One Tap
 
