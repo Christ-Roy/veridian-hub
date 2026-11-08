@@ -269,8 +269,8 @@ Phase 7 — Subscription Pro normale
 - Notifications (email/Telegram à Robert) sur événements business
 
 ### Apps (Notifuse, Prospection, etc.)
-- Endpoint `POST /api/tenants/update-plan` (déjà câblé Notifuse,
-  Prospection, CMS)
+- Endpoint `POST /api/tenants/update-plan` (câblé Notifuse, Prospection,
+  Analytics ; CRM en cours ; CMS absent, mesuré le 08/11)
 - **Émettent les signaux d'engagement métier app-specific** :
   - Notifuse : webhook `tenant.activity_threshold_reached` au 5ème mail
   - Prospection : à définir (5 leads scrapés ?)
@@ -314,57 +314,36 @@ Phase 7 — Subscription Pro normale
 - `POST /api/tenants/update-plan` — change plan (HMAC Hub)
 - `POST /api/veridian/admin/grant-unlimited` — échappatoire admin
 
-### Trial state machine — en attente côté Hub
+### Matrice mesurée — 08/11/2026
 
-**Tickets posés (non-implémentés)** :
-- `veridian-hub/todo/2026-05-21-stripe-webhook-orchestrator.md` —
-  Hub reçoit webhooks Stripe, dispatche update-plan vers apps
-- `veridian-hub/todo/2026-05-21-trial-state-machine.md` — state
-  machine 5 mails → wait 2j → trial 15j → +30j si CB → débit ou expire
-- `notifuse-veridian/todo/2026-05-21-trial-eligible-signal.md` —
-  Notifuse compte mails lifetime, émet webhook au seuil 5
-- `notifuse-veridian/todo/2026-05-21-paywall-degraded-mode-soft-deleted.md`
-  — UX paywall lecture seule à expiration trial
+Chaque ligne est mesurée en prod à la date dite, avec son commit. Ce qui manque se relit en une commande :
+`hub reconcile --ecarts` (chaque écart avec sa marche à suivre, puis la liste « non câblé », mesurée à
+chaque run). Mettre cette matrice à jour à chaque brique livrée, et retirer toute ligne qui n'est plus vraie.
 
-**Status** : tickets écrits le 2026-05-21, **en attente review et
-implémentation** côté agent Hub. Notifuse n'a rien à faire tant que
-le Hub n'a pas son endpoint webhook receiver.
-
-### Implémentations actuelles — Hub (2026-05-21)
-
-État du chantier côté `veridian-hub` à date :
-
-| Brique | Status | Ticket / référence |
+| Brique | État mesuré le 08/11 | Commit |
 |---|---|---|
-| Stripe webhook central (single endpoint orchestrateur) | ⏳ **en cours** | `veridian-hub/todo/2026-05-21-stripe-webhook-orchestrator.md` |
-| Trial state machine (5 mails → 2j silence → 15j → +30j CB → débit/paywall) | ✅ **livré** côté Hub (cron + table) — webhook Notifuse à câbler | commit 8802f58 / `veridian-hub/todo/done/2026-05-21-trial-state-machine.md` |
-| Discovery cross-app (`GET /api/users/by-email`) | ⏳ **spec posée** | `veridian-hub/todo/2026-05-20-hub-discovery-by-email-pattern.md` |
-| Webhook receivers app→Hub (signaux engagement, ex: 5e mail Notifuse) | ⏳ **en cours** | `veridian-hub/todo/2026-05-21-contrat-hub-v15-sync.md` |
-| Notifuse `POST /api/tenants/update-plan` (consommé par Hub) | ✅ **livré** côté Notifuse | cf. section précédente |
-| Stripe SDK + sync Prisma de base | ✅ **existant** | `veridian-hub/lib/stripe/`, `veridian-hub/utils/stripe/prisma-sync.ts` |
-| **Refill leads Prospection** (Checkout one-shot + dispatch HMAC `credit-leads`) | ✅ **livré prod** 2026-05-23 | merge `fd8158f` / `todo/done/2026-05-23-refill-leads-end-to-end.md`. Stripe Product LIVE `prod_UZKWEySXaX79H8` |
-| **Welcome leads** (provisioning + delta upgrade Prospection) | ✅ **livré prod** 2026-05-23 | idem. Idempotency key déterministe `(tenantId, welcome_plan)` |
+| Webhook Stripe central (`/api/webhooks`, `lib/stripe/dispatcher.ts`) | ✅ en service : 35 événements reçus, 34 traités, 1 en erreur, dernier le 29/05/2026 ; 0 abonnement actif (2 annulés) | `b53c078` |
+| Plan Hub → Notifuse (`update-plan`) | ✅ poussé par l'admin, Stripe et l'essai ; payload v1 (`tenant_id`, `plan`) + statut d'essai, que Notifuse ignore | `aa9ed89` |
+| Plan Hub → Prospection (`update-plan` v2) | ✅ poussé par l'admin et Stripe (`lib/prospection/plan-push.ts`) + statut d'essai, que Prospection ignore | `f7843b7` |
+| Plan Hub → Analytics (Rybbit) | ✅ endpoint en prod (Rybbit `7c61239`), plan stocké sans limite dans `veridian_hub_plan`, rendu à la découverte ; poussé par `hub plan --app analytics`, `app-access`, Stripe (palier du bundle), essai | Hub `aa9ed89` |
+| Plan Hub → CRM (Twenty) | ⏳ dispatch Hub en prod ; endpoint Twenty en cours (`3008f78`, staging) | Hub `aa9ed89` |
+| Plan Hub → CMS | ❌ aucun `update-plan` dans le code du CMS (la ligne « déjà câblé CMS » était fausse) | — |
+| Statut d'essai transmis avec le plan (`trial_status` : none, trial_active, expired, paid) | ✅ envoyé à toutes les apps ; stocké par Analytics (Rybbit `72af5cc`) ; Twenty à venir ; Notifuse, Prospection : reçu, non stocké | Hub `5786a72` |
+| Lecture seule à l'expiration de l'essai | ❌ appliquée par aucune app, drapeau coupé par défaut : décision de Robert | — |
+| Machine d'états de l'essai (`lib/trial/run-tick.ts`, cron 30 min) | ⚠️ code livré, cron vert, mais **jamais déclenchée** : `tenant_trials` vide, aucun signal `tenant.activity_threshold_reached` reçu de Notifuse (0 webhook Notifuse au Hub). Donc aucun essai n'a jamais démarré, aucun plan n'a basculé | `d736da7` |
+| Découverte (`GET /api/users/by-email`) | ✅ Notifuse, Prospection, Analytics (jointure `hub_user_id`, Rybbit `fdbcfa3`), CRM ; ❌ CMS | — |
+| Réconciliation (`hub reconcile`) : plan, statut d'essai, app par app, marche à suivre, non câblé | ✅ | Hub `5786a72` |
+| Webhooks app → Hub (signaux) | ⚠️ récepteurs en place ; reçus : 14 Prospection (rôles), 0 Notifuse | `17a6ad5` |
+| Recharge et leads de bienvenue Prospection (`credit-leads`) | ✅ code en place, livré le 23/05/2026 ; non remesuré le 08/11 (aucun abonnement actif) | `b53c078` |
 
-**Frontière nette à l'instant T** : le Hub a déjà la plomberie Stripe
-classique (Product, Price, Subscription synchronisés en Prisma), mais
-**la state machine trial décrite plus haut n'est pas encore câblée**.
-Tant que les 4 tickets ci-dessus ne sont pas livrés, aucune app
-downstream ne reçoit de signal trial → tous les tenants restent en
-Free silencieux (cohérent avec la philosophie "générosité maximale",
-juste pas encore monétisé).
+### Autres apps
 
-**Quand un agent Hub démarre un de ces tickets** : mettre à jour cette
-matrice (status ⏳ → ✅) et lier la PR / commit SHA dans la colonne
-référence. C'est le tableau de bord cross-app du chantier.
-
-### Autres apps — à propager
-
-- **Prospection** : la même grille s'applique. Pivot pricing à
-  documenter dans `veridian-prospection/CLAUDE.md` quand l'agent
-  Prospection commencera la commercialisation
-- **Analytics** : idem
-- **CMS** : pricing géré différemment (B2B service Robert), pas en
-  scope de ce doc
+- **Prospection** : même grille ; plan reçu (v2) ; statut d'essai à stocker côté app.
+- **Analytics** : même grille, plan et statut stockés, aucune limite ; la marque blanche n'a pas de réglage par
+  compte dans Rybbit (stockée seulement).
+- **CRM** : même grille, plan stocké, aucune limite ; pas de réglage de marque blanche dans Twenty.
+- **CMS** : pricing géré différemment (B2B service Robert) ; ni plan ni statut transmis (ligne « non câblé »
+  de `hub reconcile`).
 
 ---
 
