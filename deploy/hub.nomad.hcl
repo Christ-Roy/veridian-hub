@@ -309,8 +309,10 @@ EOH
       }
       resources {
         cpu        = 500
-        memory     = 384
-        memory_max = 7000
+        # 08/11 : reservation = memoire non reprenable mesuree (203 Mio) + 50 %, plafond = pointe (284 Mio) x 2,7.
+        # Avant : 7000 Mio de plafond, une fuite du Hub pouvait avaler ovh-prod et tout ce qui y tourne.
+        memory     = 320
+        memory_max = 768
       }
     }
   }

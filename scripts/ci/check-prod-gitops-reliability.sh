@@ -40,7 +40,7 @@ require_fixed "$hcl" '{{ range nomadService $dbServiceName }}' 'mode DB service-
 require_fixed "$hcl" 'HUB_DATABASE_HOST={{ $dbHost }}' 'endpoint DB Hub prod non rendu'
 require_fixed "$hcl" 'DATABASE_URL=postgresql://{{ $dbUser }}:' 'DATABASE_URL Hub prod non composée'
 require_fixed "$hcl" 'cpu        = 500' 'réservation CPU app inattendue'
-require_fixed "$hcl" 'memory     = 384' 'réservation mémoire app inattendue'
+require_fixed "$hcl" 'memory     = 320' 'réservation mémoire app inattendue'
 # Bleu-vert, 0 coupure prouvee le 08/11 : canari promu automatiquement, Traefik ne sert qu'une instance saine.
 # Les canary_tags donnent a Traefik deux definitions du meme routeur : il le retire, 11 a 14 s de 404.
 require_fixed "$hcl" 'canary            = 1' 'canari absent : un deploiement arrete le Hub avant que la nouvelle version serve'
@@ -48,8 +48,9 @@ require_fixed "$hcl" 'auto_promote      = true' 'canari non promu automatiquemen
 grep -Eq '^[[:space:]]*canary_tags[[:space:]]*=' "$hcl" && fail 'canary_tags interdits : routeur Traefik en conflit, 404 a chaque deploiement'
 require_fixed "$hcl" 'loadbalancer.healthcheck.path=/api/health' 'health check Traefik absent : le canari recevrait du trafic en demarrant'
 require_fixed "$hcl" 'shutdown_delay = "30s"' 'shutdown_delay trop court pour le rafraichissement de Traefik (15 s)'
-[ "$(grep -Fc 'memory_max = 7000' "$hcl")" -eq 1 ] \
-  || fail 'fusible mémoire app inattendu'
+# Plafond borne (08/11) : a 7000 Mio, une fuite du Hub avalait ovh-prod et toutes les apps qui y tournent.
+require_fixed "$hcl" 'memory_max = 768' 'fusible mémoire app inattendu'
+grep -Eq 'memory_max = (7000|[0-9]{5,})' "$hcl" && fail 'plafond memoire du Hub demesure : il menace tout ovh-prod'
 
 # Déploiement par VERBES CONTRAINTS (constat C4). Plan, check-index, pré-pull,
 # sauvegarde R2 prod et suivi du déploiement vivent dans le script serveur
