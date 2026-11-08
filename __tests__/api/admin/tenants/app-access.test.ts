@@ -18,8 +18,10 @@ const {
   writeAuditLogMock,
   authenticateAdminMock,
   tenantFindFirstMock,
+  tenantUpdateMock,
   provisionMock,
 } = vi.hoisted(() => ({
+  tenantUpdateMock: vi.fn(),
   tenantFindFirstMock: vi.fn(),
   provisionMock: vi.fn(),
   findUniqueMock: vi.fn(),
@@ -29,7 +31,7 @@ const {
 }));
 
 vi.mock('@/lib/prisma', () => ({
-  prisma: { user: { findUnique: findUniqueMock }, tenant: { findFirst: tenantFindFirstMock }, tenantApp: {} },
+  prisma: { user: { findUnique: findUniqueMock }, tenant: { findFirst: tenantFindFirstMock, update: tenantUpdateMock }, tenantApp: {} },
 }));
 vi.mock('@/lib/crm/provision', () => ({
   provisionCrmWorkspace: (...args: unknown[]) => provisionMock(...args),
@@ -74,6 +76,7 @@ beforeEach(() => {
   writeAuditLogMock.mockReset();
   authenticateAdminMock.mockReset();
   tenantFindFirstMock.mockReset();
+  tenantUpdateMock.mockReset();
   provisionMock.mockReset();
   authenticateAdminMock.mockResolvedValue(authOK);
   process.env.ADMIN_SECRET = 'admin-test-secret';
@@ -176,7 +179,7 @@ describe('POST /api/admin/tenants/app-access', () => {
 
     it('200 : provisionne avec le tenant et le hub_user_id, puis active', async () => {
       findUniqueMock.mockResolvedValue(proved);
-      tenantFindFirstMock.mockResolvedValue({ id: 'tenant-1', name: 'ACME' });
+      tenantFindFirstMock.mockResolvedValue({ id: 'tenant-1', name: 'ACME', metadata: { garde: 1 } });
       provisionMock.mockResolvedValue({ ok: true, workspaceId: 'ws-1', created: true });
       setTenantAppEnabledMock.mockResolvedValue({ appKey: 'twenty', enabled: true });
       const res = await POST(req({ user_email: 'A@X.io', app: 'twenty', enabled: true }));
@@ -188,6 +191,11 @@ describe('POST /api/admin/tenants/app-access', () => {
         workspaceName: 'ACME',
       });
       expect(await res.json()).toMatchObject({ app: 'twenty', enabled: true, crm_workspace_id: 'ws-1' });
+      // reconcile lit metadata.crm : sans lui, l'espace est compté en dérive tenant_extra_app
+      expect(tenantUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'tenant-1' },
+        data: { metadata: { garde: 1, crm: expect.objectContaining({ workspace_id: 'ws-1' }) } },
+      });
     });
 
     it('désactiver ne rappelle pas le CRM', async () => {

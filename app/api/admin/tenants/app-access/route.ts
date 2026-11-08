@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
     }
     const tenant = await prisma.tenant.findFirst({
       where: { userId: user.supabaseUserId },
-      select: { id: true, name: true },
+      select: { id: true, name: true, metadata: true },
       orderBy: { createdAt: 'asc' },
     });
     if (!tenant) {
@@ -98,6 +98,20 @@ export async function POST(request: NextRequest) {
       );
     }
     crmWorkspaceId = provision.workspaceId;
+    // Le Hub sait qu'il a cet espace : reconcile le lit dans metadata.crm (sinon dérive tenant_extra_app).
+    const current =
+      tenant.metadata && typeof tenant.metadata === 'object' && !Array.isArray(tenant.metadata)
+        ? (tenant.metadata as Record<string, unknown>)
+        : {};
+    await prisma.tenant.update({
+      where: { id: tenant.id },
+      data: {
+        metadata: {
+          ...current,
+          crm: { workspace_id: provision.workspaceId, provisioned_at: new Date().toISOString() },
+        },
+      },
+    });
   }
 
   const result = await setTenantAppEnabled(prisma, {

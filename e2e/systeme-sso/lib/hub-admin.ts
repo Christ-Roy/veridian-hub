@@ -169,14 +169,16 @@ export function rybbitCompte(action: 'creer' | 'supprimer' | 'lier', email: stri
  * Appel signé §6.1, secret lu au moment du test, jamais affiché.
  */
 function secretTwenty(): string {
+  // Le secret suit le Twenty visé : celui du staging signait aussi la prod, d'où un 401 au retrait (08/11/2026).
+  const nom = new URL(APP_URL.twenty).hostname.includes('.staging.') ? 'CRM_HUB_API_SECRET_STAGING' : 'CRM_HUB_API_SECRET_PROD';
   try {
     const txt = readFileSync(path.join(os.homedir(), 'credentials', '.all-creds.env'), 'utf8');
-    const m = txt.match(/^\s*CRM_HUB_API_SECRET_STAGING\s*=\s*(.*)$/m);
+    const m = txt.match(new RegExp(`^\\s*${nom}\\s*=\\s*(.*)$`, 'm'));
     if (m) return m[1].trim().replace(/^['"]|['"]$/g, '');
   } catch {
     /* tombe sur NonAbouti ci-dessous */
   }
-  throw new NonAbouti('CRM_HUB_API_SECRET_STAGING introuvable dans ~/credentials/.all-creds.env');
+  throw new NonAbouti(`${nom} introuvable dans ~/credentials/.all-creds.env`);
 }
 
 async function appelTwenty(methode: 'POST' | 'DELETE', chemin: string, corps?: unknown): Promise<Response> {
