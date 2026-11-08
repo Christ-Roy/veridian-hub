@@ -540,12 +540,12 @@ describe('plan et statut d\'essai, app par app (Robert, 08/11 : « toujours savo
       ['notifuse', { comptes: 3, avecEssai: 0 }],
       ['analytics', { comptes: 2, avecEssai: 2 }],
     ] as const);
-    const vide = await measureNotWired({ tenantTrial: { count: async () => 0 } } as never, new Map(vu));
+    const vide = await measureNotWired({ $queryRaw: async () => [{ reels: 0 }] } as never, new Map(vu));
     expect(vide.some((l) => l.startsWith('notifuse : statut d\'essai non rendu'))).toBe(true);
     expect(vide.some((l) => l.startsWith('analytics'))).toBe(false);
-    expect(vide.some((l) => l.startsWith('essai : aucun tenant'))).toBe(true);
+    expect(vide.some((l) => l.startsWith('essai : aucun signal d\'activité réel'))).toBe(true);
     expect(vide.some((l) => l.startsWith('cms : hors périmètre (PRICING)'))).toBe(true);
-    const nourrie = await measureNotWired({ tenantTrial: { count: async () => 4 } } as never, new Map());
-    expect(nourrie.some((l) => l.startsWith('essai : aucun tenant'))).toBe(false);
+    const nourrie = await measureNotWired({ $queryRaw: async () => [{ reels: 4 }] } as never, new Map());
+    expect(nourrie.some((l) => l.startsWith('essai :'))).toBe(false);
   });
 });

@@ -477,7 +477,7 @@ export async function runReconcile(
  * quand la mesure change ; les lignes datées se retirent avec le câblage.
  */
 export async function measureNotWired(
-  p: Pick<PrismaClient, 'tenantTrial'>,
+  p: Pick<PrismaClient, '$queryRaw'>,
   vu: Map<SyncApp, { comptes: number; avecEssai: number }>,
 ): Promise<string[]> {
   const out: string[] = [];
@@ -486,9 +486,16 @@ export async function measureNotWired(
       out.push(`${app} : statut d'essai non rendu par la découverte (${v.comptes} compte(s) vu(s)) : l'app ne le stocke pas encore`);
     }
   }
-  if ((await p.tenantTrial.count()) === 0) {
+  // Un essai RÉEL (hors comptes de test) prouve que Notifuse émet : la batterie (cas 12) ne prouve que
+  // la réaction du Hub, et retire sa ligne.
+  const [{ reels }] = await p.$queryRaw<Array<{ reels: number }>>`
+    SELECT count(*)::int AS reels FROM hub_app.tenant_trials tt
+    JOIN hub_app.tenants t ON t.id::text = tt.tenant_id
+    JOIN hub_app.users u ON u.supabase_user_id = t.user_id::text
+    WHERE u.email NOT LIKE 'e2e-sso-%'`;
+  if (reels === 0) {
     out.push(
-      "essai : aucun tenant n'est jamais entré dans la machine d'états (tenant_trials vide) : le signal d'activité de Notifuse (tenant.activity_threshold_reached) n'arrive pas au Hub",
+      "essai : aucun signal d'activité réel reçu de Notifuse (tenant.activity_threshold_reached, émission côté Notifuse) ; la réaction du Hub est prouvée par le cas 12 de la batterie",
     );
   }
   // Hors périmètre, pas un trou : le CMS a son propre pricing (PRICING-VERIDIAN, « Autres apps »).

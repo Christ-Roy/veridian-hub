@@ -140,8 +140,9 @@ export async function connexionHub(page: Page, email: string, motDePasse: string
  * cette adresse) est la preuve ; l'activation pose le mot de passe, ouvre la session
  * Hub et provisionne les apps. Aucun mail ne part (`sendEmail: false`).
  */
-export async function creerCompteProuve(browser: Browser, etiquette: string): Promise<Compte> {
-  const email = `${PREFIXE_COMPTE}${ID_RUN}-${etiquette}@${DOMAINE_COMPTE}`;
+export async function creerCompteProuve(browser: Browser, etiquette: string, adresse?: string): Promise<Compte> {
+  // `adresse` : une adresse de test fixe qui a une vraie boîte (cas 12, mail « essai démarré » lu).
+  const email = adresse ?? `${PREFIXE_COMPTE}${ID_RUN}-${etiquette}@${DOMAINE_COMPTE}`;
   const nom = `TEST SYSTEME SSO ${etiquette}`;
   const motDePasse = nouveauMdp();
   noter(email);
