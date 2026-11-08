@@ -12,7 +12,7 @@
  *
  * Variables d'environnement requises (injectées par le workflow CI) :
  *   - TELEGRAM_BOT_TOKEN (secret GitHub Actions, identique au pattern hub-staging.yml)
- *   - TELEGRAM_CHAT_ID (idem)
+ *   - ALERT_CHAT_ID (idem)
  *
  * Variables optionnelles :
  *   - MICROSOFT_OAUTH_TENANT_ID, MICROSOFT_OAUTH_CLIENT_ID, MICROSOFT_OAUTH_CLIENT_SECRET
@@ -25,7 +25,7 @@
  */
 
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const ALERT_CHAT_ID = process.env.ALERT_CHAT_ID;
 const WARN_DAYS = Number(process.env.OAUTH_HEALTH_WARN_DAYS ?? '90');
 
 const MICROSOFT_TENANT_ID = process.env.MICROSOFT_OAUTH_TENANT_ID;
@@ -43,7 +43,7 @@ export interface HealthCheckResult {
 }
 
 export async function sendTelegramAlert(message: string): Promise<void> {
-  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
+  if (!TELEGRAM_BOT_TOKEN || !ALERT_CHAT_ID) {
     console.log('  (Telegram non configuré — alerte non envoyée)');
     return;
   }
@@ -54,7 +54,7 @@ export async function sendTelegramAlert(message: string): Promise<void> {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          chat_id: TELEGRAM_CHAT_ID,
+          chat_id: ALERT_CHAT_ID,
           text: message,
           parse_mode: 'Markdown',
         }),
