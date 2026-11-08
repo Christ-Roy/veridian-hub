@@ -244,6 +244,9 @@ ANALYTICS_API_URL=https://analytics.app.veridian.site
 NEXT_PUBLIC_ANALYTICS_URL=https://analytics.app.veridian.site
 # CRM Veridian (Twenty) : provisioning signé et rebond, CONTRAT-HUB §5.1 et §6bis.8. Secret = HUB_API_SECRET de nomad/jobs/crm.
 CRM_API_URL=https://crm.app.veridian.site
+# Flow d'essai réel (mails aux clients au 5e mail Notifuse) : allumé le 09/11 sur le go de Robert
+# (« Oui, allume après relecture », artefact des décisions du 08/11). Couper : retirer la ligne.
+TRIAL_MACHINE_ENABLED=1
 
 {{ with nomadVar "nomad/jobs/hub" }}
 {{ $dbMode := or .HUB_DATABASE_MODE.Value "nomad-service" }}
@@ -286,6 +289,8 @@ GOOGLE_OAUTH_CLIENT_ID={{ .GOOGLE_OAUTH_CLIENT_ID }}
 GOOGLE_OAUTH_CLIENT_SECRET={{ .GOOGLE_OAUTH_CLIENT_SECRET }}
 MICROSOFT_OAUTH_CLIENT_ID={{ .MICROSOFT_OAUTH_CLIENT_ID }}
 MICROSOFT_OAUTH_CLIENT_SECRET={{ .MICROSOFT_OAUTH_CLIENT_SECRET }}
+TELEGRAM_BOT_TOKEN={{ .TELEGRAM_BOT_TOKEN }}
+ALERT_CHAT_ID={{ .ALERT_CHAT_ID }}
 GOOGLE_MAIL_CLIENT_ID={{ .GOOGLE_MAIL_CLIENT_ID }}
 GOOGLE_MAIL_CLIENT_SECRET={{ .GOOGLE_MAIL_CLIENT_SECRET }}
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY={{ .STRIPE_PUBLISHABLE_KEY_LIVE }}

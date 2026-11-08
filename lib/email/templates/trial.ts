@@ -38,8 +38,8 @@ function shellWrap(title: string, bodyHtml: string): string {
     ${bodyHtml}
     <hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 40px 0 24px;">
     <p style="color: #9ca3af; font-size: 12px; line-height: 1.6; margin: 0;">
-      Vous recevez cet email parce que vous avez un workspace actif sur Veridian.
-      Gérer la facturation depuis <a href="${appUrl('/dashboard/billing')}" style="color: #2563eb; text-decoration: none;">votre dashboard</a>.
+      Vous recevez ce message parce que vous avez un espace actif sur Veridian.
+      Gérez votre abonnement depuis <a href="${appUrl('/dashboard/billing')}" style="color: #2563eb; text-decoration: none;">votre espace</a>.
     </p>
   </div>
 </body>

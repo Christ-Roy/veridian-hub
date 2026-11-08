@@ -5,8 +5,10 @@
  * (app downstream down après retry, désync billing détectée, etc.). Pas
  * pour la trace verbeuse — on log dans la console pour ça.
  *
- * Convention :
- *   - ENV `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` (cf workflows hub-staging.yml)
+ * Convention (celle du parc, all-cron docs/claude/02) :
+ *   - ENV `TELEGRAM_BOT_TOKEN` + `ALERT_CHAT_ID`. Le salon s'appelle ALERT_CHAT_ID : la variable que
+ *     lisait le Hub n'existe pas dans le coffre, ses alertes ne partaient donc jamais (mesuré le 08/11).
+ *   - Livrée seulement si l'API confirme (`ok: true` et `message_id`) : un 200 ne prouve rien.
  *   - Si l'une des deux manque → no-op + warn (jamais throw, ne JAMAIS faire
  *     planter une route applicative pour un échec de notif)
  *   - Best-effort : retry 1× sur 5xx Telegram, puis abandon silencieux
@@ -36,13 +38,13 @@ export async function sendTelegramAlert(
   opts: TelegramOptions = {},
 ): Promise<boolean> {
   const botToken = opts.botToken ?? process.env.TELEGRAM_BOT_TOKEN;
-  const chatId = opts.chatId ?? process.env.TELEGRAM_CHAT_ID;
+  const chatId = opts.chatId ?? process.env.ALERT_CHAT_ID;
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const fetchImpl = opts.fetchImpl ?? fetch;
 
   if (!botToken || !chatId) {
     console.warn(
-      '[telegram] TELEGRAM_BOT_TOKEN ou TELEGRAM_CHAT_ID manquant — alerte ignorée:',
+      '[telegram] TELEGRAM_BOT_TOKEN ou ALERT_CHAT_ID manquant, alerte ignorée :',
       message.slice(0, 80),
     );
     return false;
@@ -70,7 +72,10 @@ export async function sendTelegramAlert(
       clearTimeout(timer);
 
       if (res.ok) {
-        return true;
+        const j = (await res.json().catch(() => null)) as { ok?: boolean; result?: { message_id?: number } } | null;
+        if (j?.ok === true && typeof j.result?.message_id === 'number') return true;
+        console.warn('[telegram] réponse 200 sans livraison confirmée (ok/message_id absents)');
+        return false;
       }
 
       // 5xx → retry une fois

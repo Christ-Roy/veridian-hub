@@ -112,6 +112,7 @@ const INTERDITS: Array<[string, RegExp]> = [
   ['bonus de 30 jours (non codé)', /30 jours (supplémentaires|offerts|inconditionnels)/i],
   ['tiret cadratin ou demi-cadratin entouré d\'espaces', /\s[—–]\s/],
   ['tutoiement', /(?<!\p{L})(tu|ton|ta|tes|toi|ajoute)(?!\p{L})/iu],
+  ['anglicisme (workspace, email, dashboard)', /(?<!\p{L})(workspace|e-?mail|dashboard)(?!\p{L})/iu],
 ];
 
 describe('mails et bandeau d\'essai : aucune promesse non codée', () => {

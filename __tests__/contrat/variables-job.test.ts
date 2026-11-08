@@ -16,12 +16,12 @@ import { code, parcourir } from './source';
 /** Lues par le code, volontairement absentes du job de prod : chacune dit pourquoi. */
 const FACULTATIVES: Record<string, string> = {
   // ── Manque réel, à câbler (08/11) ──
-  TELEGRAM_BOT_TOKEN: 'MANQUE : alertes Telegram du Hub (Stripe, essai) jamais envoyées en prod ; chat id inconnu des credentials',
-  TELEGRAM_CHAT_ID: 'MANQUE : idem, à fournir avec le jeton',
-  ANALYTICS_TRACK_URL: 'MANQUE : suivi des objectifs (inscription) du Hub vers Analytics non envoyé en prod',
-  ANALYTICS_ADMIN_KEY: 'MANQUE : client admin Analytics du Hub non configuré en prod',
+  // ── Reste du moteur G2 arrêté ──
+  ANALYTICS_ADMIN_KEY: 'client admin du moteur G2 (panneau admin Analytics) : aucune route équivalente dans Rybbit',
   // ── Repli codé, rien ne casse ──
+  ANALYTICS_TRACK_URL: 'défaut : Rybbit prod (objectifs du Hub, lib/analytics/track-event.ts)',
   ANALYTICS_TRACK_URL_STAGING: 'staging seulement',
+  ANALYTICS_TRACK_SITE_ID: 'défaut : site veridian.site (2) en prod, rien hors prod',
   AUTH_DEBUG: 'débogage local',
   DASHBOARD_GTM_ID: 'repli NEXT_PUBLIC_GTM_ID',
   DASHBOARD_NOTIFUSE_API_URL: 'repli NEXT_PUBLIC_NOTIFUSE_API_URL',
@@ -43,7 +43,6 @@ const FACULTATIVES: Record<string, string> = {
   SMTP_USER: 'idem SMTP_HOST',
   STRIPE_REFILL_PRODUCT_ID_TEST: 'mode test Stripe hors prod',
   TRIAL_PERIOD_DAYS: 'défaut 7 (essai Stripe hérité)',
-  TRIAL_MACHINE_ENABLED: 'drapeau : flow d\'essai réel coupé tant que Robert n\'a pas dit oui',
 };
 
 const lues = new Set<string>();

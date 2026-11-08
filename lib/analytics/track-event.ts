@@ -15,27 +15,29 @@
  * `warn`. AUCUN retry bloquant, AUCun throw qui remonte à l'appelant. Les call
  * sites font `void trackGoal(...)` sans await — le flow métier n'attend pas.
  *
- * SCHÉMA — `POST /api/track` (engine, endpoint public `@Public() @SkipRateLimit()`)
- * Sondé en réel le 2026-06-11 contre prod. Points DURS :
- *   - `created_at` / `updated_at` / `actions[].timestamp` = epoch **ms (number)**,
- *     pas ISO 8601, et doivent rester à ±24h de l'instant serveur engine.
- *   - enveloppe : workspace_id, session_id, user_id (≤256), actions[] (≤1000).
- *   - goal : name (≤100), path, page_number, timestamp, properties (string map).
- *   - les champs d'enveloppe inconnus sont strippés silencieusement (whitelist).
+ * CIBLE — Rybbit (Analytics G3), `POST /api/track`, depuis le 08/11. Le Hub visait encore le moteur G2,
+ * arrêté (404) : aucun objectif n'arrivait. Événement `custom_event` sur le site veridian.site (id 2),
+ * `user_id` = adresse normalisée (identification Rybbit), `properties` en chaîne JSON. En-têtes de
+ * navigateur obligatoires : sans eux Rybbit classe l'appel en robot et le jette en silence (mesuré le
+ * 17/08 par la session Rybbit). Hors prod, rien ne part sans site explicite : jamais de pollution du prod.
  *
  * Server-only par convention (comme `lib/notifuse/client.ts` et
  * `lib/analytics/client.ts`) : lit des ENV runtime, à n'importer QUE depuis du
  * code serveur (routes API, events Auth.js). Jamais depuis un composant client.
  */
 
-/** Workspaces tunnel Analytics (cf carte reco analytics.md §2). */
-const WORKSPACE_PROD = 'vrd_veridian_site_prod';
-const WORKSPACE_STAGING = 'vrd_veridian_site_staging';
+/** Site Rybbit du tunnel : veridian.site. Surchargé par `ANALYTICS_TRACK_SITE_ID`. */
+const SITE_PROD = '2';
 
-/** URL publique de l'engine d'ingestion (PAS le service admin provisioning). */
-const DEFAULT_TRACK_URL_PROD = 'https://analytics-engine.app.veridian.site';
-const DEFAULT_TRACK_URL_STAGING =
-  'https://analytics-engine.staging.veridian.site';
+/** URL publique de Rybbit (son `/api/track` est public, sans secret). */
+const DEFAULT_TRACK_URL_PROD = 'https://analytics.app.veridian.site';
+
+/** Rybbit jette en robot un appel sans en-têtes de navigateur. */
+const BROWSER_HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36 VeridianHub',
+  Accept: '*/*',
+  'Accept-Language': 'fr-FR,fr;q=0.9',
+};
 
 /** Court par design : on ne bloque jamais le hot-path signup/provision. */
 const DEFAULT_TIMEOUT_MS = 2_500;
@@ -64,31 +66,24 @@ type TrackGoalDeps = {
   fetchImpl?: typeof fetch;
   /** Logger mockable — par défaut console. */
   logger?: { warn: (...args: unknown[]) => void };
-  /** Horloge injectable pour des tests déterministes. */
-  now?: () => number;
 };
 
-/** `true` si le runtime tourne en prod (sinon staging/local → workspace staging). */
+/** `true` si le runtime tourne en prod. */
 function isProd(): boolean {
   return process.env.DEPLOY_ENV === 'prod';
 }
 
-/** Workspace tunnel selon l'environnement de déploiement. */
-export function resolveWorkspaceId(): string {
-  return isProd() ? WORKSPACE_PROD : WORKSPACE_STAGING;
+/** Site Rybbit visé ; hors prod, seulement s'il est donné explicitement (sinon rien ne part). */
+export function resolveSiteId(): string | null {
+  return process.env.ANALYTICS_TRACK_SITE_ID || (isProd() ? SITE_PROD : null);
 }
 
-/**
- * Base URL de l'engine. Override possible via `ANALYTICS_TRACK_URL` (+ variante
- * `_STAGING`), sinon fallback sur l'URL publique connue. Pas de secret ici :
- * `/api/track` est un endpoint public.
- */
+/** Base URL de Rybbit : `ANALYTICS_TRACK_URL` (+ `_STAGING` hors prod), sinon Rybbit prod. */
 export function resolveTrackBaseUrl(): string {
   const override = isProd()
     ? process.env.ANALYTICS_TRACK_URL
     : process.env.ANALYTICS_TRACK_URL_STAGING ?? process.env.ANALYTICS_TRACK_URL;
-  const base = override || (isProd() ? DEFAULT_TRACK_URL_PROD : DEFAULT_TRACK_URL_STAGING);
-  return base.replace(/\/+$/, '');
+  return (override || DEFAULT_TRACK_URL_PROD).replace(/\/+$/, '');
 }
 
 /**
@@ -101,7 +96,6 @@ export async function trackGoal(
 ): Promise<void> {
   const fetchImpl = deps.fetchImpl ?? fetch;
   const logger = deps.logger ?? console;
-  const now = deps.now ?? Date.now;
 
   try {
     const userId = input.userEmail.toLowerCase().trim();
@@ -112,31 +106,26 @@ export async function trackGoal(
       return;
     }
 
-    const ts = now();
+    const siteId = resolveSiteId();
+    if (!siteId) return; // hors prod sans site explicite : rien ne part
     const body = JSON.stringify({
-      workspace_id: resolveWorkspaceId(),
-      session_id: input.sessionId,
+      type: 'custom_event',
+      site_id: siteId,
+      event_name: input.goal,
+      hostname: 'app.veridian.site',
+      pathname: input.path ?? '/',
       user_id: userId,
-      created_at: ts,
-      updated_at: ts,
-      actions: [
-        {
-          type: 'goal',
-          name: input.goal,
-          path: input.path ?? '/',
-          page_number: 1,
-          timestamp: ts,
-          ...(input.properties ? { properties: input.properties } : {}),
-        },
-      ],
+      language: 'fr-FR',
+      screenWidth: 1920,
+      screenHeight: 1080,
+      properties: JSON.stringify({ ...(input.properties ?? {}), session: input.sessionId, source: 'hub' }),
     });
-
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
     try {
       const res = await fetchImpl(`${resolveTrackBaseUrl()}/api/track`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...BROWSER_HEADERS },
         body,
         signal: controller.signal,
         cache: 'no-store',
