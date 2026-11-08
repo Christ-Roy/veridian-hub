@@ -11,6 +11,7 @@ import { createHmac } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
+import { pushUserToApps } from '@/lib/identity/push-user';
 import { setTenantAppEnabled } from '@/lib/tenant-apps';
 
 const PROVISION_PATH = '/api/tenants/provision';
@@ -100,6 +101,10 @@ export async function ensureCrmWorkspace(
     opts,
   );
   if (!provision.ok) return provision;
+  // Twenty nomme le compte d'après l'adresse : le nom du Hub fait foi (§3.8), sinon reconcile compte un écart.
+  if (user.name) {
+    await pushUserToApps({ hubUserId: user.hubUserId, name: user.name }, { apps: ['crm'], fetchImpl: opts.fetchImpl, retryDelaysMs: [] });
+  }
 
   const current =
     tenant.metadata && typeof tenant.metadata === 'object' && !Array.isArray(tenant.metadata)

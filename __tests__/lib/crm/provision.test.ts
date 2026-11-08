@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ensureCrmWorkspace, provisionCrmWorkspace } from '@/lib/crm/provision';
 
@@ -35,6 +35,11 @@ describe('provisionCrmWorkspace', () => {
 });
 
 describe('ensureCrmWorkspace', () => {
+  beforeEach(() => {
+    process.env.CRM_API_URL = 'https://crm.test';
+    process.env.CRM_HUB_API_SECRET = 's3cret';
+  });
+
   const ok = () => vi.fn(async () => new Response(JSON.stringify({ workspace_id: 'ws-9', created: true }), { status: 200 }));
   const db = (tenant: unknown) => ({
     tenant: { findFirst: vi.fn(async () => tenant), update: vi.fn(async () => ({})) },
@@ -69,5 +74,13 @@ describe('ensureCrmWorkspace', () => {
     expect(r.ok).toBe(false);
     expect(d.tenant.update).not.toHaveBeenCalled();
     expect(d.tenantApp.upsert).not.toHaveBeenCalled();
+  });
+  it('pousse le nom du Hub au CRM, qui nommait le compte d\'après l\'adresse', async () => {
+    const d = db({ id: 't-1', name: 'ACME', metadata: null });
+    const fetchImpl = ok();
+    await ensureCrmWorkspace(d as never, { hubUserId: 'h-1', email: 'a@x.io', name: 'Alice Martin' }, { env, fetchImpl: fetchImpl as unknown as typeof fetch });
+    const sync = (fetchImpl.mock.calls as unknown as [string, RequestInit][]).find(([u]) => u.endsWith('/api/hub/users/sync'));
+    expect(sync, 'appel /api/hub/users/sync').toBeTruthy();
+    expect(JSON.parse(sync![1].body as string)).toMatchObject({ hub_user_id: 'h-1', name: 'Alice Martin' });
   });
 });
