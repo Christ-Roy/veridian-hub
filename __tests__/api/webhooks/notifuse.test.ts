@@ -414,6 +414,7 @@ describe('POST /api/webhooks/notifuse — Legacy HMAC', () => {
   });
 
   it('tenant.activity_threshold_reached (voie legacy, celle de Notifuse) : essai eligible sur l\'id du tenant Hub', async () => {
+    process.env.TRIAL_MACHINE_ENABLED = '1';
     tenantStore.set('tenant-uuid-4', { id: 'tenant-uuid-4', notifuseWorkspaceSlug: 't_seuil', notifusePlan: 'free', metadata: {} });
     tenantTrialUpsertMock.mockResolvedValue({});
     const { POST } = await import('@/app/api/webhooks/notifuse/route');
@@ -433,6 +434,7 @@ describe('POST /api/webhooks/notifuse — Legacy HMAC', () => {
     expect(res.status).toBe(200);
     expect(tenantTrialUpsertMock).toHaveBeenCalledTimes(1);
     expect(tenantTrialUpsertMock.mock.calls[0][0].create).toMatchObject({ tenantId: 'tenant-uuid-4', app: 'notifuse', state: 'eligible' });
+    delete process.env.TRIAL_MACHINE_ENABLED;
   });
 
   it('email.sent increments notifuse_emails_sent_this_month counter', async () => {

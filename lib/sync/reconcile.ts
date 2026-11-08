@@ -37,6 +37,7 @@ import { auditIdentity, identityCounts } from '@/lib/sync/identity-audit';
 import { measureTestResidue, residueCounts, type TestResidue } from '@/lib/sync/test-residue';
 import { PLAN_APPS } from '@/lib/plans/app-plan';
 import { trialStatusesForTenants } from '@/lib/plans/trial-status';
+import { trialMachineEnabled } from '@/lib/webhooks/notifuse-handlers';
 import type {
   DiscoveryResult,
   ReconcileSummary,
@@ -493,7 +494,11 @@ export async function measureNotWired(
     JOIN hub_app.tenants t ON t.id::text = tt.tenant_id
     JOIN hub_app.users u ON u.supabase_user_id = t.user_id::text
     WHERE u.email NOT LIKE 'e2e-sso-%'`;
-  if (reels === 0) {
+  if (!trialMachineEnabled()) {
+    out.push(
+      "essai : flow d'essai réel coupé (TRIAL_MACHINE_ENABLED absent) : le signal de Notifuse est reçu et journalisé, aucun essai ne démarre pour un client ; l'allumer est une décision de Robert (mécanique prouvée par le cas 12)",
+    );
+  } else if (reels === 0) {
     out.push(
       "essai : aucun signal d'activité réel reçu de Notifuse (tenant.activity_threshold_reached, émission côté Notifuse) ; la réaction du Hub est prouvée par le cas 12 de la batterie",
     );

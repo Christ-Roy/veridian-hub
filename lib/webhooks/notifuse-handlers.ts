@@ -185,6 +185,13 @@ export const v14Handlers: HandlerTable = {
       console.info('[webhook:notifuse] tenant.activity_threshold_reached ignoré : plan', hub.notifusePlan, hub.id);
       return;
     }
+    // Allumage du flow d'essai réel (mails aux clients, Telegram) : décision de Robert, drapeau coupé par
+    // défaut. Coupé, seuls les comptes de test de la batterie entrent (cas 12) ; le signal d'un client est
+    // reçu, journalisé, et rien ne démarre.
+    if (!trialMachineEnabled() && !(hub && (await ownerIsTestAccount(hub.userId)))) {
+      console.info('[webhook:notifuse] tenant.activity_threshold_reached reçu, machine d\'essai coupée (TRIAL_MACHINE_ENABLED)', hub?.id ?? payload.tenant_id);
+      return;
+    }
     const tenantId = hub?.id ?? payload.tenant_id;
     await prisma.tenantTrial.upsert({
       where: {
@@ -289,7 +296,9 @@ export const v14Handlers: HandlerTable = {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Le tenant Hub derrière un identifiant de Notifuse : slug de son espace, slug du tenant, ou l'id. */
-export async function resolveHubTenant(notifuseTenantId: string): Promise<{ id: string; notifusePlan: string | null } | null> {
+export async function resolveHubTenant(
+  notifuseTenantId: string,
+): Promise<{ id: string; notifusePlan: string | null; userId: string } | null> {
   const tenant = await prisma.tenant.findFirst({
     where: {
       OR: [
@@ -298,7 +307,19 @@ export async function resolveHubTenant(notifuseTenantId: string): Promise<{ id: 
         { slug: notifuseTenantId },
       ],
     },
-    select: { id: true, notifusePlan: true },
+    select: { id: true, notifusePlan: true, userId: true },
   });
   return tenant ?? null;
+}
+
+/** Le flow d'essai réel est-il allumé ? Coupé tant que Robert n'a pas dit oui (08/11). */
+export function trialMachineEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.TRIAL_MACHINE_ENABLED === '1';
+}
+
+const COMPTE_TEST = /^e2e-sso-[a-z0-9-]+@veridian\.site$/;
+
+async function ownerIsTestAccount(userId: string): Promise<boolean> {
+  const owner = await prisma.user.findFirst({ where: { supabaseUserId: userId }, select: { email: true } });
+  return !!owner && COMPTE_TEST.test(owner.email.toLowerCase());
 }

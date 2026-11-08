@@ -540,6 +540,7 @@ describe('plan et statut d\'essai, app par app (Robert, 08/11 : « toujours savo
       ['notifuse', { comptes: 3, avecEssai: 0 }],
       ['analytics', { comptes: 2, avecEssai: 2 }],
     ] as const);
+    process.env.TRIAL_MACHINE_ENABLED = '1';
     const vide = await measureNotWired({ $queryRaw: async () => [{ reels: 0 }] } as never, new Map(vu));
     expect(vide.some((l) => l.startsWith('notifuse : statut d\'essai non rendu'))).toBe(true);
     expect(vide.some((l) => l.startsWith('analytics'))).toBe(false);
@@ -547,5 +548,8 @@ describe('plan et statut d\'essai, app par app (Robert, 08/11 : « toujours savo
     expect(vide.some((l) => l.startsWith('cms : hors périmètre (PRICING)'))).toBe(true);
     const nourrie = await measureNotWired({ $queryRaw: async () => [{ reels: 4 }] } as never, new Map());
     expect(nourrie.some((l) => l.startsWith('essai :'))).toBe(false);
+    delete process.env.TRIAL_MACHINE_ENABLED;
+    const coupee = await measureNotWired({ $queryRaw: async () => [{ reels: 4 }] } as never, new Map());
+    expect(coupee.some((l) => l.startsWith('essai : flow d\'essai réel coupé'))).toBe(true);
   });
 });

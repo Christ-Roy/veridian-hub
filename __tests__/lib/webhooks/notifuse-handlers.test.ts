@@ -21,6 +21,7 @@ const applyQuotaExceededMock = vi.fn();
 const applyMemberEventMock = vi.fn();
 const ingestProspectEventMock = vi.fn();
 const tenantFindFirstMock = vi.fn(async (): Promise<unknown> => null);
+const userFindFirstMock = vi.fn(async (): Promise<unknown> => null);
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -29,6 +30,9 @@ vi.mock('@/lib/prisma', () => ({
     },
     tenant: {
       findFirst: (...args: unknown[]) => tenantFindFirstMock(...args),
+    },
+    user: {
+      findFirst: (...args: unknown[]) => userFindFirstMock(...args),
     },
   },
 }));
@@ -48,6 +52,7 @@ vi.mock('@/lib/prospect/ingest', () => ({
 }));
 
 beforeEach(() => {
+  process.env.TRIAL_MACHINE_ENABLED = '1'; // la mécanique ; le drapeau coupé est éprouvé à part
   upsertMock.mockReset();
   applySuspendedMock.mockReset();
   applyResumedMock.mockReset();
@@ -57,6 +62,34 @@ beforeEach(() => {
   applyQuotaExceededMock.mockReset();
   applyMemberEventMock.mockReset();
   ingestProspectEventMock.mockReset();
+});
+
+describe('drapeau TRIAL_MACHINE_ENABLED (allumage du flow d\'essai réel, décision de Robert)', () => {
+  const appel = async () => {
+    const { v14Handlers } = await import('@/lib/webhooks/notifuse-handlers');
+    await v14Handlers['tenant.activity_threshold_reached']({
+      event: 'tenant.activity_threshold_reached',
+      tenant_id: 'slug',
+      data: { threshold: 5 },
+      idempotency_key: '00000000-0000-4000-8000-00000000000b',
+      occurred_at: '2026-11-08T09:00:01.000Z',
+    });
+  };
+  it('coupé : le signal d\'un client réel ne démarre rien', async () => {
+    delete process.env.TRIAL_MACHINE_ENABLED;
+    tenantFindFirstMock.mockResolvedValueOnce({ id: 'hub-1', notifusePlan: 'free', userId: 'u1' });
+    userFindFirstMock.mockResolvedValueOnce({ email: 'client@entreprise.fr' });
+    await appel();
+    expect(upsertMock).not.toHaveBeenCalled();
+  });
+  it('coupé : un compte de test de la batterie entre quand même (cas 12)', async () => {
+    delete process.env.TRIAL_MACHINE_ENABLED;
+    tenantFindFirstMock.mockResolvedValueOnce({ id: 'hub-2', notifusePlan: 'free', userId: 'u2' });
+    userFindFirstMock.mockResolvedValueOnce({ email: 'e2e-sso-essai@veridian.site' });
+    upsertMock.mockResolvedValue({});
+    await appel();
+    expect(upsertMock.mock.calls[0][0].create.tenantId).toBe('hub-2');
+  });
 });
 
 describe('v14Handlers.tenant.activity_threshold_reached', () => {
