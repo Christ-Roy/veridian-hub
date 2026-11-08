@@ -74,6 +74,9 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   (OAuth jusqu'au fournisseur ; inscription pendant un déploiement : `SSO_PENDANT_DEPLOIEMENT=1 … 10-` après un push).
 - **Microsoft (08/11)** : l'application Entra refuse les comptes personnels (`unauthorized_client`), celui de Robert
   compris. En attente du réglage d'audience par Robert dans Azure ; le cas OAuth Microsoft de `10-` reste rouge d'ici là.
+- **Plans d'Analytics et du CRM** : posés par `hub plan --app analytics|crm`, l'activation et Stripe
+  (`lib/plans/app-plan.ts`), avec le statut d'essai (`lib/plans/trial-status.ts`). Les apps stockent, aucune
+  limite ni lecture seule (drapeau coupé, décision de Robert). Ce qui manque : `hub reconcile --ecarts`.
 - **Restes de test** : `testResidue` de `hub reconcile`.
 - **Garde rapide** : `__tests__/contrat/` (revocation sans `iat`, `authAt` sur toute création de session,
   cibles du rebond, origines). Un nouveau `encode(` de JWT de session s'ajoute à sa liste. Détail par
@@ -156,28 +159,10 @@ parallèle) → table `Tenant`. `User.supabaseUserId` est un nom legacy : l'UUID
 
 ## 💰 Pricing & trial
 
-**Source de vérité unique** : `docs/PRICING-VERIDIAN.md` (figé par
-Robert 2026-05-21, voir aussi le `CLAUDE.md` racine `../CLAUDE.md`
-§"Pricing & trial cross-app").
-
-Tout agent qui touche au pricing, paywall, trial, billing Stripe,
-branding, custom domains, limites de plan, webhooks downstream
-**DOIT lire ce fichier avant d'agir**. Il définit :
-
-- La **grille de prix** (Free / Pro 29€ / Business 99€ / Enterprise)
-- Le **flow trial complet** (5 mails → 2j silence → 15j visible →
-  +30j inconditionnel si CB → débit auto ou paywall lecture seule)
-- Les **responsabilités cross-app** : Stripe → Hub → apps (PAS
-  Stripe → app directement)
-- Les **interdits côté code** (pas de mur béton, pas de compteur
-  visible, pas de menu grisé)
-
-**Philosophie figée** : générosité maximale. Tout illimité partout.
-SEULES différenciations = durée Free 15j + white-label Business+.
-L'app ne doit JAMAIS être défigurée par des limites visibles.
-
-Backlog pricing/trial : injecté au démarrage (hook SessionStart), `veridian-platform/TODO.md` pour la vue
-cross-app, avancement dans `docs/PRICING-VERIDIAN.md` §"Implémentations actuelles — Hub".
+**Source de vérité** : `docs/PRICING-VERIDIAN.md` (grille, flow d'essai, interdits, matrice mesurée des
+implémentations). À lire avant de toucher au pricing, paywall, essai, Stripe, marque blanche ou aux limites.
+Générosité maximale : tout illimité, seules différences la durée Free 15 j et la marque blanche Business+.
+Jamais de limite visible. Stripe → Hub → apps, jamais Stripe → app.
 
 ## CI/CD
 

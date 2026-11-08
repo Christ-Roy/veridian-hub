@@ -325,14 +325,14 @@ chaque run). Mettre cette matrice à jour à chaque brique livrée, et retirer t
 | Webhook Stripe central (`/api/webhooks`, `lib/stripe/dispatcher.ts`) | ✅ en service : 35 événements reçus, 34 traités, 1 en erreur, dernier le 29/05/2026 ; 0 abonnement actif (2 annulés) | `b53c078` |
 | Plan Hub → Notifuse (`update-plan`) | ✅ poussé par l'admin, Stripe et l'essai ; payload v1 (`tenant_id`, `plan`) + statut d'essai, que Notifuse ignore | `aa9ed89` |
 | Plan Hub → Prospection (`update-plan` v2) | ✅ poussé par l'admin et Stripe (`lib/prospection/plan-push.ts`) + statut d'essai, que Prospection ignore | `f7843b7` |
-| Plan Hub → Analytics (Rybbit) | ✅ endpoint en prod (Rybbit `7c61239`), plan stocké sans limite dans `veridian_hub_plan`, rendu à la découverte ; poussé par `hub plan --app analytics`, `app-access`, Stripe (palier du bundle), essai | Hub `aa9ed89` |
-| Plan Hub → CRM (Twenty) | ⏳ dispatch Hub en prod ; endpoint Twenty en cours (`3008f78`, staging) | Hub `aa9ed89` |
+| Plan Hub → Analytics (Rybbit) | ✅ endpoint en prod (Rybbit `7c61239`), plan stocké sans limite dans `veridian_hub_plan`, rendu à la découverte ; poussé par `hub plan --app analytics`, `app-access`, Stripe (palier du bundle), essai ; batterie `05-plan` verte, sabotage vu échouer | Hub `aa9ed89` |
+| Plan Hub → CRM (Twenty) | ✅ endpoint en prod (Twenty `3008f78`), plan stocké sans limite, rendu à la découverte ; poussé par `hub plan --app crm`, première ouverture, Stripe, essai ; batterie `05-plan` verte, sabotage vu échouer | Hub `aa9ed89` |
 | Plan Hub → CMS | ❌ aucun `update-plan` dans le code du CMS (la ligne « déjà câblé CMS » était fausse) | — |
-| Statut d'essai transmis avec le plan (`trial_status` : none, trial_active, expired, paid) | ✅ envoyé à toutes les apps ; stocké par Analytics (Rybbit `72af5cc`) ; Twenty à venir ; Notifuse, Prospection : reçu, non stocké | Hub `5786a72` |
+| Statut d'essai transmis avec le plan (`trial_status` : none, trial_active, expired, paid) | ✅ envoyé à toutes les apps ; stocké et rendu par Analytics (Rybbit `72af5cc`) et le CRM (Twenty `ba4577a`) ; Notifuse, Prospection : reçu, non stocké | Hub `5786a72` |
 | Lecture seule à l'expiration de l'essai | ❌ appliquée par aucune app, drapeau coupé par défaut : décision de Robert | — |
 | Machine d'états de l'essai (`lib/trial/run-tick.ts`, cron 30 min) | ⚠️ code livré, cron vert, mais **jamais déclenchée** : `tenant_trials` vide, aucun signal `tenant.activity_threshold_reached` reçu de Notifuse (0 webhook Notifuse au Hub). Donc aucun essai n'a jamais démarré, aucun plan n'a basculé | `d736da7` |
 | Découverte (`GET /api/users/by-email`) | ✅ Notifuse, Prospection, Analytics (jointure `hub_user_id`, Rybbit `fdbcfa3`), CRM ; ❌ CMS | — |
-| Réconciliation (`hub reconcile`) : plan, statut d'essai, app par app, marche à suivre, non câblé | ✅ | Hub `5786a72` |
+| Réconciliation (`hub reconcile --ecarts`) : plan, statut d'essai, app par app, marche à suivre, non câblé, comptes en attente de preuve | ✅ 27 tenants, 0 écart le 08/11 | Hub `5786a72` |
 | Webhooks app → Hub (signaux) | ⚠️ récepteurs en place ; reçus : 14 Prospection (rôles), 0 Notifuse | `17a6ad5` |
 | Recharge et leads de bienvenue Prospection (`credit-leads`) | ✅ code en place, livré le 23/05/2026 ; non remesuré le 08/11 (aucun abonnement actif) | `b53c078` |
 
