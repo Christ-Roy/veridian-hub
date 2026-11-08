@@ -1,13 +1,13 @@
 /**
  * La machine d'états de l'essai réagit au vrai signal (08/11 : elle n'avait jamais tourné, Notifuse
- * n'envoyait rien, et le slug qu'il enverra n'aurait pas été reconnu). Le signal part comme Notifuse
- * l'enverra (v1.4, Bearer, `tenant_id` = slug de son espace) ; la ligne naît `eligible` sur l'id du
+ * l'ignorait : Notifuse l'émet par la voie legacy HMAC, sans case au Hub). Le signal part comme Notifuse
+ * l'émet (legacy, `x-veridian-notifuse-signature`, `tenant_id` = slug de son espace) ; la ligne naît `eligible` sur l'id du
  * tenant Hub ; reculée de 49 h, le tick l'active ; Notifuse reçoit `pro` par son slug, et le mail
  * « essai démarré » arrive dans une vraie boîte (groupe Lark `e2e-sso-essai@veridian.site`).
  * Le tick envoie aussi une alerte Telegram à Robert : test libellé. Épreuve : `SSO_SABOTAGE=signal`.
  */
 import { execFileSync } from 'node:child_process';
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -32,25 +32,30 @@ function essai(...args: string[]): string {
   }
 }
 
-function jetonWebhook(): string {
+function secretWebhook(): string {
   const txt = readFileSync(path.join(os.homedir(), 'credentials', '.all-creds.env'), 'utf8');
-  const m = txt.match(/^\s*NOTIFUSE_WEBHOOK_TOKEN\s*=\s*(.*)$/m);
-  if (!m) throw new NonAbouti('NOTIFUSE_WEBHOOK_TOKEN introuvable dans ~/credentials/.all-creds.env');
+  const m = txt.match(/^\s*NOTIFUSE_HUB_WEBHOOK_SECRET\s*=\s*(.*)$/m);
+  if (!m) throw new NonAbouti('NOTIFUSE_HUB_WEBHOOK_SECRET introuvable dans ~/credentials/.all-creds.env');
   return m[1].trim().replace(/^['"]|['"]$/g, '');
 }
 
+/** Exactement ce que Notifuse émet au 5e mail (voie legacy HMAC, mesuré le 08/11). */
 async function signal(slug: string, cle: string) {
+  const body = JSON.stringify({
+    event_id: cle,
+    event_type: 'tenant.activity_threshold_reached',
+    tenant_id: slug,
+    data: { emails_sent_lifetime: 5, threshold: 5 },
+  });
+  const ts = String(Date.now());
   return fetch(`${HUB_URL}/api/webhooks/notifuse`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${jetonWebhook()}` },
-    body: JSON.stringify({
-      contract_version: '1.4',
-      event: 'tenant.activity_threshold_reached',
-      tenant_id: slug,
-      data: { emails_sent_lifetime: 5, threshold: 5, reached_at: new Date().toISOString() },
-      idempotency_key: cle,
-      occurred_at: new Date().toISOString(),
-    }),
+    headers: {
+      'content-type': 'application/json',
+      'x-veridian-timestamp': ts,
+      'x-veridian-notifuse-signature': createHmac('sha256', secretWebhook()).update(`${ts}.${body}`).digest('hex'),
+    },
+    body,
     signal: AbortSignal.timeout(20_000),
   });
 }

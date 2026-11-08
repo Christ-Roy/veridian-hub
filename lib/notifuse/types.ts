@@ -163,6 +163,8 @@ export type NotifuseEventType =
   | 'tenant.deleted'
   | 'tenant.quota_exceeded'
   | 'email.sent'
+  // Signal d'engagement (5e mail) : Notifuse l'émet par la voie legacy (mesuré le 08/11).
+  | 'tenant.activity_threshold_reached'
   // Events COMPORTEMENTAUX (réconciliateur cold↔web, 2026-06-15). Émis par le
   // fork Notifuse via la voie LEGACY HMAC. Cf docs/CONTRAT-HUB.md §7.5.
   | 'email.opened'

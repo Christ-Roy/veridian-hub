@@ -175,11 +175,17 @@ export const v14Handlers: HandlerTable = {
     // Notifuse ne connaît que le slug de son espace (provisionné par le Hub avec `tenantId = slug`) :
     // la machine d'états, le statut d'essai et reconcile raisonnent en id du tenant Hub (08/11).
     const now = new Date();
-    const hubTenantId = await resolveHubTenantId(payload.tenant_id);
-    if (!hubTenantId) {
+    const hub = await resolveHubTenant(payload.tenant_id);
+    if (!hub) {
       console.warn('[webhook:notifuse] tenant.activity_threshold_reached : tenant inconnu du Hub', payload.tenant_id);
     }
-    const tenantId = hubTenantId ?? payload.tenant_id;
+    // Déjà sur un plan au-dessus de free (payé ou offert) : pas d'essai. La machine le rétrograderait en
+    // free à J+15 faute d'abonnement Stripe (08/11 : 4 espaces réels au-delà du seuil, dont un pro).
+    if (hub?.notifusePlan && hub.notifusePlan !== 'free') {
+      console.info('[webhook:notifuse] tenant.activity_threshold_reached ignoré : plan', hub.notifusePlan, hub.id);
+      return;
+    }
+    const tenantId = hub?.id ?? payload.tenant_id;
     await prisma.tenantTrial.upsert({
       where: {
         tenantId_app: { tenantId, app: 'notifuse' },
@@ -282,8 +288,8 @@ export const v14Handlers: HandlerTable = {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** L'id du tenant Hub derrière un identifiant de Notifuse : slug de son espace, slug du tenant, ou l'id. */
-export async function resolveHubTenantId(notifuseTenantId: string): Promise<string | null> {
+/** Le tenant Hub derrière un identifiant de Notifuse : slug de son espace, slug du tenant, ou l'id. */
+export async function resolveHubTenant(notifuseTenantId: string): Promise<{ id: string; notifusePlan: string | null } | null> {
   const tenant = await prisma.tenant.findFirst({
     where: {
       OR: [
@@ -292,7 +298,7 @@ export async function resolveHubTenantId(notifuseTenantId: string): Promise<stri
         { slug: notifuseTenantId },
       ],
     },
-    select: { id: true },
+    select: { id: true, notifusePlan: true },
   });
-  return tenant?.id ?? null;
+  return tenant ?? null;
 }

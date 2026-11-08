@@ -38,14 +38,16 @@ const tenantTrialUpsertMock = vi.fn();
 interface FakeTenant {
   id: string;
   notifuseWorkspaceSlug: string;
+  notifusePlan?: string | null;
   metadata: Record<string, unknown> | null;
   prospectionConfig?: unknown;
 }
 
 const tenantStore: Map<string, FakeTenant> = new Map();
 const findFirstMock = vi.fn(async ({ where, select: _select }: any) => {
+  const clauses = where.OR ?? [where];
   for (const t of tenantStore.values()) {
-    if (t.notifuseWorkspaceSlug === where.notifuseWorkspaceSlug) return t;
+    if (clauses.some((c: any) => (c.notifuseWorkspaceSlug && t.notifuseWorkspaceSlug === c.notifuseWorkspaceSlug) || (c.id && t.id === c.id))) return t;
   }
   return null;
 });
@@ -409,6 +411,28 @@ describe('POST /api/webhooks/notifuse — Legacy HMAC', () => {
       notifuse_suspended_reason: 'manual_admin',
       notifuse_processed_events: expect.arrayContaining(['evt_susp_1']),
     });
+  });
+
+  it('tenant.activity_threshold_reached (voie legacy, celle de Notifuse) : essai eligible sur l\'id du tenant Hub', async () => {
+    tenantStore.set('tenant-uuid-4', { id: 'tenant-uuid-4', notifuseWorkspaceSlug: 't_seuil', notifusePlan: 'free', metadata: {} });
+    tenantTrialUpsertMock.mockResolvedValue({});
+    const { POST } = await import('@/app/api/webhooks/notifuse/route');
+    const ts = String(Date.now());
+    const body = JSON.stringify({
+      event_id: 'evt_seuil_1',
+      event_type: 'tenant.activity_threshold_reached',
+      tenant_id: 't_seuil',
+      data: { emails_sent_lifetime: 5, threshold: 5 },
+    });
+    const res = await POST(
+      makeNextRequest({
+        body,
+        headers: { 'x-veridian-timestamp': ts, 'x-veridian-notifuse-signature': signLegacy(ts, body, LEGACY_SECRET) },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(tenantTrialUpsertMock).toHaveBeenCalledTimes(1);
+    expect(tenantTrialUpsertMock.mock.calls[0][0].create).toMatchObject({ tenantId: 'tenant-uuid-4', app: 'notifuse', state: 'eligible' });
   });
 
   it('email.sent increments notifuse_emails_sent_this_month counter', async () => {

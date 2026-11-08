@@ -60,9 +60,22 @@ beforeEach(() => {
 });
 
 describe('v14Handlers.tenant.activity_threshold_reached', () => {
+  it.each(['pro', 'enterprise', 'lifetime_site_vitrine'])('tenant déjà en %s : aucun essai (il serait rétrogradé à J+15)', async (plan) => {
+    tenantFindFirstMock.mockResolvedValueOnce({ id: 'hub-1', notifusePlan: plan });
+    const { v14Handlers } = await import('@/lib/webhooks/notifuse-handlers');
+    await v14Handlers['tenant.activity_threshold_reached']({
+      event: 'tenant.activity_threshold_reached',
+      tenant_id: 'arnaudcapitaine07',
+      data: { threshold: 5 },
+      idempotency_key: '00000000-0000-4000-8000-00000000000a',
+      occurred_at: '2026-11-08T09:00:01.000Z',
+    });
+    expect(upsertMock).not.toHaveBeenCalled();
+  });
+
   it('le slug Notifuse est ramené à l\'id du tenant Hub (la machine d\'états et reconcile lisent cet id)', async () => {
     upsertMock.mockResolvedValue({});
-    tenantFindFirstMock.mockResolvedValueOnce({ id: '359b76d5-bab7-4773-a889-cf4cf0248869' });
+    tenantFindFirstMock.mockResolvedValueOnce({ id: '359b76d5-bab7-4773-a889-cf4cf0248869', notifusePlan: 'free' });
     const { v14Handlers } = await import('@/lib/webhooks/notifuse-handlers');
     await v14Handlers['tenant.activity_threshold_reached']({
       event: 'tenant.activity_threshold_reached',
@@ -71,7 +84,7 @@ describe('v14Handlers.tenant.activity_threshold_reached', () => {
       idempotency_key: '00000000-0000-4000-8000-000000000009',
       occurred_at: '2026-11-08T09:00:01.000Z',
     });
-    const where = (tenantFindFirstMock.mock.calls[0] as unknown as [{ where: { OR: unknown[] } }])[0].where;
+    const where = (tenantFindFirstMock.mock.calls.at(-1) as unknown as [{ where: { OR: unknown[] } }])[0].where;
     expect(where.OR).toEqual(expect.arrayContaining([{ notifuseWorkspaceSlug: 'robertbrunon' }]));
     expect(upsertMock.mock.calls[0][0].create.tenantId).toBe('359b76d5-bab7-4773-a889-cf4cf0248869');
   });
