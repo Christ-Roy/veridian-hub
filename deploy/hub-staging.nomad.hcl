@@ -220,9 +220,6 @@ PROSPECTION_API_URL=https://prospection.staging.veridian.site
 PROSPECTION_INTERNAL_URL=https://prospection.staging.veridian.site
 
 ANALYTICS_API_URL=https://analytics-rybbit.staging.veridian.site
-CRM_METADATA_URL=https://crm.staging.veridian.site/metadata
-CRM_REST_URL=https://crm.staging.veridian.site/rest
-CRM_FRONTEND_URL=https://crm.staging.veridian.site
 CRM_API_URL=https://crm.staging.veridian.site
 
 {{ with nomadVar "nomad/jobs/hub-staging" }}
@@ -247,7 +244,6 @@ AUTH_SECRET={{ .AUTH_SECRET }}
 ADMIN_SECRET={{ .ADMIN_SECRET }}
 CRON_SECRET={{ .CRON_SECRET }}
 VAULT_ENC_KEY={{ .VAULT_ENC_KEY }}
-CRM_VAULT_KEY={{ .CRM_VAULT_KEY }}
 {{ with nomadVar "nomad/jobs/hub-staging/stack" }}CRM_HUB_API_SECRET={{ .CRM_HUB_API_SECRET }}{{ end }}
 SESSION_HINT_SECRET={{ .SESSION_HINT_SECRET }}
 E2E_RATELIMIT_BYPASS_SECRET={{ .E2E_RATELIMIT_BYPASS_SECRET }}

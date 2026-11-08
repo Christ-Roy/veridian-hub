@@ -8,11 +8,10 @@
 #
 # Veridian Hub (orchestrateur auth/billing/provisioning, Next.js, port 3000).
 # Placement : serveur PROD OVH (provider=ovh-prod). DB actuelle =
-# veridian-core-db (postgres:16-alpine) co-localisée dans le même group bridge.
+# le job `hub-db` (depuis le 07/11/2026), hors de ce groupe : un déploiement ne touche pas la base.
 # Le contrat runtime ne hardcode plus l'URL complète : `DATABASE_URL` est
 # composée depuis les variables d'endpoint `HUB_DATABASE_*` et le secret
-# `VERIDIAN_CORE_DB_PASSWORD`. Aujourd'hui le fallback explicite pointe le
-# sidecar local (`HUB_DATABASE_MODE=local-colocated`, host 127.0.0.1:5432).
+# `VERIDIAN_CORE_DB_PASSWORD`. `HUB_DATABASE_MODE=nomad-service` : service `hub-postgres`.
 # Demain, le cutover HA remplace seulement l'endpoint (`HUB_DATABASE_MODE`,
 # `HUB_DATABASE_SERVICE_NAME`, host/port ou proxy) sans changer le code Hub.
 # TLS terminé par Traefik (certresolver letsencrypt sur app.veridian.site).
@@ -68,15 +67,20 @@ job "hub" {
     # auto_revert : un deploy prod qui n'atteint jamais healthy restaure la
     # dernière version saine (zéro trou prod). min_healthy_time : l'alloc doit
     # rester saine 15s avant d'être comptée healthy (anti-flap).
+    # Bleu-vert (07/11/2026) : le canari demarre a cote de l'ancienne allocation ; Traefik ne le sert qu'une fois sain
+    # (health check actif des tags du service), puis la promotion arrete l'ancienne apres `shutdown_delay`.
+    # Avant : l'ancienne s'arretait d'abord, 11 a 14 s de 404 et 502 a chaque deploiement.
     update {
       max_parallel      = 1
+      canary            = 1
+      auto_promote      = true
       min_healthy_time  = "15s"
       healthy_deadline  = "5m"
       progress_deadline = "10m"
       auto_revert       = true
     }
 
-    # Épinglé au serveur PROD : le bind core-db est local et ne suit pas l'allocation.
+    # Épinglé au serveur PROD : la base `hub-db` y vit, le Hub la joint par le catalogue Nomad.
     constraint {
       attribute = "${meta.provider}"
       value     = "ovh-prod"
@@ -117,6 +121,16 @@ job "hub" {
         "traefik.http.routers.hubprod.entrypoints=websecure",
         "traefik.http.routers.hubprod.tls=true",
         "traefik.http.routers.hubprod.tls.certresolver=letsencrypt",
+        "traefik.http.routers.hubprod.middlewares=hub-retry@nomad",
+        # Bleu-vert : Traefik n'envoie du trafic a une instance que si elle repond a /api/health, et rejoue sur l'autre une
+        # connexion refusee. Les canary_tags du premier essai ouvraient 11 s de 404 a la promotion (07/11, 23:40).
+        # Ne pas changer ces tags dans un deploiement ordinaire : deux versions aux tags differents donnent a Traefik deux
+        # definitions du meme routeur, il l'ecarte, 12 s de 404 (mesure le 07/11 a 23:57). Changer les tags = deploiement annonce.
+        "traefik.http.services.hub.loadbalancer.healthcheck.path=/api/health",
+        "traefik.http.services.hub.loadbalancer.healthcheck.interval=2s",
+        "traefik.http.services.hub.loadbalancer.healthcheck.timeout=1s",
+        "traefik.http.middlewares.hub-retry.retry.attempts=4",
+        "traefik.http.middlewares.hub-retry.retry.initialinterval=200ms",
       ]
       check {
         type     = "http"
@@ -126,259 +140,12 @@ job "hub" {
       }
     }
 
-    # ---- veridian-core-db (postgres:16, frais, interne) ----
-    task "veridian-core-db" {
-      driver = "docker"
-      config {
-        # Durcissement Unix : empeche un processus non privilegie d'elever ses
-        # droits via un binaire setuid. C'est le maillon entre « shell dans le
-        # conteneur » et « root sur l'hote ». N'affecte PAS un processus qui
-        # ABANDONNE ses droits au demarrage, seulement celui qui en gagne.
-        security_opt = ["no-new-privileges:true"]
-
-        # Identification lisible du conteneur (2026-09-07). Nomad ne pose que
-        # `com.hashicorp.nomad.alloc_id` : rien ne disait a quelle application
-        # appartenait un conteneur. Les quatre premieres valeurs sont
-        # interpolees par Nomad a l'execution, les deux dernieres sont des
-        # proprietes du fichier (dossier jobs/<tier>/ et table du script
-        # scripts/poser-labels-conteneurs.py).
-        labels = {
-          "site.veridian.job"   = "${NOMAD_JOB_NAME}"
-          "site.veridian.group" = "${NOMAD_GROUP_NAME}"
-          "site.veridian.task"  = "${NOMAD_TASK_NAME}"
-          "site.veridian.node"  = "${node.unique.name}"
-          "site.veridian.tier"  = "saas-prod"
-          "site.veridian.app"   = "hub"
-        }
-        # Image officielle postgres:16-alpine + pgBackRest epingle. La BASE est
-        # identique au bit pres : changer d'image de base changerait la
-        # collation (musl/glibc) et fausserait silencieusement les index.
-        image = "ghcr.io/christ-roy/veridian-postgres-pgbackrest:16-alpine@sha256:ca672c3127d4e9e1fef42e813ecd751a6759ed4e7916e44a6ae7fb3a6862716e"
-        args = [
-          # --- Archivage continu des WAL vers le depot pgBackRest ---
-          # C'est CE reglage, et non la sauvegarde nocturne, qui borne la perte
-          # de donnees : chaque segment de journal part vers R2 des qu'il est
-          # clos. archive_timeout force cette cloture toutes les 5 minutes quand
-          # il y a eu de l'ecriture, donc RPO = 5 min.
-          # Modifier archive_mode exige un REDEMARRAGE de PostgreSQL (ce n'est
-          # pas rechargeable a chaud) : c'est la seule interruption qu'impose la
-          # mise en place.
-          # pgBackRest ne joint le cluster QUE par socket Unix ; il n'a aucune
-          # option de connexion TCP pour un cluster local. La tache annexe vit
-          # dans un autre espace de montage et ne voit donc pas
-          # /var/run/postgresql. On publie une seconde socket dans /alloc, le
-          # repertoire que Nomad partage entre les taches d'un meme groupe.
-          # L'ancienne reste en place : `docker exec ... psql` continue de marcher.
-          "-c", "unix_socket_directories=/var/run/postgresql,/alloc",
-          "-c", "archive_mode=on",
-          "-c", "archive_command=pgbackrest --stanza=hub-core archive-push %p",
-          "-c", "archive_timeout=300",
-          "-c", "wal_level=replica",
-        ]
-        volumes = [
-          "/opt/veridian-lab/hub/core-db:/var/lib/postgresql/data",
-        ]
-      }
-      template {
-        destination = "secrets/pgbackrest-repo.key"
-        perms       = "600"
-        uid         = 70
-        gid         = 70
-        data        = <<EOH
-{{ with nomadVar "nomad/jobs/hub" }}{{ .SFTP_REPO_KEY }}{{ end }}
-EOH
-      }
-
-      template {
-        destination = "secrets/pgbackrest-repo.key.pub"
-        perms       = "644"
-        uid         = 70
-        gid         = 70
-        data        = <<EOH
-{{ with nomadVar "nomad/jobs/hub" }}{{ .SFTP_REPO_KEY_PUB }}{{ end }}
-EOH
-      }
-
-      template {
-        destination = "secrets/pg.env"
-        perms       = "600"   # secret: lisible du seul proprietaire
-        env         = true
-        data        = <<EOH
-TZ=UTC
-POSTGRES_USER=veridian
-POSTGRES_DB=veridian
-{{ with nomadVar "nomad/jobs/hub" }}
-POSTGRES_PASSWORD={{ .VERIDIAN_CORE_DB_PASSWORD }}
-{{ end }}
-# --- pgBackRest : configuration par variables d'environnement ---
-# Aucun fichier de configuration : les identifiants R2 et la phrase de
-# chiffrement ne sont jamais ecrits sur le disque de l'allocation. pgBackRest
-# lit toute option sous la forme PGBACKREST_<OPTION>.
-# Depot sur NOS machines (2026-10-10, plus de R2) : SFTP chroot, compte `pgbackrest`,
-# jamais sur le noeud qui porte la base ; cle dans la Variable Nomad du job.
-PGBACKREST_REPO1_TYPE=sftp
-{{ with nomadVar "nomad/jobs/hub" }}PGBACKREST_REPO1_SFTP_HOST={{ .SFTP_REPO_HOST }}{{ end }}
-PGBACKREST_REPO1_SFTP_HOST_USER=pgbackrest
-PGBACKREST_REPO1_SFTP_PRIVATE_KEY_FILE=/secrets/pgbackrest-repo.key
-PGBACKREST_REPO1_SFTP_PUBLIC_KEY_FILE=/secrets/pgbackrest-repo.key.pub
-PGBACKREST_REPO1_SFTP_HOST_KEY_CHECK_TYPE=fingerprint
-PGBACKREST_REPO1_SFTP_HOST_KEY_HASH_TYPE=sha1
-{{ with nomadVar "nomad/jobs/hub" }}PGBACKREST_REPO1_SFTP_HOST_FINGERPRINT={{ .SFTP_REPO_FP }}{{ end }}
-PGBACKREST_REPO1_PATH=/data/hub-core
-# path : R2 accepte les deux styles, celui-ci ne depend pas d'un DNS par bucket.
-PGBACKREST_REPO1_CIPHER_TYPE=aes-256-cbc
-PGBACKREST_COMPRESS_TYPE=zst
-PGBACKREST_COMPRESS_LEVEL=6
-PGBACKREST_REPO1_BUNDLE=y
-PGBACKREST_REPO1_BLOCK=y
-PGBACKREST_LOG_LEVEL_CONSOLE=info
-PGBACKREST_LOG_LEVEL_FILE=off
-PGBACKREST_PG1_PATH=/var/lib/postgresql/data
-PGBACKREST_PG1_PORT=5432
-PGBACKREST_PG1_USER=veridian
-PGBACKREST_PG1_DATABASE=veridian
-{{ with nomadVar "nomad/jobs/hub" }}
-# ATTENTION : PERDRE CETTE PHRASE = PERDRE TOUTES LES SAUVEGARDES. Copie de
-# secours dans ~/credentials/.all-creds.env (PGBACKREST_CIPHER_HUB_CORE).
-PGBACKREST_REPO1_CIPHER_PASS={{ .PGBACKREST_CIPHER_PASS }}
-{{ end }}
-EOH
-      }
-      resources {
-        cpu        = 300
-        memory     = 256
-        memory_max = 7000
-      }
-    }
-
-    # ---- pgBackRest : sauvegarde continue vers R2 ----
-    # Tache annexe du MEME groupe, donc : meme espace reseau (elle joint
-    # PostgreSQL par la socket publiee dans /alloc, authentification `trust`
-    # locale, aucun mot de passe a promener) et meme bind mount de PGDATA (elle
-    # lit les pages directement). Elle SUIT l'allocation : si Nomad replace le
-    # groupe, la sauvegarde repart sans qu'on touche a un script.
-    task "pgbackrest" {
-      driver = "docker"
-      config {
-        # Durcissement Unix : empeche un processus non privilegie d'elever ses
-        # droits via un binaire setuid. C'est le maillon entre « shell dans le
-        # conteneur » et « root sur l'hote ». N'affecte PAS un processus qui
-        # ABANDONNE ses droits au demarrage, seulement celui qui en gagne.
-        security_opt = ["no-new-privileges:true"]
-
-        # Identification lisible du conteneur (2026-09-07). Nomad ne pose que
-        # `com.hashicorp.nomad.alloc_id` : rien ne disait a quelle application
-        # appartenait un conteneur. Les quatre premieres valeurs sont
-        # interpolees par Nomad a l'execution, les deux dernieres sont des
-        # proprietes du fichier (dossier jobs/<tier>/ et table du script
-        # scripts/poser-labels-conteneurs.py).
-        labels = {
-          "site.veridian.job"   = "${NOMAD_JOB_NAME}"
-          "site.veridian.group" = "${NOMAD_GROUP_NAME}"
-          "site.veridian.task"  = "${NOMAD_TASK_NAME}"
-          "site.veridian.node"  = "${node.unique.name}"
-          "site.veridian.tier"  = "saas-prod"
-          "site.veridian.app"   = "hub"
-        }
-        image      = "ghcr.io/christ-roy/veridian-postgres-pgbackrest:16-alpine@sha256:ca672c3127d4e9e1fef42e813ecd751a6759ed4e7916e44a6ae7fb3a6862716e"
-        entrypoint = ["/usr/local/bin/pgbackrest-scheduler"]
-        command    = ""
-        volumes = [
-          "/opt/veridian-lab/hub/core-db:/var/lib/postgresql/data",
-        ]
-      }
-      user = "postgres"
-
-      template {
-        destination = "secrets/pgbackrest-repo.key"
-        perms       = "600"
-        uid         = 70
-        gid         = 70
-        data        = <<EOH
-{{ with nomadVar "nomad/jobs/hub" }}{{ .SFTP_REPO_KEY }}{{ end }}
-EOH
-      }
-
-      template {
-        destination = "secrets/pgbackrest-repo.key.pub"
-        perms       = "644"
-        uid         = 70
-        gid         = 70
-        data        = <<EOH
-{{ with nomadVar "nomad/jobs/hub" }}{{ .SFTP_REPO_KEY_PUB }}{{ end }}
-EOH
-      }
-
-      template {
-        destination = "secrets/pgbackrest.env"
-        perms       = "600"   # secret: lisible du seul proprietaire
-        env         = true
-        data        = <<EOH
-TZ=UTC
-PGBR_STANZA=hub-core
-# Socket partagee avec la tache postgres via le repertoire d'allocation.
-PGBACKREST_PG1_SOCKET_PATH=/alloc
-# Complete le dimanche, differentielle les autres jours, incrementale toutes les
-# 6 h. 20 : creneau propre a cette stanza pour ne pas taper R2 en meme
-# temps que les autres bases du parc.
-PGBR_FULL_DOW=0
-PGBR_DAILY_HOUR=3
-PGBR_DAILY_MINUTE=20
-PGBR_INCR_EVERY_H=6
-# Base de PRODUCTION cliente : 8 semaines de completes conservees. Les WAL
-# retenus couvrent la meme profondeur, donc on peut viser n'importe quelle
-# seconde des deux derniers mois.
-PGBACKREST_REPO1_RETENTION_FULL=8
-PGBACKREST_REPO1_RETENTION_DIFF=7
-PGBACKREST_PROCESS_MAX=2
-PGBACKREST_START_FAST=y
-# --- pgBackRest : configuration par variables d'environnement ---
-# Aucun fichier de configuration : les identifiants R2 et la phrase de
-# chiffrement ne sont jamais ecrits sur le disque de l'allocation. pgBackRest
-# lit toute option sous la forme PGBACKREST_<OPTION>.
-# Depot sur NOS machines (2026-10-10, plus de R2) : SFTP chroot, compte `pgbackrest`,
-# jamais sur le noeud qui porte la base ; cle dans la Variable Nomad du job.
-PGBACKREST_REPO1_TYPE=sftp
-{{ with nomadVar "nomad/jobs/hub" }}PGBACKREST_REPO1_SFTP_HOST={{ .SFTP_REPO_HOST }}{{ end }}
-PGBACKREST_REPO1_SFTP_HOST_USER=pgbackrest
-PGBACKREST_REPO1_SFTP_PRIVATE_KEY_FILE=/secrets/pgbackrest-repo.key
-PGBACKREST_REPO1_SFTP_PUBLIC_KEY_FILE=/secrets/pgbackrest-repo.key.pub
-PGBACKREST_REPO1_SFTP_HOST_KEY_CHECK_TYPE=fingerprint
-PGBACKREST_REPO1_SFTP_HOST_KEY_HASH_TYPE=sha1
-{{ with nomadVar "nomad/jobs/hub" }}PGBACKREST_REPO1_SFTP_HOST_FINGERPRINT={{ .SFTP_REPO_FP }}{{ end }}
-PGBACKREST_REPO1_PATH=/data/hub-core
-# path : R2 accepte les deux styles, celui-ci ne depend pas d'un DNS par bucket.
-PGBACKREST_REPO1_CIPHER_TYPE=aes-256-cbc
-PGBACKREST_COMPRESS_TYPE=zst
-PGBACKREST_COMPRESS_LEVEL=6
-PGBACKREST_REPO1_BUNDLE=y
-PGBACKREST_REPO1_BLOCK=y
-PGBACKREST_LOG_LEVEL_CONSOLE=info
-PGBACKREST_LOG_LEVEL_FILE=off
-PGBACKREST_PG1_PATH=/var/lib/postgresql/data
-PGBACKREST_PG1_PORT=5432
-PGBACKREST_PG1_USER=veridian
-PGBACKREST_PG1_DATABASE=veridian
-{{ with nomadVar "nomad/jobs/hub" }}
-# ATTENTION : PERDRE CETTE PHRASE = PERDRE TOUTES LES SAUVEGARDES. Copie de
-# secours dans ~/credentials/.all-creds.env (PGBACKREST_CIPHER_HUB_CORE).
-PGBACKREST_REPO1_CIPHER_PASS={{ .PGBACKREST_CIPHER_PASS }}
-{{ end }}
-EOH
-      }
-
-      resources {
-        cpu        = 100
-        memory     = 64
-        memory_max = 512
-      }
-    }
-
     # ---- hub (Next.js, port 3000) ----
     task "hub" {
       driver         = "docker"
       user           = "nextjs"
-      shutdown_delay = "10s"
+      # Traefik relit le catalogue toutes les 15 s : l'allocation sortante sert encore pendant qu'il l'oublie.
+      shutdown_delay = "30s"
       kill_timeout   = "30s"
       service {
         name     = "hub-selfheal"
@@ -475,12 +242,9 @@ ANALYTICS_API_URL=https://analytics.app.veridian.site
 # reconstruire l'image. Sans elle, le défaut en dur de attach-downstream.ts
 # s'applique — et il pointait encore sur l'ancien moteur.
 NEXT_PUBLIC_ANALYTICS_URL=https://analytics.app.veridian.site
-CRM_METADATA_URL=https://crm.app.veridian.site/metadata
-CRM_REST_URL=https://crm.app.veridian.site/rest
-CRM_FRONTEND_URL=https://crm.app.veridian.site
 
 {{ with nomadVar "nomad/jobs/hub" }}
-{{ $dbMode := or .HUB_DATABASE_MODE.Value "local-colocated" }}
+{{ $dbMode := or .HUB_DATABASE_MODE.Value "nomad-service" }}
 {{ $dbUser := or .HUB_DATABASE_USER.Value "veridian" }}
 {{ $dbHost := or .HUB_DATABASE_HOST.Value "127.0.0.1" }}
 {{ $dbPort := or .HUB_DATABASE_PORT.Value "5432" }}
@@ -514,7 +278,6 @@ AUTH_SECRET={{ .HUB_AUTH_SECRET }}
 ADMIN_SECRET={{ .ADMIN_SECRET }}
 CRON_SECRET={{ .CRON_SECRET }}
 VAULT_ENC_KEY={{ .VAULT_ENC_KEY }}
-CRM_VAULT_KEY={{ .CRM_VAULT_KEY }}
 SESSION_HINT_SECRET={{ .SESSION_HINT_SECRET }}
 GOOGLE_OAUTH_CLIENT_ID={{ .GOOGLE_OAUTH_CLIENT_ID }}
 GOOGLE_OAUTH_CLIENT_SECRET={{ .GOOGLE_OAUTH_CLIENT_SECRET }}
@@ -542,8 +305,10 @@ EOH
       }
       resources {
         cpu        = 500
-        memory     = 384
-        memory_max = 7000
+        # 08/11 : reservation = memoire non reprenable mesuree (203 Mio) + 50 %, plafond = pointe (284 Mio) x 2,7.
+        # Avant : 7000 Mio de plafond, une fuite du Hub pouvait avaler ovh-prod et tout ce qui y tourne.
+        memory     = 320
+        memory_max = 768
       }
     }
   }

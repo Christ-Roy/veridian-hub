@@ -27,6 +27,7 @@ import {
   setTenantAppEnabled,
   type GatedAppKey,
 } from '@/lib/tenant-apps';
+import { provisionCrmWorkspace } from '@/lib/crm/provision';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -53,7 +54,7 @@ export async function POST(request: NextRequest) {
   const email = parsed.data.user_email.trim().toLowerCase();
   const user = await prisma.user.findUnique({
     where: { email },
-    select: { id: true, supabaseUserId: true },
+    select: { id: true, supabaseUserId: true, emailVerified: true, name: true },
   });
 
   if (!user || !user.supabaseUserId) {
@@ -65,6 +66,38 @@ export async function POST(request: NextRequest) {
       },
       { status: 404 },
     );
+  }
+
+  // Le CRM a un espace par utilisateur, créé ici et nulle part ailleurs (§3.8) : pas d'activation sans espace.
+  let crmWorkspaceId: string | undefined;
+  if (parsed.data.app === 'twenty' && parsed.data.enabled) {
+    if (!user.emailVerified) {
+      return NextResponse.json(
+        { error: 'email_not_proven', message: "L'adresse n'est pas prouvée : aucun espace CRM n'est créé." },
+        { status: 409 },
+      );
+    }
+    const tenant = await prisma.tenant.findFirst({
+      where: { userId: user.supabaseUserId },
+      select: { id: true, name: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (!tenant) {
+      return NextResponse.json({ error: 'tenant_not_found' }, { status: 404 });
+    }
+    const provision = await provisionCrmWorkspace({
+      tenantId: tenant.id,
+      hubUserId: user.supabaseUserId,
+      email,
+      workspaceName: tenant.name || user.name || email.split('@')[0],
+    });
+    if (!provision.ok) {
+      return NextResponse.json(
+        { error: 'crm_provision_failed', detail: provision.error },
+        { status: provision.error === 'crm_not_configured' ? 503 : 502 },
+      );
+    }
+    crmWorkspaceId = provision.workspaceId;
   }
 
   const result = await setTenantAppEnabled(prisma, {
@@ -84,6 +117,7 @@ export async function POST(request: NextRequest) {
       user_email: email,
       app: result.appKey,
       enabled: result.enabled,
+      ...(crmWorkspaceId ? { crm_workspace_id: crmWorkspaceId } : {}),
     },
   });
 
@@ -92,5 +126,6 @@ export async function POST(request: NextRequest) {
     user_id: user.supabaseUserId,
     app: result.appKey,
     enabled: result.enabled,
+    ...(crmWorkspaceId ? { crm_workspace_id: crmWorkspaceId } : {}),
   });
 }

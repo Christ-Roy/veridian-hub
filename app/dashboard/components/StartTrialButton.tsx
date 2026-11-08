@@ -61,7 +61,7 @@ export function StartTrialButton({
       setTimeout(() => window.location.reload(), 1600);
     } catch (e: any) {
       toast.error('Erreur réseau', {
-        description: e?.message || 'Réessaye dans quelques secondes',
+        description: e?.message || 'Réessayez dans quelques secondes',
         duration: 5000,
       });
     } finally {

@@ -8,14 +8,13 @@
 > lead, il ne se contourne pas. Détail : CLAUDE.md racine veridian-platform.
 
 
-> Ex Web-Dashboard. Application orchestratrice du SaaS.
-> Voir le CLAUDE.md racine (`../CLAUDE.md`) pour la vision globale.
+> Application orchestratrice du SaaS.
 
 ## Ce que c'est
 
 Le Hub gère l'inscription (Auth.js v5), le billing (Stripe), et le
 provisioning automatique des apps pour chaque nouveau tenant (Notifuse,
-Prospection). Twenty retiré de la stack 2026-05-18.
+Prospection). CRM (Twenty) : espace créé par `app-access --app twenty`, entrée par rebond.
 
 > Supabase retiré du Hub (migration Auth.js v5 + Prisma le 2026-05-08).
 
@@ -81,8 +80,9 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   cibles du rebond, origines). Un nouveau `encode(` de JWT de session s'ajoute à sa liste. Détail par
   parcours et état prouvé ou accepté : `docs/PARCOURS-IDENTITE.md`.
 - **Sonde de prod** : étape « Sonde identité » de `hub-ci.yml` (lectures seules). Le cron de reconcile
-  alerte au-dessus de `RESIDUE_SEUIL` (5 par défaut = restes connus).
-- **Coupure** : un déploiement coupe le Hub environ 19 s (07/11), la base est dans le groupe Nomad.
+  alerte au-dessus de `RESIDUE_SEUIL` (0 par défaut).
+- **Coupure** : aucune (08/11, prouvé à la sonde). Base dans le job `hub-db` (nomad-veridian), app en bleu-vert : canari,
+  health check Traefik, retry. Tags Traefik changés = déploiement annoncé (deux versions aux tags différents : 12 s de 404).
   Regrouper les changements. `e2e/systeme-sso/**` ne redéploie rien.
 
 ## Que faire si

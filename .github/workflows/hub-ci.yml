@@ -202,6 +202,7 @@ jobs:
           command: |
             docker buildx build \
               --target runner \
+              --build-arg GIT_SHA=${{ github.sha }} \
               --push \
               -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }} \
               -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
@@ -306,7 +307,7 @@ jobs:
   e2e-prod-smoke:
     needs: deploy-prod
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04  # 07/11 : ubuntu-latest = 26.04, Playwright refuse d y installer chromium
     steps:
       - uses: actions/checkout@v6
         with:

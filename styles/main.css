@@ -316,7 +316,8 @@
      permanent — jamais figé. Seul background-position bouge → léger. */
   .auth-screen::before {
     content: "";
-    position: fixed;
+    /* absolute, pas fixed : le fond couvre toute la hauteur du contenu, sans bande dessous au scroll. */
+    position: absolute;
     inset: 0;
     z-index: -1;
     pointer-events: none;

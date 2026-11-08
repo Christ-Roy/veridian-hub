@@ -81,7 +81,7 @@ export function VeridianWordmark({
 
   if (href) {
     return (
-      <Link href={href} className="group inline-flex">
+      <Link href={href} className="group inline-flex min-h-11 items-center">
         {content}
       </Link>
     );

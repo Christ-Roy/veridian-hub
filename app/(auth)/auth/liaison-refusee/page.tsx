@@ -22,7 +22,7 @@ export default function LiaisonRefuseePage() {
           utilisez « Mot de passe oublié » : le lien arrive dans votre boîte, et vous pourrez
           ensuite utiliser ce bouton.
         </p>
-        <Link href="/login" className="inline-block text-sm font-medium underline">
+        <Link href="/login" className="inline-flex min-h-11 items-center text-sm font-medium underline">
           Retour à la connexion
         </Link>
       </Card>

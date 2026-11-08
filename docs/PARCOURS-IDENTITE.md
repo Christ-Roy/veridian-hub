@@ -34,7 +34,7 @@ Les trois niveaux de preuve :
 - **Preuve** : `__tests__/api/auth/signup.test.ts` (doublon, 6e essai refusé, bypass E2E inopérant en prod) ;
   `e2e/systeme-sso/02-sans-preuve.spec.ts` (3 apps, témoin positif exigé) ; `__tests__/lib/auth/email-normalize.test.ts`.
 - **État** : PROUVÉ. ACCEPTÉ : le 409 dit que l'adresse existe (la page d'inscription le dit déjà).
-  ÉCART : aucun anti-bot (ni honeypot ni captcha), il reste le limiteur et la preuve d'adresse ; un captcha tiers est une décision de produit.
+  Anti-bot : champ piège invisible `hp_reference` (refus 400 si rempli, test unitaire vu échouer), plafond par IP et preuve d'adresse. Pas de captcha, décision de Robert du 07/11.
 
 ## Connexion par mot de passe
 
@@ -275,5 +275,5 @@ Rejouer à la main : copier le bloc `run:` de l'étape dans un fichier, `HUB_URL
 Épreuve : le même bloc contre un serveur local qui dévie d'un seul contrôle doit sortir en 1 (fait pour les huit le 07/11).
 
 Le cron horaire `hub-reconcile-cron.yml` ne publie plus que des comptes dans ses logs (publics) et alerte quand
-`testResidue.total` dépasse `RESIDUE_SEUIL` (variable du dépôt, 5 par défaut : les restes connus). Entre 1 et le seuil :
+`testResidue.total` dépasse `RESIDUE_SEUIL` (variable du dépôt, 0 par défaut). Entre 1 et le seuil :
 annotation, pas de rouge. Total absent : annotation « non mesuré ».

@@ -165,8 +165,8 @@ export function rybbitCompte(action: 'creer' | 'supprimer', email: string) {
 }
 
 /**
- * Espace Twenty d'un compte de test : le Hub n'en crée pas pour un compte neuf, et le rebond répond
- * `user_not_in_app` sans lui. Appel signé §6.1, secret lu au moment du test, jamais affiché.
+ * Retrait de l'espace Twenty d'un compte de test au nettoyage (il est créé par `activerTwentyAuHub`).
+ * Appel signé §6.1, secret lu au moment du test, jamais affiché.
  */
 function secretTwenty(): string {
   try {
@@ -195,15 +195,21 @@ async function appelTwenty(methode: 'POST' | 'DELETE', chemin: string, corps?: u
   });
 }
 
-export async function creerEspaceTwenty(tenantId: string, email: string, hubUserId: string): Promise<void> {
-  const r = await appelTwenty('POST', '/api/tenants/provision', {
-    tenant_id: tenantId,
-    owner_email: email,
-    workspace_name: 'Test',
-    plan: 'free',
-    metadata: { hub_user_id: hubUserId },
+/**
+ * Le chemin réel : l'admin active `twenty` pour le compte au Hub, qui crée l'espace par le provisioning
+ * signé (CONTRAT-HUB §5.1). L'espace porte l'identifiant du tenant Hub, que le nettoyage retire.
+ */
+export async function activerTwentyAuHub(email: string): Promise<string> {
+  const r = await admin<{ crm_workspace_id?: string; error?: string; detail?: string }>('POST', 'tenants/app-access', {
+    user_email: email,
+    app: 'twenty',
+    enabled: true,
   });
-  if (!r.ok) throw new NonAbouti(`espace Twenty non créé : HTTP ${r.status} ${(await r.text()).slice(0, 160)}`);
+  if (r.status === 503) throw new NonAbouti(`le Hub n'a pas le CRM configuré (${r.json?.detail ?? r.status})`);
+  if (r.status !== 200 || !r.json?.crm_workspace_id) {
+    throw new Error(`activation Twenty au Hub refusée : HTTP ${r.status} ${JSON.stringify(r.json).slice(0, 160)}`);
+  }
+  return r.json.crm_workspace_id;
 }
 
 export async function retirerEspaceTwenty(tenantId: string): Promise<void> {

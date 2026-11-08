@@ -50,7 +50,7 @@ export function SignOutEverywhere() {
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
       <p className="text-sm text-muted-foreground">
-        Coupe votre accès sur tous vos appareils et dans tous vos outils Veridian.
+        Cette action coupe votre accès sur tous vos appareils et dans tous vos outils Veridian.
       </p>
       <AlertDialog open={ouvert} onOpenChange={(o) => !enCours && setOuvert(o)}>
         <AlertDialogTrigger asChild>
