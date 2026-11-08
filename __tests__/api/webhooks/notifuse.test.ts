@@ -67,6 +67,9 @@ vi.mock('@/lib/prisma', () => ({
     tenantTrial: {
       upsert: (...args: any[]) => tenantTrialUpsertMock(...args),
     },
+    user: {
+      findFirst: async ({ where }: any) => (where.supabaseUserId === 'u-client' ? { email: 'contact@client-reel.fr' } : null),
+    },
   },
 }));
 
@@ -435,6 +438,28 @@ describe('POST /api/webhooks/notifuse — Legacy HMAC', () => {
     expect(tenantTrialUpsertMock).toHaveBeenCalledTimes(1);
     expect(tenantTrialUpsertMock.mock.calls[0][0].create).toMatchObject({ tenantId: 'tenant-uuid-4', app: 'notifuse', state: 'eligible' });
     delete process.env.TRIAL_MACHINE_ENABLED;
+  });
+
+  it('drapeau coupé : le 5e mail d\'un client réel ne démarre aucun essai (aucune ligne, donc ni mail ni plan)', async () => {
+    delete process.env.TRIAL_MACHINE_ENABLED;
+    tenantStore.set('tenant-uuid-5', { id: 'tenant-uuid-5', notifuseWorkspaceSlug: 't_client', notifusePlan: 'free', metadata: {}, userId: 'u-client' } as never);
+    const { POST } = await import('@/app/api/webhooks/notifuse/route');
+    const ts = String(Date.now());
+    const body = JSON.stringify({
+      event_id: 'evt_seuil_client',
+      event_type: 'tenant.activity_threshold_reached',
+      tenant_id: 't_client',
+      data: { emails_sent_lifetime: 5, threshold: 5 },
+    });
+    const res = await POST(
+      makeNextRequest({
+        body,
+        headers: { 'x-veridian-timestamp': ts, 'x-veridian-notifuse-signature': signLegacy(ts, body, LEGACY_SECRET) },
+      }),
+    );
+    expect(res.status).toBe(200);
+    // Sans ligne tenant_trials, le tick n'a rien à activer : aucun mail, aucun plan, aucun Telegram.
+    expect(tenantTrialUpsertMock).not.toHaveBeenCalled();
   });
 
   it('email.sent increments notifuse_emails_sent_this_month counter', async () => {
