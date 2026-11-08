@@ -109,11 +109,29 @@ cas('twenty', T, async ({ browser }) => {
         data?: { currentUser?: { email?: string }; currentWorkspace?: { id?: string } };
       } | null;
     });
+    // Une écriture à son nom, relue : l'espace n'est pas qu'une vitrine.
+    const nom = `Systeme SSO ${Date.now()}`;
+    const ecrit = await page.evaluate(async (n) => {
+      const gql = async (query: string, variables: object) =>
+        (await (
+          await fetch('/graphql', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'content-type': 'application/json', 'x-twenty-session-cookie': '1' },
+            body: JSON.stringify({ query, variables }),
+          })
+        ).json().catch(() => null)) as any;
+      const cree = await gql('mutation($d:CompanyCreateInput!){createCompany(data:$d){id name}}', { d: { name: n } });
+      const id = cree?.data?.createCompany?.id;
+      const lu = id ? await gql('query($i:UUID!){company(filter:{id:{eq:$i}}){name}}', { i: id }) : null;
+      return { id, relu: lu?.data?.company?.name ?? null, erreur: cree?.errors?.[0]?.message ?? null };
+    }, nom);
     await page.close();
+    expect(ecrit.relu, `Twenty : société créée puis relue (${ecrit.erreur ?? ''})`).toBe(nom);
     expect(lu?.data?.currentUser?.email?.toLowerCase(), 'Twenty : session au nom du compte').toBe(A.email.toLowerCase());
     expect(lu?.data?.currentWorkspace?.id, 'Twenty : son espace, celui créé par le Hub').toBe(espace);
     ok = true;
-    return `espace ${espace} créé par le Hub, session ${A.email} sur ${a.hote}`;
+    return `espace ${espace} créé par le Hub, session ${A.email} sur ${a.hote}, société ${ecrit.id} écrite et relue`;
   } finally {
     noterArrivee('twenty', ok, a);
     await ctx.close();
