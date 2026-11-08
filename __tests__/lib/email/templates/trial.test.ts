@@ -37,7 +37,7 @@ describe('buildTrialStartedEmail', () => {
     expect(html).toContain('Veridian Mail'); // label notifuse
     expect(html).toMatch(/30 juin 2026/);
     expect(html).toContain('/dashboard/billing');
-    expect(html).toMatch(/Ajouter ma carte/);
+    expect(html).toMatch(/Voir les formules/);
   });
 
   it('falls back to "Veridian <app>" label for unknown app', () => {
@@ -78,13 +78,14 @@ describe('buildTrialExpiredEmail', () => {
     expect(subject).toMatch(/terminé/i);
   });
 
-  it('html includes reactivate CTA + lecture seule message', () => {
+  it('html dit le retour au plan gratuit, sans débit, avec le CTA des formules', () => {
     const { html } = buildTrialExpiredEmail({
       app: 'notifuse',
       trialEndsAt: TRIAL_ENDS_AT,
     });
-    expect(html).toMatch(/lecture seule/i);
-    expect(html).toMatch(/Réactiver/);
+    expect(html).toMatch(/revenu au plan gratuit/i);
+    expect(html).toMatch(/Rien ne vous a été facturé/);
+    expect(html).toMatch(/Voir les formules/);
     expect(html).toContain('/dashboard/billing');
   });
 });
@@ -97,5 +98,37 @@ describe('HTML escape', () => {
     });
     expect(html).not.toContain('<script>alert(1)</script>');
     expect(html).toContain('&lt;script&gt;');
+  });
+});
+
+/**
+ * Garde du 08/11 : les mails et le bandeau annonçaient une lecture seule et un bonus de 30 jours
+ * que rien n'applique, avec des tirets cadratins et du tutoiement. Rien de cela ne doit revenir.
+ */
+import { PHASE_CONTENT } from '@/components/dashboard/FreemiumBanner';
+
+const INTERDITS: Array<[string, RegExp]> = [
+  ['lecture seule (non appliquée)', /lecture seule/i],
+  ['bonus de 30 jours (non codé)', /30 jours (supplémentaires|offerts|inconditionnels)/i],
+  ['tiret cadratin ou demi-cadratin entouré d\'espaces', /\s[—–]\s/],
+  ['tutoiement', /(?<!\p{L})(tu|ton|ta|tes|toi|ajoute)(?!\p{L})/iu],
+];
+
+describe('mails et bandeau d\'essai : aucune promesse non codée', () => {
+  const textes: Array<[string, string]> = [
+    ...[buildTrialStartedEmail, buildTrialEndingSoonEmail, buildTrialExpiredEmail].flatMap((f) => {
+      const { subject, html } = f({ app: 'notifuse', trialEndsAt: TRIAL_ENDS_AT });
+      const texte = html.replace(/<[^>]+>/g, ' ');
+      return [[`${f.name} : objet`, subject], [`${f.name} : corps`, texte]] as Array<[string, string]>;
+    }),
+    ...Object.entries(PHASE_CONTENT).map(([phase, c]) => [`bandeau ${phase}`, `${c.message} ${c.ctaLabel}`] as [string, string]),
+  ];
+  it.each(textes)('%s', (_nom, texte) => {
+    for (const [quoi, re] of INTERDITS) expect(texte, quoi).not.toMatch(re);
+  });
+  it('chaque mail est signé Robert Brunon', () => {
+    for (const f of [buildTrialStartedEmail, buildTrialEndingSoonEmail, buildTrialExpiredEmail]) {
+      expect(f({ app: 'notifuse', trialEndsAt: TRIAL_ENDS_AT }).html).toContain('Robert Brunon');
+    }
   });
 });

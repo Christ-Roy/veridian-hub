@@ -79,6 +79,17 @@ function formatDate(date: Date): string {
 }
 
 /**
+ * Mails de la machine d'essai, réécrits le 08/11 : ils annonçaient une lecture seule et un bonus de
+ * 30 jours que rien n'applique. Ils disent ce qui arrive vraiment : à la fin, retour au plan gratuit,
+ * rien de bloqué, aucun débit. Vouvoiement, aucun tiret cadratin entouré d'espaces, signés Robert.
+ * `__tests__/lib/email/templates/trial.test.ts` échoue si une promesse non codée revient.
+ */
+const SIGNATURE = `
+    <p style="color: #374151; line-height: 1.6; margin: 0 0 16px;">
+      Robert Brunon<br>Veridian
+    </p>`;
+
+/**
  * Email envoyé au moment de l'activation du trial (J+2 après l'atteinte du seuil).
  */
 export function buildTrialStartedEmail(ctx: TrialEmailContext): {
@@ -87,34 +98,30 @@ export function buildTrialStartedEmail(ctx: TrialEmailContext): {
 } {
   const body = `
     <h1 style="font-size: 22px; font-weight: 600; color: #111; margin: 0 0 16px;">
-      Votre essai Pro vient de démarrer
+      Votre essai Pro démarre aujourd'hui
     </h1>
     <p style="color: #374151; line-height: 1.6; margin: 0 0 16px;">
-      Bonne nouvelle : vous êtes activement en train de tirer parti de
-      <strong>${escapeHtml(appLabel(ctx.app))}</strong>, on vous offre donc
-      les <strong>15 prochains jours en plan Pro</strong> — illimité partout,
-      sans rien à faire de plus.
+      Vous utilisez activement <strong>${escapeHtml(appLabel(ctx.app))}</strong> : nous vous offrons les
+      <strong>15 prochains jours en plan Pro</strong>, sans rien à faire de votre côté.
     </p>
     <p style="color: #374151; line-height: 1.6; margin: 0 0 16px;">
-      Le trial expire le <strong>${escapeHtml(formatDate(ctx.trialEndsAt))}</strong>.
-      Si vous ajoutez une carte avant cette date, on vous offre <strong>30 jours
-      supplémentaires inconditionnels</strong> en bonus (même si vous retirez
-      la carte ensuite).
+      Votre essai se termine le <strong>${escapeHtml(formatDate(ctx.trialEndsAt))}</strong>. Ensuite, votre
+      espace revient au plan gratuit : vos données restent en place, rien n'est bloqué et rien ne vous est facturé.
+    </p>
+    <p style="color: #374151; line-height: 1.6; margin: 0 0 16px;">
+      Si vous souhaitez garder le plan Pro après cette date, vous pourrez ajouter une carte depuis votre espace.
     </p>
     <div style="margin: 32px 0;">
       <a href="${appUrl('/dashboard/billing')}"
          style="display: inline-block; background: #111; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 500;">
-        Ajouter ma carte
+        Voir les formules
       </a>
-    </div>
-    <p style="color: #6b7280; line-height: 1.6; margin: 0; font-size: 14px;">
-      Pas envie ? Aucun souci. Pendant ces 15 jours profitez sans pression,
-      on ne facture rien sans carte.
-    </p>
+    </div>${SIGNATURE}
   `;
+
   return {
-    subject: 'Votre essai Pro Veridian vient de démarrer (15 jours)',
-    html: shellWrap('Votre essai Pro Veridian vient de démarrer', body),
+    subject: 'Votre essai Pro Veridian démarre aujourd\'hui (15 jours)',
+    html: shellWrap('Votre essai Pro Veridian démarre aujourd\'hui', body),
   };
 }
 
@@ -127,31 +134,30 @@ export function buildTrialEndingSoonEmail(ctx: TrialEmailContext): {
 } {
   const body = `
     <h1 style="font-size: 22px; font-weight: 600; color: #111; margin: 0 0 16px;">
-      Plus que 3 jours sur votre essai Pro
+      Plus que 3 jours d'essai Pro
     </h1>
     <p style="color: #374151; line-height: 1.6; margin: 0 0 16px;">
-      Votre essai sur <strong>${escapeHtml(appLabel(ctx.app))}</strong> expire le
+      Votre essai Pro sur <strong>${escapeHtml(appLabel(ctx.app))}</strong> se termine le
       <strong>${escapeHtml(formatDate(ctx.trialEndsAt))}</strong>.
     </p>
     <p style="color: #374151; line-height: 1.6; margin: 0 0 16px;">
-      Pour continuer sans interruption, ajoutez votre carte. En bonus, on vous
-      offre <strong>30 jours inconditionnels supplémentaires</strong> à partir
-      du moment où la carte est ajoutée — même si vous la retirez ensuite.
+      À cette date, votre espace revient au plan gratuit. Vos données restent en place, rien n'est bloqué
+      et aucun débit n'a lieu.
+    </p>
+    <p style="color: #374151; line-height: 1.6; margin: 0 0 16px;">
+      Pour garder le plan Pro, vous pouvez ajouter une carte depuis votre espace.
     </p>
     <div style="margin: 32px 0;">
       <a href="${appUrl('/dashboard/billing')}"
          style="display: inline-block; background: #111; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 500;">
-        Ajouter ma carte
+        Garder le plan Pro
       </a>
-    </div>
-    <p style="color: #6b7280; line-height: 1.6; margin: 0; font-size: 14px;">
-      Si vous ne faites rien, votre workspace bascule en mode lecture seule.
-      Vos données restent, vous pouvez réactiver à tout moment.
-    </p>
+    </div>${SIGNATURE}
   `;
+
   return {
-    subject: 'Plus que 3 jours sur votre essai Pro Veridian',
-    html: shellWrap('Plus que 3 jours sur votre essai Pro', body),
+    subject: 'Votre essai Pro Veridian se termine dans 3 jours',
+    html: shellWrap('Votre essai Pro Veridian se termine dans 3 jours', body),
   };
 }
 
@@ -167,26 +173,27 @@ export function buildTrialExpiredEmail(ctx: TrialEmailContext): {
       Votre essai Pro est terminé
     </h1>
     <p style="color: #374151; line-height: 1.6; margin: 0 0 16px;">
-      Votre essai <strong>${escapeHtml(appLabel(ctx.app))}</strong> est arrivé à
-      son terme. Votre workspace bascule en <strong>mode lecture seule</strong> :
-      vos données restent intactes, mais l'envoi / la création de nouveau
-      contenu est en pause.
+      Votre essai Pro sur <strong>${escapeHtml(appLabel(ctx.app))}</strong> est arrivé à son terme : votre
+      espace est revenu au plan gratuit.
     </p>
     <p style="color: #374151; line-height: 1.6; margin: 0 0 16px;">
-      Vous pouvez réactiver le plan Pro à tout moment, on remet votre workspace
-      d'aplomb instantanément.
+      Vos données sont intactes et vous continuez à utiliser ${escapeHtml(appLabel(ctx.app))} comme avant.
+      Rien ne vous a été facturé.
+    </p>
+    <p style="color: #374151; line-height: 1.6; margin: 0 0 16px;">
+      Si vous souhaitez repasser au plan Pro, c'est possible à tout moment depuis votre espace.
     </p>
     <div style="margin: 32px 0;">
       <a href="${appUrl('/dashboard/billing')}"
          style="display: inline-block; background: #111; color: #fff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 500;">
-        Réactiver mon workspace
+        Voir les formules
       </a>
     </div>
-    <p style="color: #6b7280; line-height: 1.6; margin: 0; font-size: 14px;">
-      Merci d'avoir testé Veridian — et n'hésitez pas à nous écrire si vous
-      avez besoin d'un coup de main.
-    </p>
+    <p style="color: #6b7280; line-height: 1.6; margin: 0 0 16px; font-size: 14px;">
+      Une question ? Écrivez-nous à contact@veridian.site.
+    </p>${SIGNATURE}
   `;
+
   return {
     subject: 'Votre essai Pro Veridian est terminé',
     html: shellWrap('Votre essai Pro Veridian est terminé', body),

@@ -36,26 +36,26 @@ interface BannerContent {
   ctaHref: string;
 }
 
-const PHASE_CONTENT: Record<TrialBannerPhase, BannerContent> = {
-  // Phase 4 — trial révélé : ton sobre et positif, pas de deadline en gros.
+export const PHASE_CONTENT: Record<TrialBannerPhase, BannerContent> = {
+  // Textes réécrits le 08/11 : vouvoiement, aucune promesse non codée (ni lecture seule, ni bonus de
+  // 30 jours). À la fin, l'espace revient au plan gratuit, rien n'est bloqué, rien n'est débité.
+  // Phase 4, essai révélé : ton sobre, pas de date en gros.
   active: {
-    message:
-      'Tu es en essai gratuit Pro — accès complet à toutes les fonctionnalités.',
+    message: 'Vous êtes en essai gratuit du plan Pro.',
     ctaLabel: 'Voir les formules',
     ctaHref: '/pricing',
   },
-  // Phase 5 — fin de trial proche : invitation positive, le cadeau 30j
-  // inconditionnel est l'argument (cf doc pricing §"Flow trial complet").
+  // Phase 5, fin d'essai proche.
   ending_soon: {
     message:
-      'Ton essai gratuit touche à sa fin. Ajoute ta carte pour continuer — 30 jours offerts en plus.',
-    ctaLabel: 'Ajouter ma carte',
+      'Votre essai Pro se termine bientôt. Votre espace reviendra ensuite au plan gratuit, sans rien bloquer.',
+    ctaLabel: 'Garder le plan Pro',
     ctaHref: '/dashboard/billing',
   },
-  // Expiration sans CB — paywall lecture seule, CTA "Réactiver".
+  // Essai terminé sans carte : retour au plan gratuit, rien de bloqué.
   expired: {
-    message: 'Ton essai gratuit est terminé.',
-    ctaLabel: 'Réactiver',
+    message: 'Votre essai Pro est terminé : votre espace est revenu au plan gratuit.',
+    ctaLabel: 'Voir les formules',
     ctaHref: '/pricing',
   },
 };

@@ -79,8 +79,9 @@ cas('notifuse', 'le signal d\'activité active l\'essai : eligible sur le tenant
     expect(tick.activated, `tick : ${JSON.stringify(tick).slice(0, 200)}`).toBeGreaterThanOrEqual(1);
     expect(essai('lire', ADRESSE), 'essai actif après le tick').toBe(`${E.tenantId} trial_active`);
     expect((await statutNotifuse(E.tenantId)).plan, 'Notifuse passé en pro par son slug').toBe('pro');
-    const mail = await attendreMail(ADRESSE, 'essai Pro Veridian vient de démarrer', depuis);
-    expect(mail, 'mail « essai démarré »').toContain('15');
+    const mail = await attendreMail(ADRESSE, 'essai Pro Veridian démarre', depuis);
+    expect(mail, 'mail « essai démarré », signé, sans promesse non codée').toContain('Robert Brunon');
+    expect(mail).not.toMatch(/lecture seule|30 jours supplémentaires/i);
     return `signal (slug ${slug}) → eligible sur ${E.tenantId} → tick → trial_active, Notifuse pro, mail reçu`;
   } finally {
     essai('retirer', ADRESSE);

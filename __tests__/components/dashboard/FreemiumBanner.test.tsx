@@ -40,14 +40,14 @@ describe('FreemiumBanner — phase active (trial révélé)', () => {
 });
 
 describe('FreemiumBanner — phase ending_soon', () => {
-  it('invite à ajouter une carte avec un ton positif (30 jours offerts)', () => {
+  it('dit ce qui arrive vraiment : retour au plan gratuit, rien de bloqué', () => {
     render(<FreemiumBanner phase="ending_soon" />);
-    expect(screen.getByText(/30 jours offerts/i)).toBeInTheDocument();
+    expect(screen.getByText(/plan gratuit, sans rien bloquer/i)).toBeInTheDocument();
   });
 
-  it('CTA "Ajouter ma carte" pointe vers le billing', () => {
+  it('CTA "Garder le plan Pro" pointe vers le billing', () => {
     render(<FreemiumBanner phase="ending_soon" />);
-    const cta = screen.getByRole('link', { name: /ajouter ma carte/i });
+    const cta = screen.getByRole('link', { name: /garder le plan pro/i });
     expect(cta).toHaveAttribute('href', '/dashboard/billing');
   });
 });
@@ -55,13 +55,13 @@ describe('FreemiumBanner — phase ending_soon', () => {
 describe('FreemiumBanner — phase expired (paywall)', () => {
   it('indique que l\'essai est terminé', () => {
     render(<FreemiumBanner phase="expired" />);
-    expect(screen.getByText(/essai gratuit est terminé/i)).toBeInTheDocument();
+    expect(screen.getByText(/essai Pro est terminé : votre espace est revenu au plan gratuit/i)).toBeInTheDocument();
   });
 
-  it('a un CTA "Réactiver"', () => {
+  it('a un CTA vers les formules', () => {
     render(<FreemiumBanner phase="expired" />);
     expect(
-      screen.getByRole('link', { name: /réactiver/i }),
+      screen.getByRole('link', { name: /voir les formules/i }),
     ).toBeInTheDocument();
   });
 });
