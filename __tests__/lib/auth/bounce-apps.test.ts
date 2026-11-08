@@ -8,6 +8,7 @@
  *  - 200 sans magic_link_url → BounceError invalid_response
  *  - 200 avec host non-veridian.site → invalid_response (anti compromise app)
  *  - 400 user_not_in_app → BounceError(user_not_in_app)
+ *  - 400 hub_user_conflict → BounceError(hub_user_conflict)
  *  - 400 autre → BounceError(unreachable)
  *  - 401/403 (HMAC mismatch) → unreachable
  *  - 404/405/501 (endpoint pas implémenté) → unreachable
@@ -204,6 +205,18 @@ describe('issueMagicLinkForApp — erreurs business', () => {
         { env: makeEnv(), fetchImpl: fetchMock as never },
       ),
     ).rejects.toMatchObject({ code: 'user_not_in_app', httpStatus: 400 });
+  });
+
+  it('400 hub_user_conflict → BounceError(hub_user_conflict), pas un incident réseau', async () => {
+    const fetchMock = vi.fn(async () =>
+      new Response(JSON.stringify({ error: 'hub_user_conflict' }), { status: 400 }),
+    );
+    await expect(
+      issueMagicLinkForApp(
+        { app: 'notifuse', hubUserId: 'u', email: 'a@b.c' },
+        { env: makeEnv(), fetchImpl: fetchMock as never },
+      ),
+    ).rejects.toMatchObject({ code: 'hub_user_conflict', httpStatus: 400 });
   });
 
   it('400 autre erreur → BounceError(unreachable)', async () => {

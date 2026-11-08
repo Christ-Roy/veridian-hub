@@ -40,7 +40,8 @@ done
 # Pas de mesure pendant un déploiement du Hub : deux versions servent en même temps, un échec n'y
 # dirait rien de la version testée. On attend la fin (même délai que ci-dessus), sinon NON ABOUTI.
 # Nomad illisible = non vérifiable, donc non abouti (SSO_SANS_NOMAD=1 pour jouer hors du bastion).
-if [ "${SSO_SANS_NOMAD:-}" != 1 ] && [ -z "${HUB_URL:-}" ]; then
+# Exception : `SSO_PENDANT_DEPLOIEMENT=1` joue le cas 10 (inscription pendant le déploiement) exprès.
+if [ "${SSO_SANS_NOMAD:-}" != 1 ] && [ -z "${HUB_URL:-}" ] && [ "${SSO_PENDANT_DEPLOIEMENT:-}" != 1 ]; then
   until ETAT="$(nomad job deployments -t '{{range .}}{{.Status}}{{"\n"}}{{end}}' hub 2>/dev/null | head -1)" && [ -n "$ETAT" ] && [ "$ETAT" != running ]; do
     if [ "$(date +%s)" -ge "$FIN" ]; then
       [ -n "$ETAT" ] && QUOI="un déploiement du Hub est en cours" || QUOI="les déploiements du Hub sont illisibles dans Nomad"

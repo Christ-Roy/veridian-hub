@@ -66,8 +66,9 @@ Les trois niveaux de preuve :
   connexion sur un compte non prouvé annule le mot de passe préexistant et coupe les sessions déjà émises.
 - **Preuve** : `__tests__/lib/auth/sign-in-callback.test.ts` (scénarios C, D, E, F « REFUSE (D1) ») ;
   `__tests__/lib/auth/email-proof.test.ts` (OAuth prouvé annule le mot de passe).
-- **État** : PROUVÉ en test. NON PROUVÉ de bout en bout (pas de scénario Google dans la batterie : Google refuse
-  les navigateurs automatisés). **Microsoft : fournisseur inactif en prod** (pas de `MICROSOFT_OAUTH_CLIENT_ID`).
+- **État** : PROUVÉ en test. Batterie (`10-creation`) : le Hub envoie chez Google et Microsoft avec son adresse
+  de retour, et le fournisseur l'accepte (`SSO_SABOTAGE=oauth-retour` doit échouer). NON ABOUTI de bout en bout :
+  le consentement demande un humain. **Microsoft : fournisseur inactif en prod** (pas de `MICROSOFT_OAUTH_CLIENT_ID`).
   À l'activer : poser la revendication `xms_edov` dans l'inscription d'application Entra, sinon plus aucune
   liaison Microsoft ne passe (c'est voulu).
 
@@ -119,6 +120,19 @@ Les trois niveaux de preuve :
 - **État** : PROUVÉ pour Notifuse, Prospection, Analytics. **Twenty : prouvé sur son staging seulement**
   (`HUB_URL=https://hub.staging.veridian.site`), pas en prod. Le côté app du contrat (cookie d'essai unique,
   cookie de déconnexion explicite) n'est pas relu par ce dépôt : voir le contrat de chaque app, `CONTRAT-HUB.md` §6bis.8.0.
+
+## Adresse différente de l'app, plusieurs comptes Hub
+
+- **Voit** : un compte d'app relié par `hub_user_id` s'ouvre quelle que soit l'adresse au Hub. Une app qui ne
+  connaît pas le compte : page « Pas encore d'accès » qui nomme l'adresse de la session. Un second compte Hub de la
+  même personne : « Accès rattaché à un autre compte ». Les deux proposent de changer de compte et le support.
+- **Protège** : l'app joint par `hub_user_id`, puis par l'adresse prouvée ; un compte d'app ne change jamais de
+  compte Hub (le premier relié le garde). Chaque refus : ligne `[bounce][refus]` (app, code, hub_user_id).
+- **Preuve** : `__tests__/api/auth/bounce/complete.test.ts` (refus expliqué, journal sans l'adresse),
+  `bounce-apps.test.ts` (`hub_user_conflict`) ; `e2e/systeme-sso/09-adresses.spec.ts` (le cas de Robert du 08/11,
+  `SSO_SABOTAGE=adresse-liee|conflit|inconnu`).
+- **État** : PROUVÉ pour Analytics. Relier un compte d'app à une autre adresse se fait à la main (08/11 : le compte
+  Rybbit de Robert relié à son compte Hub veridian.site). Regrouper des comptes Hub : décision humaine.
 
 ## Déconnexion
 

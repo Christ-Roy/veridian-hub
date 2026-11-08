@@ -16,8 +16,8 @@
  *     cookie, redirect 302 vers le magic link reçu.
  *  4. Gestion erreurs :
  *     - cookie absent / invalide → `/dashboard`
- *     - 400 user_not_in_app → `/dashboard?app=<app>&hint=signup`
- *     - 5xx / timeout / not_configured → `/auth/bounce/error?app=...&code=...`
+ *     - tout refus → `/auth/bounce/error?app=...&code=...`, qui l'explique, et une ligne
+ *       `[bounce][refus]` (app, code, hub_user_id). Plus jamais de retour muet au tableau de bord.
  *
  * Pourquoi un Route Handler et pas un Server Component : Next.js 15 interdit
  * `cookies().set()`/`.delete()` dans un Server Component. On a besoin de
@@ -36,6 +36,7 @@ import {
   NEXT_COOKIE_NAME_INSECURE,
 } from '@/lib/auth/bounce-next';
 import { issueMagicLinkForApp, BounceError } from '@/lib/auth/bounce-apps';
+import { journaliserRefus } from '@/lib/auth/bounce-refus';
 import { isEmailProvenInDb } from '@/lib/auth/email-proof-provider';
 import { getHubBaseUrl } from '@/lib/mail/oauth-cookies';
 import { prisma } from '@/lib/prisma';
@@ -109,6 +110,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // et le tableau de bord explique la suite.
   const denied = await denyUnlessEmailProven(user);
   if (denied) {
+    journaliserRefus({ app: parsed.app, code: 'email_not_proven', hubUserId: user.supabaseUserId ?? null });
     return wipeCookies(NextResponse.redirect(new URL('/dashboard', baseUrl)));
   }
 
@@ -124,43 +126,28 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     });
     return wipeCookies(NextResponse.redirect(magicLinkUrl));
   } catch (err) {
-    if (err instanceof BounceError) {
-      if (err.code === 'user_not_in_app') {
-        const url = new URL('/dashboard', baseUrl);
-        url.searchParams.set('app', parsed.app);
-        url.searchParams.set('hint', 'signup');
-        return wipeCookies(NextResponse.redirect(url));
-      }
+    const code = err instanceof BounceError ? err.code : 'unexpected';
+    journaliserRefus({
+      app: parsed.app,
+      code,
+      hubUserId: user.supabaseUserId ?? null,
+      httpStatus: err instanceof BounceError ? err.httpStatus : undefined,
+    });
+    if (!(err instanceof BounceError)) {
       console.error(
         JSON.stringify({
           tag: '[bounce][critical]',
           level: 'error',
-          msg: 'complete: bounce failed',
+          msg: 'complete: unexpected error',
           app: parsed.app,
-          code: err.code,
-          http_status: err.httpStatus,
-          error_message: err.message,
+          error: err instanceof Error ? err.message : String(err),
           ts: new Date().toISOString(),
         })
       );
-      const url = new URL('/auth/bounce/error', baseUrl);
-      url.searchParams.set('app', parsed.app);
-      url.searchParams.set('code', err.code);
-      return wipeCookies(NextResponse.redirect(url));
     }
-    console.error(
-      JSON.stringify({
-        tag: '[bounce][critical]',
-        level: 'error',
-        msg: 'complete: unexpected error',
-        app: parsed.app,
-        error: err instanceof Error ? err.message : String(err),
-        ts: new Date().toISOString(),
-      })
-    );
     const url = new URL('/auth/bounce/error', baseUrl);
     url.searchParams.set('app', parsed.app);
-    url.searchParams.set('code', 'unexpected');
+    url.searchParams.set('code', code);
     return wipeCookies(NextResponse.redirect(url));
   }
 }

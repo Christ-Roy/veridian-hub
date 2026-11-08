@@ -45,6 +45,8 @@ Le classement est dans `lib/cibles.ts` (`SERVI`) : seule une image listée dans 
 | `06-reconcile` | aucune dérive nouvelle, et aucun de nos comptes cité par l'audit d'identité |
 | `07-isolation` | A ne voit rien de B ni d'un autre tenant (B = présence qui rend l'absence probante) |
 | `08-session-longue` | par app : session Hub ouverte, absente, expirée (témoin non expiré à côté) ; cookie d'un an ; iframe ; anti-boucle et rebonds rapprochés ; clic sur Se déconnecter avec session Hub ouverte ; déconnexion partout et compte supprimé, cookie rejoué compris. Twenty : `HUB_URL=https://hub.staging.veridian.site`. Épreuve : `SSO_SABOTAGE=ouverte\|absente\|expiree\|logout\|partout\|supprime` doit faire échouer le scénario |
+| `09-adresses` | adresse au Hub différente de celle de l'app (le cas de Robert, 08/11) : compte relié → arrivée dans son compte de l'app ; une personne à deux comptes Hub → le second lit « rattaché à un autre compte », le premier entre toujours ; compte inconnu de l'app → « pas encore d'accès » avec son adresse. Jamais un refus muet. Épreuve : `SSO_SABOTAGE=adresse-liee\|conflit\|inconnu` |
+| `10-creation` | OAuth Google et Microsoft : le Hub envoie chez le fournisseur avec son adresse de retour, acceptée (`SSO_SABOTAGE=oauth-retour` doit échouer) ; création au retour NON ABOUTIE (consentement humain), prouvée au niveau contrat. Inscription pendant un déploiement : `SSO_PENDANT_DEPLOIEMENT=1 bash scripts/test-systeme-sso.sh 10-` juste après un push, sinon NON ABOUTI |
 | `99-nettoyage` | retrait app par app, puis `testResidue` de `hub reconcile` à zéro ; le teardown refait ce contrôle après un échec et la commande échoue s'il reste quelque chose |
 
 ## Comptes de test

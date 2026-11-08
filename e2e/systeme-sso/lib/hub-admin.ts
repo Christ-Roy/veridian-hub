@@ -152,12 +152,12 @@ export const supprimerNotifuse = (tenantId: string) =>
 const SCRIPT_RYBBIT =
   process.env.RYBBIT_COMPTE_E2E || path.join(os.homedir(), '.claude/skills/rybbit/scripts/compte-e2e-rybbit.sh');
 
-export function rybbitCompte(action: 'creer' | 'supprimer', email: string) {
+export function rybbitCompte(action: 'creer' | 'supprimer' | 'lier', email: string, hubUserId?: string) {
   if (!existsSync(SCRIPT_RYBBIT)) {
     throw new NonAbouti(`script de compte Rybbit introuvable (${SCRIPT_RYBBIT}, ou RYBBIT_COMPTE_E2E)`);
   }
   try {
-    execFileSync(SCRIPT_RYBBIT, [action, email], { encoding: 'utf8', timeout: 90_000, stdio: ['ignore', 'pipe', 'pipe'] });
+    execFileSync(SCRIPT_RYBBIT, hubUserId ? [action, email, hubUserId] : [action, email], { encoding: 'utf8', timeout: 90_000, stdio: ['ignore', 'pipe', 'pipe'] });
   } catch (e) {
     const err = e as { status?: number; stderr?: string };
     throw new NonAbouti(`compte Rybbit ${action} ${email} : sortie ${err.status} ${String(err.stderr ?? '').slice(0, 160)}`);

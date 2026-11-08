@@ -42,6 +42,8 @@ const DEFAULT_TIMEOUT_MS = 10_000;
  *                 pas encore côté apps — pendant la phase de rollout).
  * `user_not_in_app` : 400 propre — l'user a un compte Hub mais pas dans cette
  *                     app. Le Hub redirige vers `/dashboard?app=<app>&hint=signup`.
+ * `hub_user_conflict` : 400 propre — le compte de l'app est déjà relié à un AUTRE compte Hub
+ *                       (une personne qui a plusieurs comptes Hub). Défini, jamais deviné.
  * `invalid_response` : réponse 200 mais sans `magic_link_url` parseable.
  * `not_configured` : ENV var manquante côté Hub (URL ou secret) — l'app n'est
  *                    pas câblée.
@@ -49,6 +51,7 @@ const DEFAULT_TIMEOUT_MS = 10_000;
 export type BounceErrorCode =
   | 'unreachable'
   | 'user_not_in_app'
+  | 'hub_user_conflict'
   | 'invalid_response'
   | 'not_configured';
 
@@ -262,6 +265,13 @@ export async function issueMagicLinkForApp(
       throw new BounceError(
         'user_not_in_app',
         `bounce: ${input.app} reports user_not_in_app for ${input.email}`,
+        400,
+      );
+    }
+    if (errCode === 'hub_user_conflict') {
+      throw new BounceError(
+        'hub_user_conflict',
+        `bounce: ${input.app} account already linked to another hub_user_id`,
         400,
       );
     }

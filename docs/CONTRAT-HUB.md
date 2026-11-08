@@ -2552,10 +2552,17 @@ externalise tout au Hub.
    - App cible inatteignable / 5xx → page d'erreur Hub
      « Impossible de revenir sur <app> » avec CTA « Retour
      veridian.site » (pas de loop).
-   - App répond `400 user_not_in_app` → Hub redirige vers
-     `app.veridian.site/dashboard?app=<app>&hint=signup` (l'user a un
-     compte Hub mais pas encore ce produit → flow start-app standard
-     §5.1).
+   - App répond `400 user_not_in_app` ou `400 hub_user_conflict` → page
+     Hub `/auth/bounce/error?app=<app>&code=<code>` qui l'explique avec
+     l'adresse de la session (« pas encore d'accès », « accès rattaché à
+     un autre compte »), « me connecter avec une autre adresse » et le
+     support. Jamais de retour muet au tableau de bord (08/11).
+   - Tout refus laisse au Hub une ligne `[bounce][refus]` : app, code,
+     hub_user_id, statut HTTP ; jamais l'adresse.
+   - **Plusieurs comptes Hub pour une personne** : un compte d'app
+     n'appartient qu'au premier compte Hub relié (`hub_user_id`) ; les
+     autres reçoivent `hub_user_conflict`. Regrouper des comptes Hub est
+     une décision humaine (fusion irréversible).
 
 #### 6bis.8.3 Côté apps downstream — endpoint contrat OBLIGATOIRE
 

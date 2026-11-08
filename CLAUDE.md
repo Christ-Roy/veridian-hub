@@ -32,24 +32,19 @@ Prospection). CRM (Twenty) : espace créé par `app-access --app twenty`, entré
 ```
 hub/
 ├── app/                    # Pages (auth, marketing, dashboard, admin, api)
-│   ├── (auth)/             # signup, login, reset, mfa, verify
-│   ├── (marketing)/        # pricing, root
-│   ├── dashboard/          # workspace, billing, settings, admin, members
-│   ├── invite/[token]/     # acceptation invitation workspace
+│   ├── (auth)/ (marketing)/ dashboard/ invite/[token]/
 │   └── api/                # routes API, webhooks Stripe + Notifuse
 ├── auth.ts                 # Auth.js v5 config (providers + callbacks + MFA)
 ├── auth.config.ts          # Config edge-safe (middleware)
 ├── middleware.ts           # NextAuth middleware
 ├── components/             # React components
-├── contexts/EnvContext.tsx # Runtime ENV injection (window.__ENV__)
 ├── lib/
 │   ├── auth/               # getCurrentUser, requireUser, userUuid helpers
 │   ├── admin/              # check-admin, is-platform-admin
 │   ├── prisma/             # Prisma client singleton lazy proxy
 │   ├── notifuse/           # NotifuseClient (Hub → Notifuse fork API)
 │   ├── stripe/             # Stripe SDK + plans
-│   ├── mfa/                # MFA email codes (crypto-sûrs, bcrypt, TTL 10min)
-│   └── email/templates/    # Templates HTML inline (Brevo)
+│   └── mfa/ email/templates/
 ├── prisma/
 │   ├── schema.prisma       # 15 modèles (User, Workspace, Tenant, Subscription...)
 │   └── migrations/         # Migrations Prisma
@@ -92,8 +87,9 @@ Outil admin : `hub` (`hub doctor` d'abord : santé, secret, auth admin). Aucune 
 - **Un client ne peut plus se connecter** : `hub tenant <email>` (adresse prouvée ? apps liées ?), `hub audit --since <date>`.
   Adresse non prouvée : aucun lien d'app, `hub invite <email>` renouvelle l'accès (`--no-email` : lien seul). Voir sa vue : `hub open <email>`.
 - **Un rebond échoue** : `/auth/bounce/error?code=` dit pourquoi (`not_configured` : variable `<APP>_API_URL` ou
-  `<APP>_HUB_API_SECRET` absente du job ; `unreachable` : l'app). `nomad-v logs hub` (tag `[bounce]`). 3 rebonds
-  rapides sur une app : l'anti-boucle est normal, 30 s d'attente.
+  `<APP>_HUB_API_SECRET` absente du job ; `unreachable` : l'app ; `user_not_in_app` : l'app ne connaît pas ce compte,
+  souvent une autre adresse ; `hub_user_conflict` : compte d'app relié à un autre compte Hub). Chaque refus : ligne
+  `[bounce][refus]` (app, code, hub_user_id) dans `nomad-v logs hub`. 3 rebonds rapides : anti-boucle, 30 s.
 - **Le Hub est en 502** : `nomad-v state`, `nomad-v allocs hub`. Après un **reboot de nœud**, le réseau CNI n'est pas
   reconstruit : `nomad-v run hub` ne répare rien et `hub-selfheal` non plus. Runbook :
   `~/.claude/skills/nomad/reference/cluster-ops.md`, section « Piège CNI orphelin » (`nomad-v raw job restart -reschedule -yes hub`,
