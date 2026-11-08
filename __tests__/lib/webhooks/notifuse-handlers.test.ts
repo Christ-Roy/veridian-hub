@@ -20,11 +20,15 @@ const applyOwnerChangedMock = vi.fn();
 const applyQuotaExceededMock = vi.fn();
 const applyMemberEventMock = vi.fn();
 const ingestProspectEventMock = vi.fn();
+const tenantFindFirstMock = vi.fn(async (): Promise<unknown> => null);
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     tenantTrial: {
       upsert: (...args: unknown[]) => upsertMock(...args),
+    },
+    tenant: {
+      findFirst: (...args: unknown[]) => tenantFindFirstMock(...args),
     },
   },
 }));
@@ -56,6 +60,22 @@ beforeEach(() => {
 });
 
 describe('v14Handlers.tenant.activity_threshold_reached', () => {
+  it('le slug Notifuse est ramené à l\'id du tenant Hub (la machine d\'états et reconcile lisent cet id)', async () => {
+    upsertMock.mockResolvedValue({});
+    tenantFindFirstMock.mockResolvedValueOnce({ id: '359b76d5-bab7-4773-a889-cf4cf0248869' });
+    const { v14Handlers } = await import('@/lib/webhooks/notifuse-handlers');
+    await v14Handlers['tenant.activity_threshold_reached']({
+      event: 'tenant.activity_threshold_reached',
+      tenant_id: 'robertbrunon',
+      data: { emails_sent_lifetime: 5, threshold: 5 },
+      idempotency_key: '00000000-0000-4000-8000-000000000009',
+      occurred_at: '2026-11-08T09:00:01.000Z',
+    });
+    const where = (tenantFindFirstMock.mock.calls[0] as unknown as [{ where: { OR: unknown[] } }])[0].where;
+    expect(where.OR).toEqual(expect.arrayContaining([{ notifuseWorkspaceSlug: 'robertbrunon' }]));
+    expect(upsertMock.mock.calls[0][0].create.tenantId).toBe('359b76d5-bab7-4773-a889-cf4cf0248869');
+  });
+
   it('upserts trial row with state=eligible + eligible_at=NOW on first signal', async () => {
     upsertMock.mockResolvedValue({});
 

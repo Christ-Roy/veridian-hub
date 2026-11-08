@@ -544,6 +544,7 @@ describe('plan et statut d\'essai, app par app (Robert, 08/11 : « toujours savo
     expect(vide.some((l) => l.startsWith('notifuse : statut d\'essai non rendu'))).toBe(true);
     expect(vide.some((l) => l.startsWith('analytics'))).toBe(false);
     expect(vide.some((l) => l.startsWith('essai : aucun tenant'))).toBe(true);
+    expect(vide.some((l) => l.startsWith('cms : hors périmètre (PRICING)'))).toBe(true);
     const nourrie = await measureNotWired({ tenantTrial: { count: async () => 4 } } as never, new Map());
     expect(nourrie.some((l) => l.startsWith('essai : aucun tenant'))).toBe(false);
   });

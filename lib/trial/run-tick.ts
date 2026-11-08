@@ -236,6 +236,7 @@ async function processActivations(
   // Batch resolve owner emails (1 fois pour tout le batch).
   const tenantIds = rows.map((r) => r.tenant_id);
   const emailMap = await resolveOwnerEmailBatch(tenantIds);
+  const refs = await resolveTenantRefs(tenantIds);
 
   for (const row of rows) {
     try {
@@ -253,7 +254,7 @@ async function processActivations(
         },
       });
 
-      await callUpdatePlan(notifuseClient, row.app, row.tenant_id, 'pro');
+      await callUpdatePlan(notifuseClient, row.app, row.tenant_id, 'pro', refs);
 
       const ownerEmail = emailMap.get(row.tenant_id) ?? null;
       if (ownerEmail) {
@@ -335,9 +336,10 @@ async function processEndingSoon(
   //   `trial_active` alors que le user paie déjà, on NE veut PAS lui envoyer
   //   "ton essai expire dans 3j". On batch-resolve les subs actives ici et
   //   on skip + auto-corrige à `converted` les rows qui ont une sub.
-  const [emailMap, subMap] = await Promise.all([
+  const [emailMap, subMap, refs] = await Promise.all([
     resolveOwnerEmailBatch(tenantIds),
     hasActiveStripeSubBatch(tenantIds),
+    resolveTenantRefs(tenantIds),
   ]);
 
   for (const row of rows) {
@@ -431,9 +433,10 @@ async function processFinalize(
 
   // Batch resolve : 1 appel pour les emails, 1 appel pour les subs Stripe.
   const tenantIds = rows.map((r) => r.tenant_id);
-  const [emailMap, subMap] = await Promise.all([
+  const [emailMap, subMap, refs] = await Promise.all([
     resolveOwnerEmailBatch(tenantIds),
     hasActiveStripeSubBatch(tenantIds),
+    resolveTenantRefs(tenantIds),
   ]);
 
   for (const row of rows) {
@@ -461,7 +464,7 @@ async function processFinalize(
         data: { state: 'expired', expiredAt: now, updatedAt: now },
       });
 
-      await callUpdatePlan(notifuseClient, row.app, row.tenant_id, 'free');
+      await callUpdatePlan(notifuseClient, row.app, row.tenant_id, 'free', refs);
 
       const ownerEmail = emailMap.get(row.tenant_id) ?? null;
       if (ownerEmail) {
@@ -512,16 +515,21 @@ function resolveNotifuseClient(): NotifuseClient {
 async function callUpdatePlan(
   notifuseClient: NotifuseClient,
   app: string,
-  tenantId: string,
+  tenantIdLu: string,
   plan: NotifusePlan,
+  refs: Map<string, TenantRef> = new Map(),
 ): Promise<void> {
+  // Une ligne porte l'id Hub (depuis le 08/11) ou, ancienne, le slug Notifuse : `refs` donne les deux.
+  const ref = refs.get(tenantIdLu);
+  const tenantId = ref?.hubTenantId ?? tenantIdLu;
   if (app === 'notifuse') {
     // Statut illisible : la transition passe quand même (Notifuse reçoit le plan, sans le statut).
     const trial = await trialStatusForTenant(prisma, tenantId).catch((err: unknown) => {
       console.error(`[cron-trial-tick] statut d'essai illisible tenant=${tenantId}:`, err);
       return undefined;
     });
-    await notifuseClient.updatePlan({ tenantId, plan, ...(trial ? { trial } : {}) });
+    // Notifuse connaît son espace par son slug, jamais par l'id du tenant Hub.
+    await notifuseClient.updatePlan({ tenantId: ref?.notifuseSlug ?? tenantIdLu, plan, ...(trial ? { trial } : {}) });
     await suivreAnalyticsEtCrm(tenantId, plan).catch((err: unknown) =>
       console.error(`[cron-trial-tick] analytics/crm tenant=${tenantId}:`, err),
     );
@@ -706,4 +714,36 @@ async function defaultBatchResolveHasActiveSub(
   }
 
   return result;
+}
+
+type TenantRef = { hubTenantId: string; notifuseSlug: string | null };
+
+/**
+ * Id Hub et slug Notifuse de chaque identifiant de ligne, en une requête pour le lot (pas de N+1).
+ * Une erreur de lecture n'arrête pas la transition : la ligne garde son identifiant tel quel.
+ */
+async function resolveTenantRefs(ids: string[]): Promise<Map<string, TenantRef>> {
+  const out = new Map<string, TenantRef>();
+  const uniques = Array.from(new Set(ids));
+  const uuids = uniques.filter(isUuid);
+  const autres = uniques.filter((id) => !isUuid(id));
+  const or: Prisma.TenantWhereInput[] = [];
+  if (uuids.length) or.push({ id: { in: uuids } });
+  if (autres.length) or.push({ notifuseWorkspaceSlug: { in: autres } }, { slug: { in: autres } });
+  if (!or.length) return out;
+  try {
+    const tenants = await prisma.tenant.findMany({
+      where: { OR: or },
+      select: { id: true, slug: true, notifuseWorkspaceSlug: true },
+    });
+    for (const t of tenants ?? []) {
+      const ref = { hubTenantId: t.id, notifuseSlug: t.notifuseWorkspaceSlug };
+      out.set(t.id, ref);
+      if (t.slug) out.set(t.slug, ref);
+      if (t.notifuseWorkspaceSlug) out.set(t.notifuseWorkspaceSlug, ref);
+    }
+  } catch (err) {
+    console.error('[cron-trial-tick] résolution des tenants impossible :', err);
+  }
+  return out;
 }

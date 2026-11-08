@@ -491,7 +491,8 @@ export async function measureNotWired(
       "essai : aucun tenant n'est jamais entré dans la machine d'états (tenant_trials vide) : le signal d'activité de Notifuse (tenant.activity_threshold_reached) n'arrive pas au Hub",
     );
   }
-  out.push('cms : ni update-plan ni découverte (plan et statut d\'essai non transmis), constaté le 08/11');
+  // Hors périmètre, pas un trou : le CMS a son propre pricing (PRICING-VERIDIAN, « Autres apps »).
+  out.push('cms : hors périmètre (PRICING) : pricing géré à part (B2B service Robert), ni plan ni statut d\'essai transmis');
   out.push("lecture seule à l'expiration : appliquée par aucune app, drapeau coupé par défaut (décision de Robert)");
   return out;
 }

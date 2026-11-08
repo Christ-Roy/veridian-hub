@@ -410,8 +410,9 @@ export async function manageSubscriptionStatusChange(
       }
       const safePlan: NotifusePlan = targetNotifuse;
       try {
+        // Notifuse connaît son espace par son slug, jamais par l'id du tenant Hub (`hub plan` fait pareil).
         await client.updatePlan({
-          tenantId: tenant.id,
+          tenantId: tenant.notifuseWorkspaceSlug,
           plan: safePlan,
           trial,
         });

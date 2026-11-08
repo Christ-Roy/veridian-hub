@@ -607,7 +607,8 @@ describe('runTrialTick — batch resolvers (N+1 fix)', () => {
     //   - 1 seul tenant.findMany (au lieu de 50 tenant.findFirst)
     //   - 1 seul user.findMany (au lieu de 25 user.findFirst)
     //   - 0 tenant.findFirst (le helper legacy n'est plus appelé)
-    expect(tenantFindManyMock).toHaveBeenCalledTimes(1);
+    //   - +1 tenant.findMany pour le lot : id Hub et slug Notifuse (08/11), constant, jamais par ligne
+    expect(tenantFindManyMock).toHaveBeenCalledTimes(2);
     expect(userFindManyMock).toHaveBeenCalledTimes(1);
     expect(tenantFindFirstMock).not.toHaveBeenCalled();
     expect(userFindFirstMock).not.toHaveBeenCalled();
@@ -683,9 +684,9 @@ describe('runTrialTick — batch resolvers (N+1 fix)', () => {
     expect(summary.expired).toBe(20);
     expect(summary.errors).toEqual([]);
 
-    // GAIN PERF : 2 tenant.findMany (1 pour emails, 1 pour subs) au lieu
+    // GAIN PERF : 3 tenant.findMany (emails, subs, id Hub et slug Notifuse) au lieu
     // de 30 × 2 = 60 tenant.findFirst.
-    expect(tenantFindManyMock).toHaveBeenCalledTimes(2);
+    expect(tenantFindManyMock).toHaveBeenCalledTimes(3);
     // 1 seul subscription.findMany au lieu de 30 subscription.findFirst.
     expect(subscriptionFindManyMock).toHaveBeenCalledTimes(1);
     expect(subscriptionFindFirstMock).not.toHaveBeenCalled();
@@ -751,8 +752,8 @@ describe('runTrialTick — batch resolvers (N+1 fix)', () => {
     expect(summary.activated).toBe(3);
     expect(summary.errors).toEqual([]);
 
-    // 1 seul tenant.findMany pour la phase activate.
-    expect(tenantFindManyMock).toHaveBeenCalledTimes(1);
+    // Phase activate : 1 tenant.findMany pour les emails, 1 pour id Hub et slug Notifuse, jamais par ligne.
+    expect(tenantFindManyMock).toHaveBeenCalledTimes(2);
 
     // VRAIE vérif dédup : la liste passée dans le WHERE IN ne doit pas
     // contenir 'shared_tenant' deux fois.
@@ -778,5 +779,28 @@ describe('runTrialTick — batch resolvers (N+1 fix)', () => {
 
     // 3 emails envoyés (2 pour shared via les 2 apps, 1 pour other).
     expect(sendEmailMock).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('runTrialTick — Notifuse reçoit son slug, la ligne porte l\'id du tenant Hub (08/11)', () => {
+  it('activation : updatePlan vers le slug Notifuse, pas vers l\'id Hub', async () => {
+    const HUB = '359b76d5-bab7-4773-a889-cf4cf0248869';
+    queryRawMock.mockResolvedValueOnce([
+      { tenant_id: HUB, app: 'notifuse', state: 'eligible', eligible_at: new Date(NOW.getTime() - 49 * 3600_000), trial_started_at: null, trial_ends_at: null, ending_soon_notified: false },
+    ]);
+    queryRawMock.mockResolvedValue([]);
+    tenantTrialUpdateMock.mockResolvedValue({});
+    tenantFindManyMock.mockResolvedValue([{ id: HUB, slug: 'robertbrunon', notifuseWorkspaceSlug: 'robertbrunon', userId: 'u', notifuseUserEmail: 'o@x.fr' }]);
+    const updatePlanMock = vi.fn().mockResolvedValue(undefined);
+    const { runTrialTick } = await import('@/lib/trial/run-tick');
+    const summary = await runTrialTick({
+      notifuseClient: { updatePlan: updatePlanMock } as never,
+      sendEmail: vi.fn().mockResolvedValue(undefined),
+      notifyTelegram: vi.fn().mockResolvedValue(true),
+      hasActiveStripeSubForTenant: vi.fn().mockResolvedValue(false),
+      now: NOW,
+    });
+    expect(summary.activated).toBe(1);
+    expect(updatePlanMock).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'robertbrunon', plan: 'pro' }));
   });
 });

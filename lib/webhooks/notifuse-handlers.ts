@@ -172,13 +172,20 @@ export const v14Handlers: HandlerTable = {
     // PK composite (tenant_id, app) garantit qu'un user qui re-déclenche
     // le signal après un trial expiré ne ré-ouvre PAS un nouveau trial
     // (1 trial par tenant lifetime, décision figée Robert 2026-05-21).
+    // Notifuse ne connaît que le slug de son espace (provisionné par le Hub avec `tenantId = slug`) :
+    // la machine d'états, le statut d'essai et reconcile raisonnent en id du tenant Hub (08/11).
     const now = new Date();
+    const hubTenantId = await resolveHubTenantId(payload.tenant_id);
+    if (!hubTenantId) {
+      console.warn('[webhook:notifuse] tenant.activity_threshold_reached : tenant inconnu du Hub', payload.tenant_id);
+    }
+    const tenantId = hubTenantId ?? payload.tenant_id;
     await prisma.tenantTrial.upsert({
       where: {
-        tenantId_app: { tenantId: payload.tenant_id, app: 'notifuse' },
+        tenantId_app: { tenantId, app: 'notifuse' },
       },
       create: {
-        tenantId: payload.tenant_id,
+        tenantId,
         app: 'notifuse',
         state: 'eligible',
         eligibleAt: now,
@@ -193,6 +200,7 @@ export const v14Handlers: HandlerTable = {
     console.info(
       '[webhook:notifuse] tenant.activity_threshold_reached',
       payload.tenant_id,
+      tenantId,
       'trial.eligible',
     );
   },
@@ -271,3 +279,20 @@ export const v14Handlers: HandlerTable = {
     });
   },
 };
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** L'id du tenant Hub derrière un identifiant de Notifuse : slug de son espace, slug du tenant, ou l'id. */
+export async function resolveHubTenantId(notifuseTenantId: string): Promise<string | null> {
+  const tenant = await prisma.tenant.findFirst({
+    where: {
+      OR: [
+        ...(UUID_RE.test(notifuseTenantId) ? [{ id: notifuseTenantId }] : []),
+        { notifuseWorkspaceSlug: notifuseTenantId },
+        { slug: notifuseTenantId },
+      ],
+    },
+    select: { id: true },
+  });
+  return tenant?.id ?? null;
+}
