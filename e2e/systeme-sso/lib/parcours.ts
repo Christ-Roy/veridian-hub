@@ -196,8 +196,9 @@ export async function creerCompteProuve(browser: Browser, etiquette: string): Pr
  * Compte NON PROUVÉ : inscription publique (mot de passe posé, adresse jamais confirmée).
  * C'est le scénario d'attaque : quelqu'un s'inscrit au nom d'une adresse qui n'est pas la sienne.
  */
-export async function creerCompteNonProuve(browser: Browser, etiquette: string): Promise<Compte> {
-  const email = `${PREFIXE_COMPTE}${ID_RUN}-${etiquette}@${DOMAINE_COMPTE}`;
+export async function creerCompteNonProuve(browser: Browser, etiquette: string, adresse?: string): Promise<Compte> {
+  // `adresse` : une adresse de test fixe qui a une vraie boîte (cas 11, lien de preuve lu dans le mail).
+  const email = adresse ?? `${PREFIXE_COMPTE}${ID_RUN}-${etiquette}@${DOMAINE_COMPTE}`;
   const motDePasse = nouveauMdp();
   noter(email);
   const ctx = await browser.newContext();

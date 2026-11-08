@@ -17,8 +17,26 @@ describe('compareIdentities', () => {
     );
     expect(r.localAccounts).toBe(4);
     expect(r.withoutHub).toEqual(['seul@x.fr', 'perdu@x.fr']);
-    expect(r.unlinked).toEqual(['a@x.fr']);
+    // HUB ne porte pas emailVerified : on ne présume pas la preuve, le compte attend sa preuve.
+    expect(r.unlinked).toEqual([]);
+    expect(r.awaitingProof).toEqual(['a@x.fr']);
     expect(r.emailMismatch).toEqual([]);
+  });
+
+  it('adresse prouvée au Hub : reliée au prochain rebond ; non prouvée : en attente de preuve', () => {
+    const hub = [
+      { supabaseUserId: 'p', email: 'prouve@x.fr', name: null, emailVerified: new Date() },
+      { supabaseUserId: 'n', email: 'nonprouve@x.fr', name: null, emailVerified: null },
+    ];
+    const r = compareIdentities(
+      [
+        { hub_user_id: null, email: 'prouve@x.fr' },
+        { hub_user_id: null, email: 'nonprouve@x.fr' },
+      ],
+      hub,
+    );
+    expect(r.unlinked).toEqual(['prouve@x.fr']);
+    expect(r.awaitingProof).toEqual(['nonprouve@x.fr']);
   });
 
   it('voit un écart d\'email et de nom sur un compte relié', () => {

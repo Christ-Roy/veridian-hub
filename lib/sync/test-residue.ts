@@ -45,7 +45,7 @@ export async function measureTestResidue(
   const apps = Object.fromEntries(
     Object.entries(identity ?? {}).map(([app, a]) => [
       app,
-      [...a.withoutHub, ...a.unlinked].filter(isTestAccount),
+      [...a.withoutHub, ...a.unlinked, ...(a.awaitingProof ?? [])].filter(isTestAccount),
     ]),
   );
   const notifuseWorkspaces = listNotifuseWorkspaces

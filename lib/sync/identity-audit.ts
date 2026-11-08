@@ -18,10 +18,10 @@ import type { IdentityAudit, IdentityAuditApp, SyncApp } from '@/lib/sync/types'
 const TIMEOUT_MS = 10_000;
 
 type LocalUser = { hub_user_id?: string | null; email?: string | null; name?: string | null };
-type HubUser = { supabaseUserId: string | null; email: string; name: string | null };
+type HubUser = { supabaseUserId: string | null; email: string; name: string | null; emailVerified?: Date | null };
 
 function emptyAudit(status: IdentityAuditApp['status']): IdentityAuditApp {
-  return { status, localAccounts: 0, withoutHub: [], unlinked: [], emailMismatch: [], nameMismatch: [] };
+  return { status, localAccounts: 0, withoutHub: [], unlinked: [], awaitingProof: [], emailMismatch: [], nameMismatch: [] };
 }
 
 /** Pure : classe les comptes locaux d'une app par rapport au Hub. */
@@ -39,7 +39,11 @@ export function compareIdentities(locals: LocalUser[], hubUsers: HubUser[]): Ide
     if (!hubUser) {
       // Aucun identifiant ou identifiant inconnu : une même adresse au Hub n'est qu'un
       // candidat au rattachement, jamais un lien acquis.
-      (byEmail.has(email) ? audit.unlinked : audit.withoutHub).push(email);
+      const candidat = byEmail.get(email);
+      if (!candidat) audit.withoutHub.push(email);
+      // `emailVerified` absent (appelant ancien) : on ne présume pas la preuve.
+      else if (candidat.emailVerified) audit.unlinked.push(email);
+      else audit.awaitingProof.push(email);
       continue;
     }
     if (hubUser.email.toLowerCase() !== email) audit.emailMismatch.push(email);
@@ -82,7 +86,7 @@ export async function auditIdentity(
   const apps = opts.apps ?? configuredSyncApps();
   const fetchImpl = opts.fetchImpl ?? fetch;
   const hubUsers = await prisma.user.findMany({
-    select: { supabaseUserId: true, email: true, name: true },
+    select: { supabaseUserId: true, email: true, name: true, emailVerified: true },
   });
   const results = await Promise.all(apps.map((app) => auditApp(app, hubUsers, fetchImpl)));
   return Object.fromEntries(apps.map((app, i) => [app, results[i]])) as IdentityAudit;
@@ -99,6 +103,7 @@ export function identityCounts(audit: IdentityAudit | undefined) {
         localAccounts: a.localAccounts,
         withoutHub: a.withoutHub.length,
         unlinked: a.unlinked.length,
+        awaitingProof: a.awaitingProof.length,
         emailMismatch: a.emailMismatch.length,
         nameMismatch: a.nameMismatch.length,
       },

@@ -76,8 +76,13 @@ export interface IdentityAuditApp {
   localAccounts: number;
   /** Comptes humains locaux dont l'adresse est inconnue du Hub. */
   withoutHub: string[];
-  /** Adresse connue du Hub, mais pas relié par `hub_user_id`. */
+  /** Adresse connue ET prouvée au Hub, pas encore reliée par `hub_user_id` : reliée au prochain rebond. */
   unlinked: string[];
+  /**
+   * Adresse connue du Hub mais NON prouvée : le Hub envoie la preuve à la prochaine ouverture d'une app
+   * (`denyUnlessEmailProven`), puis le rebond relie le compte. En attente, pas une dérive muette.
+   */
+  awaitingProof: string[];
   emailMismatch: string[];
   nameMismatch: string[];
 }
