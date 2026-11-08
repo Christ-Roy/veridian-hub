@@ -17,11 +17,14 @@ if [ -r "$HOME/credentials/nomad-bastion.env" ]; then
   unset LU
 fi
 
-mkdir -p .run && rm -f .run/versions.json .run/resultat.* .run/monde-*.json .run/restes.json  # le registre des comptes est conservé : un crash ne doit rien orpheliner
-
 # Une seule batterie à la fois : elles partagent .run et le plafond de l'API admin.
+# Le verrou se prend AVANT tout effacement : un second lancement effaçait le monde de la batterie
+# en cours, qui recréait alors son compte A sous la même adresse et tombait sur « Ce lien a déjà
+# été utilisé » (08/11, reproduit : le second lancement sort en NON ABOUTI, le monde a disparu).
+mkdir -p .run
 exec 9>.run/verrou
 flock -n 9 || { echo "✗ NON ABOUTI : une autre batterie tourne déjà dans ce dossier"; exit 2; }
+rm -f .run/versions.json .run/resultat.* .run/monde-*.json .run/restes.json  # le registre des comptes est conservé : un crash ne doit rien orpheliner
 
 # Le Hub doit être là avant de mesurer quoi que ce soit (un déploiement le coupe ~30 s).
 HUB="${HUB_URL:-https://app.veridian.site}"
@@ -33,6 +36,20 @@ until curl -fsS -m 10 "$HUB/api/health" 2>/dev/null | grep -q '"status":"ok"'; d
   fi
   sleep 5
 done
+
+# Pas de mesure pendant un déploiement du Hub : deux versions servent en même temps, un échec n'y
+# dirait rien de la version testée. On attend la fin (même délai que ci-dessus), sinon NON ABOUTI.
+# Nomad illisible = non vérifiable, donc non abouti (SSO_SANS_NOMAD=1 pour jouer hors du bastion).
+if [ "${SSO_SANS_NOMAD:-}" != 1 ] && [ -z "${HUB_URL:-}" ]; then
+  until ETAT="$(nomad job deployments -t '{{range .}}{{.Status}}{{"\n"}}{{end}}' hub 2>/dev/null | head -1)" && [ -n "$ETAT" ] && [ "$ETAT" != running ]; do
+    if [ "$(date +%s)" -ge "$FIN" ]; then
+      [ -n "$ETAT" ] && QUOI="un déploiement du Hub est en cours" || QUOI="les déploiements du Hub sont illisibles dans Nomad"
+      echo "✗ NON ABOUTI : $QUOI. Relancer après, ou SSO_SANS_NOMAD=1 hors du bastion."
+      exit 2
+    fi
+    sleep 5
+  done
+fi
 
 # @playwright/test : celui du dépôt s'il est installé, sinon un jeu de modules déjà présent sur la machine.
 if [ ! -e node_modules/@playwright/test ] && [ ! -e ../../node_modules/@playwright/test ]; then
