@@ -37,6 +37,11 @@ export interface TenantSnapshot {
   workspaceName?: string;
   /** Id du tenant côté app, quand elle l'expose (Prospection). */
   tenantId?: string;
+  /**
+   * Tenant Hub auquel l'app a relié ce workspace (claim `tenant_id` du JWT MCP). `undefined` : l'app
+   * ne rend pas le champ ; `null` : elle le rend, aucun lien.
+   */
+  hubTenantLink?: string | null;
   role?: string;
   plan?: string;
   /**
@@ -97,7 +102,8 @@ export type DriftKind =
   | 'tenant_extra_app'     // app a un workspace, Hub n'a pas la trace
   | 'app_unreachable'      // app down (5xx, timeout)
   | 'trial_mismatch'       // statut d'essai du Hub ≠ celui stocké par l'app
-  | 'plan_unset';          // analytics / crm : app activée au Hub, aucun plan posé
+  | 'plan_unset'           // analytics / crm : app activée au Hub, aucun plan posé
+  | 'hub_tenant_unlinked'; // l'app rend son lien au tenant Hub, absent ou vers un autre tenant
 
 /** Un drift détecté par le cron reconcile pour un (tenant, app). */
 export interface TenantDrift {

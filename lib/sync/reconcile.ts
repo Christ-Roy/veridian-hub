@@ -135,6 +135,8 @@ export function remediationFor(d: Pick<TenantDrift, 'hubTenantId' | 'app' | 'kin
       return `statut divergent : relire metadata.${d.app}_status au Hub, puis repousser`;
     case 'app_unreachable':
       return `l'app ne répond pas : nomad-v state, puis relancer hub reconcile`;
+    case 'hub_tenant_unlinked':
+      return `workspace non relié à ce tenant Hub : hub prospection-relier --tenant ${d.hubTenantId} (rejeu idempotent du provisionnement)`;
   }
 }
 
@@ -239,6 +241,18 @@ export function diffTenantApp(
       kind: 'trial_mismatch',
       hubValue: { plan: localPlan, trial_status: t.trialStatus },
       appValue: rendus.length === 1 ? rendus[0].trialStatus : rendus.map((s) => s.trialStatus),
+      observedAt,
+    });
+  }
+  // Lien au tenant Hub (claim tenant_id du MCP) : seulement si l'app le rend, sur ses workspaces propriétaires.
+  const proprietaires = appResult.snapshots.filter((s) => s.role !== 'member' && s.hubTenantLink !== undefined);
+  if (proprietaires.length > 0 && !proprietaires.some((s) => s.hubTenantLink === t.hubTenantId)) {
+    drifts.push({
+      hubTenantId: t.hubTenantId,
+      app,
+      kind: 'hub_tenant_unlinked',
+      hubValue: t.hubTenantId,
+      appValue: proprietaires.length === 1 ? proprietaires[0].hubTenantLink ?? null : proprietaires.map((s) => s.hubTenantLink ?? null),
       observedAt,
     });
   }

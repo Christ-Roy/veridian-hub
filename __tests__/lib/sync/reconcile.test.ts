@@ -548,7 +548,7 @@ describe('plan et statut d\'essai, app par app (Robert, 08/11 : « toujours savo
   });
 
   it('chaque écart a sa marche à suivre, sans adresse client', () => {
-    const kinds = ['plan_mismatch', 'trial_mismatch', 'plan_unset', 'tenant_missing_app', 'tenant_extra_app', 'status_mismatch', 'app_unreachable'] as const;
+    const kinds = ['plan_mismatch', 'trial_mismatch', 'plan_unset', 'tenant_missing_app', 'tenant_extra_app', 'status_mismatch', 'app_unreachable', 'hub_tenant_unlinked'] as const;
     for (const kind of kinds) {
       const r = remediationFor({ hubTenantId: 't1', app: 'analytics', kind, hubValue: { plan: 'pro' } });
       expect(r, kind).toBeTruthy();
@@ -573,5 +573,29 @@ describe('plan et statut d\'essai, app par app (Robert, 08/11 : « toujours savo
     process.env.TRIAL_MACHINE_ENABLED = '0';
     const coupee =await measureNotWired({ $queryRaw: async () => [{ reels: 4 }] } as never, new Map());
     expect(coupee.some((l) => l.startsWith('essai : flow d\'essai réel coupé'))).toBe(true);
+  });
+});
+
+describe('lien au tenant Hub (hub_tenant_id, claim tenant_id du MCP)', () => {
+  const t = { ...baseTenant, prospectionPlan: 'freemium', prospectionProvisionedAt: new Date('2026-01-01') };
+  const snapshot = (app: 'prospection', over: Record<string, unknown>) => ({ app, workspaceId: 'ws', observedAt: 'now', ...over });
+  const disc = (extra: Record<string, unknown>) =>
+    makeDiscovery({ found: false }, { found: true, snapshots: [snapshot('prospection', { plan: 'freemium', ...extra })] });
+  it('non relié (null) : écart, avec la commande de rejeu', () => {
+    const d = diffTenantApp(t, 'prospection', disc({ hubTenantLink: null }), 'now');
+    expect(d.map((x) => x.kind)).toEqual(['hub_tenant_unlinked']);
+    expect(remediationFor(d[0])).toContain('hub prospection-relier --tenant t1');
+  });
+  it('relié à un autre tenant Hub : écart', () => {
+    expect(diffTenantApp(t, 'prospection', disc({ hubTenantLink: 'autre' }), 'now').map((x) => x.kind)).toEqual(['hub_tenant_unlinked']);
+  });
+  it('relié au bon tenant : aucun écart', () => {
+    expect(diffTenantApp(t, 'prospection', disc({ hubTenantLink: 't1' }), 'now')).toHaveLength(0);
+  });
+  it('app qui ne rend pas le champ : pas d\'écart (non mesuré)', () => {
+    expect(diffTenantApp(t, 'prospection', disc({}), 'now')).toHaveLength(0);
+  });
+  it('simple membre du workspace d\'un autre : pas d\'écart', () => {
+    expect(diffTenantApp(t, 'prospection', disc({ hubTenantLink: 'autre', role: 'member' }), 'now')).toHaveLength(0);
   });
 });
