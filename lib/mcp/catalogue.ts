@@ -5,11 +5,15 @@
  */
 import type { PrismaClient } from '@prisma/client';
 
-import { AppInjoignable, SessionApp, type OutilApp } from './client-app';
+import { cacheEchecs, cacheOutils, cle, oublierUtilisateur, TTL_ECHEC_MS, TTL_OUTILS_MS } from './cache';
+import { AppInjoignable, CompteAbsent, SessionApp, type OutilApp } from './client-app';
 import { signerPourApp } from './identite';
 import type { Appelant } from './oauth';
+import type { Provisionneur } from './provisionneurs';
 
-export type Db = Pick<PrismaClient, 'mcpApp' | 'tenantApp' | 'tenant' | 'tenantTrial'>;
+export { viderCache } from './cache';
+
+export type Db = Pick<PrismaClient, 'mcpApp' | 'tenantApp' | 'tenant' | 'tenantTrial' | 'tenantMember'>;
 
 export type Outil = {
   nom: string;
@@ -23,18 +27,12 @@ export type Outil = {
 
 export type AppInscrite = { appKey: string; label: string; mcpUrl: string };
 
-export type Deps = { fetchImpl?: typeof fetch; maintenant?: () => number };
-
-const TTL_MS = 5 * 60_000;
-const ECHEC_TTL_MS = 60_000;
-const cache = new Map<string, { a: number; outils: Outil[] }>();
-/** Une app en panne n'est pas réinterrogée pendant 1 min : sinon chaque appel attendrait son délai. */
-const echecs = new Map<string, { a: number; raison: string }>();
-
-export function viderCache() {
-  cache.clear();
-  echecs.clear();
-}
+export type Deps = {
+  fetchImpl?: typeof fetch;
+  maintenant?: () => number;
+  /** Création de compte par app (défaut : ceux du Hub, lib/mcp/provisionneurs.ts). */
+  provisionneurs?: Record<string, Provisionneur>;
+};
 
 /** Apps du registre ouvertes à cet utilisateur. */
 export async function appsDe(db: Db, hubUserId: string): Promise<AppInscrite[]> {
@@ -55,17 +53,54 @@ export async function appsDe(db: Db, hubUserId: string): Promise<AppInscrite[]> 
     .map((a) => ({ appKey: a.appKey, label: a.label, mcpUrl: a.mcpUrl }));
 }
 
-export async function sessionPour(app: AppInscrite, qui: Appelant, deps: Deps = {}): Promise<SessionApp> {
+export type Espace = { id: string; nom: string; slug: string; role: string };
+
+/** Espaces où l'utilisateur agit : les siens, et ceux dont il est membre. */
+export async function espacesDe(db: Db, hubUserId: string): Promise<Espace[]> {
+  const [siens, membre] = await Promise.all([
+    db.tenant.findMany({ where: { userId: hubUserId, deletedAt: null }, select: { id: true, name: true, slug: true }, orderBy: { createdAt: 'asc' } }),
+    db.tenantMember.findMany({ where: { userId: hubUserId, deletedAt: null }, select: { tenantId: true, role: true } }),
+  ]);
+  const autres = membre.filter((m) => !siens.some((t) => t.id === m.tenantId));
+  const lus = autres.length
+    ? await db.tenant.findMany({ where: { id: { in: autres.map((m) => m.tenantId) }, deletedAt: null }, select: { id: true, name: true, slug: true } })
+    : [];
+  return [
+    ...siens.map((t) => ({ id: t.id, nom: t.name, slug: t.slug, role: 'proprietaire' })),
+    ...lus.map((t) => ({ id: t.id, nom: t.name, slug: t.slug, role: autres.find((m) => m.tenantId === t.id)?.role ?? 'membre' })),
+  ];
+}
+
+export async function sessionPour(app: AppInscrite, qui: Appelant, deps: Deps = {}, tenantId?: string): Promise<SessionApp> {
   const jeton = await signerPourApp({
     audience: app.mcpUrl,
     hubUserId: qui.hubUserId,
     email: qui.email,
     clientId: qui.clientId,
     scope: qui.scope,
+    tenantId,
   });
   const s = new SessionApp(app.mcpUrl, jeton, deps.fetchImpl);
   await s.ouvrir();
   return s;
+}
+
+/**
+ * Ouvre une session ; si l'app ne connaît pas encore ce compte, le Hub le crée par son chemin de
+ * provisionnement habituel, oublie l'échec, et réessaie une fois.
+ */
+export async function sessionOuCreation(app: AppInscrite, qui: Appelant, deps: Deps = {}, tenantId?: string): Promise<SessionApp> {
+  try {
+    return await sessionPour(app, qui, deps, tenantId);
+  } catch (err) {
+    if (!(err instanceof CompteAbsent)) throw err;
+    const provisionneurs = deps.provisionneurs ?? (await (await import('./provisionneurs')).provisionneursParDefaut());
+    const creer = provisionneurs[app.appKey];
+    if (!creer) throw new AppInjoignable(`aucun compte ${app.label} pour ce compte Veridian : l'ouvrir une fois depuis l'espace Veridian`);
+    if (!(await creer(qui))) throw new AppInjoignable(`création du compte ${app.label} impossible pour l'instant`);
+    oublierUtilisateur(qui.hubUserId, app.appKey);
+    return sessionPour(app, qui, deps, tenantId);
+  }
 }
 
 function versOutil(app: string, o: OutilApp): Outil {
@@ -74,21 +109,21 @@ function versOutil(app: string, o: OutilApp): Outil {
 }
 
 export async function outilsApp(app: AppInscrite, qui: Appelant, deps: Deps = {}): Promise<Outil[]> {
-  const cle = `${app.appKey}:${qui.hubUserId}`;
+  const k = cle(app.appKey, qui.hubUserId);
   const now = (deps.maintenant ?? Date.now)();
-  const c = cache.get(cle);
-  if (c && now - c.a < TTL_MS) return c.outils;
-  const e = echecs.get(app.appKey);
-  if (e && now - e.a < ECHEC_TTL_MS) throw new AppInjoignable(e.raison);
+  const c = cacheOutils.get(k);
+  if (c && now - c.a < TTL_OUTILS_MS) return c.outils as Outil[];
+  const e = cacheEchecs.get(k);
+  if (e && now - e.a < TTL_ECHEC_MS) throw new AppInjoignable(e.raison);
   try {
-    const s = await sessionPour(app, qui, deps);
+    const s = await sessionOuCreation(app, qui, deps);
     const outils = (await s.outils()).filter((o) => typeof o?.name === 'string').map((o) => versOutil(app.appKey, o));
-    cache.set(cle, { a: now, outils });
+    cacheOutils.set(k, { a: now, outils });
+    cacheEchecs.delete(k);
     return outils;
   } catch (err) {
     const raison = err instanceof AppInjoignable ? err.message : 'erreur';
-    // Un refus d'identité est propre à l'utilisateur : seule une panne de l'app est mémorisée.
-    if (!/refuse l'identité/.test(raison)) echecs.set(app.appKey, { a: now, raison });
+    cacheEchecs.set(k, { a: now, raison });
     throw err instanceof AppInjoignable ? err : new AppInjoignable(raison);
   }
 }

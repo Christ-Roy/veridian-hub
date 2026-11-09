@@ -31,7 +31,7 @@ afterAll(() => {
 type Recu = { auth: string; corps: any; session: string | null };
 
 /** App MCP factice : session à l'initialize, tools/list paginé en SSE, tools/call en JSON. */
-function appFactice(opts: { outils?: any[]; sortie?: string; panne?: boolean } = {}) {
+function appFactice(opts: { outils?: any[]; sortie?: string; panne?: boolean; inconnu?: () => boolean } = {}) {
   const recus: Recu[] = [];
   const outils = opts.outils ?? [
     { name: 'visites_du_site', description: 'Nombre de visites et visiteurs du site sur une période.', inputSchema: { type: 'object', properties: { jours: { type: 'number' } } }, annotations: { readOnlyHint: true } },
@@ -42,6 +42,7 @@ function appFactice(opts: { outils?: any[]; sortie?: string; panne?: boolean } =
     const corps = JSON.parse(String(init.body));
     const h = init.headers as Record<string, string>;
     recus.push({ auth: h.Authorization, corps, session: h['Mcp-Session-Id'] ?? null });
+    if (opts.inconnu?.()) return new Response(JSON.stringify({ error: 'hub_user_unknown' }), { status: 401 });
     if (corps.method === 'initialize') {
       return new Response(JSON.stringify({ jsonrpc: '2.0', id: corps.id, result: { protocolVersion: '2025-06-18', capabilities: {} } }), { headers: { 'content-type': 'application/json', 'mcp-session-id': 'sess-1' } });
     }
@@ -186,5 +187,73 @@ describe('clé de signature', () => {
     const json = process.env.MCP_SIGNING_JWK!;
     const env = { MCP_SIGNING_JWK: Buffer.from(json).toString('base64') } as NodeJS.ProcessEnv;
     expect((await cleSignature(env))?.kid).toBe('test-1');
+  });
+});
+
+const claims = async (f: ReturnType<typeof appFactice>) => {
+  const jeton = f.recus.at(-1)!.auth.replace('Bearer ', '');
+  return (await jwtVerify(jeton, createLocalJWKSet(await jwksPublic()), { audience: URL_APP })).payload;
+};
+
+describe('espace (tenant_id signé)', () => {
+  it('un seul espace : signé sans le demander', async () => {
+    const f = appFactice();
+    await appel('executer_outil', { nom: 'analytics.visites_du_site' }, f);
+    expect((await claims(f)).tenant_id).toBe('t1');
+  });
+  it('plusieurs espaces : celui choisi, membre compris ; sans choix, aucun', async () => {
+    await db.tenant.create({ data: { id: 't2', userId: 'autre', name: 'Agence', slug: 'agence', status: 'active', createdAt: new Date() } });
+    await db.tenantMember.create({ data: { tenantId: 't2', userId: HUB_USER, role: 'admin' } });
+    const f = appFactice();
+    await appel('executer_outil', { nom: 'analytics.visites_du_site', espace: 'agence' }, f);
+    expect((await claims(f)).tenant_id).toBe('t2');
+    await appel('executer_outil', { nom: 'analytics.visites_du_site' }, f);
+    expect((await claims(f)).tenant_id).toBeUndefined();
+    const r = json(await appel('executer_outil', { nom: 'hub.mon_compte' }, f));
+    expect(r.espaces.map((e: any) => [e.slug, e.role])).toEqual([['mon-espace', 'proprietaire'], ['agence', 'admin']]);
+  });
+  it('espace d\'un autre compte : refusé, rien n\'est signé', async () => {
+    await db.tenant.create({ data: { id: 't3', userId: 'autre', name: 'Pas à moi', slug: 'pas-a-moi', status: 'active', createdAt: new Date() } });
+    const f = appFactice();
+    const r: any = await appel('executer_outil', { nom: 'analytics.visites_du_site', espace: 'pas-a-moi' }, f);
+    expect(r.result.isError).toBe(true);
+    expect(f.recus.some((x) => x.corps.method === 'tools/call')).toBe(false);
+  });
+});
+
+describe('compte absent dans l\'app (hub_user_unknown)', () => {
+  it('le Hub crée le compte par son provisionneur, puis l\'outil répond', async () => {
+    let cree = false;
+    const f = appFactice({ inconnu: () => !cree });
+    const provisionneurs = { analytics: async () => ((cree = true), true) };
+    const r = await traiter(db as never, QUI, { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'chercher_outils', arguments: { besoin: 'visites' } } }, { fetchImpl: f.fetchImpl, provisionneurs });
+    expect(cree).toBe(true);
+    expect(json(r).outils[0].nom).toBe('analytics.visites_du_site');
+  });
+  it('sans provisionneur : message clair, pas « injoignable »', async () => {
+    const f = appFactice({ inconnu: () => true });
+    const r = json(await traiter(db as never, QUI, { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'chercher_outils', arguments: { besoin: 'visites' } } }, { fetchImpl: f.fetchImpl, provisionneurs: {} }));
+    expect(r.injoignables[0].raison).toMatch(/aucun compte Analytics/);
+  });
+  it('compte créé ailleurs (activation, rebond) : l\'échec mémorisé est oublié', async () => {
+    const { oublierUtilisateur } = await import('@/lib/mcp/cache');
+    let existe = false;
+    const f = appFactice({ inconnu: () => !existe });
+    const sans = { fetchImpl: f.fetchImpl, provisionneurs: {} };
+    const cherche = () => traiter(db as never, QUI, { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'chercher_outils', arguments: { besoin: 'visites' } } }, sans);
+    expect(json(await cherche()).injoignables).toHaveLength(1);
+    existe = true;
+    expect(json(await cherche()).injoignables, 'échec encore en cache').toHaveLength(1);
+    oublierUtilisateur(HUB_USER, 'analytics');
+    expect(json(await cherche()).outils[0].nom).toBe('analytics.visites_du_site');
+  });
+  it('l\'échec d\'un utilisateur ne bloque pas les autres', async () => {
+    const f = appFactice({ inconnu: () => true });
+    await traiter(db as never, QUI, { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'chercher_outils', arguments: { besoin: 'visites' } } }, { fetchImpl: f.fetchImpl, provisionneurs: {} });
+    const AUTRE = { ...QUI, hubUserId: '99999999-2222-3333-4444-555555555555' };
+    await db.tenantApp.create({ data: { userId: AUTRE.hubUserId, appKey: 'analytics', enabled: true } });
+    const ok = appFactice();
+    const r = json(await traiter(db as never, AUTRE, { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'chercher_outils', arguments: { besoin: 'visites' } } }, { fetchImpl: ok.fetchImpl }));
+    expect(r.outils[0].nom).toBe('analytics.visites_du_site');
   });
 });

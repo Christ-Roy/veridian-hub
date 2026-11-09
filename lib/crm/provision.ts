@@ -10,6 +10,7 @@ import { createHmac } from 'node:crypto';
 
 import type { PrismaClient } from '@prisma/client';
 
+import { oublierUtilisateur } from '@/lib/mcp/cache';
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
 import { pushUserToApps } from '@/lib/identity/push-user';
 import { isCanonicalPlan, readAppPlan, setAppPlan } from '@/lib/plans/app-plan';
@@ -126,6 +127,8 @@ export async function ensureCrmWorkspace(
     enabled: true,
     actorEmail: opts.actorEmail ?? null,
   });
+  // La porte MCP ne doit pas garder « injoignable » pour un compte qui vient d'être créé.
+  oublierUtilisateur(user.hubUserId, 'twenty');
   // Le plan suit l'espace dès sa création (CONTRAT-BILLING §3) : celui du Hub, sinon free. Meilleur
   // effort : l'espace existe, un refus du plan se lit dans reconcile, il ne bloque pas l'ouverture.
   const actuel = readAppPlan(current, 'crm').plan;

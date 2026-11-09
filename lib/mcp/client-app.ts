@@ -13,6 +13,9 @@ export type OutilApp = {
 
 export class AppInjoignable extends Error {}
 
+/** L'app vérifie l'identité du Hub mais n'a pas (encore) ce compte : `hub_user_unknown`. */
+export class CompteAbsent extends AppInjoignable {}
+
 type Fetch = typeof fetch;
 const DELAI_MS = 15_000;
 const VERSION = '2025-06-18';
@@ -72,7 +75,11 @@ export class SessionApp {
   async requete(method: string, params: Record<string, unknown> = {}): Promise<unknown> {
     const id = this.suivant++;
     const res = await this.envoyer({ jsonrpc: '2.0', id, method, params });
-    if (res.status === 401 || res.status === 403) throw new AppInjoignable(`l'app refuse l'identité du Hub (HTTP ${res.status})`);
+    if (res.status === 401 || res.status === 403) {
+      const corps = await res.text().catch(() => '');
+      if (corps.includes('hub_user_unknown')) throw new CompteAbsent('compte absent dans l\'app');
+      throw new AppInjoignable(`l'app refuse l'identité du Hub (HTTP ${res.status})`);
+    }
     if (!res.ok) throw new AppInjoignable(`HTTP ${res.status}`);
     const sid = res.headers.get('mcp-session-id');
     if (sid) this.session = sid;

@@ -68,6 +68,7 @@ export function fausseBase() {
     tenantApp: table('id', () => ({ id: randomUUID(), enabled: true })),
     tenant: table('id', () => ({ deletedAt: null })),
     tenantTrial: table('tenantId'),
+    tenantMember: table('tenantId', () => ({ deletedAt: null, role: 'member' })),
     auditLog: table('id', () => ({ id: randomUUID() })),
   };
 }
