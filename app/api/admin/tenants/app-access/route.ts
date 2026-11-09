@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
   let analyticsPlan: string | undefined;
   if (parsed.data.app === 'analytics' && parsed.data.enabled) {
     const tenant = await prisma.tenant.findFirst({
-      where: { userId: user.supabaseUserId },
+      where: { userId: user.supabaseUserId, deletedAt: null },
       select: { id: true, metadata: true },
       orderBy: { createdAt: 'asc' },
     });

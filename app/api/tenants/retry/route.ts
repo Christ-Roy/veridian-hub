@@ -16,7 +16,7 @@ export async function POST() {
 
     // Check what's already provisioned
     const existingTenant = await prisma.tenant.findFirst({
-      where: { userId: uuid },
+      where: { userId: uuid, deletedAt: null },
       select: {
         id: true,
         prospectionProvisionedAt: true,

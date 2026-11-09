@@ -53,7 +53,7 @@ export default async function DashboardPage({
   const isCmsEnabled = enabledApps.has('cms');
 
   const tenant = await prisma.tenant.findFirst({
-    where: { userId: userUuid(user) },
+    where: { userId: userUuid(user), deletedAt: null },
     select: {
       id: true,
       name: true,

@@ -67,7 +67,7 @@ export async function POST() {
 
     // Update the tenant record with the new token
     const tenant = await prisma.tenant.findFirst({
-      where: { userId: uuid },
+      where: { userId: uuid, deletedAt: null },
       select: { id: true },
     });
 

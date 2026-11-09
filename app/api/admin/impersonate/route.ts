@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
 
   // Get tenant (if user has UUID bridge)
   const tenant = user.supabaseUserId
-    ? await prisma.tenant.findFirst({ where: { userId: user.supabaseUserId } })
+    ? await prisma.tenant.findFirst({ where: { userId: user.supabaseUserId, deletedAt: null } })
     : null;
 
   // Generate Prospection auto-login token

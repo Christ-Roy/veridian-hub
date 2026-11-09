@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
 
   // Update tenant prospection_plan (one tenant per user assumption preserved)
   const tenant = await prisma.tenant.findFirst({
-    where: { userId: user.supabaseUserId },
+    where: { userId: user.supabaseUserId, deletedAt: null },
     select: { id: true },
   });
   if (!tenant) {

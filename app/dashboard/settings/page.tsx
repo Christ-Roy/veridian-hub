@@ -32,7 +32,7 @@ export default async function SettingsPage() {
 
   // Récupérer le tenant principal
   const tenant = await prisma.tenant.findFirst({
-    where: { userId: userUuid(user) },
+    where: { userId: userUuid(user), deletedAt: null },
     select: {
       id: true,
       notifuseWorkspaceSlug: true,

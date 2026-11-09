@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
     // Persist to Prisma — upsert tenant
     try {
       const existing = await prisma.tenant.findFirst({
-        where: { userId: uuid },
+        where: { userId: uuid, deletedAt: null },
         select: { id: true },
       });
       if (existing) {

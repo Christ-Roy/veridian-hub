@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
   // Court-circuit idempotent : si la cible est déjà provisionnée, on renvoie
   // l'état sans rappeler les apps downstream (utile pour double-clic / replay).
   const existing = await prisma.tenant.findFirst({
-    where: { userId: uuid },
+    where: { userId: uuid, deletedAt: null },
     select: {
       id: true,
       prospectionProvisionedAt: true,

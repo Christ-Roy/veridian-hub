@@ -228,7 +228,7 @@ export async function manageSubscriptionStatusChange(
 
   try {
     tenant = await prisma.tenant.findFirst({
-      where: { userId: uuid },
+      where: { userId: uuid, deletedAt: null },
       select: {
         id: true,
         notifuseWorkspaceSlug: true,

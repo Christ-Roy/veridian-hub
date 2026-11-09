@@ -87,7 +87,7 @@ export async function ensureCrmWorkspace(
   opts: { actorEmail?: string | null; env?: NodeJS.ProcessEnv; fetchImpl?: typeof fetch } = {},
 ): Promise<CrmProvisionResult> {
   const tenant = await db.tenant.findFirst({
-    where: { userId: user.hubUserId },
+    where: { userId: user.hubUserId, deletedAt: null },
     select: { id: true, name: true, metadata: true },
     orderBy: { createdAt: 'asc' },
   });
