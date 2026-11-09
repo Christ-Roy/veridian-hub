@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditIdentity, compareIdentities, identityCounts } from '@/lib/sync/identity-audit';
+import { HORS_PERIMETRE, auditIdentity, compareIdentities, identityCounts } from '@/lib/sync/identity-audit';
 
 const HUB = [{ supabaseUserId: 'id-1', email: 'a@x.fr', name: 'Alice' }];
 
@@ -75,5 +75,29 @@ describe('auditIdentity', () => {
     });
     expect(JSON.stringify(counts)).not.toContain('secret@x.fr');
     expect(counts?.notifuse).toMatchObject({ withoutHub: 1 });
+  });
+});
+
+describe('hors périmètre (témoins et comptes d\'exploitation, tranchés le 09/11)', () => {
+  it('canari Notifuse sans compte Hub : hors périmètre avec sa raison, pas withoutHub', () => {
+    const a = compareIdentities([{ email: 'canarypro@veridian.site' }, { email: 'inconnu@client.fr' }], [], 'notifuse');
+    expect(a.withoutHub).toEqual(['inconnu@client.fr']);
+    expect(a.horsPerimetre).toEqual([expect.objectContaining({ email: 'canarypro@veridian.site' })]);
+  });
+  it('la liste est propre à chaque app : le même canari ailleurs reste un écart', () => {
+    expect(compareIdentities([{ email: 'canarypro@veridian.site' }], [], 'analytics').withoutHub).toEqual(['canarypro@veridian.site']);
+  });
+  it('une adresse connue du Hub n\'est jamais mise hors périmètre', () => {
+    const a = compareIdentities([{ email: 'admin@veridian.site' }], [{ supabaseUserId: 'u', email: 'admin@veridian.site', name: null, emailVerified: new Date() }], 'notifuse');
+    expect(a.horsPerimetre).toEqual([]);
+    expect(a.unlinked).toEqual(['admin@veridian.site']);
+  });
+  it('aucun motif ne peut attraper une adresse client : domaines internes seulement', () => {
+    for (const entrees of Object.values(HORS_PERIMETRE)) {
+      for (const { motif, raison } of entrees ?? []) {
+        expect(motif.source, raison).toMatch(/veridian\\\.site|agences-veridian\\\.fr/);
+        expect(raison.length).toBeGreaterThan(10);
+      }
+    }
   });
 });

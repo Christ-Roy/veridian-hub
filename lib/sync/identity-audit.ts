@@ -21,11 +21,31 @@ type LocalUser = { hub_user_id?: string | null; email?: string | null; name?: st
 type HubUser = { supabaseUserId: string | null; email: string; name: string | null; emailVerified?: Date | null };
 
 function emptyAudit(status: IdentityAuditApp['status']): IdentityAuditApp {
-  return { status, localAccounts: 0, withoutHub: [], unlinked: [], awaitingProof: [], emailMismatch: [], nameMismatch: [] };
+  return { status, localAccounts: 0, withoutHub: [], unlinked: [], awaitingProof: [], horsPerimetre: [], emailMismatch: [], nameMismatch: [] };
+}
+
+/**
+ * Comptes d'app volontairement sans utilisateur Hub, tranchés le 09/11 : témoins protégés et comptes
+ * d'exploitation. Un compte qui n'est ici que par motif doit rester interne (`@veridian.site`).
+ * Ajouter une entrée = la justifier ; un client n'y entre jamais (il se relie au Hub).
+ */
+export const HORS_PERIMETRE: Partial<Record<SyncApp, { motif: RegExp; raison: string }[]>> = {
+  notifuse: [
+    { motif: /^admin@veridian\.site$/, raison: 'administrateur racine de Notifuse (exploitation)' },
+    { motif: /^canary(free|pro|enterprise)@veridian\.site$/, raison: 'canari protégé : témoin des plans, sonde de prod' },
+    { motif: /^smoke@veridian\.site$/, raison: 'témoin du smoke de déploiement' },
+    { motif: /^robert@(veridian\.site|agences-veridian\.fr)$/, raison: 'compte opérateur de Robert dans Notifuse, hors parcours client' },
+  ],
+  analytics: [{ motif: /^audit-ui@veridian\.site$/, raison: 'compte de l\'audit d\'interface (lecture), témoin' }],
+};
+
+function horsPerimetre(app: SyncApp | undefined, email: string): string | null {
+  if (!app) return null;
+  return HORS_PERIMETRE[app]?.find((h) => h.motif.test(email))?.raison ?? null;
 }
 
 /** Pure : classe les comptes locaux d'une app par rapport au Hub. */
-export function compareIdentities(locals: LocalUser[], hubUsers: HubUser[]): IdentityAuditApp {
+export function compareIdentities(locals: LocalUser[], hubUsers: HubUser[], app?: SyncApp): IdentityAuditApp {
   const byId = new Map(hubUsers.flatMap((u) => (u.supabaseUserId ? [[u.supabaseUserId, u]] : [])));
   const byEmail = new Map(hubUsers.map((u) => [u.email.toLowerCase(), u]));
   const audit = emptyAudit('ok');
@@ -40,7 +60,9 @@ export function compareIdentities(locals: LocalUser[], hubUsers: HubUser[]): Ide
       // Aucun identifiant ou identifiant inconnu : une même adresse au Hub n'est qu'un
       // candidat au rattachement, jamais un lien acquis.
       const candidat = byEmail.get(email);
-      if (!candidat) audit.withoutHub.push(email);
+      const raison = candidat ? null : horsPerimetre(app, email);
+      if (raison) audit.horsPerimetre!.push({ email, raison });
+      else if (!candidat) audit.withoutHub.push(email);
       // `emailVerified` absent (appelant ancien) : on ne présume pas la preuve.
       else if (candidat.emailVerified) audit.unlinked.push(email);
       else audit.awaitingProof.push(email);
@@ -73,7 +95,7 @@ async function auditApp(
     if (!res.ok) return emptyAudit('unreachable');
     const body = (await res.json().catch(() => null)) as { users?: LocalUser[] } | null;
     if (!Array.isArray(body?.users)) return emptyAudit('unreachable');
-    return compareIdentities(body.users, hubUsers);
+    return compareIdentities(body.users, hubUsers, app);
   } catch {
     return emptyAudit('unreachable');
   }
@@ -104,6 +126,7 @@ export function identityCounts(audit: IdentityAudit | undefined) {
         withoutHub: a.withoutHub.length,
         unlinked: a.unlinked.length,
         awaitingProof: a.awaitingProof.length,
+        horsPerimetre: a.horsPerimetre?.length ?? 0,
         emailMismatch: a.emailMismatch.length,
         nameMismatch: a.nameMismatch.length,
       },

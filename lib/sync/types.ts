@@ -88,6 +88,11 @@ export interface IdentityAuditApp {
    * (`denyUnlessEmailProven`), puis le rebond relie le compte. En attente, pas une dérive muette.
    */
   awaitingProof: string[];
+  /**
+   * Comptes internes ou témoins protégés (canaris, smoke, opérateur), déclarés hors périmètre avec leur
+   * raison dans `lib/sync/identity-audit.ts` : comptés, jamais une dérive.
+   */
+  horsPerimetre?: { email: string; raison: string }[];
   emailMismatch: string[];
   nameMismatch: string[];
 }
