@@ -107,6 +107,7 @@ export async function POST(request: NextRequest) {
       goal: 'app_started',
       sessionId: hubSessionId(uuid),
       properties: { app: startedApp },
+      request,
     });
   }
 

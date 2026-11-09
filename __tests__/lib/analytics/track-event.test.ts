@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 import { trackGoal, resolveSiteId, resolveTrackBaseUrl, hubSessionId } from '@/lib/analytics/track-event';
 
-const ENV_KEYS = ['DEPLOY_ENV', 'ANALYTICS_TRACK_URL', 'ANALYTICS_TRACK_URL_STAGING', 'ANALYTICS_TRACK_SITE_ID'] as const;
+const ENV_KEYS = ['DEPLOY_ENV', 'ANALYTICS_TRACK_URL', 'ANALYTICS_TRACK_URL_STAGING', 'ANALYTICS_TRACK_SITE_ID', 'ANALYTICS_TRACK_KEY'] as const;
 
 /** Objectifs du Hub vers Rybbit (08/11 : ils partaient vers le moteur G2 arrêté, aucun n'arrivait). */
 describe('lib/analytics/track-event', () => {
@@ -82,6 +82,37 @@ describe('lib/analytics/track-event', () => {
       const fetchImpl = ok();
       await trackGoal({ userEmail: 'a@b.c', goal: 'signup', sessionId: 's' }, { fetchImpl: fetchImpl as never, logger: silencieux });
       expect(fetchImpl).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('trackGoal : ingestion de confiance (sinon Rybbit classe le Hub, chez OVH, en robot)', () => {
+    const req = (h: Record<string, string>) => ({ headers: new Headers(h) });
+    it('avec la clé : Bearer, IP et navigateur du visiteur', async () => {
+      process.env.DEPLOY_ENV = 'prod';
+      process.env.ANALYTICS_TRACK_KEY = 'cle-ingest';
+      const fetchImpl = ok();
+      await trackGoal(
+        { userEmail: 'a@b.c', goal: 'signup', sessionId: 's', request: req({ 'x-real-ip': '90.61.12.34', 'user-agent': 'Mozilla/5.0 Visiteur' }) },
+        { fetchImpl: fetchImpl as never, logger: silencieux },
+      );
+      const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+      expect((init.headers as Record<string, string>).Authorization).toBe('Bearer cle-ingest');
+      expect(JSON.parse(String(init.body))).toMatchObject({ ip_address: '90.61.12.34', user_agent: 'Mozilla/5.0 Visiteur' });
+    });
+    it('IP invalide : écartée (Rybbit refuserait tout l\'événement)', async () => {
+      process.env.DEPLOY_ENV = 'prod';
+      process.env.ANALYTICS_TRACK_KEY = 'cle-ingest';
+      const fetchImpl = ok();
+      await trackGoal({ userEmail: 'a@b.c', goal: 'signup', sessionId: 's', request: req({}) }, { fetchImpl: fetchImpl as never, logger: silencieux });
+      expect(JSON.parse(String((fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].body))).not.toHaveProperty('ip_address');
+    });
+    it('sans clé : ni Bearer ni IP transmise (Rybbit les ignorerait)', async () => {
+      process.env.DEPLOY_ENV = 'prod';
+      const fetchImpl = ok();
+      await trackGoal({ userEmail: 'a@b.c', goal: 'signup', sessionId: 's', request: req({ 'x-real-ip': '90.61.12.34' }) }, { fetchImpl: fetchImpl as never, logger: silencieux });
+      const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+      expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
+      expect(JSON.parse(String(init.body))).not.toHaveProperty('ip_address');
     });
   });
 

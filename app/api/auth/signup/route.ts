@@ -153,6 +153,7 @@ export async function POST(request: NextRequest) {
       goal: 'signup',
       sessionId: hubSessionId(userUuid),
       properties: { provider: 'credentials' },
+      request,
     });
 
     return NextResponse.json({ id: user.id, email: user.email }, { status: 201 });

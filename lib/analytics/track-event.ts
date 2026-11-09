@@ -26,6 +26,10 @@
  * code serveur (routes API, events Auth.js). Jamais depuis un composant client.
  */
 
+import { isIP } from 'node:net';
+
+import { extractClientIp } from '@/lib/auth/rate-limit';
+
 /** Site Rybbit du tunnel : veridian.site. Surchargé par `ANALYTICS_TRACK_SITE_ID`. */
 const SITE_PROD = '2';
 
@@ -60,6 +64,8 @@ export type TrackGoalInput = {
   properties?: Record<string, string>;
   /** Chemin logique de l'event (défaut `/` — le Hub n'a pas de page tunnel). */
   path?: string;
+  /** Requête du vrai visiteur : son IP et son navigateur, que Rybbit retient avec une clé de confiance. */
+  request?: { headers: { get(name: string): string | null } };
 };
 
 type TrackGoalDeps = {
@@ -108,8 +114,16 @@ export async function trackGoal(
 
     const siteId = resolveSiteId();
     if (!siteId) return; // hors prod sans site explicite : rien ne part
+    // Ingestion serveur de confiance (clé ingest:write) : Rybbit prend l'IP et le navigateur du visiteur au
+    // lieu de ceux du Hub. Sans elle, l'appel vient d'OVH et Rybbit le classe robot (mesuré le 09/11).
+    const ipLue = input.request ? extractClientIp(input.request.headers as Headers) : '';
+    const ip = isIP(ipLue) ? ipLue : undefined; // Rybbit refuse tout l'événement sur une IP invalide
+    const ua = input.request?.headers.get('user-agent') || undefined;
+    const cle = process.env.ANALYTICS_TRACK_KEY;
     const body = JSON.stringify({
       type: 'custom_event',
+      ...(cle && ip ? { ip_address: ip } : {}),
+      ...(cle && ua ? { user_agent: ua } : {}),
       site_id: siteId,
       event_name: input.goal,
       hostname: 'app.veridian.site',
@@ -125,7 +139,11 @@ export async function trackGoal(
     try {
       const res = await fetchImpl(`${resolveTrackBaseUrl()}/api/track`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...BROWSER_HEADERS },
+        headers: {
+          'Content-Type': 'application/json',
+          ...BROWSER_HEADERS,
+          ...(cle ? { Authorization: `Bearer ${cle}` } : {}),
+        },
         body,
         signal: controller.signal,
         cache: 'no-store',

@@ -268,11 +268,11 @@ describe('POST /api/auth/signup', () => {
     expect(res.status).toBe(201);
 
     expect(trackGoalMock).toHaveBeenCalledTimes(1);
-    expect(trackGoalMock).toHaveBeenCalledWith({
+    expect(trackGoalMock).toHaveBeenCalledWith(expect.objectContaining({
       userEmail: 'tunnel@test.io',
       goal: 'signup',
       sessionId: expect.stringMatching(/^hub-/),
       properties: { provider: 'credentials' },
-    });
+    }));
   });
 });
