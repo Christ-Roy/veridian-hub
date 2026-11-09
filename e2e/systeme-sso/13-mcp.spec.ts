@@ -157,14 +157,23 @@ cas(null, 'porte MCP : un client IA s\'enregistre, obtient le consentement, appe
       tableau.push({ app, statut: 'echec', outil: '-', extrait: 'aucun outil rendu' });
       continue;
     }
-    let ligne: Ligne = { app, statut: 'sans_outil_lecture', outil: '-', extrait: `${liste.outils.length} outils, aucun en lecture seule sans paramètre` };
+    let ligne: Ligne = { app, statut: 'sans_outil_lecture', outil: '-', extrait: `${liste.outils.length} outils, aucun en lecture seule exécutable sans données` };
+    // Un outil en lecture seule : sans paramètre obligatoire d'abord, sinon dont tous les paramètres
+    // obligatoires sont des chaînes (remplies d'une valeur de test). Rien n'est écrit chez l'app.
+    const lisibles: { nom: string; args: Record<string, string>; requis: number }[] = [];
     for (const o of liste.outils as { nom: string }[]) {
       const d = JSON.parse((await rpc(t.access_token, 'tools/call', { name: 'decrire_outil', arguments: { nom: o.nom } })).json.result.content[0].text);
-      if (d.annotations?.readOnlyHint !== true || ((d.parametres?.required ?? []) as string[]).length > 0) continue;
-      const r = (await rpc(t.access_token, 'tools/call', { name: 'executer_outil', arguments: { nom: o.nom, arguments: {} } })).json.result;
+      if (d.annotations?.readOnlyHint !== true) continue;
+      const requis = (d.parametres?.required ?? []) as string[];
+      const props = (d.parametres?.properties ?? {}) as Record<string, { type?: string }>;
+      if (!requis.every((k) => props[k]?.type === 'string')) continue;
+      lisibles.push({ nom: o.nom, args: Object.fromEntries(requis.map((k) => [k, 'test'])), requis: requis.length });
+    }
+    lisibles.sort((a, b) => a.requis - b.requis);
+    for (const o of lisibles.slice(0, 1)) {
+      const r = (await rpc(t.access_token, 'tools/call', { name: 'executer_outil', arguments: { nom: o.nom, arguments: o.args } })).json.result;
       const texte = String(r.content?.[0]?.text ?? '').replace(/\s+/g, ' ');
       ligne = { app, statut: r.isError ? 'echec' : 'ok', outil: o.nom, extrait: texte.slice(0, 140) };
-      break;
     }
     tableau.push(ligne);
   }
