@@ -23,7 +23,7 @@ export async function DELETE(request: NextRequest) {
   const denial = await requireAdmin(request);
   if (denial) return denial;
 
-  let body: { email?: string; confirm?: unknown };
+  let body: { email?: string; confirm?: unknown; motif?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -31,6 +31,8 @@ export async function DELETE(request: NextRequest) {
   }
 
   const { email, confirm } = body;
+  // Motif de la suppression, gardé à l'audit (09/11 : on ne savait plus qui avait supprimé, ni pourquoi).
+  const motif = typeof body.motif === 'string' ? body.motif.replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 200) : null;
   if (!email) {
     return NextResponse.json({ error: 'email required' }, { status: 400 });
   }
@@ -58,8 +60,10 @@ export async function DELETE(request: NextRequest) {
   if (userUuid) {
     // findMany conservé pour récupérer notifuseWorkspaceSlug et logger les warnings
     // de cleanup manuel downstream + lister chaque tenant ID dans l'audit response.
+    // Tenants encore actifs seulement : un tenant déjà supprimé garde sa date et n'est pas
+    // redéprovisionné (09/11 : un ancien tenant supprimé portait encore un espace Notifuse).
     const tenants = await prisma.tenant.findMany({
-      where: { userId: userUuid },
+      where: { userId: userUuid, deletedAt: null },
       select: { id: true, notifuseWorkspaceSlug: true, prospectionProvisionedAt: true, metadata: true },
     });
     apps = await deprovisionnerCompte({ email, tenants });
@@ -117,7 +121,7 @@ export async function DELETE(request: NextRequest) {
     actor: request.headers ? resolveActor(request.headers, null) : 'inconnu',
     targetType: 'user',
     targetId: userUuid ?? user.id,
-    payload: { apps: apps.map((a) => ({ app: a.app, ok: a.ok })), actions: actions.length },
+    payload: { apps: apps.map((a) => ({ app: a.app, ok: a.ok })), actions: actions.length, ...(motif ? { motif } : {}) },
   });
 
   return NextResponse.json({

@@ -12,7 +12,6 @@ import { describe, expect, it } from 'vitest';
 import { code, parcourir } from './source';
 
 const VOIENT_LES_SUPPRIMES: Record<string, string> = {
-  'app/api/admin/delete-tenant/route.ts': 'suppression : marque aussi les tenants déjà supprimés du compte',
   'app/api/admin/users-lookup/route.ts': 'vue admin : montre l\'historique complet',
   'app/api/admin/users/[email]/route.ts': 'vue admin : montre l\'historique complet',
   'lib/admin/find-orphan-users.ts': 'audit des comptes sans tenant : un tenant supprimé compte',

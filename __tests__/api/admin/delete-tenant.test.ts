@@ -51,7 +51,9 @@ vi.mock('@/lib/prisma', () => ({
     },
     tenant: {
       findMany: vi.fn(async ({ where }: any) => {
-        return Array.from(tenantStore.values()).filter((t) => t.userId === where.userId);
+        return Array.from(tenantStore.values()).filter(
+          (t) => t.userId === where.userId && (where.deletedAt !== null || !t.deletedAt),
+        );
       }),
       updateMany: tenantUpdateManyMock,
     },
@@ -169,5 +171,18 @@ describe('DELETE /api/admin/delete-tenant', () => {
     const audit = (auditCreateMock.mock.calls.at(-1) as any)[0].data;
     expect(audit).toMatchObject({ action: 'admin.tenant.delete', targetId: 'uuid-dp', payload: { apps: [{ app: 'prospection', ok: true }] } });
     expect(JSON.stringify(audit)).not.toContain('dp@x.com');
+  });
+
+  it('un tenant déjà supprimé n\'est ni redéprovisionné ni redaté ; le motif part à l\'audit', async () => {
+    const { DELETE } = await import('@/app/api/admin/delete-tenant/route');
+    userStore.set('mo@x.com', { id: 'u-mo', supabaseUserId: 'uuid-mo' });
+    const ancien = new Date('2026-11-07T13:33:00Z');
+    tenantStore.set('t-vieux', { id: 't-vieux', userId: 'uuid-mo', notifuseWorkspaceSlug: 'fgmc', deletedAt: ancien, metadata: {} });
+    tenantStore.set('t-neuf', { id: 't-neuf', userId: 'uuid-mo', notifuseWorkspaceSlug: null, deletedAt: null, metadata: {} });
+    deprovisionMock.mockClear();
+    await DELETE(new (await import('next/server')).NextRequest('http://x/api/admin/delete-tenant', { method: 'DELETE', body: JSON.stringify({ email: 'mo@x.com', confirm: true, motif: 'décision Robert 07/11' }) }));
+    expect((deprovisionMock.mock.calls.at(-1) as any)[0].tenants.map((t: any) => t.id)).toEqual(['t-neuf']);
+    expect(tenantStore.get('t-vieux').deletedAt).toEqual(ancien);
+    expect((auditCreateMock.mock.calls.at(-1) as any)[0].data.payload.motif).toBe('décision Robert 07/11');
   });
 });
