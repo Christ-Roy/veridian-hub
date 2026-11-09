@@ -99,6 +99,13 @@ export async function provisionNotifuseTenant(
     });
 
     logStep('NOTIFUSE', result.created ? 'Workspace created' : 'Workspace already existed');
+    // Notifuse ne retient le lien au tenant Hub (tenant_id du JWT MCP) qu'à l'update-plan : posé ici
+    // pour un espace neuf seulement (plan free, celui qu'il vient de recevoir). Meilleur effort.
+    if (result.created) {
+      await client
+        .updatePlan({ tenantId: result.workspace_id, plan: 'free', hubTenantId })
+        .catch((err: unknown) => logStep('NOTIFUSE', 'Lien tenant Hub non posé', { error: err instanceof Error ? err.message : 'erreur' }));
+    }
 
     const tenantData = {
       notifuseWorkspaceSlug: result.workspace_id,

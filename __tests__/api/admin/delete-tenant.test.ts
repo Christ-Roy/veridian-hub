@@ -18,6 +18,7 @@ vi.mock('@/lib/admin/require-admin', () => ({
 const deprovisionMock = vi.fn(async () => [{ app: 'prospection', cible: 'proprietaire', ok: true, detail: 'soft-delete' }]);
 vi.mock('@/lib/apps/deprovision', () => ({ deprovisionnerCompte: (...a: any[]) => deprovisionMock(...a) }));
 
+const auditCreateMock = vi.fn(async () => ({}));
 const userStore = new Map<string, any>();
 const tenantStore = new Map<string, any>();
 
@@ -60,6 +61,7 @@ vi.mock('@/lib/prisma', () => ({
     profile: {
       delete: vi.fn(async () => { throw new Error('not found'); }),
     },
+    auditLog: { create: auditCreateMock },
   },
 }));
 
@@ -163,5 +165,9 @@ describe('DELETE /api/admin/delete-tenant', () => {
     const body = await res.json();
     expect(deprovisionMock).toHaveBeenCalledWith({ email: 'dp@x.com', tenants: [expect.objectContaining({ id: 't-dp' })] });
     expect(body.apps).toEqual([expect.objectContaining({ app: 'prospection', ok: true })]);
+    // Plus de suppression sans trace : identifiant du compte et issues par app, jamais l'adresse.
+    const audit = (auditCreateMock.mock.calls.at(-1) as any)[0].data;
+    expect(audit).toMatchObject({ action: 'admin.tenant.delete', targetId: 'uuid-dp', payload: { apps: [{ app: 'prospection', ok: true }] } });
+    expect(JSON.stringify(audit)).not.toContain('dp@x.com');
   });
 });

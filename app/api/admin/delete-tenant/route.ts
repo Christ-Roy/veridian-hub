@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { deprovisionnerCompte } from '@/lib/apps/deprovision';
 import { pushUserToApps } from '@/lib/identity/push-user';
 
+import { resolveActor, writeAuditLog } from '@/lib/admin/audit-log';
 import { requireAdmin } from '@/lib/admin/require-admin';
 import { prisma } from '@/lib/prisma';
 
@@ -108,6 +109,16 @@ export async function DELETE(request: NextRequest) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     actions.push(`⚠️ Auth user delete failed: ${message}`);
   }
+
+  // Une suppression ne passe plus sans trace (09/11 : deux comptes réels supprimés le 07/11 sans
+  // qu'on puisse dire par qui). Ni adresse ni contenu : identifiants et issues par app.
+  await writeAuditLog(prisma, {
+    action: 'admin.tenant.delete',
+    actor: request.headers ? resolveActor(request.headers, null) : 'inconnu',
+    targetType: 'user',
+    targetId: userUuid ?? user.id,
+    payload: { apps: apps.map((a) => ({ app: a.app, ok: a.ok })), actions: actions.length },
+  });
 
   return NextResponse.json({
     ok: true,

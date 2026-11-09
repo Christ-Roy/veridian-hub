@@ -27,6 +27,7 @@ import {
   setTenantAppEnabled,
   type GatedAppKey,
 } from '@/lib/tenant-apps';
+import { lierAuHub } from '@/lib/apps/lier-hub';
 import { ensureCrmWorkspace } from '@/lib/crm/provision';
 import { isCanonicalPlan, readAppPlan, setAppPlan } from '@/lib/plans/app-plan';
 
@@ -102,6 +103,7 @@ export async function POST(request: NextRequest) {
   // Analytics : le plan du Hub (sinon free) est posé chez Rybbit dès l'activation. Sans compte
   // Rybbit relié, Rybbit répond tenant_not_found et rien n'est écrit : l'écart se lit dans reconcile.
   let analyticsPlan: string | undefined;
+  let analyticsLien: string | undefined;
   if (parsed.data.app === 'analytics' && parsed.data.enabled) {
     const tenant = await prisma.tenant.findFirst({
       where: { userId: user.supabaseUserId, deletedAt: null },
@@ -119,6 +121,12 @@ export async function POST(request: NextRequest) {
         setBy: resolveActor(request.headers, authResult.sessionEmail),
       });
       analyticsPlan = pushed.ok ? 'posé' : `non posé : ${pushed.error}`;
+      // Lien d'espace pour le tenant_id du JWT MCP (lien seul, jamais écrasé) : sans lui, choisir
+      // cet espace par la porte rendait tenant_not_linked (mesuré le 09/11).
+      const lien = await lierAuHub('analytics', { hubUserId: user.supabaseUserId, hubTenantId: tenant.id }).catch(
+        (err: unknown) => ({ linked: false, raison: err instanceof Error ? err.message.slice(0, 80) : 'erreur' }),
+      );
+      analyticsLien = lien.linked ? lien.raison : `non relié : ${lien.raison}`;
     }
   }
 
@@ -143,5 +151,6 @@ export async function POST(request: NextRequest) {
     enabled: result.enabled,
     ...(crmWorkspaceId ? { crm_workspace_id: crmWorkspaceId } : {}),
     ...(analyticsPlan ? { analytics_plan: analyticsPlan } : {}),
+    ...(analyticsLien ? { analytics_lien: analyticsLien } : {}),
   });
 }

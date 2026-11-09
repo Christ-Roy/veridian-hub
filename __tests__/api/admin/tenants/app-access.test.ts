@@ -20,7 +20,11 @@ const {
   tenantFindFirstMock,
   tenantUpdateMock,
   provisionMock,
+  lierMock,
+  setAppPlanMock,
 } = vi.hoisted(() => ({
+  lierMock: vi.fn(),
+  setAppPlanMock: vi.fn(),
   tenantUpdateMock: vi.fn(),
   tenantFindFirstMock: vi.fn(),
   provisionMock: vi.fn(),
@@ -47,6 +51,11 @@ vi.mock('@/lib/admin/audit-log', () => ({
   writeAuditLog: (...args: unknown[]) => writeAuditLogMock(...args),
   resolveActor: () => 'token:ADMIN_SECRET',
 }));
+vi.mock('@/lib/apps/lier-hub', () => ({ lierAuHub: (...a: unknown[]) => lierMock(...a) }));
+vi.mock('@/lib/plans/app-plan', async () => {
+  const actual = await vi.importActual<any>('@/lib/plans/app-plan');
+  return { ...actual, setAppPlan: (...a: unknown[]) => setAppPlanMock(...a) };
+});
 vi.mock('@/lib/admin/authenticate', () => ({
   authenticateAdmin: (...args: unknown[]) => authenticateAdminMock(...args),
 }));
@@ -204,5 +213,16 @@ describe('POST /api/admin/tenants/app-access', () => {
       expect(res.status).toBe(200);
       expect(provisionMock).not.toHaveBeenCalled();
     });
+  });
+
+  it('activation Analytics : plan posé puis espace relié au tenant Hub (tenant_id du MCP)', async () => {
+    findUniqueMock.mockResolvedValue({ id: 'u1', supabaseUserId: 'uuid-1' });
+    setTenantAppEnabledMock.mockResolvedValue({ appKey: 'analytics', enabled: true });
+    tenantFindFirstMock.mockResolvedValue({ id: 't-1', metadata: {} });
+    setAppPlanMock.mockResolvedValue({ ok: true, previousPlan: null });
+    lierMock.mockResolvedValue({ linked: true, raison: 'relie' });
+    const body = await (await POST(req({ user_email: 'a@x.io', app: 'analytics', enabled: true }))).json();
+    expect(lierMock).toHaveBeenCalledWith('analytics', { hubUserId: 'uuid-1', hubTenantId: 't-1' });
+    expect(body.analytics_lien).toBe('relie');
   });
 });
