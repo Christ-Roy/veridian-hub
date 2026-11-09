@@ -76,14 +76,14 @@ describe('drapeau TRIAL_MACHINE_ENABLED (allumage du flow d\'essai réel, décis
     });
   };
   it('coupé : le signal d\'un client réel ne démarre rien', async () => {
-    delete process.env.TRIAL_MACHINE_ENABLED;
+    process.env.TRIAL_MACHINE_ENABLED = "0";
     tenantFindFirstMock.mockResolvedValueOnce({ id: 'hub-1', notifusePlan: 'free', userId: 'u1' });
     userFindFirstMock.mockResolvedValueOnce({ email: 'client@entreprise.fr' });
     await appel();
     expect(upsertMock).not.toHaveBeenCalled();
   });
   it('coupé : un compte de test de la batterie entre quand même (cas 12)', async () => {
-    delete process.env.TRIAL_MACHINE_ENABLED;
+    process.env.TRIAL_MACHINE_ENABLED = "0";
     tenantFindFirstMock.mockResolvedValueOnce({ id: 'hub-2', notifusePlan: 'free', userId: 'u2' });
     userFindFirstMock.mockResolvedValueOnce({ email: 'e2e-sso-essai@veridian.site' });
     upsertMock.mockResolvedValue({});

@@ -552,8 +552,8 @@ describe('plan et statut d\'essai, app par app (Robert, 08/11 : « toujours savo
     expect(vide.some((l) => l.startsWith('cms : hors périmètre (PRICING)'))).toBe(true);
     const nourrie = await measureNotWired({ $queryRaw: async () => [{ reels: 4 }] } as never, new Map());
     expect(nourrie.some((l) => l.startsWith('essai :'))).toBe(false);
-    delete process.env.TRIAL_MACHINE_ENABLED;
-    const coupee = await measureNotWired({ $queryRaw: async () => [{ reels: 4 }] } as never, new Map());
+    process.env.TRIAL_MACHINE_ENABLED = '0';
+    const coupee =await measureNotWired({ $queryRaw: async () => [{ reels: 4 }] } as never, new Map());
     expect(coupee.some((l) => l.startsWith('essai : flow d\'essai réel coupé'))).toBe(true);
   });
 });

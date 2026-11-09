@@ -75,12 +75,13 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
 - **Variables du job** : toute variable lue par le code est rendue par `deploy/hub.nomad.hcl` (source de la CI) ou
   déclarée facultative avec sa raison (`__tests__/contrat/variables-job.test.ts`). 08/11 : `MICROSOFT_OAUTH_*` manquait,
   `client_id=undefined`. Une clé de `nomad/jobs/hub` se pose AVANT le déploiement qui la rend.
-- **Essai** : le signal de Notifuse (voie legacy, 5e mail) nourrit `tenant_trials` ; le flow réel est coupé par
-  `TRIAL_MACHINE_ENABLED` (décision de Robert), ouvert aux seuls comptes `e2e-sso-*` (cas 12).
+- **Essai** : le 5e mail Notifuse nourrit `tenant_trials` ; le tick (30 min) n'active qu'à 48 h. Drapeau
+  `TRIAL_MACHINE_ENABLED` (`lib/trial/flag.ts`) rendu par le template depuis `nomad/jobs/hub` : absent = 1, seul `0` coupe.
+  **Couper** : clé à 0, bloc complet par stdin (`nomad var put -out none -in json -check-index <index> nomad/jobs/hub -`,
+  index via `nomad-v raw var list nomad/jobs/hub`), puis `nomad-v run hub`. Preuve : `__tests__/lib/trial/flag.test.ts`.
 - **Plans d'Analytics et du CRM** : posés par `hub plan --app analytics|crm`, l'activation et Stripe
   (`lib/plans/app-plan.ts`), avec le statut d'essai (`lib/plans/trial-status.ts`). Les apps stockent, aucune
   limite ni lecture seule (drapeau coupé, décision de Robert). Ce qui manque : `hub reconcile --ecarts`.
-- **Restes de test** : `testResidue` de `hub reconcile`.
 - **Garde rapide** : `__tests__/contrat/` (revocation sans `iat`, `authAt` sur toute création de session,
   cibles du rebond, origines). Un nouveau `encode(` de JWT de session s'ajoute à sa liste. Détail par
   parcours et état prouvé ou accepté : `docs/PARCOURS-IDENTITE.md`.
@@ -124,20 +125,6 @@ Outil admin : `hub` (`hub doctor` d'abord : santé, secret, auth admin). Aucune 
 
 `pnpm install` · `pnpm dev` (port 3000) · `pnpm build` · `pnpm test` (Vitest, 3000+ tests).
 
-## Identité (décision Robert, 06/11/2026)
-
-Le Hub est la **seule source de vérité des utilisateurs**, chaque app garde sa base et une
-copie de ses comptes, sans inscription ni mot de passe utilisable.
-Référence : `docs/CONTRAT-HUB.md` §3.7, §3.8, `docs/SAAS-STANDARDS.md` §1.1, §1.2.
-
-- `hub_user_id` = `users.supabase_user_id`, jamais `users.id` (cuid sur la moitié des comptes).
-- Toute route qui mène à une session d'app appelle `denyUnlessEmailProven`
-  (`lib/auth/email-proof.ts`). Un test échoue sur toute nouvelle route non gardée.
-- `hub reconcile` (`lib/sync/`) n'écrit rien : une dérive se lit et se tranche. Il compare
-  aussi les comptes de chaque app au Hub.
-- Toute écriture de plan se propage à l'app. Un refus n'écrit rien au Hub.
-- Le dépôt est **public**, ses logs Actions aussi : aucune adresse client dans une réponse de cron.
-
 ## Déploiement : la prod vient de `main`
 
 `staging` et `main` divergent. La CI pose `deploy/hub.nomad.hcl` depuis `main`. La version servie
@@ -150,6 +137,14 @@ Signup (Auth.js) → `/api/auth/signup` → `utils/tenants/provision.ts` → Not
 parallèle) → table `Tenant`. `User.supabaseUserId` est un nom legacy : l'UUID de pont (`hub_user_id`).
 
 ## Règles
+
+- `hub_user_id` = `users.supabase_user_id`, jamais `users.id` (cuid sur la moitié des comptes).
+- Toute route qui mène à une session d'app appelle `denyUnlessEmailProven`
+  (`lib/auth/email-proof.ts`). Un test échoue sur toute nouvelle route non gardée.
+- `hub reconcile` (`lib/sync/`) n'écrit rien : une dérive se lit et se tranche. Il compare
+  aussi les comptes de chaque app au Hub.
+- Toute écriture de plan se propage à l'app. Un refus n'écrit rien au Hub.
+- Le dépôt est **public**, ses logs Actions aussi : aucune adresse client dans une réponse de cron.
 
 - Les env vars **runtime** sont injectées via docker-compose (pas de build-args).
   Le compose Git de référence : `infra/services/hub/docker-compose.yml`.

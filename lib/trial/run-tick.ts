@@ -67,6 +67,7 @@ import {
   buildTrialStartedEmail,
 } from '@/lib/email/templates/trial';
 import { computeTrialEndsAt } from '@/lib/trial/transitions';
+import { trialMachineEnabled } from '@/lib/trial/flag';
 import { PLAN_APPS, readAppPlan, setAppPlan, tenantHasApp } from '@/lib/plans/app-plan';
 import { trialStatusForTenant } from '@/lib/plans/trial-status';
 import {
@@ -202,6 +203,8 @@ async function processActivations(
   ) => Promise<Map<string, string | null>>,
   summary: TickSummary,
 ): Promise<void> {
+  // Drapeau coupé (TRIAL_MACHINE_ENABLED=0) : aucune activation.
+  if (!trialMachineEnabled()) return;
   const eligibleCutoff = new Date(
     now.getTime() - TRIAL_ELIGIBLE_WAIT_HOURS * 60 * 60 * 1000,
   );

@@ -16,6 +16,7 @@
  */
 
 import { prisma } from '@/lib/prisma';
+import { trialMachineEnabled } from '@/lib/trial/flag';
 import type { HandlerTable } from '@/lib/webhooks/receiver';
 import {
   applyMemberEvent,
@@ -316,10 +317,8 @@ export async function resolveHubTenant(
   return tenant ?? null;
 }
 
-/** Le flow d'essai réel est-il allumé ? Coupé tant que Robert n'a pas dit oui (08/11). */
-export function trialMachineEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.TRIAL_MACHINE_ENABLED === '1';
-}
+/** Le flow d'essai réel est-il allumé ? Voir lib/trial/flag.ts. */
+export { trialMachineEnabled } from '@/lib/trial/flag';
 
 const COMPTE_TEST = /^e2e-sso-[a-z0-9-]+@veridian\.site$/;
 

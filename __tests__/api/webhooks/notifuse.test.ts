@@ -441,7 +441,7 @@ describe('POST /api/webhooks/notifuse — Legacy HMAC', () => {
   });
 
   it('drapeau coupé : le 5e mail d\'un client réel ne démarre aucun essai (aucune ligne, donc ni mail ni plan)', async () => {
-    delete process.env.TRIAL_MACHINE_ENABLED;
+    process.env.TRIAL_MACHINE_ENABLED = "0";
     tenantStore.set('tenant-uuid-5', { id: 'tenant-uuid-5', notifuseWorkspaceSlug: 't_client', notifusePlan: 'free', metadata: {}, userId: 'u-client' } as never);
     const { POST } = await import('@/app/api/webhooks/notifuse/route');
     const ts = String(Date.now());

@@ -245,10 +245,6 @@ ANALYTICS_API_URL=https://analytics.app.veridian.site
 NEXT_PUBLIC_ANALYTICS_URL=https://analytics.app.veridian.site
 # CRM Veridian (Twenty) : provisioning signé et rebond, CONTRAT-HUB §5.1 et §6bis.8. Secret = HUB_API_SECRET de nomad/jobs/crm.
 CRM_API_URL=https://crm.app.veridian.site
-# Flow d'essai réel (mails aux clients au 5e mail Notifuse) : allumé le 09/11 sur le go de Robert
-# (« Oui, allume après relecture », artefact des décisions du 08/11). Couper : retirer la ligne.
-TRIAL_MACHINE_ENABLED=1
-
 {{ with nomadVar "nomad/jobs/hub" }}
 {{ $dbMode := or .HUB_DATABASE_MODE.Value "nomad-service" }}
 {{ $dbUser := or .HUB_DATABASE_USER.Value "veridian" }}
@@ -280,6 +276,9 @@ HUB_DATABASE_NAME={{ $dbName }}
 HUB_DATABASE_SCHEMA={{ $dbSchema }}
 DATABASE_URL=postgresql://{{ $dbUser }}:{{ $dbPassword }}@{{ $dbHost }}:{{ $dbPort }}/{{ $dbName }}?schema={{ $dbSchema }}
 {{ end }}
+# Flow d'essai réel : allumé (go de Robert). Défaut 1 si la clé est absente ; 0 coupe.
+# Couper : nomad/jobs/hub TRIAL_MACHINE_ENABLED=0 (bloc complet, stdin, -check-index), puis rendre le job.
+TRIAL_MACHINE_ENABLED={{ or .TRIAL_MACHINE_ENABLED.Value "1" }}
 AUTH_SECRET={{ .HUB_AUTH_SECRET }}
 ADMIN_SECRET={{ .ADMIN_SECRET }}
 CRON_SECRET={{ .CRON_SECRET }}
