@@ -248,7 +248,6 @@ CRM_API_URL=https://crm.app.veridian.site
 {{ with nomadVar "nomad/jobs/hub" }}
 # Base du Hub : pg-saas (grappe Patroni, entree 172.26.64.1:15432, base hub, role hub). Migration du 09/11/2026 (plan §21).
 DATABASE_URL=postgresql://hub:{{ .PG_SAAS_PASSWORD }}@172.26.64.1:15432/hub?schema=hub_app
-{{ end }}
 # Flow d'essai réel : allumé (go de Robert). Défaut 1 si la clé est absente ; 0 coupe.
 # Couper : nomad/jobs/hub TRIAL_MACHINE_ENABLED=0 (bloc complet, stdin, -check-index), puis rendre le job.
 TRIAL_MACHINE_ENABLED={{ or .TRIAL_MACHINE_ENABLED.Value "1" }}
