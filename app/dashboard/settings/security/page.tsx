@@ -12,6 +12,8 @@ import { Card } from '@/components/ui/card';
 import { DashboardPageHeader } from '@/components/dashboard/PageHeader';
 import { SecurityMfaToggle } from './SecurityMfaToggle';
 import { SignOutEverywhere } from './SignOutEverywhere';
+import { ConnexionsIa } from './ConnexionsIa';
+import { connexionsActives } from '@/lib/mcp/connexions';
 
 export default async function SecuritySettingsPage() {
   const session = await auth();
@@ -21,7 +23,7 @@ export default async function SecuritySettingsPage() {
 
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { id: true, email: true, mfaEnabled: true },
+    select: { id: true, email: true, mfaEnabled: true, supabaseUserId: true },
   });
 
   if (!user) {
@@ -32,6 +34,8 @@ export default async function SecuritySettingsPage() {
     where: { userId: user.id, provider: 'credentials', access_token: { not: null } },
     select: { id: true },
   });
+
+  const connexions = user.supabaseUserId ? await connexionsActives(prisma, user.supabaseUserId) : [];
 
   return (
     <div className="max-w-2xl mx-auto p-6 space-y-6">
@@ -57,6 +61,16 @@ export default async function SecuritySettingsPage() {
       <Card className="p-6 space-y-4">
         <h2 className="text-lg font-medium">Sessions</h2>
         <SignOutEverywhere />
+      </Card>
+
+      <Card className="p-6 space-y-4">
+        <div>
+          <h2 className="text-lg font-medium">Assistants IA</h2>
+          <p className="text-sm text-muted-foreground mt-1">
+            Les assistants (Claude, ChatGPT…) reliés à votre compte agissent en votre nom dans vos apps Veridian.
+          </p>
+        </div>
+        <ConnexionsIa connexions={connexions} />
       </Card>
     </div>
   );

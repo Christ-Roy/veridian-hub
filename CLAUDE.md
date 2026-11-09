@@ -82,6 +82,8 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
 - **Plans d'Analytics et du CRM** : posés par `hub plan --app analytics|crm`, l'activation et Stripe
   (`lib/plans/app-plan.ts`), avec le statut d'essai (`lib/plans/trial-status.ts`). Les apps stockent, aucune
   limite ni lecture seule (drapeau coupé, décision de Robert). Ce qui manque : `hub reconcile --ecarts`.
+- **Porte MCP** (09/11, `docs/CONTRAT-MCP.md`) : `/api/mcp`, 3 outils pour toutes les apps. Le Hub est serveur OAuth
+  et registre (`hub mcp-app add`), ne code aucun outil d'app, présente à l'app un JWT ES256 (`MCP_SIGNING_JWK`).
 - **Garde rapide** : `__tests__/contrat/` (revocation sans `iat`, `authAt` sur toute création de session,
   cibles du rebond, origines). Un nouveau `encode(` de JWT de session s'ajoute à sa liste. Détail par
   parcours et état prouvé ou accepté : `docs/PARCOURS-IDENTITE.md`.
