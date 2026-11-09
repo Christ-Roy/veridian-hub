@@ -58,9 +58,7 @@ export function ConnecterAssistant({ liens }: { liens: LiensInstallation }) {
       </div>
       <p className="text-sm text-muted-foreground">
         Claude, Cursor et VS Code s&apos;ouvrent avec Veridian déjà renseigné : confirmez, puis connectez-vous et
-        autorisez. Dans ChatGPT (Paramètres, Plugins) : ajoutez un serveur MCP, collez l&apos;adresse ci-dessous
-        et choisissez l&apos;authentification OAuth. Si l&apos;option n&apos;apparaît pas, activez le mode
-        développeur dans Paramètres, Sécurité et connexion.
+        autorisez. {liens.instructions.chatgpt}
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <code className="rounded bg-muted px-2 py-1 text-xs break-all">{liens.url}</code>

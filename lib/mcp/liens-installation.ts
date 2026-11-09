@@ -21,7 +21,14 @@ export type LiensInstallation = {
   cursor: string;
   vscode: string;
   claudeCode: string;
+  instructions: { chatgpt: string };
 };
+
+/** ChatGPT n'a pas de lien qui préremplit : ce texte accompagne le bouton, dans le Hub comme dans les apps. */
+export const INSTRUCTIONS_CHATGPT =
+  "Dans ChatGPT (Paramètres, Plugins) : ajoutez un serveur MCP, collez l'adresse Veridian et choisissez " +
+  "l'authentification OAuth. Si l'option n'apparaît pas, activez le mode développeur dans Paramètres, " +
+  'Sécurité et connexion.';
 
 export function liensInstallation(env: NodeJS.ProcessEnv = process.env): LiensInstallation {
   const url = mcpResource(env);
@@ -41,5 +48,6 @@ export function liensInstallation(env: NodeJS.ProcessEnv = process.env): LiensIn
     cursor,
     vscode,
     claudeCode: `claude mcp add --transport http ${NOM_CONNECTEUR.toLowerCase()} ${url}`,
+    instructions: { chatgpt: INSTRUCTIONS_CHATGPT },
   };
 }

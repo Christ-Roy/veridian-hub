@@ -39,3 +39,16 @@ describe('ChatGPT', () => {
     expect(L.chatgpt).toBe('https://chatgpt.com/#settings/Connectors');
   });
 });
+
+describe('GET /api/mcp/liens-installation', () => {
+  it('rend les liens et le texte ChatGPT, public, en cache court, ouvert en CORS', async () => {
+    const { GET } = await import('@/app/api/mcp/liens-installation/route');
+    const r = GET();
+    expect(r.headers.get('access-control-allow-origin')).toBe('*');
+    expect(r.headers.get('cache-control')).toBe('public, max-age=300');
+    const corps = await r.json();
+    expect(Object.keys(corps).sort()).toEqual(['chatgpt', 'claude', 'claudeCode', 'cursor', 'instructions', 'url', 'vscode']);
+    expect(corps.url).toMatch(/\/api\/mcp$/);
+    expect(corps.instructions.chatgpt).toContain('OAuth');
+  });
+});

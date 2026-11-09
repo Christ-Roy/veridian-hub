@@ -27,6 +27,10 @@ Ajouter une app : une ligne au registre (`hub mcp-app add <cle> <url_mcp>`), auc
   `chercher_outils(besoin, app?)` → noms + une ligne ; `decrire_outil(nom)` → schéma ;
   `executer_outil(nom, arguments)`. Les noms sont `<app>.<outil>`. L'app `hub` porte les outils du Hub.
 - Sorties plafonnées (~16 000 caractères) : au-delà, tronquées avec un avis ; les apps paginent.
+- Boutons « Ajouter à … » : `GET https://app.veridian.site/api/mcp/liens-installation`, public, CORS ouvert, cache
+  5 min. Rend `{ url, claude, chatgpt, cursor, vscode, claudeCode, instructions: { chatgpt } }`. Chaque app affiche
+  les boutons chez elle à partir de cette réponse, sans recopier les liens (ils ne contiennent aucun secret).
+  Révocation : `/dashboard/ia` au Hub.
 
 ## Côté app (ce que chaque app implémente)
 
