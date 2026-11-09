@@ -26,6 +26,37 @@ function slugify(email: string): string {
   return email.split('@')[0].replace(/[^a-z0-9]/gi, '').toLowerCase();
 }
 
+/**
+ * Le tenant Hub d'un compte, créé s'il manque. Appelé AVANT de provisionner les apps : Notifuse et
+ * Prospection tournaient en parallèle, chacun « cherche, sinon crée », et pouvaient créer deux
+ * tenants pour un même compte ; Prospection ne recevait pas non plus l'id Hub (tenant_id du JWT MCP).
+ * Un tenant supprimé n'est jamais repris.
+ */
+export async function assurerTenantHub(email: string, userId: string, nom?: string): Promise<string> {
+  const existant = await prisma.tenant.findFirst({
+    where: { userId, deletedAt: null },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true },
+  });
+  if (existant) return existant.id;
+  const slug = slugify(email);
+  const slugPris = await prisma.tenant.findUnique({ where: { slug }, select: { id: true } });
+  const trialEndsAt = new Date();
+  trialEndsAt.setDate(trialEndsAt.getDate() + 15);
+  const cree = await prisma.tenant.create({
+    data: {
+      userId,
+      name: nom ?? email.split('@')[0],
+      slug: slugPris ? `${slug}-${Math.random().toString(36).slice(2, 7)}` : slug,
+      status: 'active',
+      provisionedAt: new Date(),
+      trialEndsAt,
+    },
+    select: { id: true },
+  });
+  return cree.id;
+}
+
 // ============================================================
 // Notifuse Provisioning
 // ============================================================
@@ -78,7 +109,8 @@ export async function provisionNotifuseTenant(
     };
 
     const existingTenant = await prisma.tenant.findFirst({
-      where: { userId },
+      where: { userId, deletedAt: null },
+      orderBy: { createdAt: 'asc' },
       select: { id: true, metadata: true },
     });
 
@@ -183,12 +215,14 @@ export async function provisionProspectionTenant(
   try {
     logStep('PROSPECTION', 'Starting provisioning', { email, userId });
 
+    const tenantId = await assurerTenantHub(email, userId);
     const data = await client.provisionTenant({
       email,
       name: email.split('@')[0],
       userId,
       plan: 'freemium',
       emailProven: await isEmailProvenInDb(prisma, userId),
+      hubTenantId: tenantId,
     });
 
     logStep('PROSPECTION', 'Provisioned', { tenantId: data.tenant_id, created: data.created });
@@ -201,48 +235,7 @@ export async function provisionProspectionTenant(
       prospectionProvisionedAt: new Date(),
     };
 
-    const existingTenant = await prisma.tenant.findFirst({
-      where: { userId },
-      select: { id: true },
-    });
-
-    let tenantId: string;
-
-    if (existingTenant) {
-      const updated = await prisma.tenant.update({
-        where: { id: existingTenant.id },
-        data: prospectionData,
-        select: { id: true },
-      });
-      tenantId = updated.id;
-    } else {
-      const slug = slugify(email);
-      const trialEndsAt = new Date();
-      trialEndsAt.setDate(trialEndsAt.getDate() + 15);
-
-      let finalSlug = slug;
-      const slugTaken = await prisma.tenant.findUnique({
-        where: { slug: finalSlug },
-        select: { id: true },
-      });
-      if (slugTaken) {
-        finalSlug = `${slug}-${Math.random().toString(36).slice(2, 7)}`;
-      }
-
-      const created = await prisma.tenant.create({
-        data: {
-          userId,
-          name: email.split('@')[0],
-          slug: finalSlug,
-          status: 'active',
-          ...prospectionData,
-          provisionedAt: new Date(),
-          trialEndsAt,
-        },
-        select: { id: true },
-      });
-      tenantId = created.id;
-    }
+    await prisma.tenant.update({ where: { id: tenantId }, data: prospectionData, select: { id: true } });
 
     try {
       await prisma.provisioningLog.create({
@@ -368,6 +361,9 @@ export async function provisionTenants(
   logProvisionStart(email, userId);
 
   const errors: string[] = [];
+
+  // Un seul tenant Hub, assuré avant les appels parallèles (sinon deux créations concurrentes).
+  if (app !== 'notifuse') await assurerTenantHub(email, userId);
 
   const tasks: Array<Promise<any>> = [];
   const wantsNotifuse = app === 'notifuse' || app === 'all';

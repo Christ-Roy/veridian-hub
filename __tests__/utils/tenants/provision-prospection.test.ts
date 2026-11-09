@@ -81,7 +81,9 @@ describe('provisionProspectionTenant', () => {
 
     const body = JSON.parse(init.body);
     expect(body.user_id).toBe('uuid-alice');
-    expect(body.metadata).toEqual({ hub_user_id: 'uuid-alice' });
+    // L'id du tenant Hub part avec : Prospection l'utilise pour le tenant_id du JWT MCP.
+    expect(body.hub_tenant_id).toBe('tenant-1');
+    expect(body.metadata).toEqual({ hub_user_id: 'uuid-alice', hub_tenant_id: 'tenant-1' });
     expect(body.email).toBe('alice@veridian.test');
     expect(body.plan).toBe('freemium');
     expect(body.name).toBe('alice');
@@ -131,5 +133,21 @@ describe('provisionProspectionTenant', () => {
     expect(result.success).toBe(false);
     expect(result.error).toBe('Not configured');
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('le tenant Hub est assuré avant l\'appel, jamais un tenant supprimé', async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ tenant_id: 't-1', api_key: 'k', login_url: 'https://x/?t=y' }),
+    });
+    const { prisma } = await import('@/lib/prisma');
+    const findFirst = prisma.tenant.findFirst as unknown as ReturnType<typeof vi.fn>;
+    findFirst.mockClear();
+    const { provisionProspectionTenant } = await import('@/utils/tenants/provision');
+    await provisionProspectionTenant('c@d.e', 'uuid-3');
+    expect(findFirst.mock.calls[0][0].where).toMatchObject({ userId: 'uuid-3', deletedAt: null });
+    const update = prisma.tenant.update as unknown as ReturnType<typeof vi.fn>;
+    expect(update.mock.calls.at(-1)![0].where).toEqual({ id: 'tenant-1' });
   });
 });

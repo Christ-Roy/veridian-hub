@@ -38,6 +38,8 @@ export interface ProvisionInput {
   userId: string;
   plan?: string;
   emailProven?: boolean;
+  /** Id du tenant Hub : Prospection le retient pour honorer le `tenant_id` du JWT MCP. */
+  hubTenantId?: string;
 }
 
 export interface UpdatePlanInput {
@@ -93,7 +95,8 @@ export class ProspectionClient {
       name: input.name,
       plan: input.plan ?? 'freemium',
       user_id: input.userId,
-      metadata: { hub_user_id: input.userId },
+      metadata: { hub_user_id: input.userId, ...(input.hubTenantId ? { hub_tenant_id: input.hubTenantId } : {}) },
+      ...(input.hubTenantId ? { hub_tenant_id: input.hubTenantId } : {}),
       ...(input.emailProven ? { email_proven: true } : {}),
     });
   }
