@@ -10,6 +10,8 @@
  * - VS Code : lien `vscode:mcp/install`, configuration en JSON encodé dans l'URL.
  * - Claude Code : une commande.
  */
+import type { PrismaClient } from '@prisma/client';
+
 import { mcpResource } from './config';
 
 export const NOM_CONNECTEUR = 'Veridian';
@@ -50,4 +52,43 @@ export function liensInstallation(env: NodeJS.ProcessEnv = process.env): LiensIn
     claudeCode: `claude mcp add --transport http ${NOM_CONNECTEUR.toLowerCase()} ${url}`,
     instructions: { chatgpt: INSTRUCTIONS_CHATGPT },
   };
+}
+
+export type Assistant = {
+  cle: 'claude' | 'chatgpt' | 'cursor' | 'vscode';
+  libelle: string;
+  /** Lien qui ouvre l'ajout du connecteur (prérempli sauf ChatGPT). */
+  installation: string;
+  /** L'étape à suivre quand le lien ne préremplit pas, sinon null. */
+  etape: string | null;
+};
+
+export function assistants(l: LiensInstallation): Assistant[] {
+  return [
+    { cle: 'claude', libelle: 'Ajouter à Claude', installation: l.claude, etape: null },
+    { cle: 'chatgpt', libelle: 'Ouvrir ChatGPT', installation: l.chatgpt, etape: l.instructions.chatgpt },
+    { cle: 'cursor', libelle: 'Ajouter à Cursor', installation: l.cursor, etape: null },
+    { cle: 'vscode', libelle: 'Ajouter à VS Code', installation: l.vscode, etape: null },
+  ];
+}
+
+/**
+ * Réponse publique de `GET /api/mcp/liens-installation[?app=<cle>]`. `app` (une clé du registre) met en
+ * avant l'app qui affiche les boutons ; le connecteur reste « Veridian », un seul pour toutes les apps
+ * (un connecteur par app en créerait plusieurs chez l'utilisateur). Clé inconnue ou coupée : `app: null`.
+ */
+export async function liensPublics(db: Pick<PrismaClient, 'mcpApp'>, appKey: string | null, env: NodeJS.ProcessEnv = process.env) {
+  const l = liensInstallation(env);
+  let app: { cle: string; nom: string; phrase: string } | null = null;
+  if (appKey && /^[a-z0-9-]{1,40}$/.test(appKey)) {
+    const ligne = await db.mcpApp.findUnique({ where: { appKey } });
+    if (ligne?.enabled) {
+      app = {
+        cle: ligne.appKey,
+        nom: ligne.label,
+        phrase: `Une seule connexion Veridian : votre IA accède à ${ligne.label} et à vos autres apps Veridian.`,
+      };
+    }
+  }
+  return { ...l, assistants: assistants(l), app };
 }

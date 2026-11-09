@@ -1,19 +1,21 @@
 /**
  * Liens « Ajouter à … » de la porte MCP, en lecture publique : chaque app affiche les boutons chez elle
- * sans recopier leur logique, qui reste ici. Aucun secret dans ces liens, aucun cookie lu.
+ * sans recopier leur logique, qui reste ici. Aucun secret ni donnée personnelle, aucun cookie lu.
  */
-import { NextResponse } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
 
 import { CORS } from '@/lib/mcp/config';
-import { liensInstallation } from '@/lib/mcp/liens-installation';
+import { liensPublics } from '@/lib/mcp/liens-installation';
+import { prisma } from '@/lib/prisma';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const EN_TETES = { ...CORS, 'Cache-Control': 'public, max-age=300' };
 
-export function GET() {
-  return NextResponse.json(liensInstallation(), { headers: EN_TETES });
+export async function GET(req: NextRequest) {
+  const corps = await liensPublics(prisma, req.nextUrl.searchParams.get('app'));
+  return NextResponse.json(corps, { headers: EN_TETES });
 }
 
 export function OPTIONS() {

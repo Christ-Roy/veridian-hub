@@ -1,6 +1,7 @@
-import { describe, expect, it } from 'vitest';
+import { NextRequest } from 'next/server';
+import { describe, expect, it, vi } from 'vitest';
 
-import { liensInstallation } from '@/lib/mcp/liens-installation';
+import { liensInstallation, liensPublics } from '@/lib/mcp/liens-installation';
 
 const env = { AUTH_URL: 'https://app.veridian.site' } as NodeJS.ProcessEnv;
 const L = liensInstallation(env);
@@ -41,14 +42,43 @@ describe('ChatGPT', () => {
 });
 
 describe('GET /api/mcp/liens-installation', () => {
-  it('rend les liens et le texte ChatGPT, public, en cache court, ouvert en CORS', async () => {
+  it('public, cache court, CORS ouvert ; liens et assistants', async () => {
+    vi.doMock('@/lib/prisma', () => ({ prisma: { mcpApp: { findUnique: async () => null } } }));
     const { GET } = await import('@/app/api/mcp/liens-installation/route');
-    const r = GET();
+    const r = await GET(new NextRequest('https://app.veridian.site/api/mcp/liens-installation'));
     expect(r.headers.get('access-control-allow-origin')).toBe('*');
     expect(r.headers.get('cache-control')).toBe('public, max-age=300');
     const corps = await r.json();
-    expect(Object.keys(corps).sort()).toEqual(['chatgpt', 'claude', 'claudeCode', 'cursor', 'instructions', 'url', 'vscode']);
     expect(corps.url).toMatch(/\/api\/mcp$/);
-    expect(corps.instructions.chatgpt).toContain('OAuth');
+    expect(corps.assistants.map((a: { cle: string }) => a.cle)).toEqual(['claude', 'chatgpt', 'cursor', 'vscode']);
+    expect(corps.app).toBeNull();
+  });
+});
+
+describe('liensPublics', () => {
+  const db = (lignes: Record<string, { appKey: string; label: string; enabled: boolean }>) =>
+    ({ mcpApp: { findUnique: async ({ where }: { where: { appKey: string } }) => lignes[where.appKey] ?? null } }) as never;
+  const reg = db({
+    prospection: { appKey: 'prospection', label: 'Prospection', enabled: true },
+    vieille: { appKey: 'vieille', label: 'Vieille', enabled: false },
+  });
+
+  it('chaque assistant : libellé, lien, étape seulement pour ChatGPT', async () => {
+    const r = await liensPublics(reg, null, env);
+    expect(r.assistants.find((a) => a.cle === 'claude')).toEqual({ cle: 'claude', libelle: 'Ajouter à Claude', installation: r.claude, etape: null });
+    expect(r.assistants.find((a) => a.cle === 'chatgpt')!.etape).toContain('OAuth');
+    expect(r.instructions.chatgpt).toBe(r.assistants[1].etape);
+  });
+  it('app=<cle> du registre : mise en avant, le connecteur reste « Veridian »', async () => {
+    const r = await liensPublics(reg, 'prospection', env);
+    expect(r.app).toEqual({ cle: 'prospection', nom: 'Prospection', phrase: expect.stringContaining('Prospection') });
+    expect(new URL(r.claude).searchParams.get('connectorName')).toBe('Veridian');
+  });
+  it('clé inconnue, coupée ou mal formée : app null, liens rendus', async () => {
+    for (const k of ['inconnue', 'vieille', "x'; drop", 'A'.repeat(50)]) {
+      const r = await liensPublics(reg, k, env);
+      expect(r.app).toBeNull();
+      expect(r.url).toBe('https://app.veridian.site/api/mcp');
+    }
   });
 });
