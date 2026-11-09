@@ -8,6 +8,8 @@
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 
+import { poolConfig } from './pool-config';
+
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
@@ -22,7 +24,8 @@ function createClient(): PrismaClient {
       log: ['error'],
     });
   }
-  const adapter = new PrismaPg({ connectionString });
+  // Bornes de connexion, requête, keepalive et durée de vie : cf. pool-config.ts (bascule pg-saas).
+  const adapter = new PrismaPg(poolConfig(connectionString));
   return new PrismaClient({
     adapter,
     log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
