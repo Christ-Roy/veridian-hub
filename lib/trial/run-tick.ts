@@ -732,8 +732,10 @@ async function resolveTenantRefs(ids: string[]): Promise<Map<string, TenantRef>>
   if (autres.length) or.push({ notifuseWorkspaceSlug: { in: autres } }, { slug: { in: autres } });
   if (!or.length) return out;
   try {
+    // Tenants vivants seulement (un slug survit au soft-delete), le plus récent écrase l'ancien dans la table.
     const tenants = await prisma.tenant.findMany({
-      where: { OR: or },
+      where: { deletedAt: null, OR: or },
+      orderBy: { createdAt: 'asc' },
       select: { id: true, slug: true, notifuseWorkspaceSlug: true },
     });
     for (const t of tenants ?? []) {

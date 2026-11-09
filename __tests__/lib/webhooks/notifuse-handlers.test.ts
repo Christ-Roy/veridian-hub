@@ -117,7 +117,11 @@ describe('v14Handlers.tenant.activity_threshold_reached', () => {
       idempotency_key: '00000000-0000-4000-8000-000000000009',
       occurred_at: '2026-11-08T09:00:01.000Z',
     });
-    const where = (tenantFindFirstMock.mock.calls.at(-1) as unknown as [{ where: { OR: unknown[] } }])[0].where;
+    const appel = (tenantFindFirstMock.mock.calls.at(-1) as unknown as [{ where: { OR: unknown[]; deletedAt: unknown }; orderBy: unknown }])[0];
+    const where = appel.where;
+    // Un slug survit au soft-delete : seul un tenant vivant, le plus récent, est résolu (09/11).
+    expect(where.deletedAt).toBeNull();
+    expect(appel.orderBy).toEqual({ createdAt: 'desc' });
     expect(where.OR).toEqual(expect.arrayContaining([{ notifuseWorkspaceSlug: 'robertbrunon' }]));
     expect(upsertMock.mock.calls[0][0].create.tenantId).toBe('359b76d5-bab7-4773-a889-cf4cf0248869');
   });

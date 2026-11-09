@@ -299,8 +299,12 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export async function resolveHubTenant(
   notifuseTenantId: string,
 ): Promise<{ id: string; notifusePlan: string | null; userId: string } | null> {
+  // Un slug survit à la suppression d'un tenant (soft-delete) : seul un tenant vivant compte, le plus récent
+  // d'abord. 09/11 : le vrai signal du 5e mail s'était inscrit sur un tenant de test supprimé.
   const tenant = await prisma.tenant.findFirst({
+    orderBy: { createdAt: 'desc' },
     where: {
+      deletedAt: null,
       OR: [
         ...(UUID_RE.test(notifuseTenantId) ? [{ id: notifuseTenantId }] : []),
         { notifuseWorkspaceSlug: notifuseTenantId },
