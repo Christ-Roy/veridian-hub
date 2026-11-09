@@ -21,6 +21,14 @@ import { assurerRybbit } from './lib/monde';
 import { creerCompteProuve, noterEspaceTwenty } from './lib/parcours';
 
 const RETOUR = 'http://127.0.0.1:53682/callback';
+/**
+ * Outil de lecture déterministe imposé par app, quand l'app le désigne (09/11) : Prospection (Atlas) et
+ * Twenty, dont aucun outil en lecture n'est exécutable sans données. Les autres apps : choix automatique.
+ */
+const OUTIL_TEMOIN: Record<string, { local: string; args: Record<string, unknown> }> = {
+  prospection: { local: 'explorer_marche', args: { filtre: { conditions: [{ champ: 'departement', op: 'dans', valeur: ['69'] }] }, par_page: 5 } },
+  twenty: { local: 'find_many_people', args: { limit: 1, select: ['id'] } },
+};
 const JETON = process.env.JETON_MCP || path.join(os.homedir(), '.claude/skills/hub-admin/scripts/jeton-mcp.sh');
 
 async function form(chemin: string, p: Record<string, string>) {
@@ -180,6 +188,8 @@ cas(null, 'porte MCP : un client IA s\'enregistre, obtient le consentement, appe
       lisibles.push({ nom: o.nom, args: Object.fromEntries(requis.map((k) => [k, valeur(k)])), poids: (externe ? 100 : 0) + requis.length });
     }
     lisibles.sort((a, b) => a.poids - b.poids);
+    const temoin = OUTIL_TEMOIN[app];
+    if (temoin) lisibles.unshift({ nom: `${app}.${temoin.local}`, args: temoin.args, poids: -1 });
     for (const o of lisibles.slice(0, 1)) {
       const r = (await rpc(t.access_token, 'tools/call', { name: 'executer_outil', arguments: { nom: o.nom, arguments: o.args } })).json.result;
       const texte = String(r.content?.[0]?.text ?? '').replace(/\s+/g, ' ');
