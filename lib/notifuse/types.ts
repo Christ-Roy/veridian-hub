@@ -46,6 +46,8 @@ export interface ProvisionInput {
   plan?: NotifusePlan;
   /** `users.supabase_user_id` du Hub, l'identifiant unique cross-app (§3.7). */
   hubUserId?: string;
+  /** Id du tenant Hub : relie l'espace au `tenant_id` du JWT MCP dès sa création. */
+  hubTenantId?: string;
   emailProven?: boolean;
 }
 

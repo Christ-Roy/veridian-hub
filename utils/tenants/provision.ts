@@ -87,12 +87,14 @@ export async function provisionNotifuseTenant(
     const workspaceName = email.split('@')[0].slice(0, 32);
 
     const client = new NotifuseClient({ apiUrl, hubSecret });
+    const hubTenantId = await assurerTenantHub(email, userId);
     const result = await client.provisionWorkspace({
       tenantId: workspaceId,
       ownerEmail: email,
       workspaceName,
       plan: 'free',
       hubUserId: userId,
+      hubTenantId,
       emailProven: await isEmailProvenInDb(prisma, userId),
     });
 

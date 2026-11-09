@@ -584,7 +584,7 @@ describe('lien au tenant Hub (hub_tenant_id, claim tenant_id du MCP)', () => {
   it('non relié (null) : écart, avec la commande de rejeu', () => {
     const d = diffTenantApp(t, 'prospection', disc({ hubTenantLink: null }), 'now');
     expect(d.map((x) => x.kind)).toEqual(['hub_tenant_unlinked']);
-    expect(remediationFor(d[0])).toContain('hub prospection-relier --tenant t1');
+    expect(remediationFor(d[0])).toContain('hub relier --app prospection --tenant t1');
   });
   it('relié à un autre tenant Hub : écart', () => {
     expect(diffTenantApp(t, 'prospection', disc({ hubTenantLink: 'autre' }), 'now').map((x) => x.kind)).toEqual(['hub_tenant_unlinked']);

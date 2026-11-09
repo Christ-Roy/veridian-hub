@@ -136,7 +136,7 @@ export function remediationFor(d: Pick<TenantDrift, 'hubTenantId' | 'app' | 'kin
     case 'app_unreachable':
       return `l'app ne répond pas : nomad-v state, puis relancer hub reconcile`;
     case 'hub_tenant_unlinked':
-      return `workspace non relié à ce tenant Hub : hub prospection-relier --tenant ${d.hubTenantId} (lien seul, rien d'autre ne change chez l'app)`;
+      return `workspace non relié à ce tenant Hub : hub relier --app ${APP_CLI[d.app]} --tenant ${d.hubTenantId} (lien seul, rien d'autre ne change chez l'app)`;
   }
 }
 

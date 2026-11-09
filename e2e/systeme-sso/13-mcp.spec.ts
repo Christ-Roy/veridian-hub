@@ -151,7 +151,7 @@ cas(null, 'porte MCP : un client IA s\'enregistre, obtient le consentement, appe
   // lecture seule s'exécute sur ce compte (valeurs de test : « test » pour un texte, ["id"] pour une
   // liste de champs). Rien n'est écrit chez l'app.
   const appsOuvertes = (trouve.apps as string[]).filter((a) => a !== 'hub');
-  type Ligne = { app: string; statut: 'ok' | 'echec' | 'sans_outil_lecture'; outil: string; extrait: string; regle_tenant?: string };
+  type Ligne = { app: string; statut: 'ok' | 'echec' | 'sans_outil_lecture'; outil: string; extrait: string; avec_espace?: string; regle_tenant?: string };
   const tableau: Ligne[] = (trouve.injoignables ?? []).map((i: { app: string; raison: string }) => ({ app: i.app, statut: 'echec' as const, outil: '-', extrait: i.raison }));
   const outilsChoisis: Record<string, { local: string; args: Record<string, unknown> }> = {};
   for (const app of appsOuvertes) {
@@ -190,6 +190,17 @@ cas(null, 'porte MCP : un client IA s\'enregistre, obtient le consentement, appe
     tableau.push(ligne);
   }
 
+  // Avec l'espace choisi (tenant_id signé par la porte, appartenance vérifiée) : l'app doit servir cet
+  // espace, donc l'avoir relié au tenant Hub du compte.
+  const monEspace = (compte.espaces as { slug: string }[])[0]?.slug;
+  for (const l of tableau) {
+    const choisi = outilsChoisis[l.app];
+    if (!choisi || !monEspace) continue;
+    const r = (await rpc(t.access_token, 'tools/call', { name: 'executer_outil', arguments: { nom: `${l.app}.${choisi.local}`, arguments: choisi.args, espace: monEspace } })).json.result;
+    const texte = String(r.content?.[0]?.text ?? '').replace(/\s+/g, ' ');
+    l.avec_espace = r.isError ? `ECHEC : ${texte.slice(0, 120)}` : 'ok';
+  }
+
   // Règle tenant_id du contrat, chez chaque app : un tenant_id relié à aucun espace rend 403
   // tenant_not_linked, jamais un repli silencieux ni un 401. Jeton signé par la clé du Hub, pour ce compte.
   for (const l of tableau) {
@@ -216,6 +227,7 @@ cas(null, 'porte MCP : un client IA s\'enregistre, obtient le consentement, appe
   expect(tableau.map((l) => l.app).sort(), 'chaque app du registre passe par la porte').toEqual(registre);
   const preuves = tableau.map((l) => `${l.app}=${l.statut}${l.outil !== '-' ? `(${l.outil})` : ''}`);
   expect(tableau.filter((l) => l.statut === 'echec'), `apps en échec par la porte : ${JSON.stringify(tableau)}`).toEqual([]);
+  expect(tableau.filter((l) => l.avec_espace !== 'ok').map((l) => `${l.app} ${l.avec_espace}`), 'espace choisi servi par chaque app').toEqual([]);
   expect(tableau.filter((l) => !l.regle_tenant?.startsWith('ok')).map((l) => `${l.app} ${l.regle_tenant}`), 'règle tenant_id du contrat').toEqual([]);
 
   // Rotation : le nouveau marche, l'ancien rejoué coupe toute la connexion.
