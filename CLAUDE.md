@@ -146,8 +146,7 @@ parallèle) → table `Tenant`. `User.supabaseUserId` est un nom legacy : l'UUID
 - Toute écriture de plan se propage à l'app. Un refus n'écrit rien au Hub.
 - Le dépôt est **public**, ses logs Actions aussi : aucune adresse client dans une réponse de cron.
 
-- Les env vars **runtime** sont injectées via docker-compose (pas de build-args).
-  Le compose Git de référence : `infra/services/hub/docker-compose.yml`.
+- Les env vars **runtime** viennent du job Nomad (`deploy/hub.nomad.hcl`, secrets `nomad/jobs/hub`), jamais de build-args.
 - Stripe = source de vérité billing. Config dans `lib/stripe/`.
 - Ne jamais hardcoder les couleurs — utiliser les design tokens CSS (OKLCH).
 - Les migrations DB sont dans `hub/prisma/migrations/` (Prisma, pas Supabase).
