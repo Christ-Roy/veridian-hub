@@ -89,6 +89,17 @@ export class ProspectionClient {
     this.fetchImpl = opts.fetchImpl ?? fetch;
   }
 
+  /**
+   * Relie le tenant Prospection du propriétaire à son tenant Hub, et rien d'autre (ni espace, ni
+   * membre, ni jeton, ni clé). Posé seulement s'il est vide ; une valeur différente n'est jamais écrasée.
+   */
+  async linkHub(input: { hubUserId: string; hubTenantId: string }): Promise<{ linked: boolean; raison?: string }> {
+    return this.hmacRequest<{ linked: boolean; raison?: string }>('POST', '/api/tenants/link-hub', {
+      hub_user_id: input.hubUserId,
+      hub_tenant_id: input.hubTenantId,
+    });
+  }
+
   async provisionTenant(input: ProvisionInput): Promise<ProvisionResponse> {
     return this.hmacRequest<ProvisionResponse>('POST', '/api/tenants/provision', {
       email: input.email,

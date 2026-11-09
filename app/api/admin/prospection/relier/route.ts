@@ -1,11 +1,11 @@
 /**
  * POST /api/admin/prospection/relier : relie chaque tenant Prospection existant à son tenant Hub
- * (`hub_tenant_id`, claim `tenant_id` du JWT MCP) par un rejeu idempotent du provisionnement.
+ * (`hub_tenant_id`, claim `tenant_id` du JWT MCP) par `POST /api/tenants/link-hub`.
  *
- * Borné au lien : le plan envoyé est celui du tenant (aucun reset), aucun crédit, la clé d'API reste
- * (Prospection ne la régénère pas au rejeu). Prospection régénère son jeton de connexion directe :
- * sa nouvelle valeur est recopiée au Hub, sinon la carte du tableau de bord pointerait sur l'ancien.
- * Admin seulement. Corps : { tenant_id?: string, appliquer?: boolean } (défaut : simulation).
+ * Pas de rejeu du provisionnement : chez Prospection il remet le rôle du propriétaire à admin et
+ * recrée l'espace `default` s'il a été renommé (09/11). link-hub ne pose que le lien, s'il est vide.
+ * Aucune écriture au Hub. Admin seulement. Corps : { tenant_id?: string, appliquer?: boolean }
+ * (défaut : simulation).
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -30,12 +30,12 @@ export async function POST(request: NextRequest) {
 
   const tenants = await prisma.tenant.findMany({
     where: { deletedAt: null, prospectionProvisionedAt: { not: null }, ...(r.data.tenant_id ? { id: r.data.tenant_id } : {}) },
-    select: { id: true, userId: true, name: true, prospectionPlan: true },
+    select: { id: true, userId: true },
     orderBy: { createdAt: 'asc' },
   });
   const users = await prisma.user.findMany({
     where: { supabaseUserId: { in: tenants.map((t) => t.userId) } },
-    select: { supabaseUserId: true, email: true, emailVerified: true },
+    select: { supabaseUserId: true },
   });
 
   const resultats: { tenant_id: string; issue: string }[] = [];
@@ -50,22 +50,8 @@ export async function POST(request: NextRequest) {
       continue;
     }
     try {
-      const data = await client.provisionTenant({
-        email: u.email,
-        name: t.name,
-        userId: t.userId,
-        plan: t.prospectionPlan ?? 'freemium',
-        emailProven: Boolean(u.emailVerified),
-        hubTenantId: t.id,
-      });
-      const jeton = data.login_url?.split('t=')[1] ?? null;
-      if (jeton) {
-        await prisma.tenant.update({
-          where: { id: t.id },
-          data: { prospectionLoginToken: jeton, prospectionLoginTokenCreatedAt: new Date(), prospectionLoginTokenUsed: false },
-        });
-      }
-      resultats.push({ tenant_id: t.id, issue: 'relie' });
+      const lien = await client.linkHub({ hubUserId: t.userId, hubTenantId: t.id });
+      resultats.push({ tenant_id: t.id, issue: lien.linked ? 'relie' : `non_relie: ${lien.raison ?? 'inconnue'}` });
     } catch (err) {
       resultats.push({ tenant_id: t.id, issue: `echec: ${err instanceof Error ? err.message.slice(0, 120) : 'inconnu'}` });
     }
@@ -82,6 +68,6 @@ export async function POST(request: NextRequest) {
       },
     })
     .catch(() => {});
-  const echecs = resultats.filter((x) => x.issue.startsWith('echec') || x.issue === 'proprietaire_absent').length;
+  const echecs = resultats.filter((x) => x.issue !== 'relie' && x.issue !== 'a_relier').length;
   return NextResponse.json({ appliquer: r.data.appliquer, total: tenants.length, echecs, resultats }, { status: echecs ? 207 : 200 });
 }
