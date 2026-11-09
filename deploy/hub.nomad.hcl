@@ -8,10 +8,10 @@
 #
 # Veridian Hub (orchestrateur auth/billing/provisioning, Next.js, port 3000).
 # Placement : serveur PROD OVH (provider=ovh-prod). DB actuelle =
-# le job `hub-db` (depuis le 07/11/2026), hors de ce groupe : un déploiement ne touche pas la base.
+# base pg-saas (depuis le 09/11/2026) : un déploiement ne touche pas la base.
 # Le contrat runtime ne hardcode plus l'URL complète : `DATABASE_URL` est
 # composée depuis les variables d'endpoint `HUB_DATABASE_*` et le secret
-# `VERIDIAN_CORE_DB_PASSWORD`. `HUB_DATABASE_MODE=nomad-service` : service `hub-postgres`.
+# `PG_SAAS_PASSWORD` (pg-saas, plan §21).
 # Demain, le cutover HA remplace seulement l'endpoint (`HUB_DATABASE_MODE`,
 # `HUB_DATABASE_SERVICE_NAME`, host/port ou proxy) sans changer le code Hub.
 # TLS terminé par Traefik (certresolver letsencrypt sur app.veridian.site).
@@ -80,7 +80,7 @@ job "hub" {
       auto_revert       = true
     }
 
-    # Épinglé au serveur PROD : la base `hub-db` y vit, le Hub la joint par le catalogue Nomad.
+    # Épinglé au serveur PROD : l'entrée pg-saas 172.26.64.1 (pont Nomad) y vit.
     constraint {
       attribute = "${meta.provider}"
       value     = "ovh-prod"
@@ -246,35 +246,8 @@ NEXT_PUBLIC_ANALYTICS_URL=https://analytics.app.veridian.site
 # CRM Veridian (Twenty) : provisioning signé et rebond, CONTRAT-HUB §5.1 et §6bis.8. Secret = HUB_API_SECRET de nomad/jobs/crm.
 CRM_API_URL=https://crm.app.veridian.site
 {{ with nomadVar "nomad/jobs/hub" }}
-{{ $dbMode := or .HUB_DATABASE_MODE.Value "nomad-service" }}
-{{ $dbUser := or .HUB_DATABASE_USER.Value "veridian" }}
-{{ $dbHost := or .HUB_DATABASE_HOST.Value "127.0.0.1" }}
-{{ $dbPort := or .HUB_DATABASE_PORT.Value "5432" }}
-{{ $dbName := or .HUB_DATABASE_NAME.Value "veridian" }}
-{{ $dbSchema := or .HUB_DATABASE_SCHEMA.Value "hub_app" }}
-{{ $dbPassword := .VERIDIAN_CORE_DB_PASSWORD }}
-{{ if eq $dbMode "nomad-service" }}
-{{ $dbServiceName := or .HUB_DATABASE_SERVICE_NAME.Value "hub-postgres" }}
-{{ range nomadService $dbServiceName }}
-HUB_DATABASE_MODE={{ $dbMode }}
-HUB_DATABASE_SERVICE_NAME={{ $dbServiceName }}
-HUB_DATABASE_USER={{ $dbUser }}
-HUB_DATABASE_HOST={{ .Address }}
-HUB_DATABASE_PORT={{ .Port }}
-HUB_DATABASE_NAME={{ $dbName }}
-HUB_DATABASE_SCHEMA={{ $dbSchema }}
-DATABASE_URL=postgresql://{{ $dbUser }}:{{ $dbPassword }}@{{ .Address }}:{{ .Port }}/{{ $dbName }}?schema={{ $dbSchema }}
-{{ end }}
-{{ else }}
-{{ $dbServiceName := or .HUB_DATABASE_SERVICE_NAME.Value "veridian-core-db" }}
-HUB_DATABASE_MODE={{ $dbMode }}
-HUB_DATABASE_SERVICE_NAME={{ $dbServiceName }}
-HUB_DATABASE_USER={{ $dbUser }}
-HUB_DATABASE_HOST={{ $dbHost }}
-HUB_DATABASE_PORT={{ $dbPort }}
-HUB_DATABASE_NAME={{ $dbName }}
-HUB_DATABASE_SCHEMA={{ $dbSchema }}
-DATABASE_URL=postgresql://{{ $dbUser }}:{{ $dbPassword }}@{{ $dbHost }}:{{ $dbPort }}/{{ $dbName }}?schema={{ $dbSchema }}
+# Base du Hub : pg-saas (grappe Patroni, entree 172.26.64.1:15432, base hub, role hub). Migration du 09/11/2026 (plan §21).
+DATABASE_URL=postgresql://hub:{{ .PG_SAAS_PASSWORD }}@172.26.64.1:15432/hub?schema=hub_app
 {{ end }}
 # Flow d'essai réel : allumé (go de Robert). Défaut 1 si la clé est absente ; 0 coupe.
 # Couper : nomad/jobs/hub TRIAL_MACHINE_ENABLED=0 (bloc complet, stdin, -check-index), puis rendre le job.
