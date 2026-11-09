@@ -44,7 +44,8 @@ Ajouter une app : une ligne au registre (`hub mcp-app add <cle> <url_mcp>`), auc
    alors le compte par son chemin habituel (`lib/mcp/provisionneurs.ts` : Twenty par
    `ensureCrmWorkspace`), oublie l'échec et réessaie une fois. Une app sans provisionneur au Hub crée
    ses comptes à la première ouverture depuis l'espace Veridian.
-3. L'espace (tenant) se déduit de l'utilisateur côté app, jamais d'un argument fourni par l'IA.
+3. L'espace (tenant) vient du `tenant_id` signé ou, à défaut, de l'utilisateur : jamais d'un argument
+   d'outil fourni par l'IA (`espace` est un paramètre de la porte, jamais transmis à l'app).
 4. `tools/list` ne rend que ce que cet utilisateur peut faire ; descriptions d'une ligne, `annotations`
    (`readOnlyHint`, `destructiveHint`) renseignées : le Hub les relaie au client.
 5. Réponses bornées et paginées (curseur), JSON compact.
