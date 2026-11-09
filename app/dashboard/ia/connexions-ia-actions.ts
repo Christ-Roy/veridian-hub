@@ -13,5 +13,5 @@ export async function couperConnexionIa(formData: FormData) {
   if (await couperConnexion(prisma, user.supabaseUserId, id)) {
     await prisma.auditLog.create({ data: { action: 'mcp.oauth.revoke', actor: `user:${user.supabaseUserId}`, targetType: 'oauth_family', targetId: id } }).catch(() => {});
   }
-  revalidatePath('/dashboard/settings/security');
+  revalidatePath('/dashboard/ia');
 }

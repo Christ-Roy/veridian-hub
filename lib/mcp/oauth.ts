@@ -208,7 +208,19 @@ export async function revoquer(db: Db, brut: string | undefined) {
   if (t) await revoquerFamille(db, t.familyId);
 }
 
-export type Appelant = { hubUserId: string; clientId: string; scope: string; email: string; name: string | null; userId: string };
+export type Appelant = {
+  hubUserId: string;
+  clientId: string;
+  /** Nom déclaré par le client IA à l'enregistrement (« Claude », « ChatGPT »…). */
+  clientName?: string;
+  scope: string;
+  email: string;
+  name: string | null;
+  userId: string;
+};
+
+/** La dernière utilisation n'est réécrite qu'au plus toutes les 5 min : une écriture par appel coûterait. */
+const TRACE_UTILISATION_MS = 5 * 60_000;
 
 /** Jeton d'accès de la porte → appelant, ou null (inconnu, expiré, révoqué, compte coupé). */
 export async function verifierAcces(db: Db, brut: string): Promise<Appelant | null> {
@@ -223,5 +235,11 @@ export async function verifierAcces(db: Db, brut: string): Promise<Appelant | nu
   if (!u || !u.emailVerified) return null;
   const famille = await db.oauthToken.findFirst({ where: { familyId: t.familyId }, orderBy: { createdAt: 'asc' }, select: { createdAt: true } });
   if (u.sessionsValidAfter && u.sessionsValidAfter > (famille?.createdAt ?? t.createdAt)) return null;
-  return { hubUserId: t.hubUserId, clientId: t.clientId, scope: t.scope, email: u.email, name: u.name, userId: u.id };
+  const maintenant = Date.now();
+  if (!t.lastUsedAt || maintenant - t.lastUsedAt.getTime() > TRACE_UTILISATION_MS) {
+    void db.oauthToken.update({ where: { id: t.id }, data: { lastUsedAt: new Date(maintenant) } }).catch(() => {});
+    void db.oauthClient.update({ where: { clientId: t.clientId }, data: { lastUsedAt: new Date(maintenant) } }).catch(() => {});
+  }
+  const client = await db.oauthClient.findUnique({ where: { clientId: t.clientId }, select: { name: true } });
+  return { hubUserId: t.hubUserId, clientId: t.clientId, clientName: client?.name, scope: t.scope, email: u.email, name: u.name, userId: u.id };
 }

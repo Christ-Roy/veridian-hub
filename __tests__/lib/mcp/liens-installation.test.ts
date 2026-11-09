@@ -33,3 +33,9 @@ describe('liens « Ajouter à … » de la porte MCP', () => {
     expect(JSON.stringify(L)).not.toMatch(/token|secret|key=/i);
   });
 });
+
+describe('ChatGPT', () => {
+  it('ouvre Paramètres → Plugins (pas /plugins seul, qui n\'ouvrait rien)', () => {
+    expect(L.chatgpt).toBe('https://chatgpt.com/#settings/Connectors');
+  });
+});

@@ -4,7 +4,7 @@
  *
  * - Claude (claude.ai, Desktop, mobile) : lien officiel qui ouvre « Ajouter un connecteur personnalisé »
  *   prérempli, l'utilisateur confirme (claude.com/docs/connectors/building/directory-vs-custom).
- * - ChatGPT : aucun lien de préremplissage n'existe (09/11/2026) ; on ouvre la page des plugins et on
+ * - ChatGPT : aucun lien de préremplissage n'existe (09/11/2026) ; on ouvre Paramètres → Plugins et on
  *   donne l'adresse à coller.
  * - Cursor : lien d'installation officiel, configuration en JSON base64 (cursor.com/docs/mcp/install-links).
  * - VS Code : lien `vscode:mcp/install`, configuration en JSON encodé dans l'URL.
@@ -36,7 +36,8 @@ export function liensInstallation(env: NodeJS.ProcessEnv = process.env): LiensIn
   return {
     url,
     claude,
-    chatgpt: 'https://chatgpt.com/plugins',
+    // Mène à Paramètres → Plugins (vérifié dans un navigateur le 09/11) ; /plugins seul n'ouvrait rien.
+    chatgpt: 'https://chatgpt.com/#settings/Connectors',
     cursor,
     vscode,
     claudeCode: `claude mcp add --transport http ${NOM_CONNECTEUR.toLowerCase()} ${url}`,

@@ -35,7 +35,8 @@ Ajouter une app : une ligne au registre (`hub mcp-app add <cle> <url_mcp>`), auc
    - `alg` ES256, `kid` publié dans `https://app.veridian.site/.well-known/jwks.json` (cache ≤ 1 h) ;
    - `iss` = `https://app.veridian.site`, `aud` = l'URL MCP de l'app telle qu'inscrite au registre ;
    - `sub` = `hub_user_id` (jamais `users.id`), `email`, `email_verified: true`, `scope`, `exp` = 5 min ;
-   - `client_id` : le client IA d'origine (journal), `jti` unique ;
+   - `client_id` : le client IA d'origine (journal), `client_name` : son nom déclaré (« Claude »,
+     « ChatGPT »…), `jti` unique ;
    - `tenant_id` (facultatif) : l'espace Hub où agir, présent seulement si l'IA l'a choisi
      (`espace=<slug>` de `executer_outil`) et que la porte a vérifié que l'utilisateur en est
      propriétaire ou membre. Jamais d'office. Absent : l'app choisit l'espace par défaut de
@@ -75,3 +76,10 @@ et une ligne `tenant_apps` active existe pour lui (`app_key` = clé du registre)
 
 `__tests__/lib/mcp/` (OAuth, PKCE, rotation, révocation, porte, fédération sur une app factice) ;
 en prod, un vrai client MCP passe le parcours complet (enregistrement, consentement, appel).
+
+## Connexions d'un compte, lues par une app
+
+`GET https://app.veridian.site/api/hub/connexions-ia?hub_user_id=<uuid>`, signé HMAC §6.1 sur
+`${timestamp}.` avec le secret Hub de l'app (`X-Veridian-Timestamp`, `X-Veridian-Hub-Signature`).
+Réponse : `{ hub_user_id, connexions: [{ client, depuis, derniere_utilisation }] }`. Permet d'afficher
+« Claude connecté » avant le premier appel d'outil. Page utilisateur : `/dashboard/ia` (adresse stable).

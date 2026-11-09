@@ -37,13 +37,21 @@ export async function jwksPublic(env: NodeJS.ProcessEnv = process.env): Promise<
 }
 
 export async function signerPourApp(
-  c: { audience: string; hubUserId: string; email: string; clientId: string; scope: string; tenantId?: string },
+  c: { audience: string; hubUserId: string; email: string; clientId: string; clientName?: string; scope: string; tenantId?: string },
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<string> {
   const cle = await cleSignature(env);
   if (!cle) throw new Error('MCP_SIGNING_JWK absente : la porte ne peut pas présenter l\'identité aux apps');
   // tenant_id : l'espace Hub choisi, seulement si l'appartenance a été vérifiée par la porte.
-  const claims = { email: c.email, email_verified: true, scope: c.scope, client_id: c.clientId, ...(c.tenantId ? { tenant_id: c.tenantId } : {}) };
+  // client_name : le nom déclaré par le client IA, pour qu'une app affiche « Claude connecté ».
+  const claims = {
+    email: c.email,
+    email_verified: true,
+    scope: c.scope,
+    client_id: c.clientId,
+    ...(c.clientName ? { client_name: c.clientName } : {}),
+    ...(c.tenantId ? { tenant_id: c.tenantId } : {}),
+  };
   return new SignJWT(claims)
     .setProtectedHeader({ alg: 'ES256', kid: cle.kid, typ: 'JWT' })
     .setIssuer(hubIssuer(env))

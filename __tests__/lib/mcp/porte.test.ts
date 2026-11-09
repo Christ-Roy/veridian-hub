@@ -278,3 +278,11 @@ describe('règle tenant_id du contrat (403 lisibles)', () => {
     expect(r.result.content[0].text).toMatch(attendu);
   });
 });
+
+describe('client_name dans le jeton présenté aux apps', () => {
+  it('le nom du client IA part avec son identifiant (Atlas affiche « Claude connecté »)', async () => {
+    const f = appFactice();
+    await traiter(db as never, { ...QUI, clientName: 'Claude' }, { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'executer_outil', arguments: { nom: 'analytics.visites_du_site' } } }, { fetchImpl: f.fetchImpl });
+    expect(await claims(f)).toMatchObject({ client_id: 'mcpc_test', client_name: 'Claude' });
+  });
+});

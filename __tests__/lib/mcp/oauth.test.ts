@@ -184,3 +184,14 @@ describe('connexions IA (Réglages > Sécurité)', () => {
     expect(await connexionsActives(db as never, HUB_USER)).toEqual([]);
   });
 });
+
+describe('identité de l\'appelant', () => {
+  it('rend le nom du client et trace la dernière utilisation', async () => {
+    const { c, k, code } = await connexion();
+    const t = await echangerCode(db as never, { code, client_id: c.client_id, redirect_uri: RETOUR, code_verifier: k.verifier });
+    const qui = await verifierAcces(db as never, t.access_token);
+    expect(qui?.clientName).toBe('Claude');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(db.oauthToken.lignes.find((l) => l.kind === 'access')?.lastUsedAt).toBeInstanceOf(Date);
+  });
+});

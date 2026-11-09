@@ -12,10 +12,7 @@ import { Card } from '@/components/ui/card';
 import { DashboardPageHeader } from '@/components/dashboard/PageHeader';
 import { SecurityMfaToggle } from './SecurityMfaToggle';
 import { SignOutEverywhere } from './SignOutEverywhere';
-import { ConnexionsIa } from './ConnexionsIa';
-import { ConnecterAssistant } from './ConnecterAssistant';
-import { liensInstallation } from '@/lib/mcp/liens-installation';
-import { connexionsActives } from '@/lib/mcp/connexions';
+import Link from 'next/link';
 
 export default async function SecuritySettingsPage() {
   const session = await auth();
@@ -36,8 +33,6 @@ export default async function SecuritySettingsPage() {
     where: { userId: user.id, provider: 'credentials', access_token: { not: null } },
     select: { id: true },
   });
-
-  const connexions = user.supabaseUserId ? await connexionsActives(prisma, user.supabaseUserId) : [];
 
   return (
     <div className="max-w-2xl mx-auto p-6 space-y-6">
@@ -65,16 +60,12 @@ export default async function SecuritySettingsPage() {
         <SignOutEverywhere />
       </Card>
 
-      <Card className="p-6 space-y-4">
-        <div>
-          <h2 className="text-lg font-medium">Assistants IA</h2>
-          <p className="text-sm text-muted-foreground mt-1">
-            Une seule connexion donne à votre assistant (Claude, ChatGPT…) l&apos;accès à toutes vos apps Veridian,
-            en votre nom.
-          </p>
-        </div>
-        <ConnecterAssistant liens={liensInstallation()} />
-        <ConnexionsIa connexions={connexions} />
+      <Card className="p-6 space-y-2">
+        <h2 className="text-lg font-medium">Assistants IA</h2>
+        <p className="text-sm text-muted-foreground">
+          Les assistants reliés à votre compte se gèrent sur la page{' '}
+          <Link href="/dashboard/ia" className="underline">Assistants IA</Link>.
+        </p>
       </Card>
     </div>
   );

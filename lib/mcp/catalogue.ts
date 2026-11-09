@@ -77,6 +77,7 @@ export async function sessionPour(app: AppInscrite, qui: Appelant, deps: Deps = 
     hubUserId: qui.hubUserId,
     email: qui.email,
     clientId: qui.clientId,
+    clientName: qui.clientName,
     scope: qui.scope,
     tenantId,
   });
