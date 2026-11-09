@@ -164,14 +164,14 @@ async function appelerOutil(db: DbPorte, qui: Appelant, nom: string, args: Recor
       return texte(hs ? `L'app ${app} ne répond pas (${hs.raison}). Réessayer plus tard.` : `Outil inconnu : ${cible}. Utiliser chercher_outils.`, true);
     }
     const espaces = await espacesDe(db, qui.hubUserId);
-    // L'espace n'est signé que s'il appartient à l'utilisateur ; un seul espace : implicite.
+    // L'espace n'est signé que choisi (espace=<slug>) et s'il appartient à l'utilisateur. Jamais d'office :
+    // sans lui l'app prend l'espace par défaut du compte, et une app qui ne relie pas encore les tenants
+    // Hub refusait tout (mesuré le 09/11 : Rybbit 401, Notifuse 403, avec l'unique espace signé).
     let tenantId: string | undefined;
     if (typeof args.espace === 'string' && args.espace) {
       const e = espaces.find((x) => x.slug === args.espace || x.id === args.espace);
       if (!e) return texte(`Espace inconnu pour ce compte : ${args.espace}. Voir hub.mon_compte.`, true);
       tenantId = e.id;
-    } else if (espaces.length === 1) {
-      tenantId = espaces[0].id;
     }
     const debut = Date.now();
     try {

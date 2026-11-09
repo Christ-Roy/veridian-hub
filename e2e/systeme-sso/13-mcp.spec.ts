@@ -9,9 +9,14 @@ import { createHash, randomBytes } from 'node:crypto';
 
 import { expect } from '@playwright/test';
 
+import { writeFileSync } from 'node:fs';
+import path from 'node:path';
+
 import { HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
-import { creerCompteProuve } from './lib/parcours';
+import { activerAnalyticsAuHub, activerTwentyAuHub, admin, rybbitCompte } from './lib/hub-admin';
+import { assurerRybbit } from './lib/monde';
+import { creerCompteProuve, noterEspaceTwenty } from './lib/parcours';
 
 const RETOUR = 'http://127.0.0.1:53682/callback';
 
@@ -56,6 +61,18 @@ cas(null, 'porte MCP : un client IA s\'enregistre, obtient le consentement, appe
   const client = (await reg.json()).client_id as string;
 
   const E = await creerCompteProuve(browser, 'mcp');
+  if (!E.hubUserId || !E.tenantId) throw new NonAbouti('compte de test sans hub_user_id ni tenant');
+  // Toutes les apps du registre doivent être ouvertes à ce compte : comptes Analytics et CRM par
+  // leurs chemins normaux (notés pour le nettoyage AVANT leur création).
+  assurerRybbit(E);
+  rybbitCompte('lier', E.email, E.hubUserId);
+  await activerAnalyticsAuHub(E.email);
+  noterEspaceTwenty(E.email, E.tenantId);
+  await activerTwentyAuHub(E.email);
+  const registre = ((await admin<{ apps: { appKey: string; enabled: boolean }[] }>('GET', 'mcp-apps')).json?.apps ?? [])
+    .filter((a) => a.enabled)
+    .map((a) => a.appKey)
+    .sort();
   const verifier = randomBytes(32).toString('base64url');
   const state = randomBytes(8).toString('hex');
   const url = `${as.authorization_endpoint}?${new URLSearchParams({
@@ -80,14 +97,25 @@ cas(null, 'porte MCP : un client IA s\'enregistre, obtient le consentement, appe
   let retour = '';
   try {
     const page = await ctx.newPage();
-    await page.route(`${RETOUR}**`, (r) => {
-      retour = r.request().url();
-      return r.fulfill({ status: 200, body: 'ok' });
+    // Ce que le navigateur reçoit de la soumission : rendu dans l'erreur si le retour n'arrive pas.
+    const vu: string[] = [];
+    page.on('response', (r) => {
+      if (!r.url().includes('/oauth/authorize')) return;
+      const loc = r.headers().location ?? '';
+      vu.push(`${r.request().method()} ${r.status()} ${loc.slice(0, 80)}`);
+      // Playwright n'intercepte pas la cible d'une redirection : le retour se lit dans le 303,
+      // comme le serveur local d'un vrai client le recevrait.
+      if (r.status() === 303 && loc.startsWith(RETOUR)) retour = loc;
     });
     await page.goto(url, { waitUntil: 'networkidle' });
     await expect(page.getByText('TEST SYSTEME SSO', { exact: false }).first()).toBeVisible();
     await page.getByRole('button', { name: 'Autoriser' }).click();
-    await expect.poll(() => retour, { timeout: 20_000 }).not.toBe('');
+    try {
+      await expect.poll(() => retour, { timeout: 20_000 }).not.toBe('');
+    } catch {
+      const texte = (await page.locator('body').innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 200);
+      throw new Error(`consentement sans retour : réponses ${JSON.stringify(vu)} ; page ${page.url().slice(0, 120)} ; texte « ${texte} »`);
+    }
   } finally {
     await ctx.close();
   }
@@ -117,11 +145,40 @@ cas(null, 'porte MCP : un client IA s\'enregistre, obtient le consentement, appe
   const compte = JSON.parse((await rpc(t.access_token, 'tools/call', { name: 'executer_outil', arguments: { nom: 'hub.mon_compte' } })).json.result.content[0].text);
   expect(compte.email, 'l\'outil agit sur le compte qui a consenti').toBe(E.email);
 
+  // Fédération : chaque app ouverte au compte répond par la porte, avec ses outils, et un outil en
+  // lecture seule sans paramètre obligatoire s'exécute sur ce compte. Rien de propre à une app ici.
+  const appsOuvertes = (trouve.apps as string[]).filter((a) => a !== 'hub');
+  type Ligne = { app: string; statut: 'ok' | 'echec' | 'sans_outil_lecture'; outil: string; extrait: string };
+  const tableau: Ligne[] = (trouve.injoignables ?? []).map((i: { app: string; raison: string }) => ({ app: i.app, statut: 'echec' as const, outil: '-', extrait: i.raison }));
+  for (const app of appsOuvertes) {
+    if (tableau.some((l) => l.app === app)) continue;
+    const liste = JSON.parse((await rpc(t.access_token, 'tools/call', { name: 'chercher_outils', arguments: { besoin: '', app } })).json.result.content[0].text);
+    if (!liste.outils?.length) {
+      tableau.push({ app, statut: 'echec', outil: '-', extrait: 'aucun outil rendu' });
+      continue;
+    }
+    let ligne: Ligne = { app, statut: 'sans_outil_lecture', outil: '-', extrait: `${liste.outils.length} outils, aucun en lecture seule sans paramètre` };
+    for (const o of liste.outils as { nom: string }[]) {
+      const d = JSON.parse((await rpc(t.access_token, 'tools/call', { name: 'decrire_outil', arguments: { nom: o.nom } })).json.result.content[0].text);
+      if (d.annotations?.readOnlyHint !== true || ((d.parametres?.required ?? []) as string[]).length > 0) continue;
+      const r = (await rpc(t.access_token, 'tools/call', { name: 'executer_outil', arguments: { nom: o.nom, arguments: {} } })).json.result;
+      const texte = String(r.content?.[0]?.text ?? '').replace(/\s+/g, ' ');
+      ligne = { app, statut: r.isError ? 'echec' : 'ok', outil: o.nom, extrait: texte.slice(0, 140) };
+      break;
+    }
+    tableau.push(ligne);
+  }
+  // Tableau complet, lisible même en échec (le rapport de la batterie tronque le détail).
+  writeFileSync(path.join(__dirname, '.run', 'mcp-federation.json'), JSON.stringify(tableau, null, 2));
+  expect(tableau.map((l) => l.app).sort(), 'chaque app du registre passe par la porte').toEqual(registre);
+  const preuves = tableau.map((l) => `${l.app}=${l.statut}${l.outil !== '-' ? `(${l.outil})` : ''}`);
+  expect(tableau.filter((l) => l.statut === 'echec'), `apps en échec par la porte : ${JSON.stringify(tableau)}`).toEqual([]);
+
   // Rotation : le nouveau marche, l'ancien rejoué coupe toute la connexion.
   const t2 = await (await form('/api/oauth/token', { grant_type: 'refresh_token', refresh_token: t.refresh_token, client_id: client })).json();
   expect((await rpc(t2.access_token, 'ping')).status).toBe(200);
   expect((await form('/api/oauth/token', { grant_type: 'refresh_token', refresh_token: t.refresh_token, client_id: client })).status).toBe(400);
   expect((await rpc(t2.access_token, 'ping')).status, 'connexion coupée après le rejeu').toBe(401);
 
-  return `401 + métadonnées, client ${client.slice(0, 12)}…, consentement de ${E.email}, PKCE, 3 outils, hub.mon_compte sur le bon compte, rejeu coupé`;
+  return `401 + métadonnées, client ${client.slice(0, 12)}…, consentement, PKCE, 3 outils, hub.mon_compte sur le bon compte, apps : ${preuves.join(', ') || 'aucune'}, rejeu coupé`;
 }, { timeout: 300_000 });

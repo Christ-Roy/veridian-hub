@@ -36,9 +36,10 @@ Ajouter une app : une ligne au registre (`hub mcp-app add <cle> <url_mcp>`), auc
    - `iss` = `https://app.veridian.site`, `aud` = l'URL MCP de l'app telle qu'inscrite au registre ;
    - `sub` = `hub_user_id` (jamais `users.id`), `email`, `email_verified: true`, `scope`, `exp` = 5 min ;
    - `client_id` : le client IA d'origine (journal), `jti` unique ;
-   - `tenant_id` (facultatif) : l'espace Hub où agir, présent seulement si la porte a vérifié que
-     l'utilisateur en est propriétaire ou membre (`espace=<slug>` de `executer_outil`, ou son espace
-     unique). Absent : l'app choisit l'espace par défaut de l'utilisateur. L'app revérifie l'appartenance.
+   - `tenant_id` (facultatif) : l'espace Hub où agir, présent seulement si l'IA l'a choisi
+     (`espace=<slug>` de `executer_outil`) et que la porte a vérifié que l'utilisateur en est
+     propriétaire ou membre. Jamais d'office. Absent : l'app choisit l'espace par défaut de
+     l'utilisateur. L'app revérifie l'appartenance et sait relier un id de tenant Hub à son espace.
    L'app vérifie signature, `iss`, `aud`, `exp`, puis retrouve l'utilisateur par `hub_user_id`.
    Inconnu : HTTP 401 avec `hub_user_unknown` dans le corps, jamais de création côté app. Le Hub crée
    alors le compte par son chemin habituel (`lib/mcp/provisionneurs.ts` : Twenty par

@@ -196,9 +196,14 @@ const claims = async (f: ReturnType<typeof appFactice>) => {
 };
 
 describe('espace (tenant_id signé)', () => {
-  it('un seul espace : signé sans le demander', async () => {
+  it('un seul espace, non choisi : rien n\'est signé (l\'app prend son espace par défaut)', async () => {
     const f = appFactice();
     await appel('executer_outil', { nom: 'analytics.visites_du_site' }, f);
+    expect((await claims(f)).tenant_id).toBeUndefined();
+  });
+  it('un seul espace, choisi : signé', async () => {
+    const f = appFactice();
+    await appel('executer_outil', { nom: 'analytics.visites_du_site', espace: 'mon-espace' }, f);
     expect((await claims(f)).tenant_id).toBe('t1');
   });
   it('plusieurs espaces : celui choisi, membre compris ; sans choix, aucun', async () => {
