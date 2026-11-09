@@ -1,5 +1,7 @@
-import { pushUserToApps } from '@/lib/identity/push-user';
 import { NextRequest, NextResponse } from 'next/server';
+
+import { deprovisionnerCompte } from '@/lib/apps/deprovision';
+import { pushUserToApps } from '@/lib/identity/push-user';
 
 import { requireAdmin } from '@/lib/admin/require-admin';
 import { prisma } from '@/lib/prisma';
@@ -12,8 +14,9 @@ export const runtime = 'nodejs';
  * Body: { email: string, confirm: true }
  *
  * Soft-deletes tenant rows for the given email and removes the Auth.js user
- * (cascade clears Account/Session via Prisma FK onDelete).
- * Does NOT delete Notifuse workspaces (manual cleanup needed downstream).
+ * (cascade clears Account/Session via Prisma FK onDelete). Avant, déprovisionne les espaces du
+ * compte dans chaque app (`lib/apps/deprovision.ts`) : sans ça, chaque suppression laissait des
+ * orphelins chez Prospection, Notifuse et Twenty. Chaque issue est rendue dans `apps`.
  */
 export async function DELETE(request: NextRequest) {
   const denial = await requireAdmin(request);
@@ -48,6 +51,7 @@ export async function DELETE(request: NextRequest) {
 
   const userUuid = user.supabaseUserId;
   const actions: string[] = [];
+  let apps: Awaited<ReturnType<typeof deprovisionnerCompte>> = [];
 
   // Soft-delete tenants (only if we have a UUID bridge)
   if (userUuid) {
@@ -55,8 +59,10 @@ export async function DELETE(request: NextRequest) {
     // de cleanup manuel downstream + lister chaque tenant ID dans l'audit response.
     const tenants = await prisma.tenant.findMany({
       where: { userId: userUuid },
-      select: { id: true, notifuseWorkspaceSlug: true },
+      select: { id: true, notifuseWorkspaceSlug: true, prospectionProvisionedAt: true, metadata: true },
     });
+    apps = await deprovisionnerCompte({ email, tenants });
+    for (const a of apps) actions.push(`${a.ok ? '✓' : '⚠️'} ${a.app} ${a.cible} : ${a.detail}`);
 
     if (tenants.length === 0) {
       actions.push('No tenant row found');
@@ -73,11 +79,6 @@ export async function DELETE(request: NextRequest) {
       // Garde la trace par-tenant pour l'audit (IDs + warnings notifuse).
       for (const tenant of tenants) {
         actions.push(`  • tenant ${tenant.id}`);
-        if (tenant.notifuseWorkspaceSlug) {
-          actions.push(
-            `⚠️ Notifuse workspace ${tenant.notifuseWorkspaceSlug} still exists (manual cleanup needed)`,
-          );
-        }
       }
     }
 
@@ -113,5 +114,6 @@ export async function DELETE(request: NextRequest) {
     email,
     user_id: userUuid ?? user.id,
     actions,
+    apps,
   });
 }

@@ -100,6 +100,18 @@ export class ProspectionClient {
     });
   }
 
+  /**
+   * Soft-delete du tenant (contrat §5.8.1) : données gardées jusqu'à `purgeEligibleAt`, restaurables.
+   * `idOuEmail` : id local ou adresse du propriétaire (Prospection résout les deux).
+   */
+  async softDeleteTenant(idOuEmail: string, input: { purgeEligibleAt: string; reason?: string }): Promise<unknown> {
+    return this.hmacRequest<unknown>('POST', `/api/tenants/${encodeURIComponent(idOuEmail)}/soft-delete`, {
+      tenant_id: idOuEmail,
+      reason: input.reason ?? 'admin_action',
+      purge_eligible_at: input.purgeEligibleAt,
+    });
+  }
+
   async provisionTenant(input: ProvisionInput): Promise<ProvisionResponse> {
     return this.hmacRequest<ProvisionResponse>('POST', '/api/tenants/provision', {
       email: input.email,
