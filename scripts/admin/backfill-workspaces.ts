@@ -23,7 +23,7 @@
  *   DRY_RUN=false pnpm tsx scripts/admin/backfill-workspaces.ts   # apply
  *
  * Variables d'environnement attendues :
- *   - DATABASE_URL : Postgres URL vers veridian-core-db (schéma hub_app)
+ *   - DATABASE_URL : Postgres URL vers pg-saas (base hub) (schéma hub_app)
  *   - DRY_RUN      : 'true' par défaut sécurité (oblige opt-in explicite à 'false')
  */
 

@@ -20,7 +20,7 @@ Prospection). CRM (Twenty) : espace créé par `app-access --app twenty`, entré
 
 - Next.js 15 (App Router) + pnpm
 - Auth.js v5 (Google OAuth + Credentials bcrypt + MFA email)
-- Prisma 7 sur Postgres dédié `veridian-core-db` (schema `hub_app`)
+- Prisma 7 sur la grappe pg-saas (base `hub`, rôle `hub`, schema `hub_app`)
 - Stripe (billing, webhooks, plans)
 - shadcn/ui + Tailwind
 - Brevo pour les mails transactionnels (`lib/email/send.ts`), Notifuse fork pour les tenants
@@ -87,7 +87,7 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   parcours et état prouvé ou accepté : `docs/PARCOURS-IDENTITE.md`.
 - **Sonde de prod** : étape « Sonde identité » de `hub-ci.yml` (lectures seules). Le cron de reconcile
   alerte au-dessus de `RESIDUE_SEUIL` (0 par défaut).
-- **Coupure** : aucune (08/11, prouvé à la sonde). Base dans le job `hub-db` (nomad-veridian), app en bleu-vert : canari,
+- **Coupure** : aucune (08/11, prouvé à la sonde). Base sur pg-saas (grappe Patroni, hors du job Hub), app en bleu-vert : canari,
   health check Traefik, retry. Tags Traefik changés = déploiement annoncé (deux versions aux tags différents : 12 s de 404).
   Regrouper les changements. `e2e/systeme-sso/**` ne redéploie rien.
 

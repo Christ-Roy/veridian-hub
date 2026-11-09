@@ -18,9 +18,7 @@
 # Secrets = Nomad Variable nomad/jobs/hub (JAMAIS en clair).
 # ⚠️ Stripe LIVE en prod (clés dans la Nomad var).
 #
-# ⚠️ DB PROD mono-instance postgres:16, volume bind /opt/veridian-lab/hub/core-db.
-# NE PAS reschedule (le volume local ne suit pas). Cible infra à terme = cluster
-# Patroni HA (le staging l'a déjà, cf deploy/hub-staging.nomad.hcl).
+# Base : grappe pg-saas (Patroni, plan nomad-veridian §21). L'ancienne base hub-db est purgée (09/11/2026).
 
 variable "image_tag" {
   type        = string

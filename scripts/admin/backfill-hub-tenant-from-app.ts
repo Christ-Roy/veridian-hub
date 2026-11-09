@@ -49,7 +49,7 @@
  *     --execute
  *
  * ENV requis :
- *   DATABASE_URL — Postgres veridian-core-db (schema hub_app)
+ *   DATABASE_URL — Postgres pg-saas (base hub) (schema hub_app)
  *
  * Sécurité :
  *   - Mode dry-run par défaut (oblige --execute explicite)

@@ -34,7 +34,7 @@ if [ -z "${NOTIFUSE_HUB_API_SECRET:-}" ]; then
 fi
 
 NOTIFUSE_URL="${NOTIFUSE_URL:-https://notifuse.app.veridian.site}"
-DB_CONTAINER="${DB_CONTAINER:-compose-parse-multi-byte-feed-ywg73b-veridian-core-db-1}"
+PGSAAS_SQL="${PGSAAS_SQL:-$HOME/nomad-veridian/scripts/pgsaas-sql.sh}"  # base hub sur pg-saas, rôle hub
 
 echo
 echo "======================================================================"
@@ -44,7 +44,7 @@ else
   echo " REPAIR Notifuse owners -- DRY-RUN"
 fi
 echo " Notifuse API : $NOTIFUSE_URL"
-echo " DB source    : ssh prod-pub docker exec $DB_CONTAINER"
+echo " DB source    : pg-saas, base hub, rôle hub (pgsaas-sql.sh)"
 echo "======================================================================"
 echo
 
@@ -78,14 +78,13 @@ hmac_post() {
     "$NOTIFUSE_URL$path"
 }
 
-TENANTS=$(ssh prod-pub "docker exec $DB_CONTAINER psql -U veridian -d veridian -At -F '|' -c \"
+TENANTS=$("$PGSAAS_SQL" hub hub hub "
 SELECT id, notifuse_workspace_slug, notifuse_user_email
 FROM hub_app.tenants
 WHERE notifuse_workspace_slug IS NOT NULL
   AND notifuse_user_email IS NOT NULL
   AND notifuse_user_email NOT LIKE 'e2e-%'
-ORDER BY created_at ASC
-\"" 2>&1 | grep -v '^$' | grep -v 'ERROR' || echo "")
+ORDER BY created_at ASC;" 2>&1 | grep -v '^$' | grep -v 'ERROR' || echo "")
 
 if [ -z "$TENANTS" ]; then
   echo "ERR aucun tenant recupere depuis prod DB"
