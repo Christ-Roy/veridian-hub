@@ -84,6 +84,7 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   limite ni lecture seule (drapeau coupé, décision de Robert). Ce qui manque : `hub reconcile --ecarts`.
 - **Porte MCP** (09/11, `docs/CONTRAT-MCP.md`) : `/api/mcp`, 3 outils pour toutes les apps. Le Hub est serveur OAuth
   et registre (`hub mcp-app add`), ne code aucun outil d'app, présente à l'app un JWT ES256 (`MCP_SIGNING_JWK`).
+  `tenant_id` signé seulement si l'IA choisit un espace ; espace non relié → `hub relier --app <app>`.
 - **Garde rapide** : `__tests__/contrat/` (revocation sans `iat`, `authAt` sur toute création de session,
   cibles du rebond, origines). Un nouveau `encode(` de JWT de session s'ajoute à sa liste. Détail par
   parcours et état prouvé ou accepté : `docs/PARCOURS-IDENTITE.md`.
@@ -115,7 +116,8 @@ Outil admin : `hub` (`hub doctor` d'abord : santé, secret, auth admin). Aucune 
   déjà ouvertes dans les apps. Secret dans la Nomad Variable `nomad/jobs/hub` : lire une clé avec
   `nomad-v raw var get -item AUTH_SECRET nomad/jobs/hub`, écrire avec `nomad var put -out none -in json nomad/jobs/hub -`
   (remplace le bloc entier : repartir du JSON complet), puis `nomad-v run hub`. Compter une reconnexion générale.
-- **Restes de test** : `hub reconcile` (`testResidue.total`, 5 connus au 07/11), retrait `hub delete-tenant <email> --confirm`.
+- **Restes de test** : `hub reconcile` (`testResidue.total`) et, par app, `scripts/orphelins-e2e.sh` (skill hub-admin).
+  `delete-tenant` déprovisionne les espaces des apps (`lib/apps/deprovision.ts`) et laisse une trace d'audit.
   Le cron alerte au-dessus de `RESIDUE_SEUIL`. La batterie les retire elle-même et échoue s'il en reste.
 - **Batterie rouge** : lire `e2e/systeme-sso/.run/resultat.txt`. ÉCHOUE = vrai défaut (si l'image servie n'est pas
   listée « avant »). NON ABOUTI = on n'a pas mesuré (Hub en déploiement, jeton Nomad, compte non créé). Relancer
@@ -146,15 +148,13 @@ parallèle) → table `Tenant`. `User.supabaseUserId` est un nom legacy : l'UUID
 - `hub reconcile` (`lib/sync/`) n'écrit rien : une dérive se lit et se tranche. Il compare
   aussi les comptes de chaque app au Hub.
 - Toute écriture de plan se propage à l'app. Un refus n'écrit rien au Hub.
+- Un tenant supprimé n'est jamais repris par une recherche par `userId` (`__tests__/contrat/tenant-supprime.test.ts`).
 - Le dépôt est **public**, ses logs Actions aussi : aucune adresse client dans une réponse de cron.
 
 - Les env vars **runtime** viennent du job Nomad (`deploy/hub.nomad.hcl`, secrets `nomad/jobs/hub`), jamais de build-args.
 - Stripe = source de vérité billing. Config dans `lib/stripe/`.
-- Ne jamais hardcoder les couleurs — utiliser les design tokens CSS (OKLCH).
-- Les migrations DB sont dans `hub/prisma/migrations/` (Prisma, pas Supabase).
-- Pour appeler une autre app du monorepo, utiliser **toujours l'URL publique**
-  `https://<app>.app.veridian.site` (cf `07-inter-app-communication.md`).
-- Healthcheck `/api/health` doit rester disponible (gate Docker + smoke CI/CD).
+- Couleurs : design tokens OKLCH seulement. Migrations : `prisma/migrations/`. Autre app : son URL publique.
+- `/api/health` reste disponible (garde du déploiement et sonde de la CI).
 
 ## 💰 Pricing & trial
 
@@ -174,4 +174,3 @@ Jamais de limite visible. Stripe → Hub → apps, jamais Stripe → app.
   Debug/logs `nomad-v logs hub`, redeploy `nomad-v run hub` / `nomad-v deploy <fichier>`,
   état `nomad-v state`. Secrets = Nomad Variable `nomad/jobs/hub`. Skill `/nomad`.
 
-Cf `runbooks/services/hub/deploy.md` pour les détails opérationnels.
