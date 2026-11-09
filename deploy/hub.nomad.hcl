@@ -89,7 +89,8 @@ job "hub" {
     restart {
       attempts = 10
       interval = "10m"
-      delay    = "15s"
+      # 2 s (et non 15) : retour servi après un plantage en ~6 s, mesuré sur le CMS le 09/11 (26 s avant).
+      delay    = "2s"
       mode     = "delay"
     }
 
