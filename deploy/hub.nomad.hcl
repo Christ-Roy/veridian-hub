@@ -245,7 +245,20 @@ NEXT_PUBLIC_ANALYTICS_URL=https://analytics.app.veridian.site
 CRM_API_URL=https://crm.app.veridian.site
 {{ with nomadVar "nomad/jobs/hub" }}
 # Base du Hub : pg-saas (grappe Patroni, entree 172.26.64.1:15432, base hub, role hub). Migration du 09/11/2026 (plan §21).
-DATABASE_URL=postgresql://hub:{{ .PG_SAAS_PASSWORD }}@172.26.64.1:15432/hub?schema=hub_app
+# DATABASE_URL composee depuis HUB_DATABASE_* (defauts = pg-saas) : une bascule change une cle, pas ce fichier.
+{{ $dbMode := or .HUB_DATABASE_MODE.Value "pg-saas" }}
+{{ $dbUser := or .HUB_DATABASE_USER.Value "hub" }}
+{{ $dbHost := or .HUB_DATABASE_HOST.Value "172.26.64.1" }}
+{{ $dbPort := or .HUB_DATABASE_PORT.Value "15432" }}
+{{ $dbName := or .HUB_DATABASE_NAME.Value "hub" }}
+{{ $dbSchema := or .HUB_DATABASE_SCHEMA.Value "hub_app" }}
+HUB_DATABASE_MODE={{ $dbMode }}
+HUB_DATABASE_USER={{ $dbUser }}
+HUB_DATABASE_HOST={{ $dbHost }}
+HUB_DATABASE_PORT={{ $dbPort }}
+HUB_DATABASE_NAME={{ $dbName }}
+HUB_DATABASE_SCHEMA={{ $dbSchema }}
+DATABASE_URL=postgresql://{{ $dbUser }}:{{ .PG_SAAS_PASSWORD }}@{{ $dbHost }}:{{ $dbPort }}/{{ $dbName }}?schema={{ $dbSchema }}
 # Flow d'essai réel : allumé (go de Robert). Défaut 1 si la clé est absente ; 0 coupe.
 # Couper : nomad/jobs/hub TRIAL_MACHINE_ENABLED=0 (bloc complet, stdin, -check-index), puis rendre le job.
 TRIAL_MACHINE_ENABLED={{ or .TRIAL_MACHINE_ENABLED.Value "1" }}
