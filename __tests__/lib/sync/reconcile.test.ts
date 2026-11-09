@@ -69,6 +69,24 @@ describe('diffTenantApp', () => {
     });
   });
 
+  it('essai actif : Hub free et Notifuse pro ne font pas un écart (plan effectif = pro)', () => {
+    const disc = makeDiscovery({
+      found: true,
+      snapshots: [{ app: 'notifuse', workspaceId: 'ws-1', plan: 'pro', status: 'active', observedAt: 'now' }],
+    });
+    const drifts = diffTenantApp({ ...baseTenant, notifusePlan: 'free', trialStatus: 'trial_active' }, 'notifuse', disc, 'now');
+    expect(drifts.filter((d) => d.kind === 'plan_mismatch')).toHaveLength(0);
+  });
+
+  it('essai terminé : Hub free et Notifuse pro restent un écart', () => {
+    const disc = makeDiscovery({
+      found: true,
+      snapshots: [{ app: 'notifuse', workspaceId: 'ws-1', plan: 'pro', status: 'active', observedAt: 'now' }],
+    });
+    const drifts = diffTenantApp({ ...baseTenant, notifusePlan: 'free', trialStatus: 'expired' }, 'notifuse', disc, 'now');
+    expect(drifts.filter((d) => d.kind === 'plan_mismatch')).toHaveLength(1);
+  });
+
   it('emits status_mismatch when Hub.status ≠ snapshot.status', () => {
     const disc = makeDiscovery({
       found: true,

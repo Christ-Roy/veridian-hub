@@ -202,7 +202,9 @@ export function diffTenantApp(
   // autre tenant) : l'ordre n'est pas garanti, donc le plan est en écart seulement
   // si AUCUN workspace ne porte le plan du Hub. Le status reste lu sur le 1er.
   const snap = appResult.snapshots[0];
-  const localPlan = readLocalPlan(t, app);
+  // Pendant un essai actif, le plan effectif de Notifuse est pro (le tick le pose, le Hub le garde en free).
+  const localPlan =
+    app === 'notifuse' && t.trialStatus === 'trial_active' ? 'pro' : readLocalPlan(t, app);
   const appPlans = appResult.snapshots.flatMap((s) => (s.plan ? [s.plan] : []));
   if (localPlan && appPlans.length > 0 && !appPlans.some((p) => samePlan(app, p, localPlan))) {
     drifts.push({
