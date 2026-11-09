@@ -10,7 +10,7 @@ export function ConnexionsIa({ connexions }: { connexions: ConnexionIa[] }) {
   if (connexions.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        Aucun assistant IA n&apos;est relié. Pour en relier un, ajoutez le connecteur https://app.veridian.site/api/mcp dans votre assistant.
+        Aucun assistant IA n&apos;est relié pour l&apos;instant.
       </p>
     );
   }

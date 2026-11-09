@@ -13,6 +13,8 @@ import { DashboardPageHeader } from '@/components/dashboard/PageHeader';
 import { SecurityMfaToggle } from './SecurityMfaToggle';
 import { SignOutEverywhere } from './SignOutEverywhere';
 import { ConnexionsIa } from './ConnexionsIa';
+import { ConnecterAssistant } from './ConnecterAssistant';
+import { liensInstallation } from '@/lib/mcp/liens-installation';
 import { connexionsActives } from '@/lib/mcp/connexions';
 
 export default async function SecuritySettingsPage() {
@@ -67,9 +69,11 @@ export default async function SecuritySettingsPage() {
         <div>
           <h2 className="text-lg font-medium">Assistants IA</h2>
           <p className="text-sm text-muted-foreground mt-1">
-            Les assistants (Claude, ChatGPT…) reliés à votre compte agissent en votre nom dans vos apps Veridian.
+            Une seule connexion donne à votre assistant (Claude, ChatGPT…) l&apos;accès à toutes vos apps Veridian,
+            en votre nom.
           </p>
         </div>
+        <ConnecterAssistant liens={liensInstallation()} />
         <ConnexionsIa connexions={connexions} />
       </Card>
     </div>
