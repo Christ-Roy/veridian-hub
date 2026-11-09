@@ -31,7 +31,7 @@ afterAll(() => {
 type Recu = { auth: string; corps: any; session: string | null };
 
 /** App MCP factice : session à l'initialize, tools/list paginé en SSE, tools/call en JSON. */
-function appFactice(opts: { outils?: any[]; sortie?: string; panne?: boolean; inconnu?: () => boolean } = {}) {
+function appFactice(opts: { outils?: any[]; sortie?: string; panne?: boolean; inconnu?: () => boolean; refusEspace?: string } = {}) {
   const recus: Recu[] = [];
   const outils = opts.outils ?? [
     { name: 'visites_du_site', description: 'Nombre de visites et visiteurs du site sur une période.', inputSchema: { type: 'object', properties: { jours: { type: 'number' } } }, annotations: { readOnlyHint: true } },
@@ -43,6 +43,10 @@ function appFactice(opts: { outils?: any[]; sortie?: string; panne?: boolean; in
     const h = init.headers as Record<string, string>;
     recus.push({ auth: h.Authorization, corps, session: h['Mcp-Session-Id'] ?? null });
     if (opts.inconnu?.()) return new Response(JSON.stringify({ error: 'hub_user_unknown' }), { status: 401 });
+    if (opts.refusEspace && corps.method === 'initialize' && h.Authorization) {
+      const charge = JSON.parse(Buffer.from(h.Authorization.split('.')[1], 'base64url').toString());
+      if (charge.tenant_id) return new Response(JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32002, message: opts.refusEspace } }), { status: 403 });
+    }
     if (corps.method === 'initialize') {
       return new Response(JSON.stringify({ jsonrpc: '2.0', id: corps.id, result: { protocolVersion: '2025-06-18', capabilities: {} } }), { headers: { 'content-type': 'application/json', 'mcp-session-id': 'sess-1' } });
     }
@@ -260,5 +264,17 @@ describe('compte absent dans l\'app (hub_user_unknown)', () => {
     const ok = appFactice();
     const r = json(await traiter(db as never, AUTRE, { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'chercher_outils', arguments: { besoin: 'visites' } } }, { fetchImpl: ok.fetchImpl }));
     expect(r.outils[0].nom).toBe('analytics.visites_du_site');
+  });
+});
+
+describe('règle tenant_id du contrat (403 lisibles)', () => {
+  it.each([
+    ['tenant_not_linked', /pas relié dans l'app/],
+    ['tenant_forbidden', /pas membre de cet espace/],
+  ])('%s : rendu en clair à l\'IA, pas « refuse l\'identité »', async (code, attendu) => {
+    const f = appFactice({ refusEspace: code });
+    const r: any = await appel('executer_outil', { nom: 'analytics.visites_du_site', espace: 'mon-espace' }, f);
+    expect(r.result.isError).toBe(true);
+    expect(r.result.content[0].text).toMatch(attendu);
   });
 });

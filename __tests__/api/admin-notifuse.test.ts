@@ -226,7 +226,8 @@ describe('POST /api/admin/notifuse/update-plan', () => {
     const [calledUrl, init] = fetchMock.mock.calls[0];
     expect(calledUrl).toBe('https://notifuse.example.com/api/tenants/update-plan');
     const sentBody = JSON.parse((init as RequestInit).body as string);
-    expect(sentBody).toEqual({ tenant_id: NOTIFUSE_SLUG, plan: 'lifetime_site_vitrine' });
+    // Le slug désigne l'espace ; l'id Hub le relie au tenant_id du JWT MCP.
+    expect(sentBody).toEqual({ tenant_id: NOTIFUSE_SLUG, plan: 'lifetime_site_vitrine', hub_tenant_id: TENANT_ID });
 
     // L'audit a été persisté dans tenant.metadata
     const tenant = tenantStore.get(TENANT_ID);

@@ -214,7 +214,7 @@ describe('runTrialTick — phase activate', () => {
     );
 
     // Notifuse update-plan called with plan=pro
-    expect(updatePlanMock).toHaveBeenCalledWith({ tenantId: 't_42', plan: 'pro' });
+    expect(updatePlanMock).toHaveBeenCalledWith({ tenantId: 't_42', plan: 'pro', hubTenantId: 't_42' });
 
     // Email envoyé à l'owner
     expect(sendEmailMock).toHaveBeenCalledWith(
@@ -490,6 +490,7 @@ describe('runTrialTick — phase finalize', () => {
     expect(updatePlanMock).toHaveBeenCalledWith({
       tenantId: 't_expired',
       plan: 'free',
+      hubTenantId: 't_expired',
     });
     expect(sendEmailMock).toHaveBeenCalledWith(
       expect.objectContaining({ to: 'expired@example.com' }),

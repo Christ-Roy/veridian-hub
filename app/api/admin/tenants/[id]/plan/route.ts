@@ -177,6 +177,7 @@ export async function POST(
         tenantId: tenant.notifuseWorkspaceSlug,
         plan: body.plan,
         trial: await trialStatusForTenant(prisma, tenantId),
+        hubTenantId: tenantId,
       });
     } catch (err) {
       if (err instanceof NotifuseError) {

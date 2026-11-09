@@ -532,7 +532,12 @@ async function callUpdatePlan(
       return undefined;
     });
     // Notifuse connaît son espace par son slug, jamais par l'id du tenant Hub.
-    await notifuseClient.updatePlan({ tenantId: ref?.notifuseSlug ?? tenantIdLu, plan, ...(trial ? { trial } : {}) });
+    await notifuseClient.updatePlan({
+      tenantId: ref?.notifuseSlug ?? tenantIdLu,
+      plan,
+      ...(trial ? { trial } : {}),
+      ...(ref?.hubTenantId ? { hubTenantId: ref.hubTenantId } : {}),
+    });
     await suivreAnalyticsEtCrm(tenantId, plan).catch((err: unknown) =>
       console.error(`[cron-trial-tick] analytics/crm tenant=${tenantId}:`, err),
     );

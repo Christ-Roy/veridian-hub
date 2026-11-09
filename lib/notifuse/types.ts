@@ -69,6 +69,8 @@ export interface UpdatePlanInput {
   plan: NotifusePlan;
   /** Statut d'essai du tenant (`lib/plans/trial-status.ts`) : stocké par l'app, jamais appliqué sans son drapeau. */
   trial?: { status: string; endsAt: string | null };
+  /** Id du tenant Hub : Notifuse le relie à son espace, pour honorer le `tenant_id` du JWT MCP. */
+  hubTenantId?: string;
 }
 
 export interface SuspendInput {

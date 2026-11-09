@@ -85,6 +85,7 @@ export async function POST(request: NextRequest) {
     await client.updatePlan({
       tenantId: resolved.notifuseWorkspaceSlug,
       plan: body.plan,
+      hubTenantId: resolved.hubTenantId,
     });
   } catch (err) {
     return notifuseErrorResponse(err);

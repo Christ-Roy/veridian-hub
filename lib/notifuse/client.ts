@@ -76,6 +76,7 @@ export class NotifuseClient {
       tenant_id: input.tenantId,
       plan: input.plan,
       ...(input.trial ? { trial_status: input.trial.status, trial_ends_at: input.trial.endsAt } : {}),
+      ...(input.hubTenantId ? { hub_tenant_id: input.hubTenantId } : {}),
     });
   }
 

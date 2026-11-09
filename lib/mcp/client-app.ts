@@ -78,6 +78,9 @@ export class SessionApp {
     if (res.status === 401 || res.status === 403) {
       const corps = await res.text().catch(() => '');
       if (corps.includes('hub_user_unknown')) throw new CompteAbsent('compte absent dans l\'app');
+      // Règle tenant_id du contrat : l'espace choisi n'est pas relié chez l'app, ou l'utilisateur n'en est pas membre.
+      if (corps.includes('tenant_not_linked')) throw new AppInjoignable('cet espace n\'est pas relié dans l\'app (tenant_not_linked)');
+      if (corps.includes('tenant_forbidden')) throw new AppInjoignable('ce compte n\'est pas membre de cet espace dans l\'app (tenant_forbidden)');
       throw new AppInjoignable(`l'app refuse l'identité du Hub (HTTP ${res.status})`);
     }
     if (!res.ok) throw new AppInjoignable(`HTTP ${res.status}`);

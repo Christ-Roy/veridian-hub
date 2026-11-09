@@ -47,6 +47,20 @@ Ajouter une app : une ligne au registre (`hub mcp-app add <cle> <url_mcp>`), auc
    ses comptes à la première ouverture depuis l'espace Veridian.
 3. L'espace (tenant) vient du `tenant_id` signé ou, à défaut, de l'utilisateur : jamais d'un argument
    d'outil fourni par l'IA (`espace` est un paramètre de la porte, jamais transmis à l'app).
+   Règle commune à toutes les apps (tranchée le 09/11) :
+
+   | `tenant_id` | Réponse de l'app |
+   |---|---|
+   | absent | espace par défaut de l'utilisateur |
+   | relié à un espace dont l'utilisateur est membre | cet espace |
+   | relié à aucun espace de l'app | 403, `error: tenant_not_linked` |
+   | relié, utilisateur non membre | 403, `error: tenant_forbidden` |
+
+   Jamais de repli silencieux sur l'espace par défaut, jamais de 401 pour ces cas : le 401 est réservé
+   au jeton (`hub_user_unknown`, jeton invalide). Le code d'erreur figure dans le corps (JSON-RPC
+   `error.data.error` ou `error.message`). Chaque app relie l'id de tenant Hub à son espace
+   (Prospection : `hub_tenant_id` au provisionnement et `link-hub` ; Notifuse : `hub_tenant_id` à
+   l'update-plan).
 4. `tools/list` ne rend que ce que cet utilisateur peut faire ; descriptions d'une ligne, `annotations`
    (`readOnlyHint`, `destructiveHint`) renseignées : le Hub les relaie au client.
 5. Réponses bornées et paginées (curseur), JSON compact.

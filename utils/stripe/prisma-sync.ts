@@ -415,6 +415,7 @@ export async function manageSubscriptionStatusChange(
           tenantId: tenant.notifuseWorkspaceSlug,
           plan: safePlan,
           trial,
+          hubTenantId: tenant.id,
         });
         console.log(
           `[stripe-sync] HMAC update-plan OK notifuse tenant=${tenant.id} plan=${targetNotifuse}`,
