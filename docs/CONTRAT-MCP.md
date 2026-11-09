@@ -35,6 +35,9 @@ Ajouter une app : une ligne au registre (`hub mcp-app add <cle> <url_mcp>`), auc
   avant ; clé inconnue ou coupée : `app: null`. Le connecteur reste « Veridian », un seul pour toutes les apps.
   Chaque app affiche les boutons chez elle à partir de cette réponse, sans recopier les liens. Révocation :
   `/dashboard/ia` au Hub.
+  Origines garanties des liens `installation` : `https://claude.ai`, `https://chatgpt.com`, schéma `cursor:`,
+  `https://vscode.dev`. Une app peut retirer un bouton hors de ces origines (Twenty le fait, avec un warn). Le
+  chemin peut changer sans préavis ; une nouvelle origine s'annonce aux apps avant d'être servie.
 
 ## Côté app (ce que chaque app implémente)
 
