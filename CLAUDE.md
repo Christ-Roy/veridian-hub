@@ -28,31 +28,9 @@ Prospection). CRM (Twenty) : espace créé par `app-access --app twenty`, entré
 ## Structure
 
 ```
-hub/
-├── app/                    # Pages (auth, marketing, dashboard, admin, api)
-│   ├── (auth)/ (marketing)/ dashboard/ invite/[token]/
-│   └── api/                # routes API, webhooks Stripe + Notifuse
-├── auth.ts                 # Auth.js v5 config (providers + callbacks + MFA)
-├── auth.config.ts          # Config edge-safe (middleware)
-├── middleware.ts           # NextAuth middleware
-├── components/             # React components
-├── lib/
-│   ├── auth/               # getCurrentUser, requireUser, userUuid helpers
-│   ├── admin/              # check-admin, is-platform-admin
-│   ├── prisma/             # Prisma client singleton lazy proxy
-│   ├── notifuse/           # NotifuseClient (Hub → Notifuse fork API)
-│   ├── stripe/             # Stripe SDK + plans
-│   └── mfa/ email/templates/
-├── prisma/
-│   ├── schema.prisma       # 15 modèles (User, Workspace, Tenant, Subscription...)
-│   └── migrations/         # Migrations Prisma
-├── utils/
-│   ├── tenants/provision.ts  # Provisioning Notifuse + Prospection
-│   ├── stripe/prisma-sync.ts # Sync Stripe → Prisma (Product, Price, Subscription)
-│   ├── auth-helpers/       # Helpers session
-│   └── env.ts, fetch.ts, helpers.ts
-├── styles/main.css         # Theme OKLCH (jamais hardcoder les couleurs)
-└── Dockerfile              # Multi-stage Node 20-alpine (deps → builder → runner)
+app/ (auth, marketing, dashboard, admin, api)   auth.ts, auth.config.ts (edge), middleware.ts
+lib/ auth admin prisma notifuse stripe mcp (porte MCP) apps (deprovision, lier-hub) sync (reconcile)
+prisma/ (schema, migrations)   utils/tenants/provision.ts   utils/stripe/prisma-sync.ts   styles/main.css (OKLCH)
 ```
 
 ## Session et identité
@@ -84,7 +62,9 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   limite ni lecture seule (drapeau coupé, décision de Robert). Ce qui manque : `hub reconcile --ecarts`.
 - **Porte MCP** (09/11, `docs/CONTRAT-MCP.md`) : `/api/mcp`, 3 outils pour toutes les apps. Le Hub est serveur OAuth
   et registre (`hub mcp-app add`), ne code aucun outil d'app, présente à l'app un JWT ES256 (`MCP_SIGNING_JWK`).
-  `tenant_id` signé seulement si l'IA choisit un espace ; espace non relié → `hub relier --app <app>`.
+  `tenant_id` signé seulement si l'IA choisit un espace ; espace non relié → `hub relier --app <app>`. Boutons
+  « Ajouter à Claude… » : `/dashboard/ia` au Hub, et dans chaque app par `GET /api/mcp/liens-installation?app=<cle>`
+  (public ; une origine de lien nouvelle s'annonce aux apps, Twenty les filtre).
 - **Garde rapide** : `__tests__/contrat/` (revocation sans `iat`, `authAt` sur toute création de session,
   cibles du rebond, origines). Un nouveau `encode(` de JWT de session s'ajoute à sa liste. Détail par
   parcours et état prouvé ou accepté : `docs/PARCOURS-IDENTITE.md`.
@@ -137,8 +117,7 @@ Un audit CVE ou un test rouge saute le déploiement sans bruit : lire `gh run vi
 
 ## Provisioning flow
 
-Signup (Auth.js) → `/api/auth/signup` → `utils/tenants/provision.ts` → Notifuse et Prospection (REST, en
-parallèle) → table `Tenant`. `User.supabaseUserId` est un nom legacy : l'UUID de pont (`hub_user_id`).
+Signup → `utils/tenants/provision.ts` → Notifuse et Prospection en parallèle → `Tenant`.
 
 ## Règles
 
@@ -153,24 +132,20 @@ parallèle) → table `Tenant`. `User.supabaseUserId` est un nom legacy : l'UUID
 
 - Les env vars **runtime** viennent du job Nomad (`deploy/hub.nomad.hcl`, secrets `nomad/jobs/hub`), jamais de build-args.
 - Stripe = source de vérité billing. Config dans `lib/stripe/`.
-- Couleurs : design tokens OKLCH seulement. Migrations : `prisma/migrations/`. Autre app : son URL publique.
+- Couleurs : tokens OKLCH seulement. Autre app : son URL publique.
 - `/api/health` reste disponible (garde du déploiement et sonde de la CI).
 
 ## 💰 Pricing & trial
 
-**Source de vérité** : `docs/PRICING-VERIDIAN.md` (grille, flow d'essai, interdits, matrice mesurée des
-implémentations). À lire avant de toucher au pricing, paywall, essai, Stripe, marque blanche ou aux limites.
+**Source de vérité** : `docs/PRICING-VERIDIAN.md`, à lire avant de toucher au pricing, à l'essai, à Stripe ou aux limites.
 Générosité maximale : tout illimité, seules différences la durée Free 15 j et la marque blanche Business+.
 Jamais de limite visible. Stripe → Hub → apps, jamais Stripe → app.
 
 ## CI/CD
 
 - `.github/workflows/hub-ci.yml` : test → audit (npm) → docker → **trivy** → deploy-prod (sur `main`) → e2e-prod-smoke → rollback-prod (si fail)
-- **Pas de cron Trivy** (`hub-security-cron.yml` retiré le 2026-09-23 : il scannait `:latest`, pas
-  l'image déployée). Les CVE de l'image en cours : `sec-scan` via le CLI `secu`. `_trivy-image.yml`
-  reste le scan à la construction.
-- Déploiement : **job Nomad** (Dokploy décommissionné 2026-07-10). Job HCL
-  versionné dans `~/nomad-veridian/jobs/saas-prod/` (staging dans `saas-staging/`).
-  Debug/logs `nomad-v logs hub`, redeploy `nomad-v run hub` / `nomad-v deploy <fichier>`,
-  état `nomad-v state`. Secrets = Nomad Variable `nomad/jobs/hub`. Skill `/nomad`.
+- **Pas de cron Trivy** (il scannait `:latest`) : CVE de l'image en cours via `secu` ; `_trivy-image.yml` à la construction.
+- Runners hébergés par GitHub (dépôt public) : le smoke garde `playwright install --with-deps`.
+- Déploiement : job Nomad. Logs `nomad-v logs hub`, redeploy `nomad-v run hub`, état `nomad-v state`.
+  Secrets = Nomad Variable `nomad/jobs/hub`. Skill `/nomad`.
 
