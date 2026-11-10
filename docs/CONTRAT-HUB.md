@@ -532,6 +532,12 @@ au Hub**. Les tables `users` locales restent, comme des copies alimentées par l
 - **Interdit dans une app** : inscription, mot de passe utilisable, changement d'email,
   y compris par les écrans natifs d'un fork.
 - **Reste local** : les clés API machine, et ce qui n'est pas de l'identité.
+- **Suppression d'un compte** (`hub delete-tenant`, `lib/apps/deprovision.ts`) : avant de retirer le compte, le Hub
+  retire ses espaces dans les apps. Prospection : soft-delete §5.8.1, purge à 90 jours (immédiate pour un compte de
+  test). Notifuse : `DELETE /api/tenants/<slug>`, que Notifuse traite en soft-delete. Twenty : `DELETE
+  /api/tenants/<tenant Hub>`. Rybbit : le signal « supprimé » coupe l'accès, sites et rapports gardés. Un échec
+  d'app ne bloque pas la suppression au Hub, il est rendu dans `apps` et `hub reconcile` le voit. Test :
+  `__tests__/lib/apps/deprovision.test.ts`.
 - **Exception opérateur** : l'accès de secours du §1.4, jamais pour un client.
 
 **Aucun lien vers une app sans adresse prouvée.** Toute route du Hub qui mène à une
@@ -739,7 +745,7 @@ versionné `/api/v1/tenants/*` à partir du jour où on bumpe v2).
 | 5 | `POST /api/tenants/resume` | HMAC Hub | Stripe webhook → resumed | ✅ |
 | 6 | `GET /api/tenants/{id}/health` | HMAC Hub | Cron Hub 1×/h ou check manuel | ✅ |
 | 7 | `POST /api/workspaces.generateMagicLink` | Bearer api_key | User click "Open <App>" | ✅ |
-| 8 | `DELETE /api/tenants/{id}` | HMAC Hub | Hard delete admin | ⚠️ Recommandé (sinon Hub ne peut pas supprimer un tenant) |
+| 8 | `DELETE /api/tenants/{id}` | HMAC Hub | `hub delete-tenant` (suppression d'un compte au Hub) | ✅ Notifuse (soft-delete), Twenty ; Prospection passe par le soft-delete §5.8.1 |
 | 9 | `POST /api/sso/issue-magic-link` | HMAC Hub | Bounce OAuth depuis Hub (cf. §6bis.8.3) | ✅ |
 
 ### 5.1 `POST /api/tenants/provision`

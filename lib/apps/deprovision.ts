@@ -6,7 +6,8 @@
  *
  * - Prospection : soft-delete §5.8.1 (données gardées jusqu'à la purge, restaurables). Délai de
  *   grâce : 90 jours pour un client, aucun pour un compte de test (`e2e-sso-*@veridian.site`).
- * - Notifuse : suppression de l'espace (`DELETE /api/tenants/<slug>`).
+ * - Notifuse : `DELETE /api/tenants/<slug>`, que Notifuse traite en soft-delete (`SoftDelete`, écritures
+ *   refusées en 402 `tenant_soft_deleted`).
  * - Twenty : suppression de l'espace (`DELETE /api/tenants/<tenant Hub>`), s'il a été créé.
  * - Rybbit : rien ici. Le signal « supprimé » coupe déjà l'accès, et Rybbit garde sites et rapports
  *   par conception (`hubUsers.ts`).

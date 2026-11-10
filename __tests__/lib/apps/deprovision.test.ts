@@ -27,7 +27,7 @@ function fetchOk(statut = 200) {
 beforeEach(() => softDeleteTenant.mockClear());
 
 describe('deprovisionnerCompte', () => {
-  it('client réel : Prospection soft-delete à 90 jours, Notifuse et Twenty supprimés', async () => {
+  it('client réel : Prospection soft-delete à 90 jours, Notifuse (DELETE, soft-delete chez lui) et Twenty retirés', async () => {
     const f = fetchOk();
     const issues = await deprovisionnerCompte({ email: 'client@exemple.fr', tenants: [tenant] }, { env, fetchImpl: f as never, maintenant: () => MAINTENANT });
     expect(softDeleteTenant).toHaveBeenCalledWith('client@exemple.fr', {
