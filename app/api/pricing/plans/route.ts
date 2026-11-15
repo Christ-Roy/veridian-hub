@@ -13,8 +13,6 @@
 
 import {
   PLANS,
-  LEAD_REFILL_PRICING_CENTS,
-  MAX_LEADS_PER_REFILL_ORDER,
   ANNUAL_PERKS,
 } from '@veridian/shared';
 
@@ -30,10 +28,6 @@ export async function GET() {
   return Response.json(
     {
       plans: PLANS,
-      refill: {
-        pricing_cents: LEAD_REFILL_PRICING_CENTS,
-        max_per_order: MAX_LEADS_PER_REFILL_ORDER,
-      },
       annual_perks: ANNUAL_PERKS,
       version: PRICING_API_VERSION,
       generated_at: new Date().toISOString(),

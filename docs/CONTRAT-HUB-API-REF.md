@@ -1576,10 +1576,6 @@ stale-while-revalidate=86400`. ISR 1h côté Next.
 ```json
 {
   "plans": [ /* PLANS du submodule @veridian/shared */ ],
-  "refill": {
-    "pricing_cents": [...],
-    "max_per_order": 1000
-  },
   "annual_perks": [...],
   "version": "0.1.0",
   "generated_at": "2026-05-21T14:00:00.000Z"
