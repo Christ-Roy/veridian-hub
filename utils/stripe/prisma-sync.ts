@@ -22,11 +22,6 @@ import { toDateTime } from '@/utils/helpers';
 import { getPlanByStripePriceId, getAppPlansForBundle } from '@/lib/pricing/helpers';
 import { NotifuseClient } from '@/lib/notifuse/client';
 import { NotifuseError, isNotifusePlan, type NotifusePlan } from '@/lib/notifuse/types';
-import {
-  computeWelcomeLeadsDelta,
-  type ProspectionLocalPlan,
-} from '@/lib/billing/refill-leads';
-import { grantWelcomeLeadsBestEffort } from '@/utils/tenants/provision';
 
 /**
  * Résultat de propagation Stripe → apps downstream, retourné par
@@ -344,48 +339,6 @@ export async function manageSubscriptionStatusChange(
     }
   }
 
-  // ─── 1bis. Welcome leads sur UPGRADE Prospection ───
-  // Si le palier Prospection augmente (free → pro → business), on crédite le
-  // DELTA de welcome leads (cf PRICING-VERIDIAN.md §78 + §97). Downgrade =
-  // pas d'appel (leads permanents). Idempotency_key déterministe (tenant +
-  // welcome_plan) → l'invariant "1 welcome par palier" est tenu côté
-  // Prospection même si on rejoue.
-  //
-  // On utilise l'email owner comme tenantIdOrEmail (résolution dual côté
-  // Prospection). Fallback : si email non en DB, on tente le tenantId.
-  if (isActive && isValidProspectionLocalPlan(targetProspection)) {
-    const oldPlan = isValidProspectionLocalPlan(tenant.prospectionPlan)
-      ? (tenant.prospectionPlan as ProspectionLocalPlan)
-      : null;
-    const delta = computeWelcomeLeadsDelta(oldPlan, targetProspection);
-    if (delta > 0) {
-      const ownerEmail = tenant.notifuseUserEmail;
-      if (ownerEmail) {
-        const welcomeRes = await grantWelcomeLeadsBestEffort({
-          hubTenantId: tenant.id,
-          ownerEmail,
-          welcomePlan: targetProspection,
-          quantityOverride: delta,
-        });
-        if (!welcomeRes.success) {
-          console.warn(
-            `[stripe-sync] welcome leads delta=${delta} grant failed (non-blocking) ` +
-              `tenant=${tenant.id} plan=${targetProspection} err=${welcomeRes.error}`,
-          );
-        } else {
-          console.log(
-            `[stripe-sync] welcome leads delta=${delta} credited tenant=${tenant.id} ` +
-              `plan=${targetProspection}`,
-          );
-        }
-      } else {
-        console.warn(
-          `[stripe-sync] welcome leads delta=${delta} skip — no owner email on tenant ${tenant.id}`,
-        );
-      }
-    }
-  }
-
   // Statut d'essai, envoyé avec le plan à chaque app (`lib/plans/trial-status.ts`).
   const trial = await trialStatusForTenant(prisma, tenant.id).catch((err: unknown) => {
     console.error(`[stripe-sync] statut d'essai illisible tenant=${tenant!.id}:`, err);
@@ -504,6 +457,9 @@ function buildDefaultNotifuseClient(): NotifuseClient | null {
   if (!apiUrl || !hubSecret) return null;
   return new NotifuseClient({ apiUrl, hubSecret });
 }
+
+/** Plans locaux Prospection. */
+type ProspectionLocalPlan = 'freemium' | 'pro' | 'business';
 
 /** Type-guard pour le plan local Prospection (BDD stocke des strings libres). */
 function isValidProspectionLocalPlan(

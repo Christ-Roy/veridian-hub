@@ -29,12 +29,6 @@ import {
 } from '@/utils/stripe/prisma-sync';
 import { sendTelegramAlert } from '@/lib/notifications/telegram';
 import type { NotifuseClient } from '@/lib/notifuse/client';
-import {
-  createCreditLeadsClientFromEnv,
-  dispatchRefillPurchase,
-  type CreditLeadsClient,
-  type DispatchResult as RefillDispatchResult,
-} from '@/lib/billing/refill-leads';
 
 export type StripeDispatchOutcome =
   | { status: 'already_processed'; eventId: string }
@@ -43,7 +37,6 @@ export type StripeDispatchOutcome =
       status: 'processed';
       eventId: string;
       propagation?: PropagationResult;
-      refill?: RefillDispatchResult;
     }
   | { status: 'failed'; eventId: string; error: string };
 
@@ -54,11 +47,6 @@ export interface DispatcherOptions {
    * depuis ENV.
    */
   notifuseClient?: NotifuseClient;
-  /**
-   * Client refill (`credit-leads`) injectable pour les tests. En prod →
-   * construit depuis ENV via `createCreditLeadsClientFromEnv`.
-   */
-  creditLeadsClient?: CreditLeadsClient;
   /**
    * Hook d'alerte Telegram (mockable). Par défaut → `sendTelegramAlert`.
    */
@@ -174,19 +162,11 @@ export async function dispatchStripeEvent(
         const session = event.data.object as Stripe.Checkout.Session;
         const metaKind = session.metadata?.kind;
 
-        // ─── Refill leads one-shot — flux séparé (CONTRAT-BILLING §8.4) ───
-        // Ne JAMAIS passer par `manageSubscriptionStatusChange` : un refill
-        // ne change pas le `plan`, il crédite N leads. Le dispatch va vers
-        // `POST <prospection>/api/tenants/{id}/credit-leads`, pas vers
-        // `update-plan`.
+        // Flux « refill leads » retiré (Robert 15/11, Prospection ne vend plus de
+        // crédits) : un éventuel event résiduel est ignoré, jamais routé.
         if (metaKind === 'refill_leads') {
-          const refill = await handleRefillLeadsCheckout(
-            session,
-            event.id,
-            opts.creditLeadsClient,
-            alertFn,
-          );
-          return { status: 'processed', eventId: event.id, refill };
+          console.warn(`[stripe-dispatch] checkout ${session.id} kind=refill_leads ignoré (flux retiré)`);
+          return { status: 'ignored', eventId: event.id, reason: 'refill_leads_retired' };
         }
 
         if (session.mode === 'subscription' && session.subscription) {
@@ -320,133 +300,6 @@ async function maybeAlertPropagationFailures(
       `tenant=${result.tenantId ?? '?'} customer=${extractCustomerId(event) ?? '?'}\n` +
       lines,
   ).catch(() => undefined);
-}
-
-/**
- * Handle l'event `checkout.session.completed` issu d'un Stripe Checkout
- * one-shot refill leads (`metadata.kind === 'refill_leads'`). Décide :
- *   - skip si payment_status pas `paid` (PaymentIntent peut encore être en
- *     processing — Stripe enverra un nouvel event quand ce sera réglé)
- *   - sinon dispatch vers `POST <prospection>/api/tenants/{id}/credit-leads`
- *     avec `source: 'purchase'` et `idempotency_key` DÉTERMINISTE (dérivé
- *     du Stripe event.id, donc retry-safe)
- *   - alerte Telegram en CRITICAL si les 3 retries du dispatcher échouent
- *
- * Le user a déjà payé → on n'a PAS le droit de perdre le crédit. L'alerte
- * Telegram est le filet humain ; un cron de réconciliation (P2) pourra
- * rejouer depuis `stripe_events.processed_at IS NULL`.
- */
-async function handleRefillLeadsCheckout(
-  session: Stripe.Checkout.Session,
-  eventId: string,
-  injectedClient: CreditLeadsClient | undefined,
-  alertFn: (msg: string) => Promise<boolean>,
-): Promise<RefillDispatchResult> {
-  const meta = session.metadata ?? {};
-  const quantityRaw = meta.quantity;
-  const hubTenantId = meta.hub_tenant_id ?? null;
-  const ownerEmail = meta.owner_email ?? null;
-  const stripePaymentId =
-    (typeof session.payment_intent === 'string' ? session.payment_intent : null) ??
-    session.id;
-
-  // Payment pas encore confirmé → on ne crédite pas. Stripe renverra un
-  // `checkout.session.async_payment_succeeded` ou un nouvel event quand
-  // l'argent est arrivé.
-  if (session.payment_status !== 'paid') {
-    console.warn(
-      `[refill-dispatch] session ${session.id} not paid yet (status=${session.payment_status}) — skip`,
-    );
-    return { ok: false, error: 'payment_not_paid', attempts: 0 };
-  }
-
-  const quantity = Number.parseInt(quantityRaw ?? '', 10);
-  if (!Number.isFinite(quantity) || quantity <= 0) {
-    const msg = `[refill-dispatch] session ${session.id} invalid metadata.quantity=${quantityRaw}`;
-    console.error(msg);
-    await alertFn(`<b>Refill leads dispatch KO</b>\n${msg}`).catch(() => undefined);
-    return { ok: false, error: 'invalid_metadata_quantity', attempts: 0 };
-  }
-
-  // Priorité : tenant_id Hub (UUID) > email owner. Prospection accepte les 2
-  // (cf src/lib/hub/tenant-lookup.ts veridian-prospection).
-  const tenantIdOrEmail = hubTenantId ?? ownerEmail;
-  if (!tenantIdOrEmail) {
-    const msg = `[refill-dispatch] session ${session.id} missing tenant identifier (hub_tenant_id/owner_email)`;
-    console.error(msg);
-    await alertFn(`<b>Refill leads dispatch KO</b>\n${msg}`).catch(() => undefined);
-    return { ok: false, error: 'missing_tenant_identifier', attempts: 0 };
-  }
-
-  const client = injectedClient ?? createCreditLeadsClientFromEnv();
-  if (!client) {
-    const msg = `[refill-dispatch] PROSPECTION_API_URL/SECRET non configuré — refill ${session.id} non dispatché`;
-    console.error(msg);
-    await alertFn(`<b>Refill leads dispatch KO</b>\n${msg}`).catch(() => undefined);
-    return { ok: false, error: 'client_not_configured', attempts: 0 };
-  }
-
-  // ─── Parse optionnel filters_json (v2.1) ─────────────────────────────────
-  // Posé en metadata par la route HMAC `checkout-from-app` (ticket
-  // 2026-05-25-refill-checkout-from-app-hmac-route). Si présent → bump
-  // contract_version 2.0 → 2.1 + forward `filters` dans le body credit-leads.
-  // Si absent (checkout legacy sans ICP) → comportement inchangé v2.0.
-  //
-  // Le metadata Stripe est tronqué à 500 chars par la route source (cf
-  // STRIPE_METADATA_VALUE_MAX) — si parse échoue, on log et on continue SANS
-  // filters (mieux que perdre le crédit user qui a payé).
-  let filters: Record<string, unknown> | undefined;
-  const filtersRaw = meta.filters_json;
-  if (filtersRaw) {
-    try {
-      const parsed = JSON.parse(filtersRaw);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        filters = parsed as Record<string, unknown>;
-      } else {
-        console.warn(
-          `[refill-dispatch] session ${session.id} metadata.filters_json is not an object — skipping forward`,
-        );
-      }
-    } catch (parseErr) {
-      console.warn(
-        `[refill-dispatch] session ${session.id} metadata.filters_json invalid JSON (likely truncated > 500 chars) — skipping forward:`,
-        parseErr instanceof Error ? parseErr.message : String(parseErr),
-      );
-    }
-  }
-
-  const result = await dispatchRefillPurchase(client, {
-    tenantIdOrEmail,
-    quantity,
-    stripeEventId: eventId,
-    stripePaymentId,
-    ...(filters !== undefined ? { filters } : {}),
-  });
-
-  if (result.ok) {
-    console.log(
-      `[refill-dispatch] credit-leads OK session=${session.id} tenant=${tenantIdOrEmail} ` +
-        `quantity=${quantity} attempts=${result.attempts} response=${JSON.stringify(result.response)}`,
-    );
-    return result;
-  }
-
-  // 3 retries épuisés → CRITICAL. User a payé, on doit alerter pour réparation
-  // humaine (re-dispatch manuel via cron de réconciliation ou re-déclenchement
-  // depuis Stripe Dashboard).
-  const errMsg =
-    `[CRITICAL][refill] credit-leads KO après ${result.attempts} attempt(s) — session=${session.id} ` +
-    `tenant=${tenantIdOrEmail} quantity=${quantity} status=${result.status ?? 'network'} ` +
-    `err=${result.error}`;
-  console.error(errMsg);
-  await alertFn(
-    `<b>Refill leads dispatch KO (${result.attempts} attempts)</b>\n` +
-      `session=<code>${session.id}</code>\n` +
-      `tenant=<code>${tenantIdOrEmail}</code>\n` +
-      `quantity=${quantity}\n` +
-      `error: ${result.error}`,
-  ).catch(() => undefined);
-  return result;
 }
 
 function extractCustomerId(event: Stripe.Event): string | null {

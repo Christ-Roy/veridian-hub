@@ -4,8 +4,7 @@
  * **CIBLES** : endpoints qui acceptent une URL externe dans le body.
  *   1. `POST /api/admin/tenants/link-app` — champ `fallback_url`
  *      (déjà whitelist http(s) via Zod refine, à vérifier en bout-en-bout)
- *   2. `POST /api/billing/refill-leads/checkout-from-app` — `success_url` /
- *      `cancel_url` (HMAC-authentifié, mais on tente quand même)
+ *   2. (route refill-leads/checkout-from-app retirée le 15/11/2026)
  *   3. `POST /api/auth/callback/mock-oauth` — `callbackUrl`
  *      (Auth.js v5 normalise mais on vérifie le comportement)
  *
@@ -146,67 +145,6 @@ test.describe('Mega I-03 — SSRF sur POST /api/admin/tenants/link-app fallback_
       expect([400, 401, 422, 429]).toContain(r.status());
       // Pas de 5xx (sinon Zod n'a pas catch → payload passé plus loin)
       expect(r.status(), `payload "${url}" ne doit jamais provoquer 5xx`).toBeLessThan(500);
-    });
-  }
-});
-
-test.describe('Mega I-03 — SSRF sur POST /api/billing/refill-leads/checkout-from-app success_url', () => {
-  // Cet endpoint exige HMAC valide. Sans le secret, on s'attend à 400/401 sur
-  // l'auth — mais on teste quand même : si l'auth retournait 400 pour signature
-  // ET aussi 400 pour bad url, on est OK ; si une path-trompe retournait 200
-  // ou 5xx, c'est qu'un payload SSRF passe.
-
-  const PROSPECTION_HUB_SECRET =
-    process.env.PROSPECTION_HUB_API_SECRET || '';
-
-  for (const url of ['file:///etc/passwd', 'javascript:void(0)', 'gopher://localhost/', 'http://169.254.169.254/']) {
-    test(`success_url = "${url.slice(0, 40)}" → REJETÉ par Zod url() OU par HMAC, JAMAIS 200`, async ({
-      request,
-    }) => {
-      const body = JSON.stringify({
-        tenant_id: `mega-ssrf-${MEGA_RUN_STAMP}-${Math.abs(hashStr(url)) % 1000}`,
-        quantity: 100,
-        plan: 'pro',
-        success_url: url,
-        cancel_url: 'https://example.com/cancel',
-        contract_version: '2.1',
-      });
-
-      // On envoie sans HMAC valide volontairement (test SSRF, pas test HMAC).
-      // L'endpoint doit rejeter SOIT sur HMAC (400/401) SOIT sur Zod url() (400).
-      // Critère : jamais 200, jamais 5xx.
-      const headers: Record<string, string> = {
-        'content-type': 'application/json',
-        'x-veridian-app': 'prospection',
-        'x-veridian-timestamp': String(Date.now()),
-      };
-      if (PROSPECTION_HUB_SECRET) {
-        // Si on a le secret, on peut tester que la validation Zod kick AVANT
-        // que le checkout Stripe soit appelé. Mais l'endpoint refuse aussi via
-        // wrong-HMAC, ce qui suffit pour notre critère SSRF.
-        const { createHmac } = await import('node:crypto');
-        const timestamp = headers['x-veridian-timestamp'];
-        const sig = createHmac('sha256', PROSPECTION_HUB_SECRET)
-          .update(`${timestamp}.${body}`)
-          .digest('hex');
-        headers['x-veridian-billing-signature'] = sig;
-      } else {
-        headers['x-veridian-billing-signature'] = 'a'.repeat(64);
-      }
-
-      const r = await request.post(
-        `${STAGING_URL}/api/billing/refill-leads/checkout-from-app`,
-        { headers, data: body, failOnStatusCode: false },
-      );
-
-      expect(
-        r.status(),
-        `SSRF "${url}" ne doit JAMAIS retourner 200`,
-      ).not.toBe(200);
-      expect(
-        r.status(),
-        `SSRF "${url}" ne doit JAMAIS retourner 5xx (parser explosé). Got ${r.status()}`,
-      ).toBeLessThan(500);
     });
   }
 });

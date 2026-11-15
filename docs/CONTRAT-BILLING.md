@@ -58,7 +58,7 @@ et paie via Stripe Checkout.
 | App | Statut billing | Plans |
 |---|---|---|
 | ✅ **Notifuse** | App SaaS payante, self-serve | Free / Pro 29€ / Business 99€ / Enterprise |
-| ✅ **Prospection** | App SaaS payante, self-serve | Freemium / Pro 29€ / Business 89€ + refill leads |
+| ✅ **Prospection** | App SaaS payante, self-serve | Freemium / Pro 29€ / Business 89€ (refill leads retiré le 15/11/2026, cf §8.4) |
 
 Et **PAS** aux apps "client / shadow marketing" :
 
@@ -714,184 +714,18 @@ le dispatcher webhook propage `update-plan` à **Notifuse ET Prospection**
 sur le même event. Les deux apps reçoivent le même `plan` (`pro` ou
 `business`), avec le même `idempotency_key` racine décliné par app.
 
-### 8.4 Achats one-shot (refill leads Prospection) — flux séparé
+### 8.4 Achats one-shot (refill leads Prospection) — RETIRÉ (15/11/2026)
 
-Le **refill leads Prospection** (achat de leads à la commande, Stripe
-Checkout one-shot, grille dégressive `PRICING-VERIDIAN.md`) est un **flux
-distinct de `update-plan`** — à ne jamais mélanger avec l'abonnement.
-
-| | Abonnement SaaS (Free/Pro/Business) | Refill leads (one-shot) |
-|---|---|---|
-| Objet Stripe | Subscription (récurrent) | Checkout `mode=payment` (one-shot) |
-| Signal vers l'app | `update-plan` (change le `plan`) | **PAS** `update-plan` — un signal de crédit dédié |
-| Effet | Change le tier du tenant | Crédite N leads, ne touche pas le `plan` |
-
-**Frontière** (cohérente §2) : le **Hub reste seul interlocuteur Stripe**,
-y compris pour le Checkout one-shot des leads. Prospection ne crée pas la
-session Checkout, ne reçoit pas le webhook Stripe `checkout.session.completed`
-de l'achat de leads. Le Hub le reçoit, et propage à Prospection un
-**signal de crédit dédié** — pas un `update-plan`.
-
-### Signal de crédit leads — figé 2026-05-23 (v2.1)
-
-Endpoint Prospection :
-`POST <prospection>/api/tenants/{tenantIdOrEmail}/credit-leads`
-(le path accepte UUID du Tenant Hub OU email owner, cf
-`src/lib/hub/tenant-lookup.ts` veridian-prospection).
-
-Auth : HMAC Pattern A (§6.1 `CONTRAT-HUB.md`).
-- Header `X-Veridian-Timestamp: <ms>`
-- Header `X-Veridian-Hub-Signature: <hex SHA-256>`
-- Signature calculée sur `${timestamp}.${rawJsonBody}` avec
-  `PROSPECTION_HUB_API_SECRET` (rotation séparée du HMAC update-plan).
-
-Body purchase (refill payant) :
-```
-{
-  "quantity": <int 1..100000>,
-  "source": "purchase",
-  "stripe_payment_id": "<pi_xxx | cs_xxx>",
-  "idempotency_key": "<uuid v4 DÉTERMINISTE, dérivé de stripe event.id>",
-  "contract_version": "2.0"
-}
-```
-
-Body purchase v2.1 (refill ICP — depuis route `checkout-from-app`) :
-```
-{
-  "quantity": <int 1..100000>,
-  "source": "purchase",
-  "stripe_payment_id": "<pi_xxx | cs_xxx>",
-  "idempotency_key": "<uuid v4 DÉTERMINISTE, dérivé de stripe event.id>",
-  "contract_version": "2.1",
-  "filters": { ... }   // payload ICP forwardé par le Hub (opaque schéma app)
-}
-```
-
-Le `filters` est un objet JSON opaque pour le Hub — il est **fourni par
-l'app appelante** lors du Checkout via la route `POST /api/billing/refill-leads/checkout-from-app`
-(§8.4bis), persisté dans `metadata.filters_json` Stripe, puis re-forwardé
-au webhook vers cet endpoint. Le schéma métier (champs valides, validation)
-appartient à l'app downstream — elle valide en parsant, en cas de format
-invalide elle peut renvoyer `400`/`422` selon sa policy.
-
-**Backward compat strict** : un checkout sans filters (route session-gated
-`POST /api/billing/refill-leads/checkout` ou route v2.0 legacy) continue
-d'émettre `contract_version: "2.0"` SANS le champ `filters`. Une app
-implémentant v2.0 reçoit toujours son payload v2.0 inchangé.
-
-**Forward compat** : une app v2.0 qui reçoit un body v2.1 doit ignorer le
-champ `filters` inconnu (silence) — major version `2` reste compatible.
-Pour rejeter, il faudrait un bump `contract_version: "3.x"` (breaking change).
-
-Body welcome (provisioning ou upgrade) :
-```
-{
-  "quantity": <int > 0>,
-  "source": "welcome",
-  "welcome_plan": "freemium" | "pro" | "business",  // plan LOCAL Prospection
-  "idempotency_key": "<uuid v4 DÉTERMINISTE, dérivé de tenant_id+welcome_plan>",
-  "contract_version": "2.0"
-}
-```
-
-Réponses :
-- `200 { credited, balance }` — crédit appliqué
-- `200 { credited: 0, balance, idempotent_replay: true }` — no-op
-  anti-double-grant (l'idem-key vue, OU le palier welcome déjà crédité
-  via l'index unique `(workspace_id, welcome_plan)`)
-- `400 invalid_payload` — `contract_version` major ≠ 2
-- `422 invalid_body` — welcome sans `welcome_plan`, purchase avec
-  `welcome_plan`, `welcome_plan` hors enum
-- `404 tenant_not_found`
-
-Mapping plans canoniques Hub → local Prospection (à appliquer côté Hub
-AVANT l'appel) :
-- `free` → `freemium`
-- `pro` → `pro`
-- `business` → `business`
-- `enterprise` → `business` (pas de palier enterprise local refill)
-
-Retry policy (côté Hub, dispatch post-paiement) : 3 tentatives,
-backoff 1s/3s. 4xx = pas de retry (payload rejeté, bug code-côté).
-5xx + erreurs réseau = retry. Échec des 3 tentatives → alerte Telegram
-`[CRITICAL][refill]` (le user a payé, ne JAMAIS perdre le crédit —
-cron de réconciliation à câbler en P2).
-
-Welcome leads — DELTA d'upgrade :
-- Provision Free → `quantity: 100`, `welcome_plan: "freemium"`
-- Upgrade Free→Pro → `quantity: 1900` (= 2000 − 100)
-- Upgrade Pro→Business → `quantity: 6000` (= 8000 − 2000)
-- Downgrade → **AUCUN appel** (leads permanents,
-  cf `PRICING-VERIDIAN.md` §97)
-
-Implémentation Hub : `lib/billing/refill-leads.ts` (lib pure),
-`app/api/billing/refill-leads/checkout/route.ts` (Checkout one-shot
-session-gated user Hub), `app/api/billing/refill-leads/checkout-from-app/route.ts`
-(Checkout one-shot HMAC entrant depuis app — §8.4bis),
-`lib/stripe/dispatcher.ts` (route les webhooks Stripe avec
-`metadata.kind=refill_leads`).
-
-### 8.4bis Route HMAC entrante `checkout-from-app` (v2.1)
-
-**Endpoint** : `POST <hub>/api/billing/refill-leads/checkout-from-app`
-
-**Pour quoi** : permettre à une app downstream (Prospection v1) qui héberge
-sa propre UI refill ICP de **demander au Hub** la création d'une Stripe
-Checkout session, sans que le user passe par une page Hub. Le Hub reste
-seul interlocuteur Stripe (cohérent §2) — l'app ne touche jamais Stripe.
-
-**Auth** : HMAC Pattern A §6.1 (`CONTRAT-HUB.md`). Headers obligatoires :
-- `x-veridian-app: prospection` (seule app whitelistée v1)
-- `X-Veridian-Timestamp: <ms epoch>`
-- `X-Veridian-Hub-Signature: <hex SHA-256(timestamp + "." + rawBody)>`
-- Secret : `PROSPECTION_HUB_API_SECRET` canonique (pas de secret dédié refill)
-
-**Body** (v2.1) :
-```
-{
-  "tenant_id": "<uuid Hub Tenant>",
-  "quantity": <int 1..100000>,
-  "plan": "freemium" | "pro" | "business",   // plan LOCAL Prospection
-  "filters_json": { ... },                    // optionnel — JSON ICP brut
-  "success_url": "https://...",               // optionnel — URL absolue
-  "cancel_url": "https://...",                // optionnel — URL absolue
-  "contract_version": "2.1"
-}
-```
-
-**Réponse 200** :
-```
-{
-  "url": "https://checkout.stripe.com/c/...",
-  "sessionId": "cs_test_xxx",
-  "amount_cents": 12500,
-  "quantity": 500,
-  "tier": "pro"
-}
-```
-
-**Codes erreur** :
-- `400` invalid headers shape / invalid JSON / invalid body (Zod)
-- `401` invalid HMAC signature / drift > 5 min
-- `403` `app_not_whitelisted` (x-veridian-app ≠ prospection)
-- `404` `tenant_not_found` (UUID inconnu en DB Hub ou soft-deleted)
-- `422` `stripe_session_failed` / `stripe_session_no_url`
-- `429` rate_limited (60 req/min/app)
-- `503` `stripe_not_configured` / `database_error`
-
-**Forward filters_json** : si `filters_json` est fourni, il est sérialisé
-en JSON et stocké dans `session.metadata.filters_json` Stripe (limite
-500 chars par valeur — au-delà, truncate + warning log). Le webhook
-`checkout.session.completed` parse cette metadata et forward `filters`
-dans le body `credit-leads` (cf §8.4 body v2.1 ci-dessus). Si la metadata
-est tronquée et le JSON parse échoue côté webhook → fallback v2.0 sans
-filters (log warning, on garde le crédit user).
-
-**Ownership** : pas de check user-tenant côté Hub — c'est l'app appelante
-(Prospection) qui garantit que SON user owne SON workspace local et que
-le `tenant_id` Hub référence ce workspace. Le Hub vérifie juste
-l'existence + soft-delete state.
+Robert, 15/11/2026 : Prospection ne vend plus de crédits de leads (base propre, aucun
+vrai utilisateur). Prospection a supprimé `POST /api/tenants/{id}/credit-leads` et
+`GET /api/tenants/{id}/usage-summary` (commit `ed71da3` de veridian-prospection). Le Hub a
+retiré tout le flux : `lib/billing/refill-leads.ts`, les routes `checkout` et
+`checkout-from-app`, la page `/dashboard/refill-leads`, la carte d'achat de la page billing,
+les leads de bienvenue (provisioning et upgrade), la variable `STRIPE_REFILL_PRODUCT_ID_*`.
+Le webhook Stripe ignore tout `checkout.session.completed` portant
+`metadata.kind=refill_leads` (raison `refill_leads_retired`), il ne le route plus nulle part.
+Côté Stripe, aucun achat payé n'existait (mesuré le 15/11 : 2 sessions, toutes `expired`).
+Les anciennes sections 8.4 et 8.4bis sont à lire dans l'historique git (avant le 15/11/2026).
 
 ### 8.5 Routes HMAC entrantes Hub — récapitulatif
 
@@ -902,7 +736,6 @@ Toutes les routes Hub appelables par une app downstream en HMAC Pattern A :
 | `GET /api/tenants/{id}/billing-state` | HMAC Pattern A | app → Hub | §6.3 |
 | `POST /api/invitations/create` | HMAC `HUB_INVITATION_SECRET_<APP>` (legacy v1.4) | app → Hub | `CONTRAT-HUB.md` §X |
 | `GET /api/users/by-email` | HMAC Pattern A | app → Hub | Discovery cross-app |
-| `POST /api/billing/refill-leads/checkout-from-app` | HMAC Pattern A | app → Hub | §8.4bis (ce contrat) |
 
 **Convergence secret** : les routes nouvelles utilisent toutes le secret
 canonique `<APP>_HUB_API_SECRET` (Pattern A §6.1) — pas de secret dédié

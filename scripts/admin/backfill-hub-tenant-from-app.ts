@@ -6,7 +6,7 @@
  *
  *   Un workspace existe côté app (ex Prospection
  *   `tenant_id=462a4295-…`) MAIS aucune row `hub_app.tenants` n'a cet `id`
- *   → la route `POST /api/billing/refill-leads/checkout` refuse 404 le
+ *   → les routes Hub qui valident l'ownership refusent 404 le
  *   tenantId (`tenant_not_found_or_forbidden`). Le user paye ailleurs, on
  *   le bloque sur le Hub.
  *

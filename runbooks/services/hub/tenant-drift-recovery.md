@@ -1,7 +1,7 @@
 # Runbook — Drift cross-app Hub ↔ apps downstream
 
 > **Quand utiliser ce runbook** : un user te signale qu'il ne peut pas
-> acheter un truc (refill leads, upgrade plan, etc.) alors qu'il est bien
+> acheter un truc (upgrade plan, etc. ; le refill leads est retiré depuis le 15/11/2026) alors qu'il est bien
 > connecté côté app. Ou bien le cron `hub-reconcile-cron.yml` détecte des
 > drifts.
 >
@@ -14,7 +14,7 @@
 ## Symptôme typique
 
 ```
-POST https://app.veridian.site/api/billing/refill-leads/checkout
+POST https://app.veridian.site/api/billing/checkout
 → 404 {"error":"tenant_not_found_or_forbidden","tenantId":"462a4295-..."}
 ```
 
@@ -129,12 +129,12 @@ Outcome: created
 Tenant 462a4295-... CRÉÉ (user_uuid=aaaa-...)
 ```
 
-### Étape 5 — Valider que le refill remarche
+### Étape 5 — Valider que l'achat remarche
 
-Demander au user de retenter l'achat. Côté logs :
+Demander au user de retenter l'achat (abonnement). Côté logs :
 
 ```bash
-ssh prod-pub 'docker logs <hub-container> --tail 200 | grep refill-leads/checkout'
+ssh prod-pub 'docker logs <hub-container> --tail 200 | grep billing/checkout'
 ```
 
 → doit voir 200 OK avec création Stripe session.

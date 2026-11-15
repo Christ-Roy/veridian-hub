@@ -92,7 +92,9 @@ etc.) jugée trop agressive.
 
 **Annuel Prospection** : -17% (Pro 290€/an, Business 890€/an).
 
-#### Achat de leads à la commande (refill dégressif)
+#### Achat de leads à la commande (refill dégressif) — RETIRÉ le 15/11/2026
+
+> Robert, 15/11/2026 : Prospection ne vend plus de crédits de leads, le Hub a retiré le flux (cf `CONTRAT-BILLING.md` §8.4). La grille ci-dessous est historique.
 
 Stripe Checkout one-shot par commande. Leads achetés = permanents
 dans le workspace (pas de récupération si downgrade). Cap sécurité :

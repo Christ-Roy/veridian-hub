@@ -41,7 +41,6 @@ const FACULTATIVES: Record<string, string> = {
   SMTP_PASSWORD: 'idem SMTP_HOST',
   SMTP_PORT: 'idem SMTP_HOST',
   SMTP_USER: 'idem SMTP_HOST',
-  STRIPE_REFILL_PRODUCT_ID_TEST: 'mode test Stripe hors prod',
   TRIAL_PERIOD_DAYS: 'défaut 7 (essai Stripe hérité)',
 };
 

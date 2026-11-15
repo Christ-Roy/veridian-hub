@@ -1191,6 +1191,8 @@ tenant en `soft_deleted` :
 
 #### 5.8.5 `GET /api/tenants/{id}/usage-summary`
 
+> 15/11/2026 : Prospection a supprimé cette route (`ed71da3`) ; le Hub ne l'appelle plus sur Prospection. Prospection a aussi supprimé `POST /api/tenants/{id}/credit-leads` et le Hub a retiré tout le flux refill leads (cf `CONTRAT-BILLING.md` §8.4). Restent inchangées côté Prospection : provision, attach-owner, sync-member, purge, soft-delete, restore, suspend, resume, update-plan, link-hub, freeze.
+
 > 🔥 Gravé en v1.1. Permet à l'admin Hub de **voir l'usage agrégé d'un tenant**
 > avant de purger, pour décision humaine éclairée.
 
@@ -3414,7 +3416,7 @@ Chaque app doit déclarer dans `<app>/docs/features-by-plan.md` :
 | 8. `POST soft-delete` (§5.8.1) | ✅ | ✅ | ❌ | ❌ |
 | 9. `POST restore` (§5.8.2) | ✅ | ✅ | ❌ | ❌ |
 | 10. `POST purge` (§5.8.3) | ✅ | ✅ | ❌ | ❌ |
-| 11. `GET usage-summary` (§5.8.5) | ✅ | ✅ | ❌ | ❌ |
+| 11. `GET usage-summary` (§5.8.5) | ✅ | ❌ supprimé le 15/11/2026 (ed71da3) | ❌ | ❌ |
 | 12. `POST touch` (§5.8.4 endpoint) | ✅ | 🟡 helper non câblé | ❌ | ❌ |
 | 13. `GET /limits` (v1.2+) | ✅ | 🟡 partiel | ❌ | ❌ |
 | 14. `POST rotate-api-key` (§5.15) | ❌ | ❌ | ❌ | ❌ |

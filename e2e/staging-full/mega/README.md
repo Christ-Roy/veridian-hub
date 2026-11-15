@@ -26,7 +26,6 @@ mega/
 ├── B-trial/                    ← Vague 2 (3 specs)
 ├── C-billing-checkout/         ← Vague 2 (5 specs)
 ├── D-plan-changes/             ← Vague 2 (4 specs)
-├── E-refill-leads/             ← Vague 2 (2 specs)
 ├── F-webhook-robustness/       ← Vague 2 (4 specs)
 ├── G-cross-app-sync/           ← Vague 2 (3 specs)
 ├── H-invitations-oauth-bounce/ ← Vague 2 (3 specs)

@@ -41,9 +41,7 @@ beforeEach(() => {
 
 /**
  * Filtre les calls fetch pour ne garder que celui ciblant l'endpoint provision
- * Prospection. Depuis 2026-05-23, `provisionProspectionTenant` enchaîne un
- * second appel `credit-leads` (welcome leads) qui pollue le compteur — on
- * isole les calls pour ne tester ici que le provision.
+ * Prospection. On isole les calls pour ne tester ici que le provision.
  */
 function provisionCalls() {
   return fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/api/tenants/provision'));
