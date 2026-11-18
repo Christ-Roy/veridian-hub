@@ -20,24 +20,22 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { ErrorScreen } from '@/components/onboarding/ErrorScreen';
 
 describe('ErrorScreen — variante « expire »', () => {
-  it('annonce l’expiration et propose une sortie sûre sans handler', () => {
+  it('annonce l’expiration et propose un nouveau lien', () => {
     render(<ErrorScreen variant="expire" />);
 
     expect(screen.getByText('Ce lien a expiré')).toBeInTheDocument();
     expect(
-      screen.getByRole('link', { name: /Aller à la connexion/i })
-    ).toHaveAttribute('href', '/login');
+      screen.getByRole('button', { name: /Recevoir un nouveau lien/i }),
+    ).toBeInTheDocument();
     expect(screen.queryByText('Une erreur est survenue')).toBeNull();
   });
 
   it('affiche l’adresse de destination quand l’email est connu', () => {
-    render(
-      <ErrorScreen variant="expire" email="claire.dubois@exemple-client.fr" />
-    );
+    render(<ErrorScreen variant="expire" email="claire.dubois@exemple-client.fr" />);
 
-    expect(screen.getByText('Compte concerné')).toBeInTheDocument();
+    expect(screen.getByText(/Le nouveau lien sera envoyé à/)).toBeInTheDocument();
     expect(
-      screen.getByText('claire.dubois@exemple-client.fr')
+      screen.getByText('claire.dubois@exemple-client.fr'),
     ).toBeInTheDocument();
   });
 
@@ -45,17 +43,17 @@ describe('ErrorScreen — variante « expire »', () => {
     // Cas réel : token illisible, on ne sait pas à qui renvoyer. Promettre un
     // envoi sans savoir où serait un mensonge à l'écran.
     render(<ErrorScreen variant="expire" />);
-    expect(screen.queryByText('Compte concerné')).toBeNull();
+    expect(screen.queryByText(/Le nouveau lien sera envoyé à/)).toBeNull();
   });
 });
 
 describe('ErrorScreen — variante « technique »', () => {
   it('annonce la panne et propose de réessayer', () => {
-    render(<ErrorScreen variant="technique" onRetry={() => undefined} />);
+    render(<ErrorScreen variant="technique" />);
 
     expect(screen.getByText('Une erreur est survenue')).toBeInTheDocument();
     expect(
-      screen.getByRole('button', { name: /Réessayer/i })
+      screen.getByRole('button', { name: /Réessayer/i }),
     ).toBeInTheDocument();
     expect(screen.queryByText('Ce lien a expiré')).toBeNull();
   });
@@ -64,15 +62,12 @@ describe('ErrorScreen — variante « technique »', () => {
     // Le renvoi de lien n'a aucun sens sur une panne de provisioning : le
     // bloc est conditionné à la variante, pas seulement à la présence d'email.
     render(
-      <ErrorScreen
-        variant="technique"
-        email="claire.dubois@exemple-client.fr"
-      />
+      <ErrorScreen variant="technique" email="claire.dubois@exemple-client.fr" />,
     );
 
-    expect(screen.queryByText('Compte concerné')).toBeNull();
+    expect(screen.queryByText(/Le nouveau lien sera envoyé à/)).toBeNull();
     expect(
-      screen.queryByRole('button', { name: /Recevoir un nouveau lien/i })
+      screen.queryByRole('button', { name: /Recevoir un nouveau lien/i }),
     ).toBeNull();
   });
 });
@@ -81,11 +76,9 @@ describe('ErrorScreen — recours du client', () => {
   it('appelle onRetry au clic, quelle que soit la variante', () => {
     const onRetry = vi.fn();
     const { rerender } = render(
-      <ErrorScreen variant="expire" onRetry={onRetry} />
+      <ErrorScreen variant="expire" onRetry={onRetry} />,
     );
-    fireEvent.click(
-      screen.getByRole('button', { name: /Demander un nouveau lien/i })
-    );
+    fireEvent.click(screen.getByRole('button', { name: /Recevoir un nouveau lien/i }));
 
     rerender(<ErrorScreen variant="technique" onRetry={onRetry} />);
     fireEvent.click(screen.getByRole('button', { name: /Réessayer/i }));
@@ -103,15 +96,14 @@ describe('ErrorScreen — recours du client', () => {
   it('laisse la page réelle surcharger le lien de support', () => {
     render(<ErrorScreen variant="expire" supportHref="/aide" />);
     expect(
-      screen.getByRole('link', { name: /Contacter le support/i })
+      screen.getByRole('link', { name: /Contacter le support/i }),
     ).toHaveAttribute('href', '/aide');
   });
 
-  it('remplace le bouton mort par un lien de connexion quand onRetry manque', () => {
+  it('ne jette pas quand onRetry n’est pas fourni', () => {
     render(<ErrorScreen variant="technique" />);
-    expect(screen.queryByRole('button', { name: /Réessayer/i })).toBeNull();
-    expect(
-      screen.getByRole('link', { name: /Aller à la connexion/i })
-    ).toHaveAttribute('href', '/login');
+    expect(() =>
+      fireEvent.click(screen.getByRole('button', { name: /Réessayer/i })),
+    ).not.toThrow();
   });
 });

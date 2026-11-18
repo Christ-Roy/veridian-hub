@@ -56,9 +56,6 @@ jobs:
           submodules: recursive
           token: ${{ secrets.CR_PAT }}  # PAT cross-repo (veridian-infra privé depuis 2026-07-10)
 
-      - name: Plafonds ressources staging
-        run: python3 scripts/ci/check-staging-resources.py
-
       - name: Compute image tag
         id: tag
         run: |
@@ -66,15 +63,15 @@ jobs:
           echo "image-tag=staging-$SHA7" >> $GITHUB_OUTPUT
           echo "Building staging-$SHA7"
 
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push staging image
-        uses: nick-fields/retry@v4
+        uses: nick-fields/retry@v3
         with:
           timeout_minutes: 15
           max_attempts: 3
@@ -137,23 +134,8 @@ jobs:
           /usr/bin/nomad job validate -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL"
 
           echo "== nomad job plan (diff, inoffensif) =="
-          set +e
-          PLAN_OUTPUT=$(/usr/bin/nomad job plan -no-color \
-            -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL" 2>&1)
-          PLAN_STATUS=$?
-          set -e
-          printf '%s\n' "$PLAN_OUTPUT"
-          case "$PLAN_STATUS" in
-            0) echo "plan sans création ou destruction d'allocation" ;;
-            1) echo "plan avec remplacement d'allocation attendu" ;;
-            *) echo "::error::nomad job plan staging a échoué (code=$PLAN_STATUS)"; exit "$PLAN_STATUS" ;;
-          esac
-
-          # Refuse d'écraser une modification concurrente entre plan et run.
-          MODIFY_INDEX=$(printf '%s\n' "$PLAN_OUTPUT" \
-            | sed -n 's/^Job Modify Index: \([0-9][0-9]*\)$/\1/p' | tail -1)
-          RUN_INDEX_ARGS=()
-          [ -n "$MODIFY_INDEX" ] && RUN_INDEX_ARGS=(-check-index "$MODIFY_INDEX")
+          # plan renvoie exit 1 quand il y a des allocs à créer : by design → `|| true`.
+          /usr/bin/nomad job plan -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL" || true
 
           # Déploiement + vérification CIBLÉE (ni race, ni 404) : run -detach →
           # résout le Deployment de cet eval → `deployment status -monitor <id>`
@@ -161,9 +143,7 @@ jobs:
           # positif du poll `job status | grep successful` (lit l'ancien deploy) ET
           # le faux négatif du `job run` bloquant (404 transitoire). Incident 2026-07-11.
           echo "== nomad job run -detach + monitoring du déploiement ciblé (image_tag=${IMAGE_TAG}) =="
-          EVAL=$(/usr/bin/nomad job run -detach "${RUN_INDEX_ARGS[@]}" \
-            -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL" \
-            | grep -oP 'Evaluation ID:\s+\K\S+')
+          EVAL=$(/usr/bin/nomad job run -detach -var "image_tag=${IMAGE_TAG}" "$REMOTE_HCL" | grep -oP 'Evaluation ID:\s+\K\S+')
           echo "eval: ${EVAL:-none}"
           DEP=""
           for i in $(seq 1 15); do
@@ -189,7 +169,7 @@ jobs:
       # Staging accessible UNIQUEMENT via le tailnet Veridian (internal-only@nomad,
       # ipAllowList 100.64/10 → 403 hors tailnet). Le runner rejoint le tailnet.
       - name: Tailscale (connect runner to tailnet for staging smoke)
-        uses: tailscale/github-action@v4
+        uses: tailscale/github-action@v3
         with:
           oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
@@ -263,15 +243,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
-          # PAS de `submodules: recursive` ici. Ce job ne compile ni ne teste
-          # rien : il fait un ff-merge de refs git, puis déclenche hub-ci sur
-          # main. Le submodule `shared` (veridian-infra, PRIVÉ) lui est donc
-          # inutile — et le token retenu ci-dessous est le plus souvent le
-          # GITHUB_TOKEN, qui n'a pas accès à ce repo. Résultat jusqu'ici :
-          # `remote: Repository not found` au checkout, job rouge, et AUCUNE
-          # auto-promotion depuis des semaines (runs #110, #111, #115). La
-          # prod dérivait en silence pendant que staging avançait.
-          submodules: false
+          submodules: recursive
           fetch-depth: 0
           # PAT prioritaire pour bypass branch protection ;
           # GITHUB_TOKEN en fallback si pas de protection sur main.

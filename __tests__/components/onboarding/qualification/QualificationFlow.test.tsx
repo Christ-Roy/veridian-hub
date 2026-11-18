@@ -230,21 +230,17 @@ describe('QualificationFlow — clavier et lecteurs d’écran', () => {
     expect(radios.filter((r) => r.getAttribute('tabindex') === '0')).toHaveLength(1);
   });
 
-  it('sélectionne aux flèches puis avance, comme un groupe radio natif', () => {
+  it('déplace le focus aux flèches à l’intérieur du groupe', () => {
     render(<QualificationFlow user={USER} etat={avec({ siteActuel: 'oui' })} />);
 
     const radios = screen.getAllByRole('radio');
     radios[0].focus();
     fireEvent.keyDown(radios[0], { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(radios[1]);
 
-    // La flèche choisit « Le refaire », puis l'auto-avance donne le focus au
-    // titre suivant. Déplacer seulement le focus sans cocher aurait violé le
-    // comportement attendu d'un `radiogroup` ARIA.
-    const titreSuivant = screen.getByRole('heading', {
-      level: 1,
-      name: /Vous gardez le contact avec vos clients/i,
-    });
-    expect(document.activeElement).toBe(titreSuivant);
+    // Et ça boucle, comme un groupe de radios natif.
+    fireEvent.keyDown(radios[2], { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(radios[0]);
   });
 
   it('annonce le changement d’écran dans une zone aria-live', () => {

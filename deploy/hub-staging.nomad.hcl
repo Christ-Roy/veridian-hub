@@ -19,41 +19,16 @@
 
 variable "image_tag" {
   type        = string
-  description = "Tag immuable de l'image ghcr.io/christ-roy/veridian-hub staging (injecté par la CI)."
-  default     = "staging-59985dd"
+  description = "Tag de l'image ghcr.io/christ-roy/veridian-hub staging (injecté par la CI ; défaut staging-latest)."
+  default     = "staging-latest"
 }
 
 job "hub-staging" {
   datacenters = ["veridian-eu"]
   type        = "service"
-  priority    = 30 # bande 30 : staging, jetable sous contention. cf plan/POLICY-PRIORITES.md (nomad-veridian).
-  # 50 = valeur du defaut Nomad, donc le niveau d'un client payant : a 50 ce banc
-  # d'essai n'etait jamais preempte par la prod (Nomad ne preempte qu'a 10 points
-  # d'ecart). Corrige le 2026-09-07 (ROB-60).
-
-# veridian-contract:start
-# veridian.contract.version=1
-# veridian.managed_by=repo
-# veridian.environment=staging
-# veridian.tier=saas-staging
-# veridian.criticality=C
-# veridian.owner=platform
-# veridian.objective=internal-99.0
-# veridian.rto_minutes=30
-# veridian.rpo_minutes=1440
-# veridian.state=stateless
-# veridian.mobility=sablier
-# veridian.preemptible=true
-# veridian.production_job=hub
-# veridian.promotion_policy=non-production
-# veridian-contract:end
 
   group "stack" {
     count = 1
-
-    # Le routeur permanent Sablier de l'ingress pointe sur le port fixe 19096.
-    # Cette meta autorise Sablier à endormir/réveiller uniquement l'app.
-    meta = { "sablier.enable" = "true" }
 
     # Stratégie de déploiement (canon Prospection). healthy_deadline large
     # (1er pull image sans cache) + auto_revert (restaure la dernière version
@@ -83,7 +58,6 @@ job "hub-staging" {
       # host_network tailscale : le port CNI bind sur l'IP Tailscale du nœud uniquement
       # → app injoignable en public (bypass ipAllowList impossible), Traefik route via Tailscale.
       port "http" {
-        static       = 19096
         to           = 3000
         host_network = "tailscale"
       }
@@ -93,13 +67,22 @@ job "hub-staging" {
       name     = "hub-staging"
       provider = "nomad"
       port     = "http"
-      # Le routing vit dans ingress.nomad.hcl avec un service @file permanent.
-      # Un second routeur @nomad contournerait Sablier et recréerait du drift.
-      tags = ["traefik.enable=false"]
+      tags = [
+        "traefik.enable=true",
+        "traefik.http.middlewares.internal-only.ipallowlist.sourcerange=100.64.0.0/10,127.0.0.1/32",
+        "traefik.http.routers.hub-staging.rule=Host(`hub.staging.veridian.site`)",
+        "traefik.http.routers.hub-staging.entrypoints=web",
+        "traefik.http.routers.hub-staging.middlewares=internal-only@nomad",
+        "traefik.http.routers.hub-stagingsec.rule=Host(`hub.staging.veridian.site`)",
+        "traefik.http.routers.hub-stagingsec.entrypoints=websecure",
+        "traefik.http.routers.hub-stagingsec.tls=true",
+        "traefik.http.routers.hub-stagingsec.tls.certresolver=letsencrypt",
+        "traefik.http.routers.hub-stagingsec.middlewares=internal-only@nomad",
+      ]
       check {
         type     = "http"
         path     = "/api/health"
-        interval = "5s"
+        interval = "15s"
         timeout  = "5s"
       }
     }
@@ -115,20 +98,6 @@ job "hub-staging" {
         # ABANDONNE ses droits au demarrage, seulement celui qui en gagne.
         security_opt = ["no-new-privileges:true"]
 
-        # Identification lisible du conteneur (2026-09-07). Nomad ne pose que
-        # `com.hashicorp.nomad.alloc_id` : rien ne disait a quelle application
-        # appartenait un conteneur. Les quatre premieres valeurs sont
-        # interpolees par Nomad a l'execution, les deux dernieres sont des
-        # proprietes du fichier (dossier jobs/<tier>/ et table du script
-        # scripts/poser-labels-conteneurs.py).
-        labels = {
-          "site.veridian.job"   = "${NOMAD_JOB_NAME}"
-          "site.veridian.group" = "${NOMAD_GROUP_NAME}"
-          "site.veridian.task"  = "${NOMAD_TASK_NAME}"
-          "site.veridian.node"  = "${node.unique.name}"
-          "site.veridian.tier"  = "saas-staging"
-          "site.veridian.app"   = "hub"
-        }
         image   = "haproxy:3.0-alpine"
         command = "haproxy"
         args    = ["-f", "/local/haproxy.cfg"]
@@ -165,10 +134,8 @@ listen postgres-primary
 EOH
       }
       resources {
-        # Pics 7 j observés : 4 MHz / 11 MiB.
-        cpu        = 50
-        memory     = 64
-        memory_max = 128
+        cpu    = 100
+        memory = 64
       }
     }
 
@@ -182,20 +149,6 @@ EOH
         # ABANDONNE ses droits au demarrage, seulement celui qui en gagne.
         security_opt = ["no-new-privileges:true"]
 
-        # Identification lisible du conteneur (2026-09-07). Nomad ne pose que
-        # `com.hashicorp.nomad.alloc_id` : rien ne disait a quelle application
-        # appartenait un conteneur. Les quatre premieres valeurs sont
-        # interpolees par Nomad a l'execution, les deux dernieres sont des
-        # proprietes du fichier (dossier jobs/<tier>/ et table du script
-        # scripts/poser-labels-conteneurs.py).
-        labels = {
-          "site.veridian.job"   = "${NOMAD_JOB_NAME}"
-          "site.veridian.group" = "${NOMAD_GROUP_NAME}"
-          "site.veridian.task"  = "${NOMAD_TASK_NAME}"
-          "site.veridian.node"  = "${node.unique.name}"
-          "site.veridian.tier"  = "saas-staging"
-          "site.veridian.app"   = "hub"
-        }
         image = "ghcr.io/christ-roy/veridian-hub:${var.image_tag}"
         ports = ["http"]
       }
@@ -268,10 +221,8 @@ HUB_INVITATION_SECRET_PROSPECTION={{ .HUB_INVITATION_SECRET_PROSPECTION }}
 EOH
       }
       resources {
-        # Pic 7 j observé : 201 MiB. La réserve garde 27 % de marge.
-        cpu        = 300
-        memory     = 256
-        memory_max = 1024
+        cpu    = 400
+        memory = 600
       }
     }
   }

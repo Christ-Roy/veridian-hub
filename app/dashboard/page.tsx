@@ -149,11 +149,11 @@ export default async function DashboardPage({
     ? `${prospectionBaseUrl}/api/auth/token?t=${tenant.prospectionLoginToken}`
     : null;
 
-  // URL de l'app Analytics servie au client. Le domaine historique
-  // `analytics.app.veridian.site` est MORT (404 vérifié le 2026-07-28) —
-  // l'app vivante est le fork staminads sur `analytics-engine.*`. On passe
-  // par le résolveur partagé pour ne pas re-coder un défaut en dur ici.
-  // Cf. `todo/2026-07-28-autologin-analytics-contrat-et-etat-reel.md`.
+  // URL de l'app Analytics servie au client, via le résolveur partagé
+  // (`NEXT_PUBLIC_ANALYTICS_URL` prime, sinon le défaut de attach-downstream).
+  // Depuis le 2026-08-18 elle pointe sur `analytics.app.veridian.site` : le
+  // NOUVEAU moteur (fork Rybbit rebrandé Veridian). Le commentaire précédent
+  // disait ce domaine « mort » — c'était vrai en juillet, plus depuis.
   const analyticsBaseUrl = resolveDownstreamBaseUrl('analytics');
 
   const notifuseUrl = process.env.NOTIFUSE_API_URL || '';

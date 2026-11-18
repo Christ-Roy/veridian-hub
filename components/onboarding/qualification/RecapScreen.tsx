@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   ArrowRight,
   CalendarClock,
-  Loader2,
   Pencil,
   Sparkles,
 } from 'lucide-react';
@@ -132,17 +131,6 @@ export function RecapScreen({
         </p>
       )}
 
-      {enregistrement === 'en-cours' && (
-        <p
-          role="status"
-          aria-live="polite"
-          className="flex items-center gap-2 text-sm text-muted-foreground"
-        >
-          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-          Enregistrement de vos réponses…
-        </p>
-      )}
-
       <ul className="flex w-full max-w-xl flex-col gap-2 text-left">
         {items.map((item) => (
           <li
@@ -256,20 +244,9 @@ export function RecapScreen({
         variant={aChantier ? 'outline' : 'default'}
         className="w-full max-w-sm"
         onClick={onEnter}
-        disabled={enregistrement === 'en-cours'}
-        aria-busy={enregistrement === 'en-cours'}
       >
-        {enregistrement === 'en-cours' ? (
-          <>
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
-            Enregistrement…
-          </>
-        ) : (
-          <>
-            Découvrir mon espace
-            <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
-          </>
-        )}
+        Découvrir mon espace
+        <ArrowRight className="ml-2 h-4 w-4" aria-hidden />
       </Button>
     </div>
   );

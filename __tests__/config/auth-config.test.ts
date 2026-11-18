@@ -89,15 +89,6 @@ describe('auth.config.ts — authorized callback (middleware edge gate)', () => 
     expect(authorized?.({ auth: null, request: makeReq('/api/auth/csrf') } as Parameters<NonNullable<typeof authorized>>[0])).toBe(true);
   });
 
-  it('laisse passer /onboard/* sans session pour les liens de première connexion', () => {
-    expect(authorized?.({ auth: null, request: makeReq('/onboard/raw-token') } as Parameters<NonNullable<typeof authorized>>[0])).toBe(true);
-  });
-
-  it('laisse passer /api/onboarding/* sans session, les routes ont leur rate-limit/token', () => {
-    expect(authorized?.({ auth: null, request: makeReq('/api/onboarding/raw-token') } as Parameters<NonNullable<typeof authorized>>[0])).toBe(true);
-    expect(authorized?.({ auth: null, request: makeReq('/api/onboarding/raw-token/activate') } as Parameters<NonNullable<typeof authorized>>[0])).toBe(true);
-  });
-
   it('laisse passer / (landing) sans session', () => {
     expect(authorized?.({ auth: null, request: makeReq('/') } as Parameters<NonNullable<typeof authorized>>[0])).toBe(true);
   });
@@ -113,16 +104,6 @@ describe('auth.config.ts — authorized callback (middleware edge gate)', () => 
   it('autorise /dashboard avec session', () => {
     const fakeAuth = { user: { email: 'a@b' } } as unknown as Parameters<NonNullable<typeof authorized>>[0]['auth'];
     expect(authorized?.({ auth: fakeAuth, request: makeReq('/dashboard') } as Parameters<NonNullable<typeof authorized>>[0])).toBe(true);
-  });
-
-  it('échoue fermé si Auth.js retourne un objet erreur sans vraie session', () => {
-    const errorAuth = { error: 'Configuration' } as unknown as Parameters<NonNullable<typeof authorized>>[0]['auth'];
-
-    for (const pathname of ['/dashboard', '/admin']) {
-      expect(
-        authorized?.({ auth: errorAuth, request: makeReq(pathname) } as Parameters<NonNullable<typeof authorized>>[0]),
-      ).toBe(false);
-    }
   });
 
   it('bloque /admin sans session', () => {

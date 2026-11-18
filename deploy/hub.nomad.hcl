@@ -7,7 +7,7 @@
 # migrate CI).
 #
 # Veridian Hub (orchestrateur auth/billing/provisioning, Next.js, port 3000).
-# Placement : serveur PROD OVH (provider=ovh-prod). DB = veridian-core-db
+# Placement : bastion contabo (provider=contabo). DB = veridian-core-db
 # (postgres:16-alpine) co-localisée dans le même group bridge → hub la joint en
 # 127.0.0.1:5432 (schema hub_app). TLS terminé par Traefik (certresolver
 # letsencrypt sur app.veridian.site). Secrets = Nomad Variable nomad/jobs/hub
@@ -19,50 +19,33 @@
 
 variable "image_tag" {
   type        = string
-  description = "Tag de l'image ghcr.io/christ-roy/veridian-hub promue en prod (injecté par la CI)."
-  default     = "v0.5.30"
+  description = "Tag de l'image ghcr.io/christ-roy/veridian-hub promue en prod (injecté par la CI ; défaut latest)."
+  default     = "latest"
 }
 
 job "hub" {
   datacenters = ["veridian-eu"]
   type        = "service"
-  priority    = 80
-
-# veridian-contract:start
-# veridian.contract.version=1
-# veridian.managed_by=repo
-# veridian.environment=production
-# veridian.tier=saas-prod
-# veridian.criticality=A
-# veridian.owner=platform
-# veridian.objective=availability-99.95
-# veridian.rto_minutes=2
-# veridian.rpo_minutes=5
-# veridian.state=local-state
-# veridian.mobility=local-gap
-# veridian.preemptible=false
-# veridian.staging_job=hub-staging
-# veridian.promotion_policy=staging-required
-# veridian-contract:end
 
   group "stack" {
     count = 1
 
+    # Stratégie de déploiement (canon Prospection). healthy_deadline LARGE : le
+    # 1er pull de l'image Next.js sur un nœud sans cache peut dépasser 5min.
     # auto_revert : un deploy prod qui n'atteint jamais healthy restaure la
     # dernière version saine (zéro trou prod). min_healthy_time : l'alloc doit
     # rester saine 15s avant d'être comptée healthy (anti-flap).
     update {
-      max_parallel      = 1
+      healthy_deadline  = "15m"
+      progress_deadline = "20m"
       min_healthy_time  = "15s"
-      healthy_deadline  = "5m"
-      progress_deadline = "10m"
       auto_revert       = true
     }
 
-    # Épinglé au serveur PROD : le bind core-db est local et ne suit pas l'allocation.
+    # Épinglé au bastion : core-db bind sur /opt/veridian-lab/hub du bastion uniquement.
     constraint {
       attribute = "${meta.provider}"
-      value     = "ovh-prod"
+      value     = "contabo"
     }
 
     restart {
@@ -85,10 +68,8 @@ job "hub" {
         "traefik.enable=true",
         "traefik.http.routers.hub.rule=Host(`hub-lab.veridian.site`)",
         "traefik.http.routers.hub.entrypoints=web",
-        "traefik.http.routers.hub.middlewares=internal-only@nomad",
         "traefik.http.routers.hubsec.rule=Host(`hub-lab.veridian.site`)",
         "traefik.http.routers.hubsec.entrypoints=websecure",
-        "traefik.http.routers.hubsec.middlewares=internal-only@nomad",
         "traefik.http.routers.hubsec.tls=true",
         "traefik.http.routers.hubprod.rule=Host(`app.veridian.site`)",
         "traefik.http.routers.hubprod.entrypoints=websecure",
@@ -107,6 +88,12 @@ job "hub" {
     task "veridian-core-db" {
       driver = "docker"
       config {
+        # Durcissement Unix : empeche un processus non privilegie d'elever ses
+        # droits via un binaire setuid. C'est le maillon entre « shell dans le
+        # conteneur » et « root sur l'hote ». N'affecte PAS un processus qui
+        # ABANDONNE ses droits au demarrage, seulement celui qui en gagne.
+        security_opt = ["no-new-privileges:true"]
+
         image = "postgres:16-alpine"
         volumes = [
           "/opt/veridian-lab/hub/core-db:/var/lib/postgresql/data",
@@ -125,37 +112,22 @@ POSTGRES_PASSWORD={{ .VERIDIAN_CORE_DB_PASSWORD }}
 EOH
       }
       resources {
-        cpu        = 300
-        memory     = 256
-        memory_max = 7000
+        cpu    = 300
+        memory = 256
       }
     }
 
     # ---- hub (Next.js, port 3000) ----
     task "hub" {
-      driver         = "docker"
-      shutdown_delay = "10s"
-      kill_timeout   = "30s"
-      service {
-        name     = "hub-selfheal"
-        provider = "nomad"
-        port     = "http"
-        tags     = ["traefik.enable=false"]
-        check {
-          type     = "http"
-          path     = "/api/health"
-          interval = "15s"
-          timeout  = "5s"
-          check_restart {
-            limit           = 4
-            grace           = "120s"
-            ignore_warnings = false
-          }
-        }
-      }
+      driver = "docker"
       config {
+        # Durcissement Unix : empeche un processus non privilegie d'elever ses
+        # droits via un binaire setuid. C'est le maillon entre « shell dans le
+        # conteneur » et « root sur l'hote ». N'affecte PAS un processus qui
+        # ABANDONNE ses droits au demarrage, seulement celui qui en gagne.
+        security_opt = ["no-new-privileges:true"]
+
         image = "ghcr.io/christ-roy/veridian-hub:${var.image_tag}"
-        init  = true
         ports = ["http"]
       }
       template {
@@ -186,14 +158,17 @@ NEXT_PUBLIC_PROSPECTION_URL=https://prospection.app.veridian.site
 PROSPECTION_API_URL=https://prospection.app.veridian.site
 PROSPECTION_INTERNAL_URL=https://prospection.app.veridian.site
 
-# Bascule vers le NOUVEAU moteur analytics (fork Rybbit rebrandé Veridian).
-# L'ancien n'exposait pas la route interrogée au login (GET /api/users/by-email,
-# vérifié : "Cannot GET") : la découverte analytics ne fonctionnait donc pas.
+# Bascule vers le nouveau moteur analytics (fork Rybbit rebrandé Veridian).
+# L'ancien n'exposait PAS la route que le Hub interroge au login
+# (`GET /api/users/by-email`) : vérifié le 2026-08-18, il répondait
+# "Cannot GET" — l'intégration Hub↔analytics était donc morte depuis toujours.
+# Le nouveau l'implémente (HMAC partagé) et a passé les 4 cas : signature
+# valide, invalide, absente, utilisateur inconnu.
 ANALYTICS_API_URL=https://analytics.app.veridian.site
 # URL ouverte au CLIENT depuis la carte Analytics du tableau de bord. Lue au
-# runtime (composant serveur) : changer cette valeur ne demande PAS de
-# reconstruire l'image. Sans elle, le défaut en dur de attach-downstream.ts
-# s'applique — et il pointait encore sur l'ancien moteur.
+# runtime (composant serveur), donc pas besoin de reconstruire l'image pour la
+# changer. Sans elle, c'est le défaut en dur de attach-downstream.ts qui
+# s'applique — il pointait encore sur l'ancien moteur.
 NEXT_PUBLIC_ANALYTICS_URL=https://analytics.app.veridian.site
 CRM_METADATA_URL=https://crm.app.veridian.site/metadata
 CRM_REST_URL=https://crm.app.veridian.site/rest
@@ -209,8 +184,6 @@ CRM_VAULT_KEY={{ .CRM_VAULT_KEY }}
 SESSION_HINT_SECRET={{ .SESSION_HINT_SECRET }}
 GOOGLE_OAUTH_CLIENT_ID={{ .GOOGLE_OAUTH_CLIENT_ID }}
 GOOGLE_OAUTH_CLIENT_SECRET={{ .GOOGLE_OAUTH_CLIENT_SECRET }}
-GOOGLE_MAIL_CLIENT_ID={{ .GOOGLE_MAIL_CLIENT_ID }}
-GOOGLE_MAIL_CLIENT_SECRET={{ .GOOGLE_MAIL_CLIENT_SECRET }}
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY={{ .STRIPE_PUBLISHABLE_KEY_LIVE }}
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_LIVE={{ .STRIPE_PUBLISHABLE_KEY_LIVE }}
 STRIPE_SECRET_KEY={{ .STRIPE_SECRET_KEY_LIVE }}
@@ -232,9 +205,8 @@ NEXT_PUBLIC_GTM_ID={{ .GTM_ID_APP_VERIDIAN }}
 EOH
       }
       resources {
-        cpu        = 500
-        memory     = 384
-        memory_max = 7000
+        cpu    = 500
+        memory = 768
       }
     }
   }

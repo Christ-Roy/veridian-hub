@@ -45,7 +45,6 @@ export function QualificationShell({
 }) {
   const zoneRef = useRef<HTMLDivElement>(null);
   const [resteADefiler, setResteADefiler] = useState(false);
-  const progressionBornee = Math.min(1, Math.max(0, progression ?? 0));
 
   /** Y a-t-il du contenu sous le bas visible de la zone ? */
   const mesurer = useCallback(() => {
@@ -108,12 +107,12 @@ export function QualificationShell({
             role="progressbar"
             aria-valuemin={0}
             aria-valuemax={100}
-            aria-valuenow={Math.round(progressionBornee * 100)}
+            aria-valuenow={Math.round(progression * 100)}
             aria-label="Progression de la configuration"
           >
             <div
               className="h-full bg-primary transition-[width] duration-500 ease-out"
-              style={{ width: `${progressionBornee * 100}%` }}
+              style={{ width: `${Math.min(100, Math.max(0, progression * 100))}%` }}
             />
           </div>
         )}

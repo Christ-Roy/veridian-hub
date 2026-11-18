@@ -5,9 +5,9 @@ import { Button } from '@/components/ui/button';
 /**
  * Écrans 5 et 6 — les sorties de route.
  *
- * `expire` : le lien a dépassé sa durée de validité. En production, on évite
- * tout CTA mort : soit un handler de renvoi réel est fourni, soit on renvoie
- * vers la connexion et le support.
+ * `expire` : le lien a dépassé sa durée de validité (7 à 30 jours selon le
+ * ticket). Le client doit pouvoir en redemander un lui-même, sans écrire à
+ * Robert : c'est tout l'intérêt d'un onboarding self-service.
  *
  * `technique` : le provisioning a échoué. On ne montre jamais de trace
  * technique au client, on lui donne un recours.
@@ -47,28 +47,24 @@ export function ErrorScreen({
         </h1>
         <p className="text-balance text-sm text-muted-foreground">
           {expire
-            ? 'Pour votre sécurité, les liens d’activation ont une durée de vie limitée. Si vous avez déjà choisi un mot de passe, connectez-vous. Sinon, contactez Veridian pour recevoir un nouveau lien.'
+            ? 'Pour votre sécurité, les liens d’activation ont une durée de vie limitée. Demandez-en un nouveau, il arrive tout de suite.'
             : 'Nous n’avons pas pu terminer l’activation de votre compte. Rien n’est perdu, vous pouvez réessayer.'}
         </p>
       </div>
 
       {expire && email && (
         <div className="rounded-lg border border-border bg-muted/40 p-3 text-center">
-          <div className="text-xs text-muted-foreground">Compte concerné</div>
+          <div className="text-xs text-muted-foreground">
+            Le nouveau lien sera envoyé à
+          </div>
           <div className="truncate text-sm font-medium">{email}</div>
         </div>
       )}
 
-      {onRetry ? (
-        <Button type="button" className="w-full" onClick={onRetry}>
-          <RefreshCw className="mr-2 h-4 w-4" aria-hidden />
-          {expire ? 'Demander un nouveau lien' : 'Réessayer'}
-        </Button>
-      ) : (
-        <Button asChild className="w-full">
-          <a href="/login">Aller à la connexion</a>
-        </Button>
-      )}
+      <Button type="button" className="w-full" onClick={onRetry}>
+        <RefreshCw className="mr-2 h-4 w-4" aria-hidden />
+        {expire ? 'Recevoir un nouveau lien' : 'Réessayer'}
+      </Button>
 
       <a
         href={supportHref}

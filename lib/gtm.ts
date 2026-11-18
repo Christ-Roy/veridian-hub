@@ -12,30 +12,6 @@ declare global {
 }
 
 /**
- * Chemins dont l'URL porte un secret. Le garde-fou vit dans la couche de
- * tracking elle-même : ne pas monter le composant GTM ne suffit pas, car les
- * boutons et trackers métier peuvent continuer à appeler `trackEvent`.
- */
-export const CHEMINS_SANS_GTM = ['/auth/reset', '/auth/mfa', '/onboard'];
-
-/** Le chemin porte-t-il un secret dans son URL ? */
-export function estCheminSensible(
-  pathname: string | null | undefined,
-): boolean {
-  if (!pathname) return false;
-  return CHEMINS_SANS_GTM.some(
-    (prefixe) => pathname === prefixe || pathname.startsWith(`${prefixe}/`),
-  );
-}
-
-function peutTracerDansLeNavigateur(): boolean {
-  return (
-    typeof window !== 'undefined' &&
-    !estCheminSensible(window.location.pathname)
-  );
-}
-
-/**
  * Push un événement personnalisé vers GTM dataLayer
  *
  * @param event - Nom de l'événement (utiliser les noms GA4 standard)
@@ -46,10 +22,6 @@ export function trackEvent(event: string, data?: Record<string, any>) {
     console.warn('[GTM] ❌ SSR - Skipping event:', event);
     return; // SSR - pas de window
   }
-
-  // Silence absolu sur une URL secrète : ni requête, ni dataLayer, ni log
-  // contenant le token via `button_location`.
-  if (!peutTracerDansLeNavigateur()) return;
 
   if (!window.dataLayer) {
     console.error('[GTM] ❌ dataLayer non initialisé. Événement NON TRACKÉ:', event, data);
@@ -220,7 +192,7 @@ export function trackError(type: string, message: string, fatal: boolean = false
  * @param userId - ID utilisateur Supabase (UUID)
  */
 export function setUserId(userId: string) {
-  if (peutTracerDansLeNavigateur() && window.dataLayer) {
+  if (typeof window !== 'undefined' && window.dataLayer) {
     window.dataLayer.push({
       user_id: userId, // Standard GA4
       event: 'user_id_set'
@@ -234,7 +206,7 @@ export function setUserId(userId: string) {
  * À appeler lors du logout
  */
 export function clearUserId() {
-  if (peutTracerDansLeNavigateur() && window.dataLayer) {
+  if (typeof window !== 'undefined' && window.dataLayer) {
     window.dataLayer.push({
       user_id: undefined,
       event: 'user_id_cleared'

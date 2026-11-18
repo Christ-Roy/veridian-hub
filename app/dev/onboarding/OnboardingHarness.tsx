@@ -182,11 +182,7 @@ export function OnboardingHarness({
             state={etat}
             invite={MOCK_INVITE}
             steps={steps}
-            onActiver={() => changerEtat('mot-de-passe')}
-            onDefinirMotDePasse={() => changerEtat('en-cours')}
-            onRenvoyerLien={() => changerEtat('activation')}
-            onReessayer={() => changerEtat('en-cours')}
-            onEntrer={() => changerEtat('termine')}
+            onAdvance={changerEtat}
           />
         </div>
       </main>

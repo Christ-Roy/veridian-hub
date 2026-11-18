@@ -285,18 +285,5 @@ export function repondre(
   value: string,
 ): Qualification {
   const ecrire = ecran.ecrire as (etat: Qualification, v: string) => Qualification;
-  const suivant = ecrire(q, value);
-
-  // Une échéance n'a de sens que tant qu'un chantier datable existe. Si le
-  // client corrige son choix, on ne conserve pas une date orpheline en base.
-  if (
-    ecran.id !== 'echeance' &&
-    !aUnChantierDatable(suivant) &&
-    suivant.echeance !== undefined
-  ) {
-    const { echeance: _echeanceOrpheline, ...sansEcheance } = suivant;
-    return sansEcheance;
-  }
-
-  return suivant;
+  return ecrire(q, value);
 }

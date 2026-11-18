@@ -24,7 +24,7 @@ import { OnboardingScreen } from '@/components/onboarding/OnboardingScreen';
 import type {
   OnboardingInvite,
   OnboardingStateId,
-  OnboardingStep
+  OnboardingStep,
 } from '@/components/onboarding/types';
 
 const INVITE: OnboardingInvite = {
@@ -36,15 +36,15 @@ const INVITE: OnboardingInvite = {
       id: 'notifuse',
       label: 'Mail',
       suffix: '.mail',
-      tagline: 'Vos emails transactionnels et vos campagnes au même endroit.'
-    }
+      tagline: 'Vos emails transactionnels et vos campagnes au même endroit.',
+    },
   ],
-  expiresAt: '2026-08-15T18:00:00.000Z'
+  expiresAt: '2026-08-15T18:00:00.000Z',
 };
 
 const STEPS: OnboardingStep[] = [
   { id: 'compte', label: 'Création de votre compte', status: 'termine' },
-  { id: 'espace', label: 'Préparation de votre espace', status: 'en-cours' }
+  { id: 'espace', label: 'Préparation de votre espace', status: 'en-cours' },
 ];
 
 /** Titre <h1> attendu pour chaque état — la signature de l'écran affiché. */
@@ -54,42 +54,33 @@ const TITRES: Record<OnboardingStateId, RegExp> = {
   'en-cours': /On prépare votre espace/,
   termine: /Votre compte est prêt/,
   erreur: /Une erreur est survenue/,
-  'token-expire': /Ce lien a expiré/
+  'token-expire': /Ce lien a expiré/,
 };
 
-type Handlers = Partial<{
-  onActiver: () => void;
-  onDefinirMotDePasse: (password: string) => void;
-  onRenvoyerLien: () => void;
-  onReessayer: () => void;
-  onEntrer: () => void;
-  submitting: boolean;
-  error: string | null;
-}>;
-
-function afficher(state: OnboardingStateId, handlers: Handlers = {}) {
+function afficher(
+  state: OnboardingStateId,
+  onAdvance?: (next: OnboardingStateId) => void,
+) {
   return render(
     <OnboardingScreen
       state={state}
       invite={INVITE}
       steps={STEPS}
-      {...handlers}
-    />
+      onAdvance={onAdvance}
+    />,
   );
 }
 
 describe('OnboardingScreen — un état, un écran', () => {
   for (const [state, titre] of Object.entries(TITRES) as [
     OnboardingStateId,
-    RegExp
+    RegExp,
   ][]) {
     it(`état « ${state} » : affiche l’écran attendu et lui seul`, () => {
       afficher(state);
 
       // L'écran attendu est là…
-      expect(
-        screen.getByRole('heading', { level: 1, name: titre })
-      ).toBeInTheDocument();
+      expect(screen.getByRole('heading', { level: 1, name: titre })).toBeInTheDocument();
 
       // …et aucun autre écran ne s'affiche en même temps. C'est le vrai test :
       // les rendus sont juxtaposés en `&&`, un état mal comparé en montrerait
@@ -104,16 +95,16 @@ describe('OnboardingScreen — un état, un écran', () => {
     expect(screen.getByText('Une erreur est survenue')).toBeInTheDocument();
     // Une panne de provisioning ne propose pas de renvoi de lien.
     expect(
-      screen.queryByRole('button', { name: /Recevoir un nouveau lien/i })
+      screen.queryByRole('button', { name: /Recevoir un nouveau lien/i }),
     ).toBeNull();
 
     rerender(
-      <OnboardingScreen state="token-expire" invite={INVITE} steps={STEPS} />
+      <OnboardingScreen state="token-expire" invite={INVITE} steps={STEPS} />,
     );
     expect(screen.getByText('Ce lien a expiré')).toBeInTheDocument();
     // Un lien expiré, lui, affiche l'adresse de renvoi issue de l'invitation.
     expect(
-      screen.getByText('claire.dubois@exemple-client.fr')
+      screen.getByText('claire.dubois@exemple-client.fr'),
     ).toBeInTheDocument();
   });
 
@@ -124,139 +115,80 @@ describe('OnboardingScreen — un état, un écran', () => {
     expect(screen.getByText('Préparation de votre espace')).toBeInTheDocument();
     // 1 terminée sur 2 → la barre doit refléter les étapes passées, pas un
     // pourcentage figé.
-    expect(screen.getByRole('progressbar')).toHaveAttribute(
-      'aria-valuenow',
-      '50'
-    );
+    expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '50');
   });
 });
 
 describe('OnboardingScreen — enchaînement des étapes', () => {
-  it('activation → appelle onActiver', () => {
-    const onActiver = vi.fn();
-    afficher('activation', { onActiver });
+  it('activation → mot-de-passe', () => {
+    const onAdvance = vi.fn();
+    afficher('activation', onAdvance);
 
-    fireEvent.click(
-      screen.getByRole('button', { name: /Activer mon compte/i })
-    );
-    expect(onActiver).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: /Activer mon compte/i }));
+    expect(onAdvance).toHaveBeenCalledWith('mot-de-passe');
   });
 
-  it('REMONTE le mot de passe saisi, et seulement s’il est valide', () => {
-    // 🔴 La régression que ce test verrouille : le composant n'exposait qu'un
-    // `onAdvance(stateId)` et câblait `onSubmit={() => onAdvance('en-cours')}`.
-    // La signature réelle de PasswordScreen est `(password: string) => void` :
-    // l'argument était donc IGNORÉ, et la page réelle ne pouvait pas récupérer
-    // le mot de passe du client à travers OnboardingScreen.
-    const onDefinirMotDePasse = vi.fn();
-    afficher('mot-de-passe', { onDefinirMotDePasse });
+  it('mot-de-passe → en-cours, seulement après un mot de passe valide', () => {
+    const onAdvance = vi.fn();
+    afficher('mot-de-passe', onAdvance);
 
-    // Un mot de passe faible ne remonte rien.
+    // Un mot de passe faible ne fait pas avancer le flow.
     fireEvent.change(screen.getByLabelText('Mot de passe'), {
-      target: { value: 'faible' }
+      target: { value: 'faible' },
     });
     fireEvent.change(screen.getByLabelText('Confirmation'), {
-      target: { value: 'faible' }
+      target: { value: 'faible' },
     });
     fireEvent.click(screen.getByRole('button', { name: /Créer mon accès/i }));
-    expect(onDefinirMotDePasse).not.toHaveBeenCalled();
+    expect(onAdvance).not.toHaveBeenCalled();
 
     fireEvent.change(screen.getByLabelText('Mot de passe'), {
-      target: { value: 'Motdepasse1' }
+      target: { value: 'Motdepasse1' },
     });
     fireEvent.change(screen.getByLabelText('Confirmation'), {
-      target: { value: 'Motdepasse1' }
+      target: { value: 'Motdepasse1' },
     });
     fireEvent.click(screen.getByRole('button', { name: /Créer mon accès/i }));
-    expect(onDefinirMotDePasse).toHaveBeenCalledWith('Motdepasse1');
+    expect(onAdvance).toHaveBeenCalledWith('en-cours');
   });
 
-  it('transmet submitting et error à l’écran de mot de passe', () => {
-    // Sans ces deux props, la page réelle ne pouvait afficher ni état d'envoi
-    // ni erreur serveur (« ce lien n'est plus valide ») : le client cliquait
-    // dans le vide.
-    afficher('mot-de-passe', { error: 'Ce lien n’est plus valide.' });
-    expect(screen.getByText('Ce lien n’est plus valide.')).toBeInTheDocument();
-
-    screen.getByRole('button', { name: /Créer mon accès/i });
-  });
-
-  it('erreur technique → appelle onReessayer', () => {
-    const onReessayer = vi.fn();
-    afficher('erreur', { onReessayer });
+  it('erreur technique → relance le provisioning (en-cours)', () => {
+    const onAdvance = vi.fn();
+    afficher('erreur', onAdvance);
 
     fireEvent.click(screen.getByRole('button', { name: /Réessayer/i }));
-    expect(onReessayer).toHaveBeenCalledTimes(1);
+    expect(onAdvance).toHaveBeenCalledWith('en-cours');
   });
 
-  it('token expiré → appelle onRenvoyerLien, pas onReessayer', () => {
-    // Erreur facile à commettre en copiant la branche `erreur` : relancer le
-    // provisioning sur un lien expiré ferait provisionner sans lien valide.
-    const onRenvoyerLien = vi.fn();
-    const onReessayer = vi.fn();
-    afficher('token-expire', { onRenvoyerLien, onReessayer });
+  it('token expiré → repart du début (activation), pas du provisioning', () => {
+    // Erreur facile à commettre en copiant la branche `erreur` : relancer
+    // `en-cours` sur un lien expiré ferait provisionner sans lien valide.
+    const onAdvance = vi.fn();
+    afficher('token-expire', onAdvance);
 
     fireEvent.click(
-      screen.getByRole('button', { name: /Demander un nouveau lien/i })
+      screen.getByRole('button', { name: /Recevoir un nouveau lien/i }),
     );
-    expect(onRenvoyerLien).toHaveBeenCalledTimes(1);
-    expect(onReessayer).not.toHaveBeenCalled();
+    expect(onAdvance).toHaveBeenCalledWith('activation');
   });
 
   it('l’écran « en cours » n’expose aucune action manuelle', () => {
     // Pendant le provisioning, rien ne doit être cliquable : le client
     // attend, la progression avance toute seule.
-    afficher('en-cours');
+    const onAdvance = vi.fn();
+    afficher('en-cours', onAdvance);
+
     expect(screen.queryAllByRole('button')).toHaveLength(0);
+    expect(onAdvance).not.toHaveBeenCalled();
   });
 
-  it('sans handlers, les écrans restent cliquables sans planter', () => {
-    // La page réelle branchera ses propres handlers ; les props sont
-    // facultatives et les appels optionnels.
+  it('sans onAdvance, les écrans restent cliquables sans planter', () => {
+    // La page réelle branchera ses propres handlers ; la prop est facultative
+    // et l'appel est optionnel (`onAdvance?.(...)`).
     afficher('activation');
     expect(() =>
-      fireEvent.click(
-        screen.getByRole('button', { name: /Activer mon compte/i })
-      )
+      fireEvent.click(screen.getByRole('button', { name: /Activer mon compte/i })),
     ).not.toThrow();
-  });
-});
-
-describe('OnboardingScreen — l’état « terminé » n’est jamais un cul-de-sac', () => {
-  // 🔴 Régression verrouillée ici : `OnboardingScreen` passait
-  // `onEnter={() => undefined}` à DoneScreen. DoneScreen choisit entre un
-  // bouton et un lien selon `onEnter ? … : …`, et `() => undefined` est
-  // truthy : la branche BOUTON était rendue, et le clic ne faisait rien. Le
-  // client arrivait au bout de l'onboarding sans aucun moyen d'entrer dans
-  // son espace. Le test de DoneScreen documentait ce cul-de-sac, mais aucun
-  // test ne vérifiait l'état 'termine' À TRAVERS OnboardingScreen.
-
-  it('offre un lien vers le dashboard quand aucun onEntrer n’est fourni', () => {
-    afficher('termine');
-
-    const lien = screen.getByRole('link', { name: /Entrer dans mon espace/i });
-    expect(lien).toHaveAttribute('href', '/dashboard');
-  });
-
-  it('déclenche onEntrer quand la page réelle en fournit un', () => {
-    const onEntrer = vi.fn();
-    afficher('termine', { onEntrer });
-
-    fireEvent.click(
-      screen.getByRole('button', { name: /Entrer dans mon espace/i })
-    );
-    expect(onEntrer).toHaveBeenCalledTimes(1);
-  });
-
-  it('propose TOUJOURS une sortie : un lien OU un bouton actif', () => {
-    // Formulation volontairement générique : quelle que soit la façon dont la
-    // sortie est rendue demain, il doit y en avoir une.
-    for (const handlers of [{}, { onEntrer: vi.fn() }]) {
-      const { unmount } = afficher('termine', handlers);
-      const sorties = screen.queryAllByText(/Entrer dans mon espace/i);
-      expect(sorties.length).toBeGreaterThan(0);
-      unmount();
-    }
   });
 });
 
@@ -268,12 +200,12 @@ describe('OnboardingScreen — panneau de marque', () => {
       'en-cours': /Vos outils s’installent/,
       termine: /Bienvenue chez Veridian/,
       erreur: /On règle ça ensemble/,
-      'token-expire': /Votre compte, lui, reste là/
+      'token-expire': /Votre compte, lui, reste là/,
     };
 
     for (const [state, texte] of Object.entries(attendu) as [
       OnboardingStateId,
-      RegExp
+      RegExp,
     ][]) {
       const { unmount } = afficher(state);
       expect(screen.getByText(texte), state).toBeInTheDocument();
