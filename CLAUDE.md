@@ -109,6 +109,16 @@ Outil admin : `hub` (`hub doctor` d'abord : santé, secret, auth admin). Aucune 
 
 `pnpm install` · `pnpm dev` (port 3000) · `pnpm build` · `pnpm test` (Vitest, 3000+ tests).
 
+## Où travailler (Robert, 18/11)
+
+La session du Hub travaille dans le dossier principal, sur `main` (la branche qui déploie), jamais en
+worktree. Avant de commencer : `git fetch && git status -sb` doit dire `main...origin/main` sans
+écart ni fichier modifié, sinon on réaligne d'abord. Pourquoi : le 18/11, ce dossier dormait sur un
+`staging` local à 169 commits de `main` avec 230 fichiers non commités (sauvegardés sur
+`sauvegarde/arbre-hub-2026-11-18`, tri dans ROB-226 à 229). Ce dossier porte aussi le hook
+`~/.claude/hooks/infra-status.sh` (lien symbolique) : la branche extraite ici pilote le démarrage
+de toutes les sessions. Porte de sortie : deux écrivains simultanés, un worktree refusionné aussitôt.
+
 ## Déploiement : la prod vient de `main`
 
 `staging` et `main` divergent. La CI pose `deploy/hub.nomad.hcl` depuis `main`. La version servie
