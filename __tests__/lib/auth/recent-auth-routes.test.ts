@@ -9,7 +9,6 @@ import { describe, it, expect } from 'vitest';
 
 const ROOT = process.cwd();
 const GARDEES: Array<[string, string]> = [
-  ['app/api/billing/refill-leads/checkout/route.ts', 'PREUVE_FACTURATION_S'],
   ['app/api/auth/mfa/toggle/route.ts', 'PREUVE_COMPTE_S'],
   ['app/api/account/connected-providers/[provider]/route.ts', 'PREUVE_COMPTE_S'],
 ];

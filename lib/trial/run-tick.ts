@@ -67,6 +67,9 @@ import {
   buildTrialStartedEmail,
 } from '@/lib/email/templates/trial';
 import { computeTrialEndsAt } from '@/lib/trial/transitions';
+import { trialMachineEnabled } from '@/lib/trial/flag';
+import { PLAN_APPS, readAppPlan, setAppPlan, tenantHasApp } from '@/lib/plans/app-plan';
+import { trialStatusForTenant } from '@/lib/plans/trial-status';
 import {
   TRIAL_ELIGIBLE_WAIT_HOURS,
   TRIAL_NOTIFY_ENDING_SOON_DAYS,
@@ -200,6 +203,8 @@ async function processActivations(
   ) => Promise<Map<string, string | null>>,
   summary: TickSummary,
 ): Promise<void> {
+  // Drapeau coupé (TRIAL_MACHINE_ENABLED=0) : aucune activation.
+  if (!trialMachineEnabled()) return;
   const eligibleCutoff = new Date(
     now.getTime() - TRIAL_ELIGIBLE_WAIT_HOURS * 60 * 60 * 1000,
   );
@@ -234,6 +239,7 @@ async function processActivations(
   // Batch resolve owner emails (1 fois pour tout le batch).
   const tenantIds = rows.map((r) => r.tenant_id);
   const emailMap = await resolveOwnerEmailBatch(tenantIds);
+  const refs = await resolveTenantRefs(tenantIds);
 
   for (const row of rows) {
     try {
@@ -251,7 +257,7 @@ async function processActivations(
         },
       });
 
-      await callUpdatePlan(notifuseClient, row.app, row.tenant_id, 'pro');
+      await callUpdatePlan(notifuseClient, row.app, row.tenant_id, 'pro', refs);
 
       const ownerEmail = emailMap.get(row.tenant_id) ?? null;
       if (ownerEmail) {
@@ -333,9 +339,10 @@ async function processEndingSoon(
   //   `trial_active` alors que le user paie déjà, on NE veut PAS lui envoyer
   //   "ton essai expire dans 3j". On batch-resolve les subs actives ici et
   //   on skip + auto-corrige à `converted` les rows qui ont une sub.
-  const [emailMap, subMap] = await Promise.all([
+  const [emailMap, subMap, refs] = await Promise.all([
     resolveOwnerEmailBatch(tenantIds),
     hasActiveStripeSubBatch(tenantIds),
+    resolveTenantRefs(tenantIds),
   ]);
 
   for (const row of rows) {
@@ -429,9 +436,10 @@ async function processFinalize(
 
   // Batch resolve : 1 appel pour les emails, 1 appel pour les subs Stripe.
   const tenantIds = rows.map((r) => r.tenant_id);
-  const [emailMap, subMap] = await Promise.all([
+  const [emailMap, subMap, refs] = await Promise.all([
     resolveOwnerEmailBatch(tenantIds),
     hasActiveStripeSubBatch(tenantIds),
+    resolveTenantRefs(tenantIds),
   ]);
 
   for (const row of rows) {
@@ -459,7 +467,7 @@ async function processFinalize(
         data: { state: 'expired', expiredAt: now, updatedAt: now },
       });
 
-      await callUpdatePlan(notifuseClient, row.app, row.tenant_id, 'free');
+      await callUpdatePlan(notifuseClient, row.app, row.tenant_id, 'free', refs);
 
       const ownerEmail = emailMap.get(row.tenant_id) ?? null;
       if (ownerEmail) {
@@ -503,23 +511,60 @@ function resolveNotifuseClient(): NotifuseClient {
 }
 
 /**
- * Dispatch update-plan vers l'app cible. Pour l'instant seul Notifuse est
- * branché — Prospection / Analytics ne consomment pas encore update-plan
- * dans la state machine trial (leur signal d'engagement n'est pas défini).
+ * Dispatch update-plan vers l'app cible, avec le statut d'essai du tenant. Le signal d'engagement
+ * vient de Notifuse ; Analytics et le CRM suivent la même transition (même plan, `stripe_trial` à
+ * l'activation, `downgrade_auto` à l'expiration), sauf plan offert (immune).
  */
 async function callUpdatePlan(
   notifuseClient: NotifuseClient,
   app: string,
-  tenantId: string,
+  tenantIdLu: string,
   plan: NotifusePlan,
+  refs: Map<string, TenantRef> = new Map(),
 ): Promise<void> {
+  // Une ligne porte l'id Hub (depuis le 08/11) ou, ancienne, le slug Notifuse : `refs` donne les deux.
+  const ref = refs.get(tenantIdLu);
+  const tenantId = ref?.hubTenantId ?? tenantIdLu;
   if (app === 'notifuse') {
-    await notifuseClient.updatePlan({ tenantId, plan });
+    // Statut illisible : la transition passe quand même (Notifuse reçoit le plan, sans le statut).
+    const trial = await trialStatusForTenant(prisma, tenantId).catch((err: unknown) => {
+      console.error(`[cron-trial-tick] statut d'essai illisible tenant=${tenantId}:`, err);
+      return undefined;
+    });
+    // Notifuse connaît son espace par son slug, jamais par l'id du tenant Hub.
+    await notifuseClient.updatePlan({
+      tenantId: ref?.notifuseSlug ?? tenantIdLu,
+      plan,
+      ...(trial ? { trial } : {}),
+      ...(ref?.hubTenantId ? { hubTenantId: ref.hubTenantId } : {}),
+    });
+    await suivreAnalyticsEtCrm(tenantId, plan).catch((err: unknown) =>
+      console.error(`[cron-trial-tick] analytics/crm tenant=${tenantId}:`, err),
+    );
     return;
   }
   console.warn(
     `[cron-trial-tick] update-plan skipped for app=${app} (no client wired yet) tenant=${tenantId} plan=${plan}`,
   );
+}
+
+/** Analytics et CRM suivent la transition de l'essai, sauf plan offert. */
+async function suivreAnalyticsEtCrm(tenantId: string, plan: NotifusePlan): Promise<void> {
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { metadata: true } });
+  for (const appPlan of PLAN_APPS) {
+    if (!tenant || !tenantHasApp(tenant.metadata, appPlan)) continue;
+    if (readAppPlan(tenant.metadata, appPlan).source === 'grant_manual') continue;
+    const canonical = plan === 'pro' || plan === 'business' || plan === 'enterprise' ? plan : 'free';
+    const r = await setAppPlan(prisma, {
+      tenantId,
+      app: appPlan,
+      plan: canonical,
+      planSource: canonical === 'free' ? 'downgrade_auto' : 'stripe_trial',
+      reason: 'machine d\'états de l\'essai',
+      setBy: 'trial-tick',
+    });
+    if (!r.ok) console.error(`[cron-trial-tick] update-plan KO ${appPlan} tenant=${tenantId}: ${r.error}`);
+  }
 }
 
 function isUuid(value: string): boolean {
@@ -677,4 +722,38 @@ async function defaultBatchResolveHasActiveSub(
   }
 
   return result;
+}
+
+type TenantRef = { hubTenantId: string; notifuseSlug: string | null };
+
+/**
+ * Id Hub et slug Notifuse de chaque identifiant de ligne, en une requête pour le lot (pas de N+1).
+ * Une erreur de lecture n'arrête pas la transition : la ligne garde son identifiant tel quel.
+ */
+async function resolveTenantRefs(ids: string[]): Promise<Map<string, TenantRef>> {
+  const out = new Map<string, TenantRef>();
+  const uniques = Array.from(new Set(ids));
+  const uuids = uniques.filter(isUuid);
+  const autres = uniques.filter((id) => !isUuid(id));
+  const or: Prisma.TenantWhereInput[] = [];
+  if (uuids.length) or.push({ id: { in: uuids } });
+  if (autres.length) or.push({ notifuseWorkspaceSlug: { in: autres } }, { slug: { in: autres } });
+  if (!or.length) return out;
+  try {
+    // Tenants vivants seulement (un slug survit au soft-delete), le plus récent écrase l'ancien dans la table.
+    const tenants = await prisma.tenant.findMany({
+      where: { deletedAt: null, OR: or },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, slug: true, notifuseWorkspaceSlug: true },
+    });
+    for (const t of tenants ?? []) {
+      const ref = { hubTenantId: t.id, notifuseSlug: t.notifuseWorkspaceSlug };
+      out.set(t.id, ref);
+      if (t.slug) out.set(t.slug, ref);
+      if (t.notifuseWorkspaceSlug) out.set(t.notifuseWorkspaceSlug, ref);
+    }
+  } catch (err) {
+    console.error('[cron-trial-tick] résolution des tenants impossible :', err);
+  }
+  return out;
 }

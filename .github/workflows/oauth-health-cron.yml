@@ -38,7 +38,7 @@ jobs:
       - name: Run OAuth health check
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ALERT_CHAT_ID: ${{ secrets.ALERT_CHAT_ID }}
           MICROSOFT_OAUTH_TENANT_ID: ${{ secrets.MICROSOFT_OAUTH_TENANT_ID }}
           MICROSOFT_OAUTH_CLIENT_ID: ${{ secrets.MICROSOFT_OAUTH_CLIENT_ID }}
           MICROSOFT_OAUTH_CLIENT_SECRET: ${{ secrets.MICROSOFT_OAUTH_CLIENT_SECRET }}
@@ -49,7 +49,7 @@ jobs:
         if: failure()
         env:
           TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TG_CHAT: ${{ secrets.ALERT_CHAT_ID }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then exit 0; fi

@@ -16,13 +16,11 @@ Le Hub gère l'inscription (Auth.js v5), le billing (Stripe), et le
 provisioning automatique des apps pour chaque nouveau tenant (Notifuse,
 Prospection). CRM (Twenty) : espace créé par `app-access --app twenty`, entrée par rebond.
 
-> Supabase retiré du Hub (migration Auth.js v5 + Prisma le 2026-05-08).
-
 ## Stack
 
 - Next.js 15 (App Router) + pnpm
 - Auth.js v5 (Google OAuth + Credentials bcrypt + MFA email)
-- Prisma 7 sur Postgres dédié `veridian-core-db` (schema `hub_app`)
+- Prisma 7 sur la grappe pg-saas (base `hub`, rôle `hub`, schema `hub_app`)
 - Stripe (billing, webhooks, plans)
 - shadcn/ui + Tailwind
 - Brevo pour les mails transactionnels (`lib/email/send.ts`), Notifuse fork pour les tenants
@@ -30,36 +28,9 @@ Prospection). CRM (Twenty) : espace créé par `app-access --app twenty`, entré
 ## Structure
 
 ```
-hub/
-├── app/                    # Pages (auth, marketing, dashboard, admin, api)
-│   ├── (auth)/             # signup, login, reset, mfa, verify
-│   ├── (marketing)/        # pricing, root
-│   ├── dashboard/          # workspace, billing, settings, admin, members
-│   ├── invite/[token]/     # acceptation invitation workspace
-│   └── api/                # routes API, webhooks Stripe + Notifuse
-├── auth.ts                 # Auth.js v5 config (providers + callbacks + MFA)
-├── auth.config.ts          # Config edge-safe (middleware)
-├── middleware.ts           # NextAuth middleware
-├── components/             # React components
-├── contexts/EnvContext.tsx # Runtime ENV injection (window.__ENV__)
-├── lib/
-│   ├── auth/               # getCurrentUser, requireUser, userUuid helpers
-│   ├── admin/              # check-admin, is-platform-admin
-│   ├── prisma/             # Prisma client singleton lazy proxy
-│   ├── notifuse/           # NotifuseClient (Hub → Notifuse fork API)
-│   ├── stripe/             # Stripe SDK + plans
-│   ├── mfa/                # MFA email codes (crypto-sûrs, bcrypt, TTL 10min)
-│   └── email/templates/    # Templates HTML inline (Brevo)
-├── prisma/
-│   ├── schema.prisma       # 15 modèles (User, Workspace, Tenant, Subscription...)
-│   └── migrations/         # Migrations Prisma
-├── utils/
-│   ├── tenants/provision.ts  # Provisioning Notifuse + Prospection
-│   ├── stripe/prisma-sync.ts # Sync Stripe → Prisma (Product, Price, Subscription)
-│   ├── auth-helpers/       # Helpers session
-│   └── env.ts, fetch.ts, helpers.ts
-├── styles/main.css         # Theme OKLCH (jamais hardcoder les couleurs)
-└── Dockerfile              # Multi-stage Node 20-alpine (deps → builder → runner)
+app/ (auth, marketing, dashboard, admin, api)   auth.ts, auth.config.ts (edge), middleware.ts
+lib/ auth admin prisma notifuse stripe mcp (porte MCP) apps (deprovision, lier-hub) sync (reconcile)
+prisma/ (schema, migrations)   utils/tenants/provision.ts   utils/stripe/prisma-sync.ts   styles/main.css (OKLCH)
 ```
 
 ## Session et identité
@@ -75,13 +46,31 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
 - **Batterie** : `pnpm test:systeme`, à jouer depuis le bastion, sur ce qui est servi. Twenty :
   `HUB_URL=https://hub.staging.veridian.site`. Après une modification, rejouer chaque
   `SSO_SABOTAGE=<scénario>` : il doit échouer. Elle retire ses comptes, et échoue s'il en reste.
-- **Restes de test** : `testResidue` de `hub reconcile`.
+- **Rebond refusé** : jamais muet (08/11, Robert renvoyé sans un mot). Tout refus va sur `/auth/bounce/error` qui
+  l'explique (`user_not_in_app`, `hub_user_conflict` : un compte d'app n'appartient qu'au premier compte Hub relié),
+  et laisse `[bounce][refus]` (app, code, hub_user_id, jamais l'adresse). Batterie : `09-adresses` ; `10-creation`
+  (OAuth jusqu'au fournisseur ; inscription pendant un déploiement : `SSO_PENDANT_DEPLOIEMENT=1 … 10-` après un push).
+- **Variables du job** : toute variable lue par le code est rendue par `deploy/hub.nomad.hcl` (source de la CI) ou
+  déclarée facultative avec sa raison (`__tests__/contrat/variables-job.test.ts`). 08/11 : `MICROSOFT_OAUTH_*` manquait,
+  `client_id=undefined`. Une clé de `nomad/jobs/hub` se pose AVANT le déploiement qui la rend.
+- **Essai** : le 5e mail Notifuse nourrit `tenant_trials` ; le tick (30 min) n'active qu'à 48 h. Drapeau
+  `TRIAL_MACHINE_ENABLED` (`lib/trial/flag.ts`) rendu par le template depuis `nomad/jobs/hub` : absent = 1, seul `0` coupe.
+  **Couper** : clé à 0, bloc complet par stdin (`nomad var put -out none -in json -check-index <index> nomad/jobs/hub -`,
+  index via `nomad-v raw var list nomad/jobs/hub`), puis `nomad-v run hub`. Preuve : `__tests__/lib/trial/flag.test.ts`.
+- **Plans d'Analytics et du CRM** : posés par `hub plan --app analytics|crm`, l'activation et Stripe
+  (`lib/plans/app-plan.ts`), avec le statut d'essai (`lib/plans/trial-status.ts`). Les apps stockent, aucune
+  limite ni lecture seule (drapeau coupé, décision de Robert). Ce qui manque : `hub reconcile --ecarts`.
+- **Porte MCP** (09/11, `docs/CONTRAT-MCP.md`) : `/api/mcp`, 3 outils pour toutes les apps. Le Hub est serveur OAuth
+  et registre (`hub mcp-app add`), ne code aucun outil d'app, présente à l'app un JWT ES256 (`MCP_SIGNING_JWK`).
+  `tenant_id` signé seulement si l'IA choisit un espace ; espace non relié → `hub relier --app <app>`. Boutons
+  « Ajouter à Claude… » : `/dashboard/ia` au Hub, et dans chaque app par `GET /api/mcp/liens-installation?app=<cle>`
+  (public ; une origine de lien nouvelle s'annonce aux apps, Twenty les filtre).
 - **Garde rapide** : `__tests__/contrat/` (revocation sans `iat`, `authAt` sur toute création de session,
   cibles du rebond, origines). Un nouveau `encode(` de JWT de session s'ajoute à sa liste. Détail par
   parcours et état prouvé ou accepté : `docs/PARCOURS-IDENTITE.md`.
 - **Sonde de prod** : étape « Sonde identité » de `hub-ci.yml` (lectures seules). Le cron de reconcile
   alerte au-dessus de `RESIDUE_SEUIL` (0 par défaut).
-- **Coupure** : aucune (08/11, prouvé à la sonde). Base dans le job `hub-db` (nomad-veridian), app en bleu-vert : canari,
+- **Coupure** : aucune (08/11, prouvé à la sonde). Base sur pg-saas (grappe Patroni, hors du job Hub), app en bleu-vert : canari,
   health check Traefik, retry. Tags Traefik changés = déploiement annoncé (deux versions aux tags différents : 12 s de 404).
   Regrouper les changements. `e2e/systeme-sso/**` ne redéploie rien.
 
@@ -92,8 +81,8 @@ Outil admin : `hub` (`hub doctor` d'abord : santé, secret, auth admin). Aucune 
 - **Un client ne peut plus se connecter** : `hub tenant <email>` (adresse prouvée ? apps liées ?), `hub audit --since <date>`.
   Adresse non prouvée : aucun lien d'app, `hub invite <email>` renouvelle l'accès (`--no-email` : lien seul). Voir sa vue : `hub open <email>`.
 - **Un rebond échoue** : `/auth/bounce/error?code=` dit pourquoi (`not_configured` : variable `<APP>_API_URL` ou
-  `<APP>_HUB_API_SECRET` absente du job ; `unreachable` : l'app). `nomad-v logs hub` (tag `[bounce]`). 3 rebonds
-  rapides sur une app : l'anti-boucle est normal, 30 s d'attente.
+  `<APP>_HUB_API_SECRET` absente du job ; `unreachable` : l'app ; refus d'identité : voir « Rebond refusé »).
+  `nomad-v logs hub` (tag `[bounce][refus]`). 3 rebonds rapides : anti-boucle, 30 s.
 - **Le Hub est en 502** : `nomad-v state`, `nomad-v allocs hub`. Après un **reboot de nœud**, le réseau CNI n'est pas
   reconstruit : `nomad-v run hub` ne répare rien et `hub-selfheal` non plus. Runbook :
   `~/.claude/skills/nomad/reference/cluster-ops.md`, section « Piège CNI orphelin » (`nomad-v raw job restart -reschedule -yes hub`,
@@ -107,7 +96,8 @@ Outil admin : `hub` (`hub doctor` d'abord : santé, secret, auth admin). Aucune 
   déjà ouvertes dans les apps. Secret dans la Nomad Variable `nomad/jobs/hub` : lire une clé avec
   `nomad-v raw var get -item AUTH_SECRET nomad/jobs/hub`, écrire avec `nomad var put -out none -in json nomad/jobs/hub -`
   (remplace le bloc entier : repartir du JSON complet), puis `nomad-v run hub`. Compter une reconnexion générale.
-- **Restes de test** : `hub reconcile` (`testResidue.total`, 5 connus au 07/11), retrait `hub delete-tenant <email> --confirm`.
+- **Restes de test** : `hub reconcile` (`testResidue.total`) et, par app, `scripts/orphelins-e2e.sh` (skill hub-admin).
+  `delete-tenant` déprovisionne les espaces des apps (`lib/apps/deprovision.ts`) et laisse une trace d'audit.
   Le cron alerte au-dessus de `RESIDUE_SEUIL`. La batterie les retire elle-même et échoue s'il en reste.
 - **Batterie rouge** : lire `e2e/systeme-sso/.run/resultat.txt`. ÉCHOUE = vrai défaut (si l'image servie n'est pas
   listée « avant »). NON ABOUTI = on n'a pas mesuré (Hub en déploiement, jeton Nomad, compte non créé). Relancer
@@ -117,27 +107,17 @@ Outil admin : `hub` (`hub doctor` d'abord : santé, secret, auth admin). Aucune 
 
 ## Commandes
 
-```bash
-cd hub
-pnpm install
-pnpm dev          # Dev mode (port 3000 par défaut)
-pnpm build        # Build prod
-pnpm test         # Vitest (150+ tests)
-```
+`pnpm install` · `pnpm dev` (port 3000) · `pnpm build` · `pnpm test` (Vitest, 3000+ tests).
 
-## Identité (décision Robert, 06/11/2026)
+## Où travailler (Robert, 18/11)
 
-Le Hub est la **seule source de vérité des utilisateurs**, chaque app garde sa base et une
-copie de ses comptes, sans inscription ni mot de passe utilisable.
-Référence : `docs/CONTRAT-HUB.md` §3.7, §3.8, `docs/SAAS-STANDARDS.md` §1.1, §1.2.
-
-- `hub_user_id` = `users.supabase_user_id`, jamais `users.id` (cuid sur la moitié des comptes).
-- Toute route qui mène à une session d'app appelle `denyUnlessEmailProven`
-  (`lib/auth/email-proof.ts`). Un test échoue sur toute nouvelle route non gardée.
-- `hub reconcile` (`lib/sync/`) n'écrit rien : une dérive se lit et se tranche. Il compare
-  aussi les comptes de chaque app au Hub.
-- Toute écriture de plan se propage à l'app. Un refus n'écrit rien au Hub.
-- Le dépôt est **public**, ses logs Actions aussi : aucune adresse client dans une réponse de cron.
+La session du Hub travaille dans le dossier principal, sur `main` (la branche qui déploie), jamais en
+worktree. Avant de commencer : `git fetch && git status -sb` doit dire `main...origin/main` sans
+écart ni fichier modifié, sinon on réaligne d'abord. Pourquoi : le 18/11, ce dossier dormait sur un
+`staging` local à 169 commits de `main` avec 230 fichiers non commités (sauvegardés sur
+`sauvegarde/arbre-hub-2026-11-18`, tri dans ROB-226 à 229). Ce dossier porte aussi le hook
+`~/.claude/hooks/infra-status.sh` (lien symbolique) : la branche extraite ici pilote le démarrage
+de toutes les sessions. Porte de sortie : deux écrivains simultanés, un worktree refusionné aussitôt.
 
 ## Déploiement : la prod vient de `main`
 
@@ -147,54 +127,35 @@ Un audit CVE ou un test rouge saute le déploiement sans bruit : lire `gh run vi
 
 ## Provisioning flow
 
-Signup (Auth.js) → `/api/auth/signup` → `utils/tenants/provision.ts` → Notifuse et Prospection (REST, en
-parallèle) → table `Tenant`. `User.supabaseUserId` est un nom legacy : l'UUID de pont (`hub_user_id`).
+Signup → `utils/tenants/provision.ts` → Notifuse et Prospection en parallèle → `Tenant`.
 
 ## Règles
 
-- Les env vars **runtime** sont injectées via docker-compose (pas de build-args).
-  Le compose Git de référence : `infra/services/hub/docker-compose.yml`.
+- `hub_user_id` = `users.supabase_user_id`, jamais `users.id` (cuid sur la moitié des comptes).
+- Toute route qui mène à une session d'app appelle `denyUnlessEmailProven`
+  (`lib/auth/email-proof.ts`). Un test échoue sur toute nouvelle route non gardée.
+- `hub reconcile` (`lib/sync/`) n'écrit rien : une dérive se lit et se tranche. Il compare
+  aussi les comptes de chaque app au Hub.
+- Toute écriture de plan se propage à l'app. Un refus n'écrit rien au Hub.
+- Un tenant supprimé n'est jamais repris par une recherche par `userId` (`__tests__/contrat/tenant-supprime.test.ts`).
+- Le dépôt est **public**, ses logs Actions aussi : aucune adresse client dans une réponse de cron.
+
+- Les env vars **runtime** viennent du job Nomad (`deploy/hub.nomad.hcl`, secrets `nomad/jobs/hub`), jamais de build-args.
 - Stripe = source de vérité billing. Config dans `lib/stripe/`.
-- Ne jamais hardcoder les couleurs — utiliser les design tokens CSS (OKLCH).
-- Les migrations DB sont dans `hub/prisma/migrations/` (Prisma, pas Supabase).
-- Pour appeler une autre app du monorepo, utiliser **toujours l'URL publique**
-  `https://<app>.app.veridian.site` (cf `07-inter-app-communication.md`).
-- Healthcheck `/api/health` doit rester disponible (gate Docker + smoke CI/CD).
+- Couleurs : tokens OKLCH seulement. Autre app : son URL publique.
+- `/api/health` reste disponible (garde du déploiement et sonde de la CI).
 
 ## 💰 Pricing & trial
 
-**Source de vérité unique** : `docs/PRICING-VERIDIAN.md` (figé par
-Robert 2026-05-21, voir aussi le `CLAUDE.md` racine `../CLAUDE.md`
-§"Pricing & trial cross-app").
-
-Tout agent qui touche au pricing, paywall, trial, billing Stripe,
-branding, custom domains, limites de plan, webhooks downstream
-**DOIT lire ce fichier avant d'agir**. Il définit :
-
-- La **grille de prix** (Free / Pro 29€ / Business 99€ / Enterprise)
-- Le **flow trial complet** (5 mails → 2j silence → 15j visible →
-  +30j inconditionnel si CB → débit auto ou paywall lecture seule)
-- Les **responsabilités cross-app** : Stripe → Hub → apps (PAS
-  Stripe → app directement)
-- Les **interdits côté code** (pas de mur béton, pas de compteur
-  visible, pas de menu grisé)
-
-**Philosophie figée** : générosité maximale. Tout illimité partout.
-SEULES différenciations = durée Free 15j + white-label Business+.
-L'app ne doit JAMAIS être défigurée par des limites visibles.
-
-Backlog pricing/trial : injecté au démarrage (hook SessionStart), `veridian-platform/TODO.md` pour la vue
-cross-app, avancement dans `docs/PRICING-VERIDIAN.md` §"Implémentations actuelles — Hub".
+**Source de vérité** : `docs/PRICING-VERIDIAN.md`, à lire avant de toucher au pricing, à l'essai, à Stripe ou aux limites.
+Générosité maximale : tout illimité, seules différences la durée Free 15 j et la marque blanche Business+.
+Jamais de limite visible. Stripe → Hub → apps, jamais Stripe → app.
 
 ## CI/CD
 
 - `.github/workflows/hub-ci.yml` : test → audit (npm) → docker → **trivy** → deploy-prod (sur `main`) → e2e-prod-smoke → rollback-prod (si fail)
-- **Pas de cron Trivy** (`hub-security-cron.yml` retiré le 2026-09-23 : il scannait `:latest`, pas
-  l'image déployée). Les CVE de l'image en cours : `sec-scan` via le CLI `secu`. `_trivy-image.yml`
-  reste le scan à la construction.
-- Déploiement : **job Nomad** (Dokploy décommissionné 2026-07-10). Job HCL
-  versionné dans `~/nomad-veridian/jobs/saas-prod/` (staging dans `saas-staging/`).
-  Debug/logs `nomad-v logs hub`, redeploy `nomad-v run hub` / `nomad-v deploy <fichier>`,
-  état `nomad-v state`. Secrets = Nomad Variable `nomad/jobs/hub`. Skill `/nomad`.
+- **Pas de cron Trivy** (il scannait `:latest`) : CVE de l'image en cours via `secu` ; `_trivy-image.yml` à la construction.
+- Runners hébergés par GitHub (dépôt public) : le smoke garde `playwright install --with-deps`.
+- Déploiement : job Nomad. Logs `nomad-v logs hub`, redeploy `nomad-v run hub`, état `nomad-v state`.
+  Secrets = Nomad Variable `nomad/jobs/hub`. Skill `/nomad`.
 
-Cf `runbooks/services/hub/deploy.md` pour les détails opérationnels.

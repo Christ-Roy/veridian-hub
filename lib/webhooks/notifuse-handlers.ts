@@ -16,6 +16,7 @@
  */
 
 import { prisma } from '@/lib/prisma';
+import { trialMachineEnabled } from '@/lib/trial/flag';
 import type { HandlerTable } from '@/lib/webhooks/receiver';
 import {
   applyMemberEvent,
@@ -172,13 +173,33 @@ export const v14Handlers: HandlerTable = {
     // PK composite (tenant_id, app) garantit qu'un user qui re-déclenche
     // le signal après un trial expiré ne ré-ouvre PAS un nouveau trial
     // (1 trial par tenant lifetime, décision figée Robert 2026-05-21).
+    // Notifuse ne connaît que le slug de son espace (provisionné par le Hub avec `tenantId = slug`) :
+    // la machine d'états, le statut d'essai et reconcile raisonnent en id du tenant Hub (08/11).
     const now = new Date();
+    const hub = await resolveHubTenant(payload.tenant_id);
+    if (!hub) {
+      console.warn('[webhook:notifuse] tenant.activity_threshold_reached : tenant inconnu du Hub', payload.tenant_id);
+    }
+    // Déjà sur un plan au-dessus de free (payé ou offert) : pas d'essai. La machine le rétrograderait en
+    // free à J+15 faute d'abonnement Stripe (08/11 : 4 espaces réels au-delà du seuil, dont un pro).
+    if (hub?.notifusePlan && hub.notifusePlan !== 'free') {
+      console.info('[webhook:notifuse] tenant.activity_threshold_reached ignoré : plan', hub.notifusePlan, hub.id);
+      return;
+    }
+    // Allumage du flow d'essai réel (mails aux clients, Telegram) : décision de Robert, drapeau coupé par
+    // défaut. Coupé, seuls les comptes de test de la batterie entrent (cas 12) ; le signal d'un client est
+    // reçu, journalisé, et rien ne démarre.
+    if (!trialMachineEnabled() && !(hub && (await ownerIsTestAccount(hub.userId)))) {
+      console.info('[webhook:notifuse] tenant.activity_threshold_reached reçu, machine d\'essai coupée (TRIAL_MACHINE_ENABLED)', hub?.id ?? payload.tenant_id);
+      return;
+    }
+    const tenantId = hub?.id ?? payload.tenant_id;
     await prisma.tenantTrial.upsert({
       where: {
-        tenantId_app: { tenantId: payload.tenant_id, app: 'notifuse' },
+        tenantId_app: { tenantId, app: 'notifuse' },
       },
       create: {
-        tenantId: payload.tenant_id,
+        tenantId,
         app: 'notifuse',
         state: 'eligible',
         eligibleAt: now,
@@ -193,6 +214,7 @@ export const v14Handlers: HandlerTable = {
     console.info(
       '[webhook:notifuse] tenant.activity_threshold_reached',
       payload.tenant_id,
+      tenantId,
       'trial.eligible',
     );
   },
@@ -271,3 +293,36 @@ export const v14Handlers: HandlerTable = {
     });
   },
 };
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Le tenant Hub derrière un identifiant de Notifuse : slug de son espace, slug du tenant, ou l'id. */
+export async function resolveHubTenant(
+  notifuseTenantId: string,
+): Promise<{ id: string; notifusePlan: string | null; userId: string } | null> {
+  // Un slug survit à la suppression d'un tenant (soft-delete) : seul un tenant vivant compte, le plus récent
+  // d'abord. 09/11 : le vrai signal du 5e mail s'était inscrit sur un tenant de test supprimé.
+  const tenant = await prisma.tenant.findFirst({
+    orderBy: { createdAt: 'desc' },
+    where: {
+      deletedAt: null,
+      OR: [
+        ...(UUID_RE.test(notifuseTenantId) ? [{ id: notifuseTenantId }] : []),
+        { notifuseWorkspaceSlug: notifuseTenantId },
+        { slug: notifuseTenantId },
+      ],
+    },
+    select: { id: true, notifusePlan: true, userId: true },
+  });
+  return tenant ?? null;
+}
+
+/** Le flow d'essai réel est-il allumé ? Voir lib/trial/flag.ts. */
+export { trialMachineEnabled } from '@/lib/trial/flag';
+
+const COMPTE_TEST = /^e2e-sso-[a-z0-9-]+@veridian\.site$/;
+
+async function ownerIsTestAccount(userId: string): Promise<boolean> {
+  const owner = await prisma.user.findFirst({ where: { supabaseUserId: userId }, select: { email: true } });
+  return !!owner && COMPTE_TEST.test(owner.email.toLowerCase());
+}

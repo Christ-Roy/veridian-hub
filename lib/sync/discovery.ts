@@ -70,7 +70,15 @@ export interface DiscoverOptions {
   fetchImpl?: typeof fetch;
   /** Liste d'apps à interroger. Défaut SYNC_APPS (toutes). */
   apps?: readonly SyncApp[];
+  /**
+   * Jointure Hub (`supabase_user_id`), transmise aux apps qui la lisent (`HUB_USER_ID_APPS`) : elle
+   * prime sur l'adresse, qui peut différer (08/11, Robert). Les autres apps ne la reçoivent pas.
+   */
+  hubUserId?: string | null;
 }
+
+/** Apps dont `GET /api/users/by-email` lit `hub_user_id`. Une app qui ne le lit pas ne le reçoit pas. */
+export const HUB_USER_ID_APPS: readonly SyncApp[] = ['analytics'];
 
 /** Lit le secret HMAC d'une app (avec fallback legacy quand applicable). */
 export function readAppSecret(app: SyncApp): string | null {
@@ -140,7 +148,8 @@ export async function discoverAppForEmail(
   const fetchImpl = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const { timestamp, signature } = signGet(secret);
-  const fullUrl = `${url}/api/users/by-email?email=${encodeURIComponent(email)}`;
+  const joint = options.hubUserId && HUB_USER_ID_APPS.includes(app) ? `&hub_user_id=${encodeURIComponent(options.hubUserId)}` : '';
+  const fullUrl = `${url}/api/users/by-email?email=${encodeURIComponent(email)}${joint}`;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -176,6 +185,8 @@ export async function discoverAppForEmail(
             tenant_id?: string;
             role?: string;
             plan?: string;
+            trial_status?: string | null;
+            hub_tenant_id?: string | null;
             status?: string;
             magic_link_capable?: boolean;
             fallback_url?: string;
@@ -199,6 +210,8 @@ export async function discoverAppForEmail(
         tenantId: w.tenant_id,
         role: w.role,
         plan: w.plan,
+        trialStatus: 'trial_status' in w ? (w.trial_status ?? null) : undefined,
+        hubTenantLink: 'hub_tenant_id' in w ? (w.hub_tenant_id ?? null) : undefined,
         status:
           w.status === 'active' || w.status === 'suspended' || w.status === 'deleted'
             ? w.status

@@ -15,6 +15,10 @@ vi.mock('@/lib/admin/require-admin', () => ({
   requireAdmin: (...args: any[]) => requireAdminMock(...args),
 }));
 
+const deprovisionMock = vi.fn(async () => [{ app: 'prospection', cible: 'proprietaire', ok: true, detail: 'soft-delete' }]);
+vi.mock('@/lib/apps/deprovision', () => ({ deprovisionnerCompte: (...a: any[]) => deprovisionMock(...a) }));
+
+const auditCreateMock = vi.fn(async () => ({}));
 const userStore = new Map<string, any>();
 const tenantStore = new Map<string, any>();
 
@@ -47,7 +51,9 @@ vi.mock('@/lib/prisma', () => ({
     },
     tenant: {
       findMany: vi.fn(async ({ where }: any) => {
-        return Array.from(tenantStore.values()).filter((t) => t.userId === where.userId);
+        return Array.from(tenantStore.values()).filter(
+          (t) => t.userId === where.userId && (where.deletedAt !== null || !t.deletedAt),
+        );
       }),
       updateMany: tenantUpdateManyMock,
     },
@@ -57,6 +63,7 @@ vi.mock('@/lib/prisma', () => ({
     profile: {
       delete: vi.fn(async () => { throw new Error('not found'); }),
     },
+    auditLog: { create: auditCreateMock },
   },
 }));
 
@@ -109,7 +116,9 @@ describe('DELETE /api/admin/delete-tenant', () => {
     // Garde la trace par tenant pour audit
     expect(JSON.stringify(body.actions)).toContain('t1');
     // Warning notifuse préservé
-    expect(JSON.stringify(body.actions)).toContain('Notifuse workspace ws');
+    // L'espace Notifuse n'est plus « à nettoyer à la main » : il part avec le déprovisionnement.
+    expect(JSON.stringify(body.actions)).not.toContain('manual cleanup');
+    expect(deprovisionMock).toHaveBeenCalled();
   });
 
   it('N+1 regression guard: 3 tenants → 1 updateMany, not 3 updates', async () => {
@@ -135,8 +144,8 @@ describe('DELETE /api/admin/delete-tenant', () => {
     expect(tenantStore.get('tm3').status).toBe('deleted');
     // Warnings notifuse pour les 2 qui ont un slug
     const actionsStr = JSON.stringify(body.actions);
-    expect(actionsStr).toContain('Notifuse workspace ws1');
-    expect(actionsStr).toContain('Notifuse workspace ws3');
+    expect(actionsStr).not.toContain('manual cleanup');
+    expect((deprovisionMock.mock.calls.at(-1) as any)[0].tenants.map((t: any) => t.notifuseWorkspaceSlug)).toEqual(expect.arrayContaining(['ws1', 'ws3']));
   });
 
   it('handles 0 tenant gracefully (no updateMany call)', async () => {
@@ -147,5 +156,33 @@ describe('DELETE /api/admin/delete-tenant', () => {
     expect(body.ok).toBe(true);
     expect(tenantUpdateManyMock).not.toHaveBeenCalled();
     expect(JSON.stringify(body.actions)).toContain('No tenant row found');
+  });
+
+  it('déprovisionne les espaces du compte dans les apps avant de le supprimer', async () => {
+    const { DELETE } = await import('@/app/api/admin/delete-tenant/route');
+    userStore.set('dp@x.com', { id: 'u-dp', supabaseUserId: 'uuid-dp' });
+    tenantStore.set('t-dp', { id: 't-dp', userId: 'uuid-dp', notifuseWorkspaceSlug: 'ws', prospectionProvisionedAt: new Date(), metadata: {} });
+    deprovisionMock.mockClear();
+    const res = await DELETE(new (await import('next/server')).NextRequest('http://x/api/admin/delete-tenant', { method: 'DELETE', body: JSON.stringify({ email: 'dp@x.com', confirm: true }) }));
+    const body = await res.json();
+    expect(deprovisionMock).toHaveBeenCalledWith({ email: 'dp@x.com', tenants: [expect.objectContaining({ id: 't-dp' })] });
+    expect(body.apps).toEqual([expect.objectContaining({ app: 'prospection', ok: true })]);
+    // Plus de suppression sans trace : identifiant du compte et issues par app, jamais l'adresse.
+    const audit = (auditCreateMock.mock.calls.at(-1) as any)[0].data;
+    expect(audit).toMatchObject({ action: 'admin.tenant.delete', targetId: 'uuid-dp', payload: { apps: [{ app: 'prospection', ok: true }] } });
+    expect(JSON.stringify(audit)).not.toContain('dp@x.com');
+  });
+
+  it('un tenant déjà supprimé n\'est ni redéprovisionné ni redaté ; le motif part à l\'audit', async () => {
+    const { DELETE } = await import('@/app/api/admin/delete-tenant/route');
+    userStore.set('mo@x.com', { id: 'u-mo', supabaseUserId: 'uuid-mo' });
+    const ancien = new Date('2026-11-07T13:33:00Z');
+    tenantStore.set('t-vieux', { id: 't-vieux', userId: 'uuid-mo', notifuseWorkspaceSlug: 'fgmc', deletedAt: ancien, metadata: {} });
+    tenantStore.set('t-neuf', { id: 't-neuf', userId: 'uuid-mo', notifuseWorkspaceSlug: null, deletedAt: null, metadata: {} });
+    deprovisionMock.mockClear();
+    await DELETE(new (await import('next/server')).NextRequest('http://x/api/admin/delete-tenant', { method: 'DELETE', body: JSON.stringify({ email: 'mo@x.com', confirm: true, motif: 'décision Robert 07/11' }) }));
+    expect((deprovisionMock.mock.calls.at(-1) as any)[0].tenants.map((t: any) => t.id)).toEqual(['t-neuf']);
+    expect(tenantStore.get('t-vieux').deletedAt).toEqual(ancien);
+    expect((auditCreateMock.mock.calls.at(-1) as any)[0].data.payload.motif).toBe('décision Robert 07/11');
   });
 });

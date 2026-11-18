@@ -12,6 +12,8 @@
 //   getPlanByStripePriceId() qui regarde le catalogue ET le mapping legacy.
 
 import { pushProspectionPlan } from '@/lib/prospection/plan-push';
+import { bundleTier, PLAN_APPS, readAppPlan, setAppPlan, tenantHasApp, type PlanApp } from '@/lib/plans/app-plan';
+import { trialStatusForTenant } from '@/lib/plans/trial-status';
 import Stripe from 'stripe';
 
 import { prisma } from '@/lib/prisma';
@@ -20,11 +22,6 @@ import { toDateTime } from '@/utils/helpers';
 import { getPlanByStripePriceId, getAppPlansForBundle } from '@/lib/pricing/helpers';
 import { NotifuseClient } from '@/lib/notifuse/client';
 import { NotifuseError, isNotifusePlan, type NotifusePlan } from '@/lib/notifuse/types';
-import {
-  computeWelcomeLeadsDelta,
-  type ProspectionLocalPlan,
-} from '@/lib/billing/refill-leads';
-import { grantWelcomeLeadsBestEffort } from '@/utils/tenants/provision';
 
 /**
  * Résultat de propagation Stripe → apps downstream, retourné par
@@ -34,13 +31,13 @@ import { grantWelcomeLeadsBestEffort } from '@/utils/tenants/provision';
 export interface PropagationResult {
   tenantId: string | null;
   /** Plans cibles appliqués (DB) — sert au log + dashboard admin. */
-  applied: Array<{ app: 'notifuse' | 'prospection'; targetPlan: string; immune: boolean }>;
+  applied: Array<{ app: 'notifuse' | 'prospection' | PlanApp; targetPlan: string; immune: boolean }>;
   /**
    * Apps downstream qui ont échoué après tous les retry HMAC du client. Si
    * non-vide → alerter Robert Telegram. Vide = tout est passé (ou app n'a pas
    * de propagation HMAC active comme Prospection au 2026-05-21).
    */
-  failures: Array<{ app: 'notifuse' | 'prospection'; targetPlan: string; error: string }>;
+  failures: Array<{ app: 'notifuse' | 'prospection' | PlanApp; targetPlan: string; error: string }>;
 }
 
 /**
@@ -226,7 +223,7 @@ export async function manageSubscriptionStatusChange(
 
   try {
     tenant = await prisma.tenant.findFirst({
-      where: { userId: uuid },
+      where: { userId: uuid, deletedAt: null },
       select: {
         id: true,
         notifuseWorkspaceSlug: true,
@@ -342,47 +339,11 @@ export async function manageSubscriptionStatusChange(
     }
   }
 
-  // ─── 1bis. Welcome leads sur UPGRADE Prospection ───
-  // Si le palier Prospection augmente (free → pro → business), on crédite le
-  // DELTA de welcome leads (cf PRICING-VERIDIAN.md §78 + §97). Downgrade =
-  // pas d'appel (leads permanents). Idempotency_key déterministe (tenant +
-  // welcome_plan) → l'invariant "1 welcome par palier" est tenu côté
-  // Prospection même si on rejoue.
-  //
-  // On utilise l'email owner comme tenantIdOrEmail (résolution dual côté
-  // Prospection). Fallback : si email non en DB, on tente le tenantId.
-  if (isActive && isValidProspectionLocalPlan(targetProspection)) {
-    const oldPlan = isValidProspectionLocalPlan(tenant.prospectionPlan)
-      ? (tenant.prospectionPlan as ProspectionLocalPlan)
-      : null;
-    const delta = computeWelcomeLeadsDelta(oldPlan, targetProspection);
-    if (delta > 0) {
-      const ownerEmail = tenant.notifuseUserEmail;
-      if (ownerEmail) {
-        const welcomeRes = await grantWelcomeLeadsBestEffort({
-          hubTenantId: tenant.id,
-          ownerEmail,
-          welcomePlan: targetProspection,
-          quantityOverride: delta,
-        });
-        if (!welcomeRes.success) {
-          console.warn(
-            `[stripe-sync] welcome leads delta=${delta} grant failed (non-blocking) ` +
-              `tenant=${tenant.id} plan=${targetProspection} err=${welcomeRes.error}`,
-          );
-        } else {
-          console.log(
-            `[stripe-sync] welcome leads delta=${delta} credited tenant=${tenant.id} ` +
-              `plan=${targetProspection}`,
-          );
-        }
-      } else {
-        console.warn(
-          `[stripe-sync] welcome leads delta=${delta} skip — no owner email on tenant ${tenant.id}`,
-        );
-      }
-    }
-  }
+  // Statut d'essai, envoyé avec le plan à chaque app (`lib/plans/trial-status.ts`).
+  const trial = await trialStatusForTenant(prisma, tenant.id).catch((err: unknown) => {
+    console.error(`[stripe-sync] statut d'essai illisible tenant=${tenant!.id}:`, err);
+    return undefined;
+  });
 
   // ─── 2. Propagation HMAC Hub → Notifuse (§7.4) ───
   // Si l'app a son workspace provisionné. Si immune → on skip (le tenant ne
@@ -402,9 +363,12 @@ export async function manageSubscriptionStatusChange(
       }
       const safePlan: NotifusePlan = targetNotifuse;
       try {
+        // Notifuse connaît son espace par son slug, jamais par l'id du tenant Hub (`hub plan` fait pareil).
         await client.updatePlan({
-          tenantId: tenant.id,
+          tenantId: tenant.notifuseWorkspaceSlug,
           plan: safePlan,
+          trial,
+          hubTenantId: tenant.id,
         });
         console.log(
           `[stripe-sync] HMAC update-plan OK notifuse tenant=${tenant.id} plan=${targetNotifuse}`,
@@ -441,6 +405,7 @@ export async function manageSubscriptionStatusChange(
           email: owner.email,
           plan: targetProspection,
           planSource: 'stripe',
+          trial,
         })
       : ({ ok: false, error: 'owner_not_found' } as const);
     if (!pushed.ok) {
@@ -448,6 +413,34 @@ export async function manageSubscriptionStatusChange(
         `[stripe-sync] update-plan KO prospection tenant=${tenant.id} plan=${targetProspection}: ${pushed.error}`,
       );
       result.failures.push({ app: 'prospection', targetPlan: targetProspection, error: pushed.error });
+    }
+  }
+
+  // ─── 4. Analytics et CRM : le palier du bundle (`lib/plans/app-plan.ts`) ───
+  // Un plan offert (grant_manual) n'est jamais touché par Stripe ; hors bundle, rien ne bouge.
+  const tier = bundleTier(planKey, isActive);
+  if (tier) {
+    for (const app of PLAN_APPS) {
+      if (!tenantHasApp(tenant.metadata, app)) continue;
+      if (readAppPlan(tenant.metadata, app).source === 'grant_manual') {
+        result.applied.push({ app, targetPlan: tier, immune: true });
+        continue;
+      }
+      const pushed = await setAppPlan(prisma, {
+        tenantId: tenant.id,
+        app,
+        plan: tier,
+        planSource: isActive ? 'stripe' : 'downgrade_auto',
+        reason: `stripe ${subscription.id}`,
+        setBy: 'stripe',
+        stripeSubscriptionId: subscription.id,
+      });
+      if (pushed.ok) {
+        result.applied.push({ app, targetPlan: tier, immune: 'immune' in pushed });
+      } else {
+        console.error(`[stripe-sync] update-plan KO ${app} tenant=${tenant.id} plan=${tier}: ${pushed.error}`);
+        result.failures.push({ app, targetPlan: tier, error: pushed.error });
+      }
     }
   }
 
@@ -464,6 +457,9 @@ function buildDefaultNotifuseClient(): NotifuseClient | null {
   if (!apiUrl || !hubSecret) return null;
   return new NotifuseClient({ apiUrl, hubSecret });
 }
+
+/** Plans locaux Prospection. */
+type ProspectionLocalPlan = 'freemium' | 'pro' | 'business';
 
 /** Type-guard pour le plan local Prospection (BDD stocke des strings libres). */
 function isValidProspectionLocalPlan(

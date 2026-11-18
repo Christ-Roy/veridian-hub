@@ -532,6 +532,12 @@ au Hub**. Les tables `users` locales restent, comme des copies alimentées par l
 - **Interdit dans une app** : inscription, mot de passe utilisable, changement d'email,
   y compris par les écrans natifs d'un fork.
 - **Reste local** : les clés API machine, et ce qui n'est pas de l'identité.
+- **Suppression d'un compte** (`hub delete-tenant`, `lib/apps/deprovision.ts`) : avant de retirer le compte, le Hub
+  retire ses espaces dans les apps. Prospection : soft-delete §5.8.1, purge à 90 jours (immédiate pour un compte de
+  test). Notifuse : `DELETE /api/tenants/<slug>`, que Notifuse traite en soft-delete. Twenty : `DELETE
+  /api/tenants/<tenant Hub>`. Rybbit : le signal « supprimé » coupe l'accès, sites et rapports gardés. Un échec
+  d'app ne bloque pas la suppression au Hub, il est rendu dans `apps` et `hub reconcile` le voit. Test :
+  `__tests__/lib/apps/deprovision.test.ts`.
 - **Exception opérateur** : l'accès de secours du §1.4, jamais pour un client.
 
 **Aucun lien vers une app sans adresse prouvée.** Toute route du Hub qui mène à une
@@ -739,7 +745,7 @@ versionné `/api/v1/tenants/*` à partir du jour où on bumpe v2).
 | 5 | `POST /api/tenants/resume` | HMAC Hub | Stripe webhook → resumed | ✅ |
 | 6 | `GET /api/tenants/{id}/health` | HMAC Hub | Cron Hub 1×/h ou check manuel | ✅ |
 | 7 | `POST /api/workspaces.generateMagicLink` | Bearer api_key | User click "Open <App>" | ✅ |
-| 8 | `DELETE /api/tenants/{id}` | HMAC Hub | Hard delete admin | ⚠️ Recommandé (sinon Hub ne peut pas supprimer un tenant) |
+| 8 | `DELETE /api/tenants/{id}` | HMAC Hub | `hub delete-tenant` (suppression d'un compte au Hub) | ✅ Notifuse (soft-delete), Twenty ; Prospection passe par le soft-delete §5.8.1 |
 | 9 | `POST /api/sso/issue-magic-link` | HMAC Hub | Bounce OAuth depuis Hub (cf. §6bis.8.3) | ✅ |
 
 ### 5.1 `POST /api/tenants/provision`
@@ -804,8 +810,12 @@ offerts.
 L'immunité des plans offerts (un tenant `grant_manual` ne se fait pas
 downgrader par un event Stripe) est aussi rappelée §3.3 ci-dessous.
 
-Les apps **client-only** (CMS, Analytics) ne sont **pas** concernées par
-`update-plan` — elles n'ont pas de billing Stripe end-user.
+**Analytics (Rybbit) et CRM (Twenty)** reçoivent `update-plan` depuis le 08/11 (Robert : la grille
+s'applique aux apps). Même payload v2, plus `hub_user_id` (le propriétaire du tenant). L'app **stocke**
+le plan, sans aucune limite (générosité maximale) ; seule la marque blanche est réservée à Business+.
+Le Hub le pose par `hub plan --app analytics|crm`, à l'activation (`app-access`, première ouverture du
+CRM) et à chaque abonnement Stripe d'un bundle (`lib/plans/app-plan.ts`), et le retient dans
+`metadata.<app>_plan`. La découverte de l'app le rend, `hub reconcile` compare. Un refus n'écrit rien.
 
 ### 5.3 `POST /api/tenants/attach-owner`
 
@@ -1180,6 +1190,8 @@ tenant en `soft_deleted` :
 ```
 
 #### 5.8.5 `GET /api/tenants/{id}/usage-summary`
+
+> 15/11/2026 : Prospection a supprimé cette route (`ed71da3`) ; le Hub ne l'appelle plus sur Prospection. Prospection a aussi supprimé `POST /api/tenants/{id}/credit-leads` et le Hub a retiré tout le flux refill leads (cf `CONTRAT-BILLING.md` §8.4). Restent inchangées côté Prospection : provision, attach-owner, sync-member, purge, soft-delete, restore, suspend, resume, update-plan, link-hub, freeze.
 
 > 🔥 Gravé en v1.1. Permet à l'admin Hub de **voir l'usage agrégé d'un tenant**
 > avant de purger, pour décision humaine éclairée.
@@ -2552,10 +2564,17 @@ externalise tout au Hub.
    - App cible inatteignable / 5xx → page d'erreur Hub
      « Impossible de revenir sur <app> » avec CTA « Retour
      veridian.site » (pas de loop).
-   - App répond `400 user_not_in_app` → Hub redirige vers
-     `app.veridian.site/dashboard?app=<app>&hint=signup` (l'user a un
-     compte Hub mais pas encore ce produit → flow start-app standard
-     §5.1).
+   - App répond `400 user_not_in_app` ou `400 hub_user_conflict` → page
+     Hub `/auth/bounce/error?app=<app>&code=<code>` qui l'explique avec
+     l'adresse de la session (« pas encore d'accès », « accès rattaché à
+     un autre compte »), « me connecter avec une autre adresse » et le
+     support. Jamais de retour muet au tableau de bord (08/11).
+   - Tout refus laisse au Hub une ligne `[bounce][refus]` : app, code,
+     hub_user_id, statut HTTP ; jamais l'adresse.
+   - **Plusieurs comptes Hub pour une personne** : un compte d'app
+     n'appartient qu'au premier compte Hub relié (`hub_user_id`) ; les
+     autres reçoivent `hub_user_conflict`. Regrouper des comptes Hub est
+     une décision humaine (fusion irréversible).
 
 #### 6bis.8.3 Côté apps downstream — endpoint contrat OBLIGATOIRE
 
@@ -3397,7 +3416,7 @@ Chaque app doit déclarer dans `<app>/docs/features-by-plan.md` :
 | 8. `POST soft-delete` (§5.8.1) | ✅ | ✅ | ❌ | ❌ |
 | 9. `POST restore` (§5.8.2) | ✅ | ✅ | ❌ | ❌ |
 | 10. `POST purge` (§5.8.3) | ✅ | ✅ | ❌ | ❌ |
-| 11. `GET usage-summary` (§5.8.5) | ✅ | ✅ | ❌ | ❌ |
+| 11. `GET usage-summary` (§5.8.5) | ✅ | ❌ supprimé le 15/11/2026 (ed71da3) | ❌ | ❌ |
 | 12. `POST touch` (§5.8.4 endpoint) | ✅ | 🟡 helper non câblé | ❌ | ❌ |
 | 13. `GET /limits` (v1.2+) | ✅ | 🟡 partiel | ❌ | ❌ |
 | 14. `POST rotate-api-key` (§5.15) | ❌ | ❌ | ❌ | ❌ |

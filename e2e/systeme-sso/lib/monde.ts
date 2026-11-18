@@ -33,7 +33,7 @@ function ecrire(m: Monde) {
   writeFileSync(FICHIER, JSON.stringify(m));
 }
 
-export async function compte(browser: Browser, etiquette: 'A' | 'B' | 'C' | 'D' | 'NP'): Promise<Compte> {
+export async function compte(browser: Browser, etiquette: 'A' | 'B' | 'C' | 'D' | 'E' | 'F' | 'G' | 'NP'): Promise<Compte> {
   const m = lire();
   if (m.comptes[etiquette]) return m.comptes[etiquette];
   let c: Compte;

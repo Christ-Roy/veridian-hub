@@ -46,6 +46,8 @@ export interface ProvisionInput {
   plan?: NotifusePlan;
   /** `users.supabase_user_id` du Hub, l'identifiant unique cross-app (§3.7). */
   hubUserId?: string;
+  /** Id du tenant Hub : relie l'espace au `tenant_id` du JWT MCP dès sa création. */
+  hubTenantId?: string;
   emailProven?: boolean;
 }
 
@@ -67,6 +69,10 @@ export interface ProvisionResponse {
 export interface UpdatePlanInput {
   tenantId: string;
   plan: NotifusePlan;
+  /** Statut d'essai du tenant (`lib/plans/trial-status.ts`) : stocké par l'app, jamais appliqué sans son drapeau. */
+  trial?: { status: string; endsAt: string | null };
+  /** Id du tenant Hub : Notifuse le relie à son espace, pour honorer le `tenant_id` du JWT MCP. */
+  hubTenantId?: string;
 }
 
 export interface SuspendInput {
@@ -161,6 +167,8 @@ export type NotifuseEventType =
   | 'tenant.deleted'
   | 'tenant.quota_exceeded'
   | 'email.sent'
+  // Signal d'engagement (5e mail) : Notifuse l'émet par la voie legacy (mesuré le 08/11).
+  | 'tenant.activity_threshold_reached'
   // Events COMPORTEMENTAUX (réconciliateur cold↔web, 2026-06-15). Émis par le
   // fork Notifuse via la voie LEGACY HMAC. Cf docs/CONTRAT-HUB.md §7.5.
   | 'email.opened'

@@ -18,7 +18,7 @@
  *   pnpm oauth:smoke:manual
  *
  * ENV requis :
- *   DATABASE_URL  — Postgres veridian-core-db (Tailscale recommandé)
+ *   DATABASE_URL  — Postgres pg-saas (base hub) (Tailscale recommandé)
  *   OAUTH_SMOKE_BASE_URL (optionnel) — défaut https://app.veridian.site
  *   OAUTH_SMOKE_TEST_EMAIL_GOOGLE (optionnel) — pour ciblage cleanup
  *   OAUTH_SMOKE_TEST_EMAIL_MICROSOFT (optionnel) — idem

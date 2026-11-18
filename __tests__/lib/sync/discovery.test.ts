@@ -253,3 +253,17 @@ describe('configuredSyncApps', () => {
     vi.unstubAllEnvs();
   });
 });
+
+describe('discoverAppForEmail — jointure hub_user_id', () => {
+  it('analytics reçoit hub_user_id (il prime sur l\'adresse côté Rybbit), les autres apps non', async () => {
+    vi.stubEnv('ANALYTICS_API_URL', 'https://analytics.test');
+    vi.stubEnv('ANALYTICS_HUB_API_SECRET', 'cle');
+    const fetchImpl = vi.fn(async () => jsonResp(404, { found: false }));
+    await discoverAppForEmail('analytics', 'a@b.c', { fetchImpl: fetchImpl as never, hubUserId: 'hub-1' });
+    await discoverAppForEmail('notifuse', 'a@b.c', { fetchImpl: fetchImpl as never, hubUserId: 'hub-1' });
+    const urls = fetchImpl.mock.calls.map((c) => String((c as unknown as [string])[0]));
+    expect(urls[0]).toBe('https://analytics.test/api/users/by-email?email=a%40b.c&hub_user_id=hub-1');
+    expect(urls[1]).toBe('https://notifuse.test/api/users/by-email?email=a%40b.c');
+    vi.unstubAllEnvs();
+  });
+});

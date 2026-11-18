@@ -63,8 +63,11 @@ export async function linkApp(
   prisma: PrismaClient,
   input: LinkAppInput
 ): Promise<LinkAppResult> {
+  // Un tenant supprimé n'est jamais repris (09/11 : deux comptes réels rattachés à leurs anciens
+  // tenants supprimés, dont l'un portait encore un espace Notifuse).
   const existing = await prisma.tenant.findFirst({
-    where: { userId: input.userUuid },
+    where: { userId: input.userUuid, deletedAt: null },
+    orderBy: { createdAt: 'asc' },
   });
 
   const appPayload = {
@@ -183,8 +186,11 @@ export async function unlinkApp(
   prisma: PrismaClient,
   input: { userUuid: string; app: AppLinkApp }
 ): Promise<{ tenantId: string; unlinked: boolean }> {
+  // Un tenant supprimé n'est jamais repris (09/11 : deux comptes réels rattachés à leurs anciens
+  // tenants supprimés, dont l'un portait encore un espace Notifuse).
   const existing = await prisma.tenant.findFirst({
-    where: { userId: input.userUuid },
+    where: { userId: input.userUuid, deletedAt: null },
+    orderBy: { createdAt: 'asc' },
   });
 
   if (!existing) {

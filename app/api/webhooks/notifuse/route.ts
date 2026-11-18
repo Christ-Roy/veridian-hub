@@ -386,6 +386,18 @@ async function dispatchLegacyEvent(
       return;
     }
 
+    case 'tenant.activity_threshold_reached':
+      // Notifuse émet ce signal par CETTE voie (5e mail, mesuré le 08/11) : il tombait en « unhandled »,
+      // d'où une machine d'essai jamais nourrie. Même traitement que la voie v1.4, un seul comportement.
+      await v14Handlers['tenant.activity_threshold_reached']({
+        event: 'tenant.activity_threshold_reached',
+        tenant_id: tenantSlug,
+        data: payload.data,
+        idempotency_key: payload.event_id,
+        occurred_at: new Date().toISOString(),
+      } as never);
+      return;
+
     default:
       console.info(
         '[notifuse-webhook] unhandled event_type',

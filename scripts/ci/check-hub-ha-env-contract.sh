@@ -55,19 +55,15 @@ for hcl in "$prod_hcl" "$staging_hcl"; do
     "$hcl: une NomadVarItem est passée à or sans .Value"
 done
 
-# Depuis le 07/11/2026, la base vit dans le job hub-db (nomad-veridian) : le mode par defaut est le catalogue Nomad.
-require_fixed "$prod_hcl" '{{ $dbMode := or .HUB_DATABASE_MODE.Value "nomad-service" }}' \
+# Depuis le 09/11/2026, la base est dans pg-saas (plan §21) : defauts du contrat = son entree.
+require_fixed "$prod_hcl" '{{ $dbMode := or .HUB_DATABASE_MODE.Value "pg-saas" }}' \
   "prod: HUB_DATABASE_MODE n'est pas converti en chaîne Nomad"
-require_fixed "$prod_hcl" '{{ if eq $dbMode "nomad-service" }}' \
-  "prod: mode service-discovery futur non rendu"
-require_fixed "$prod_hcl" '{{ $dbServiceName := or .HUB_DATABASE_SERVICE_NAME.Value "hub-postgres" }}' \
-  "prod: nom de service DB futur non paramétré"
-require_fixed "$prod_hcl" '{{ range nomadService $dbServiceName }}' \
-  "prod: le futur endpoint DB ne passe pas par le registry Nomad"
+require_fixed "$prod_hcl" '{{ $dbHost := or .HUB_DATABASE_HOST.Value "172.26.64.1" }}' \
+  "prod: entrée pg-saas absente des défauts"
 reject_fixed "$prod_hcl" 'HUB_DATABASE_MODE.Value "local-colocated"' \
   "prod: retour au mode local-colocated, la base n'est plus dans le job"
-require_fixed "$prod_hcl" '{{ $dbServiceName := or .HUB_DATABASE_SERVICE_NAME.Value "veridian-core-db" }}' \
-  "prod: nom logique DB historique absent"
+reject_fixed "$prod_hcl" 'nomadService "hub-postgres"' \
+  "prod: le Hub vise encore le service hub-db, gelé puis purgé"
 require_fixed "$staging_hcl" 'HUB_DATABASE_MODE.Value "single-haproxy"' \
   "staging: mode base simple derrière HAProxy absent"
 require_fixed "$staging_hcl" 'HUB_DATABASE_SERVICE_NAME={{ or .HUB_DATABASE_SERVICE_NAME.Value "hub-staging-db" }}' \

@@ -13,7 +13,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-import { diffTenantApp, runReconcile } from '@/lib/sync/reconcile';
+import { diffTenantApp, measureNotWired, remediationFor, runReconcile } from '@/lib/sync/reconcile';
 import type {
   DiscoveryAppResult,
   DiscoveryResult,
@@ -67,6 +67,24 @@ describe('diffTenantApp', () => {
       hubValue: 'pro',
       appValue: 'business',
     });
+  });
+
+  it('essai actif : Hub free et Notifuse pro ne font pas un écart (plan effectif = pro)', () => {
+    const disc = makeDiscovery({
+      found: true,
+      snapshots: [{ app: 'notifuse', workspaceId: 'ws-1', plan: 'pro', status: 'active', observedAt: 'now' }],
+    });
+    const drifts = diffTenantApp({ ...baseTenant, notifusePlan: 'free', trialStatus: 'trial_active' }, 'notifuse', disc, 'now');
+    expect(drifts.filter((d) => d.kind === 'plan_mismatch')).toHaveLength(0);
+  });
+
+  it('essai terminé : Hub free et Notifuse pro restent un écart', () => {
+    const disc = makeDiscovery({
+      found: true,
+      snapshots: [{ app: 'notifuse', workspaceId: 'ws-1', plan: 'pro', status: 'active', observedAt: 'now' }],
+    });
+    const drifts = diffTenantApp({ ...baseTenant, notifusePlan: 'free', trialStatus: 'expired' }, 'notifuse', disc, 'now');
+    expect(drifts.filter((d) => d.kind === 'plan_mismatch')).toHaveLength(1);
   });
 
   it('emits status_mismatch when Hub.status ≠ snapshot.status', () => {
@@ -306,7 +324,11 @@ describe('diffTenantApp — dérives relevées en prod le 06/11', () => {
       startedAt: 'now',
       durationMs: 1,
     };
-    expect(diffTenantApp(t, 'analytics', owner, 'now')).toHaveLength(0);
+    // Activée sans plan posé : écart à part, le plan de l'app ne vient de personne.
+    expect(diffTenantApp(t, 'analytics', owner, 'now')).toMatchObject([{ kind: 'plan_unset' }]);
+    const avecPlan = { ...t, metadata: { ...t.metadata, analytics_plan: 'free' } };
+    const ownerFree = { ...owner, apps: { ...owner.apps, analytics: { found: true as const, snapshots: [snapshot('analytics', { role: 'owner', plan: 'free' })] } } };
+    expect(diffTenantApp(avecPlan, 'analytics', ownerFree, 'now')).toHaveLength(0);
     const gone = { ...owner, apps: { ...owner.apps, analytics: { found: false as const } } };
     expect(diffTenantApp(t, 'analytics', gone, 'now')).toMatchObject([
       { kind: 'tenant_missing_app' },
@@ -489,5 +511,91 @@ describe('runReconcile', () => {
     });
     expect(summary.appsUnreachable).toBe(1);
     expect(summary.drifts[0]).toMatchObject({ kind: 'app_unreachable' });
+  });
+});
+
+describe('plan et statut d\'essai, app par app (Robert, 08/11 : « toujours savoir les écarts »)', () => {
+  const disc = (snapshots: Array<Record<string, unknown>>) => ({
+    email: 'user@x.com',
+    apps: {
+      notifuse: { found: false as const },
+      prospection: { found: false as const },
+      analytics: { found: true as const, snapshots: snapshots.map((o) => ({ app: 'analytics' as const, workspaceId: 'ws', observedAt: 'now', role: 'owner', ...o })) },
+      crm: { found: false as const },
+    },
+    startedAt: 'now',
+    durationMs: 1,
+  });
+  const t = { ...baseTenant, trialStatus: 'trial_active', metadata: { analytics: {}, analytics_plan: 'pro' } as Record<string, unknown> };
+
+  it('statut d\'essai différent de celui du Hub : trial_mismatch', () => {
+    expect(diffTenantApp(t, 'analytics', disc([{ plan: 'pro', trialStatus: 'expired' }]), 'now')).toMatchObject([
+      { kind: 'trial_mismatch', hubValue: { trial_status: 'trial_active' }, appValue: 'expired' },
+    ]);
+  });
+  it('statut jamais reçu par l\'app (null) : trial_mismatch', () => {
+    expect(diffTenantApp(t, 'analytics', disc([{ plan: 'pro', trialStatus: null }]), 'now')).toMatchObject([{ kind: 'trial_mismatch' }]);
+  });
+  it('jamais reçu (null) face à aucun essai au Hub (none) : pas d\'écart', () => {
+    const sansEssai = { ...t, trialStatus: 'none' };
+    expect(diffTenantApp(sansEssai, 'analytics', disc([{ plan: 'pro', trialStatus: null }]), 'now')).toHaveLength(0);
+  });
+  it('app qui ne rend pas le champ : pas d\'écart ici, compté dans « non câblé »', () => {
+    expect(diffTenantApp(t, 'analytics', disc([{ plan: 'pro' }]), 'now')).toHaveLength(0);
+  });
+  it('même statut : aucun écart', () => {
+    expect(diffTenantApp(t, 'analytics', disc([{ plan: 'pro', trialStatus: 'trial_active' }]), 'now')).toHaveLength(0);
+  });
+
+  it('chaque écart a sa marche à suivre, sans adresse client', () => {
+    const kinds = ['plan_mismatch', 'trial_mismatch', 'plan_unset', 'tenant_missing_app', 'tenant_extra_app', 'status_mismatch', 'app_unreachable', 'hub_tenant_unlinked'] as const;
+    for (const kind of kinds) {
+      const r = remediationFor({ hubTenantId: 't1', app: 'analytics', kind, hubValue: { plan: 'pro' } });
+      expect(r, kind).toBeTruthy();
+      expect(r).not.toMatch(/@/);
+    }
+    expect(remediationFor({ hubTenantId: 't1', app: 'crm', kind: 'plan_mismatch', hubValue: 'business' })).toContain('hub plan t1 --app crm --plan business');
+  });
+
+  it('non câblé : mesuré (app sans statut d\'essai, machine d\'états jamais nourrie) et daté', async () => {
+    const vu = new Map([
+      ['notifuse', { comptes: 3, avecEssai: 0 }],
+      ['analytics', { comptes: 2, avecEssai: 2 }],
+    ] as const);
+    process.env.TRIAL_MACHINE_ENABLED = '1';
+    const vide = await measureNotWired({ $queryRaw: async () => [{ reels: 0 }] } as never, new Map(vu));
+    expect(vide.some((l) => l.startsWith('notifuse : statut d\'essai non rendu'))).toBe(true);
+    expect(vide.some((l) => l.startsWith('analytics'))).toBe(false);
+    expect(vide.some((l) => l.startsWith('essai : aucun signal d\'activité réel'))).toBe(true);
+    expect(vide.some((l) => l.startsWith('cms : hors périmètre (PRICING)'))).toBe(true);
+    const nourrie = await measureNotWired({ $queryRaw: async () => [{ reels: 4 }] } as never, new Map());
+    expect(nourrie.some((l) => l.startsWith('essai :'))).toBe(false);
+    process.env.TRIAL_MACHINE_ENABLED = '0';
+    const coupee =await measureNotWired({ $queryRaw: async () => [{ reels: 4 }] } as never, new Map());
+    expect(coupee.some((l) => l.startsWith('essai : flow d\'essai réel coupé'))).toBe(true);
+  });
+});
+
+describe('lien au tenant Hub (hub_tenant_id, claim tenant_id du MCP)', () => {
+  const t = { ...baseTenant, prospectionPlan: 'freemium', prospectionProvisionedAt: new Date('2026-01-01') };
+  const snapshot = (app: 'prospection', over: Record<string, unknown>) => ({ app, workspaceId: 'ws', observedAt: 'now', ...over });
+  const disc = (extra: Record<string, unknown>) =>
+    makeDiscovery({ found: false }, { found: true, snapshots: [snapshot('prospection', { plan: 'freemium', ...extra })] });
+  it('non relié (null) : écart, avec la commande de rejeu', () => {
+    const d = diffTenantApp(t, 'prospection', disc({ hubTenantLink: null }), 'now');
+    expect(d.map((x) => x.kind)).toEqual(['hub_tenant_unlinked']);
+    expect(remediationFor(d[0])).toContain('hub relier --app prospection --tenant t1');
+  });
+  it('relié à un autre tenant Hub : écart', () => {
+    expect(diffTenantApp(t, 'prospection', disc({ hubTenantLink: 'autre' }), 'now').map((x) => x.kind)).toEqual(['hub_tenant_unlinked']);
+  });
+  it('relié au bon tenant : aucun écart', () => {
+    expect(diffTenantApp(t, 'prospection', disc({ hubTenantLink: 't1' }), 'now')).toHaveLength(0);
+  });
+  it('app qui ne rend pas le champ : pas d\'écart (non mesuré)', () => {
+    expect(diffTenantApp(t, 'prospection', disc({}), 'now')).toHaveLength(0);
+  });
+  it('simple membre du workspace d\'un autre : pas d\'écart', () => {
+    expect(diffTenantApp(t, 'prospection', disc({ hubTenantLink: 'autre', role: 'member' }), 'now')).toHaveLength(0);
   });
 });

@@ -305,7 +305,7 @@ jobs:
           steps.check_range.outputs.all_low == 'false'
         env:
           TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TG_CHAT: ${{ secrets.ALERT_CHAT_ID }}
         run: |
           if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then exit 0; fi
           SHA7=$(echo "${{ github.sha }}" | cut -c1-7)
@@ -341,7 +341,7 @@ jobs:
           steps.check_range.outputs.all_low == 'true'
         env:
           TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TG_CHAT: ${{ secrets.ALERT_CHAT_ID }}
         run: |
           if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then exit 0; fi
           STATUS="${{ job.status }}"
@@ -388,7 +388,7 @@ jobs:
         if: steps.check.outputs.skip != 'true'
         env:
           TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TG_CHAT: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TG_CHAT: ${{ secrets.ALERT_CHAT_ID }}
         run: |
           if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then exit 0; fi
           SHA7=$(echo "${{ github.sha }}" | cut -c1-7)

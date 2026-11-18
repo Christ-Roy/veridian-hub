@@ -19,7 +19,7 @@
  *   pnpm exec tsx scripts/admin/repair-notifuse-owners.ts --apply   # exécute
  *
  * ENV requis (cf .env.local / shell) :
- *   DATABASE_URL                 — Postgres veridian-core-db
+ *   DATABASE_URL                 — Postgres pg-saas (base hub)
  *   NOTIFUSE_API_URL             — staging ou prod selon contexte
  *   NOTIFUSE_HUB_API_SECRET      — secret HMAC partagé Hub ↔ Notifuse
  *

@@ -65,7 +65,10 @@ ALLOWLIST_DECLARED="DATABASE_URL NEXTAUTH_URL AUTH_URL AUTH_TRUST_HOST \
   STRIPE_PUBLISHABLE_KEY_TEST STRIPE_SECRET_KEY_TEST STRIPE_WEBHOOK_SECRET_TEST \
   NOTIFUSE_API_ENDPOINT \
   PROSPECTION_INTERNAL_URL \
-  SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASSWORD"
+  SMTP_HOST SMTP_PORT SMTP_USER SMTP_PASSWORD \
+  CMS_API_URL CMS_HUB_API_SECRET CRM_HUB_API_SECRET"
+# CMS_* et CRM_HUB_API_SECRET : lues par nom dans APP_ENV_MAP (lib/auth/bounce-apps.ts), env[mapping.urlVar],
+# que ce relevé de process.env.X ne voit pas.
 
 # ─── Extraction des vars utilisées dans le code ──────────────────────────────
 # Hub = Next.js App Router root-level (pas de src/). Scan tout sauf

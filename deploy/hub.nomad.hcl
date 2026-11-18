@@ -8,19 +8,17 @@
 #
 # Veridian Hub (orchestrateur auth/billing/provisioning, Next.js, port 3000).
 # Placement : serveur PROD OVH (provider=ovh-prod). DB actuelle =
-# le job `hub-db` (depuis le 07/11/2026), hors de ce groupe : un déploiement ne touche pas la base.
+# base pg-saas (depuis le 09/11/2026) : un déploiement ne touche pas la base.
 # Le contrat runtime ne hardcode plus l'URL complète : `DATABASE_URL` est
 # composée depuis les variables d'endpoint `HUB_DATABASE_*` et le secret
-# `VERIDIAN_CORE_DB_PASSWORD`. `HUB_DATABASE_MODE=nomad-service` : service `hub-postgres`.
+# `PG_SAAS_PASSWORD` (pg-saas, plan §21).
 # Demain, le cutover HA remplace seulement l'endpoint (`HUB_DATABASE_MODE`,
 # `HUB_DATABASE_SERVICE_NAME`, host/port ou proxy) sans changer le code Hub.
 # TLS terminé par Traefik (certresolver letsencrypt sur app.veridian.site).
 # Secrets = Nomad Variable nomad/jobs/hub (JAMAIS en clair).
 # ⚠️ Stripe LIVE en prod (clés dans la Nomad var).
 #
-# ⚠️ DB PROD mono-instance postgres:16, volume bind /opt/veridian-lab/hub/core-db.
-# NE PAS reschedule (le volume local ne suit pas). Cible infra à terme = cluster
-# Patroni HA (le staging l'a déjà, cf deploy/hub-staging.nomad.hcl).
+# Base : grappe pg-saas (Patroni, plan nomad-veridian §21). L'ancienne base hub-db est purgée (09/11/2026).
 
 variable "image_tag" {
   type        = string
@@ -80,7 +78,7 @@ job "hub" {
       auto_revert       = true
     }
 
-    # Épinglé au serveur PROD : la base `hub-db` y vit, le Hub la joint par le catalogue Nomad.
+    # Épinglé au serveur PROD : l'entrée pg-saas 172.26.64.1 (pont Nomad) y vit.
     constraint {
       attribute = "${meta.provider}"
       value     = "ovh-prod"
@@ -89,7 +87,8 @@ job "hub" {
     restart {
       attempts = 10
       interval = "10m"
-      delay    = "15s"
+      # 2 s (et non 15) : retour servi après un plantage en ~6 s, mesuré sur le CMS le 09/11 (26 s avant).
+      delay    = "2s"
       mode     = "delay"
     }
 
@@ -242,45 +241,41 @@ ANALYTICS_API_URL=https://analytics.app.veridian.site
 # reconstruire l'image. Sans elle, le défaut en dur de attach-downstream.ts
 # s'applique — et il pointait encore sur l'ancien moteur.
 NEXT_PUBLIC_ANALYTICS_URL=https://analytics.app.veridian.site
-
+# CRM Veridian (Twenty) : provisioning signé et rebond, CONTRAT-HUB §5.1 et §6bis.8. Secret = HUB_API_SECRET de nomad/jobs/crm.
+CRM_API_URL=https://crm.app.veridian.site
 {{ with nomadVar "nomad/jobs/hub" }}
-{{ $dbMode := or .HUB_DATABASE_MODE.Value "nomad-service" }}
-{{ $dbUser := or .HUB_DATABASE_USER.Value "veridian" }}
-{{ $dbHost := or .HUB_DATABASE_HOST.Value "127.0.0.1" }}
-{{ $dbPort := or .HUB_DATABASE_PORT.Value "5432" }}
-{{ $dbName := or .HUB_DATABASE_NAME.Value "veridian" }}
+# Base du Hub : pg-saas (grappe Patroni, entree 172.26.64.1:15432, base hub, role hub). Migration du 09/11/2026 (plan §21).
+# DATABASE_URL composee depuis HUB_DATABASE_* (defauts = pg-saas) : une bascule change une cle, pas ce fichier.
+{{ $dbMode := or .HUB_DATABASE_MODE.Value "pg-saas" }}
+{{ $dbUser := or .HUB_DATABASE_USER.Value "hub" }}
+{{ $dbHost := or .HUB_DATABASE_HOST.Value "172.26.64.1" }}
+{{ $dbPort := or .HUB_DATABASE_PORT.Value "15432" }}
+{{ $dbName := or .HUB_DATABASE_NAME.Value "hub" }}
 {{ $dbSchema := or .HUB_DATABASE_SCHEMA.Value "hub_app" }}
-{{ $dbPassword := .VERIDIAN_CORE_DB_PASSWORD }}
-{{ if eq $dbMode "nomad-service" }}
-{{ $dbServiceName := or .HUB_DATABASE_SERVICE_NAME.Value "hub-postgres" }}
-{{ range nomadService $dbServiceName }}
 HUB_DATABASE_MODE={{ $dbMode }}
-HUB_DATABASE_SERVICE_NAME={{ $dbServiceName }}
-HUB_DATABASE_USER={{ $dbUser }}
-HUB_DATABASE_HOST={{ .Address }}
-HUB_DATABASE_PORT={{ .Port }}
-HUB_DATABASE_NAME={{ $dbName }}
-HUB_DATABASE_SCHEMA={{ $dbSchema }}
-DATABASE_URL=postgresql://{{ $dbUser }}:{{ $dbPassword }}@{{ .Address }}:{{ .Port }}/{{ $dbName }}?schema={{ $dbSchema }}
-{{ end }}
-{{ else }}
-{{ $dbServiceName := or .HUB_DATABASE_SERVICE_NAME.Value "veridian-core-db" }}
-HUB_DATABASE_MODE={{ $dbMode }}
-HUB_DATABASE_SERVICE_NAME={{ $dbServiceName }}
 HUB_DATABASE_USER={{ $dbUser }}
 HUB_DATABASE_HOST={{ $dbHost }}
 HUB_DATABASE_PORT={{ $dbPort }}
 HUB_DATABASE_NAME={{ $dbName }}
 HUB_DATABASE_SCHEMA={{ $dbSchema }}
-DATABASE_URL=postgresql://{{ $dbUser }}:{{ $dbPassword }}@{{ $dbHost }}:{{ $dbPort }}/{{ $dbName }}?schema={{ $dbSchema }}
-{{ end }}
+DATABASE_URL=postgresql://{{ $dbUser }}:{{ .PG_SAAS_PASSWORD }}@{{ $dbHost }}:{{ $dbPort }}/{{ $dbName }}?schema={{ $dbSchema }}
+# Flow d'essai réel : allumé (go de Robert). Défaut 1 si la clé est absente ; 0 coupe.
+# Couper : nomad/jobs/hub TRIAL_MACHINE_ENABLED=0 (bloc complet, stdin, -check-index), puis rendre le job.
+TRIAL_MACHINE_ENABLED={{ or .TRIAL_MACHINE_ENABLED.Value "1" }}
 AUTH_SECRET={{ .HUB_AUTH_SECRET }}
 ADMIN_SECRET={{ .ADMIN_SECRET }}
 CRON_SECRET={{ .CRON_SECRET }}
 VAULT_ENC_KEY={{ .VAULT_ENC_KEY }}
+{{ with nomadVar "nomad/jobs/hub/stack" }}CRM_HUB_API_SECRET={{ .CRM_HUB_API_SECRET }}{{ end }}
 SESSION_HINT_SECRET={{ .SESSION_HINT_SECRET }}
 GOOGLE_OAUTH_CLIENT_ID={{ .GOOGLE_OAUTH_CLIENT_ID }}
 GOOGLE_OAUTH_CLIENT_SECRET={{ .GOOGLE_OAUTH_CLIENT_SECRET }}
+MICROSOFT_OAUTH_CLIENT_ID={{ .MICROSOFT_OAUTH_CLIENT_ID }}
+MICROSOFT_OAUTH_CLIENT_SECRET={{ .MICROSOFT_OAUTH_CLIENT_SECRET }}
+TELEGRAM_BOT_TOKEN={{ .TELEGRAM_BOT_TOKEN }}
+ALERT_CHAT_ID={{ .ALERT_CHAT_ID }}
+ANALYTICS_TRACK_KEY={{ .ANALYTICS_TRACK_KEY }}
+MCP_SIGNING_JWK={{ .MCP_SIGNING_JWK }}
 GOOGLE_MAIL_CLIENT_ID={{ .GOOGLE_MAIL_CLIENT_ID }}
 GOOGLE_MAIL_CLIENT_SECRET={{ .GOOGLE_MAIL_CLIENT_SECRET }}
 NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY={{ .STRIPE_PUBLISHABLE_KEY_LIVE }}
@@ -289,7 +284,6 @@ STRIPE_SECRET_KEY={{ .STRIPE_SECRET_KEY_LIVE }}
 STRIPE_SECRET_KEY_LIVE={{ .STRIPE_SECRET_KEY_LIVE }}
 STRIPE_WEBHOOK_SECRET={{ .STRIPE_WEBHOOK_SECRET_LIVE }}
 STRIPE_WEBHOOK_SECRET_LIVE={{ .STRIPE_WEBHOOK_SECRET_LIVE }}
-STRIPE_REFILL_PRODUCT_ID_LIVE={{ .STRIPE_REFILL_PRODUCT_ID_LIVE }}
 NOTIFUSE_SECRET_KEY={{ .NOTIFUSE_SECRET_KEY }}
 NOTIFUSE_ROOT_EMAIL={{ .NOTIFUSE_ROOT_EMAIL }}
 NOTIFUSE_HUB_API_SECRET={{ .NOTIFUSE_HUB_API_SECRET }}

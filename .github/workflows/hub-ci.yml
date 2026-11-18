@@ -269,7 +269,7 @@ jobs:
       # ⚠️ On dépose le HCL DU REPO (qui déclare `variable "image_tag"`) sur stdin.
       - name: Put job HCL (verbe put-job)
         run: |
-          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new \
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=20 -o StrictHostKeyChecking=accept-new \
             "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}" \
             "put-job prod" < "$JOB_FILE"
 
@@ -277,14 +277,14 @@ jobs:
         env:
           IMAGE_TAG: ${{ needs.docker.outputs.version }}
         run: |
-          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -o IdentitiesOnly=yes \
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
             "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}" \
             "deploy prod ${IMAGE_TAG}"
 
       - name: Cleanup remote HCL (verbe cleanup)
         if: always()
         run: |
-          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -o IdentitiesOnly=yes \
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
             "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}" \
             "cleanup prod" || true
 

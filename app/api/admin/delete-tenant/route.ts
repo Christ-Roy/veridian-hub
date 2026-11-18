@@ -1,6 +1,9 @@
-import { pushUserToApps } from '@/lib/identity/push-user';
 import { NextRequest, NextResponse } from 'next/server';
 
+import { deprovisionnerCompte } from '@/lib/apps/deprovision';
+import { pushUserToApps } from '@/lib/identity/push-user';
+
+import { resolveActor, writeAuditLog } from '@/lib/admin/audit-log';
 import { requireAdmin } from '@/lib/admin/require-admin';
 import { prisma } from '@/lib/prisma';
 
@@ -12,14 +15,15 @@ export const runtime = 'nodejs';
  * Body: { email: string, confirm: true }
  *
  * Soft-deletes tenant rows for the given email and removes the Auth.js user
- * (cascade clears Account/Session via Prisma FK onDelete).
- * Does NOT delete Notifuse workspaces (manual cleanup needed downstream).
+ * (cascade clears Account/Session via Prisma FK onDelete). Avant, déprovisionne les espaces du
+ * compte dans chaque app (`lib/apps/deprovision.ts`) : sans ça, chaque suppression laissait des
+ * orphelins chez Prospection, Notifuse et Twenty. Chaque issue est rendue dans `apps`.
  */
 export async function DELETE(request: NextRequest) {
   const denial = await requireAdmin(request);
   if (denial) return denial;
 
-  let body: { email?: string; confirm?: unknown };
+  let body: { email?: string; confirm?: unknown; motif?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -27,6 +31,8 @@ export async function DELETE(request: NextRequest) {
   }
 
   const { email, confirm } = body;
+  // Motif de la suppression, gardé à l'audit (09/11 : on ne savait plus qui avait supprimé, ni pourquoi).
+  const motif = typeof body.motif === 'string' ? body.motif.replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 200) : null;
   if (!email) {
     return NextResponse.json({ error: 'email required' }, { status: 400 });
   }
@@ -48,15 +54,20 @@ export async function DELETE(request: NextRequest) {
 
   const userUuid = user.supabaseUserId;
   const actions: string[] = [];
+  let apps: Awaited<ReturnType<typeof deprovisionnerCompte>> = [];
 
   // Soft-delete tenants (only if we have a UUID bridge)
   if (userUuid) {
     // findMany conservé pour récupérer notifuseWorkspaceSlug et logger les warnings
     // de cleanup manuel downstream + lister chaque tenant ID dans l'audit response.
+    // Tenants encore actifs seulement : un tenant déjà supprimé garde sa date et n'est pas
+    // redéprovisionné (09/11 : un ancien tenant supprimé portait encore un espace Notifuse).
     const tenants = await prisma.tenant.findMany({
-      where: { userId: userUuid },
-      select: { id: true, notifuseWorkspaceSlug: true },
+      where: { userId: userUuid, deletedAt: null },
+      select: { id: true, notifuseWorkspaceSlug: true, prospectionProvisionedAt: true, metadata: true },
     });
+    apps = await deprovisionnerCompte({ email, tenants });
+    for (const a of apps) actions.push(`${a.ok ? '✓' : '⚠️'} ${a.app} ${a.cible} : ${a.detail}`);
 
     if (tenants.length === 0) {
       actions.push('No tenant row found');
@@ -73,11 +84,6 @@ export async function DELETE(request: NextRequest) {
       // Garde la trace par-tenant pour l'audit (IDs + warnings notifuse).
       for (const tenant of tenants) {
         actions.push(`  • tenant ${tenant.id}`);
-        if (tenant.notifuseWorkspaceSlug) {
-          actions.push(
-            `⚠️ Notifuse workspace ${tenant.notifuseWorkspaceSlug} still exists (manual cleanup needed)`,
-          );
-        }
       }
     }
 
@@ -108,10 +114,21 @@ export async function DELETE(request: NextRequest) {
     actions.push(`⚠️ Auth user delete failed: ${message}`);
   }
 
+  // Une suppression ne passe plus sans trace (09/11 : deux comptes réels supprimés le 07/11 sans
+  // qu'on puisse dire par qui). Ni adresse ni contenu : identifiants et issues par app.
+  await writeAuditLog(prisma, {
+    action: 'admin.tenant.delete',
+    actor: request.headers ? resolveActor(request.headers, null) : 'inconnu',
+    targetType: 'user',
+    targetId: userUuid ?? user.id,
+    payload: { apps: apps.map((a) => ({ app: a.app, ok: a.ok })), actions: actions.length, ...(motif ? { motif } : {}) },
+  });
+
   return NextResponse.json({
     ok: true,
     email,
     user_id: userUuid ?? user.id,
     actions,
+    apps,
   });
 }

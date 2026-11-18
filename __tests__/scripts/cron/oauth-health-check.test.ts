@@ -24,7 +24,7 @@ beforeEach(() => {
   delete process.env.MICROSOFT_OAUTH_CLIENT_SECRET;
   delete process.env.MICROSOFT_OAUTH_OBJECT_ID;
   delete process.env.TELEGRAM_BOT_TOKEN;
-  delete process.env.TELEGRAM_CHAT_ID;
+  delete process.env.ALERT_CHAT_ID;
   process.env.OAUTH_HEALTH_WARN_DAYS = '90';
   vi.resetModules();
 });
@@ -222,7 +222,7 @@ describe('sendTelegramAlert', () => {
 
   it('appelle l\'API Telegram quand configuré', async () => {
     process.env.TELEGRAM_BOT_TOKEN = 'tok';
-    process.env.TELEGRAM_CHAT_ID = '42';
+    process.env.ALERT_CHAT_ID = '42';
     fetchMock.mockResolvedValueOnce({ ok: true, status: 200 });
 
     const { sendTelegramAlert } = await import('../../../scripts/cron/oauth-health-check');
@@ -239,7 +239,7 @@ describe('sendTelegramAlert', () => {
 
   it('ne throw pas si fetch Telegram échoue', async () => {
     process.env.TELEGRAM_BOT_TOKEN = 'tok';
-    process.env.TELEGRAM_CHAT_ID = '42';
+    process.env.ALERT_CHAT_ID = '42';
     fetchMock.mockRejectedValueOnce(new Error('network'));
 
     const { sendTelegramAlert } = await import('../../../scripts/cron/oauth-health-check');

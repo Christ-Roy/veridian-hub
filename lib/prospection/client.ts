@@ -38,6 +38,8 @@ export interface ProvisionInput {
   userId: string;
   plan?: string;
   emailProven?: boolean;
+  /** Id du tenant Hub : Prospection le retient pour honorer le `tenant_id` du JWT MCP. */
+  hubTenantId?: string;
 }
 
 export interface UpdatePlanInput {
@@ -47,6 +49,8 @@ export interface UpdatePlanInput {
   planSource: string;
   idempotencyKey: string;
   reason?: string;
+  /** Statut d'essai du tenant (`lib/plans/trial-status.ts`) : stocké par l'app, jamais appliqué sans son drapeau. */
+  trial?: { status: string; endsAt: string | null };
 }
 
 export interface ProvisionResponse {
@@ -85,13 +89,37 @@ export class ProspectionClient {
     this.fetchImpl = opts.fetchImpl ?? fetch;
   }
 
+  /**
+   * Relie le tenant Prospection du propriétaire à son tenant Hub, et rien d'autre (ni espace, ni
+   * membre, ni jeton, ni clé). Posé seulement s'il est vide ; une valeur différente n'est jamais écrasée.
+   */
+  async linkHub(input: { hubUserId: string; hubTenantId: string }): Promise<{ linked: boolean; raison?: string }> {
+    return this.hmacRequest<{ linked: boolean; raison?: string }>('POST', '/api/tenants/link-hub', {
+      hub_user_id: input.hubUserId,
+      hub_tenant_id: input.hubTenantId,
+    });
+  }
+
+  /**
+   * Soft-delete du tenant (contrat §5.8.1) : données gardées jusqu'à `purgeEligibleAt`, restaurables.
+   * `idOuEmail` : id local ou adresse du propriétaire (Prospection résout les deux).
+   */
+  async softDeleteTenant(idOuEmail: string, input: { purgeEligibleAt: string; reason?: string }): Promise<unknown> {
+    return this.hmacRequest<unknown>('POST', `/api/tenants/${encodeURIComponent(idOuEmail)}/soft-delete`, {
+      tenant_id: idOuEmail,
+      reason: input.reason ?? 'admin_action',
+      purge_eligible_at: input.purgeEligibleAt,
+    });
+  }
+
   async provisionTenant(input: ProvisionInput): Promise<ProvisionResponse> {
     return this.hmacRequest<ProvisionResponse>('POST', '/api/tenants/provision', {
       email: input.email,
       name: input.name,
       plan: input.plan ?? 'freemium',
       user_id: input.userId,
-      metadata: { hub_user_id: input.userId },
+      metadata: { hub_user_id: input.userId, ...(input.hubTenantId ? { hub_tenant_id: input.hubTenantId } : {}) },
+      ...(input.hubTenantId ? { hub_tenant_id: input.hubTenantId } : {}),
       ...(input.emailProven ? { email_proven: true } : {}),
     });
   }
@@ -105,6 +133,7 @@ export class ProspectionClient {
       effective_at: new Date().toISOString(),
       idempotency_key: input.idempotencyKey,
       ...(input.reason ? { reason: input.reason } : {}),
+      ...(input.trial ? { trial_status: input.trial.status, trial_ends_at: input.trial.endsAt } : {}),
     });
   }
 

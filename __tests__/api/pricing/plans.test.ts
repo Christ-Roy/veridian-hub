@@ -8,17 +8,13 @@ import { describe, it, expect } from 'vitest';
 import { GET } from '@/app/api/pricing/plans/route';
 
 describe('GET /api/pricing/plans', () => {
-  it('retourne 200 + JSON avec plans/refill/annual_perks/version', async () => {
+  it('retourne 200 + JSON avec plans/annual_perks/version', async () => {
     const res = await GET();
     expect(res.status).toBe(200);
 
     const body = await res.json();
     expect(body).toMatchObject({
       plans: expect.any(Object),
-      refill: {
-        pricing_cents: expect.any(Object),
-        max_per_order: expect.any(Number),
-      },
       annual_perks: expect.objectContaining({
         supportPriority: true,
         premiumTutos: true,
@@ -48,11 +44,10 @@ describe('GET /api/pricing/plans', () => {
     ]);
   });
 
-  it('refill.pricing_cents.business retourne 5 tranches', async () => {
+  it('refill retiré de la grille publique (15/11/2026)', async () => {
     const res = await GET();
     const body = await res.json();
-    expect(body.refill.pricing_cents.business).toHaveLength(5);
-    expect(body.refill.max_per_order).toBe(100_000);
+    expect('refill' in body).toBe(false);
   });
 
   it('cache-control 1h + stale-while-revalidate', async () => {

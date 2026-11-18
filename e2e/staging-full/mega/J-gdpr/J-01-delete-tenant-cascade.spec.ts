@@ -27,12 +27,10 @@
  * MEGA `test.afterAll` purgeMegaByPrefix tournera quand même pour balayer
  * tout reliquat (audit_log, tenant_trials, etc.).
  *
- * **NOTE STATUT** : la doc du endpoint dit "soft-deletes tenant rows + delete
- * Auth.js user (cascade) + DOES NOT delete Notifuse workspaces downstream".
- * On asserte donc la cascade locale Hub strict + on TOLÈRE absence de
- * propagation downstream (le ticket MEGA mentionne "propagation downstream"
- * comme idéal — pas encore livré côté code, ne pas faire échouer la spec
- * si downstream still has the workspace).
+ * **NOTE STATUT** : depuis le 09/11, `delete-tenant` déprovisionne les espaces du compte dans les apps
+ * (`lib/apps/deprovision.ts` : soft-delete Prospection et Notifuse, suppression Twenty), avant de retirer
+ * le compte. Ce comportement est figé par `__tests__/lib/apps/deprovision.test.ts` ; cette spec, qui tourne
+ * sur staging, ne l'asserte pas et vérifie la cascade locale du Hub.
  *
  * **MARKER** : `[risk:medium]` — touche au flow GDPR, critique légal.
  */

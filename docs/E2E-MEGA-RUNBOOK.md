@@ -109,7 +109,6 @@ e2e/staging-full/mega/
 ├── B-trial/                        ← 3 specs (Vague 2)
 ├── C-billing-checkout/             ← 5 specs (Vague 2)
 ├── D-plan-changes/                 ← 4 specs (Vague 2)
-├── E-refill-leads/                 ← 2 specs (Vague 2)
 ├── F-webhook-robustness/           ← 4 specs (Vague 2)
 ├── G-cross-app-sync/               ← 3 specs (Vague 2)
 ├── H-invitations-oauth-bounce/     ← 3 specs (Vague 2)

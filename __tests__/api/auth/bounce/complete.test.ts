@@ -7,7 +7,8 @@
  *  - cookie expiré / signature invalide → /dashboard, cookies vidés
  *  - cookie OK + pas de session Hub → /login?next=... (re-trigger possible)
  *  - cookie OK + session OK + downstream 200 → 302 magic_link_url, cookies vidés
- *  - cookie OK + session OK + downstream 400 user_not_in_app → /dashboard?app=...&hint=signup
+ *  - cookie OK + session OK + downstream 400 user_not_in_app / hub_user_conflict → /auth/bounce/error qui l'explique,
+ *    et une ligne `[bounce][refus]` (app, code, hub_user_id), jamais l'adresse
  *  - cookie OK + session OK + downstream 5xx → /auth/bounce/error?app=...&code=unreachable
  *  - cookie OK + session OK + ENV non configurée → /auth/bounce/error?code=not_configured
  *  - AUTH_SECRET manquant → /dashboard, cookies vidés
@@ -18,6 +19,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const userFindUniqueMock = vi.hoisted(() => vi.fn(async (): Promise<unknown> => null));
 vi.mock('@/lib/prisma', () => ({ prisma: { user: { findUnique: userFindUniqueMock } } }));
+const ensureCrmMock = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/crm/provision', () => ({ ensureCrmWorkspace: (...a: unknown[]) => ensureCrmMock(...a) }));
 const mockDenyUnlessEmailProven = vi.hoisted(() => vi.fn(async (): Promise<unknown> => null));
 vi.mock('@/lib/auth/email-proof', () => ({
   denyUnlessEmailProven: mockDenyUnlessEmailProven,
@@ -49,6 +52,8 @@ beforeEach(() => {
   process.env.DEPLOY_ENV = 'production';
   process.env.NOTIFUSE_API_URL = 'https://notifuse.veridian.site';
   process.env.NOTIFUSE_HUB_API_SECRET = 'hub-secret-test';
+  process.env.CRM_API_URL = 'https://crm.app.veridian.site';
+  process.env.CRM_HUB_API_SECRET = 'crm-secret-test';
   // @ts-expect-error — patch global fetch pour les tests
   globalThis.fetch = fetchMock;
 });
@@ -160,25 +165,52 @@ describe('GET /api/auth/bounce/complete', () => {
     expect(body.email).toBe('a@b.c');
   });
 
-  it('downstream 400 user_not_in_app → /dashboard?app=notifuse&hint=signup', async () => {
+  it.each(['user_not_in_app', 'hub_user_conflict'])(
+    'downstream 400 %s → /auth/bounce/error qui l\'explique, jamais un retour muet au tableau de bord',
+    async (code) => {
+      getCurrentUserMock.mockResolvedValue({
+        id: 'user-1',
+        email: 'a@b.c',
+        name: null,
+        image: null,
+        supabaseUserId: 'uuid-1',
+      });
+      fetchMock.mockResolvedValue(new Response(JSON.stringify({ error: code }), { status: 400 }));
+      const cookie = signNextCookie('https://notifuse.veridian.site/', TEST_SECRET);
+      const { GET } = await import('@/app/api/auth/bounce/complete/route');
+      const res = await GET(makeReq({ cookie }));
+      const loc = new URL(res.headers.get('location')!);
+      expect(loc.pathname).toBe('/auth/bounce/error');
+      expect(loc.searchParams.get('app')).toBe('notifuse');
+      expect(loc.searchParams.get('code')).toBe(code);
+      expect(res.cookies.get(NEXT_COOKIE_NAME_SECURE)?.value).toBe('');
+    },
+  );
+
+  it.each([
+    ['user_not_in_app', 400, JSON.stringify({ error: 'user_not_in_app' })],
+    ['hub_user_conflict', 400, JSON.stringify({ error: 'hub_user_conflict' })],
+    ['unreachable', 500, 'boom'],
+  ])('refus %s : une ligne [bounce][refus] avec app, code et hub_user_id, sans l\'adresse', async (code, status, corps) => {
     getCurrentUserMock.mockResolvedValue({
-      id: 'user-1',
-      email: 'a@b.c',
-      name: null,
-      image: null,
-      supabaseUserId: 'uuid-1',
+      id: 'user-1', email: 'secret@client.fr', name: null, image: null, supabaseUserId: 'uuid-1',
     });
-    fetchMock.mockResolvedValue(
-      new Response(JSON.stringify({ error: 'user_not_in_app' }), { status: 400 }),
-    );
-    const cookie = signNextCookie('https://notifuse.veridian.site/', TEST_SECRET);
-    const { GET } = await import('@/app/api/auth/bounce/complete/route');
-    const res = await GET(makeReq({ cookie }));
-    const loc = res.headers.get('location')!;
-    expect(loc).toContain('/dashboard');
-    expect(loc).toContain('app=notifuse');
-    expect(loc).toContain('hint=signup');
-    expect(res.cookies.get(NEXT_COOKIE_NAME_SECURE)?.value).toBe('');
+    fetchMock.mockResolvedValue(new Response(corps, { status }));
+    const lignes: string[] = [];
+    const warn = vi.spyOn(console, 'warn').mockImplementation((l) => void lignes.push(String(l)));
+    const error = vi.spyOn(console, 'error').mockImplementation((l) => void lignes.push(String(l)));
+    try {
+      const cookie = signNextCookie('https://notifuse.veridian.site/', TEST_SECRET);
+      const { GET } = await import('@/app/api/auth/bounce/complete/route');
+      await GET(makeReq({ cookie }));
+    } finally {
+      warn.mockRestore();
+      error.mockRestore();
+    }
+    const refus = lignes.map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter((j) => j?.tag === '[bounce][refus]');
+    expect(refus).toHaveLength(1);
+    expect(refus[0]).toMatchObject({ app: 'notifuse', code, hub_user_id: 'uuid-1', http_status: status });
+    expect(lignes.join('\n')).not.toContain('secret@client.fr');
   });
 
   it('downstream 500 → /auth/bounce/error?app=notifuse&code=unreachable', async () => {
@@ -358,5 +390,45 @@ describe('GET /api/auth/bounce/complete', () => {
     const { GET } = await import('@/app/api/auth/bounce/complete/route');
     await GET(makeReq({ cookie }));
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  describe('CRM : la première ouverture crée l\'espace', () => {
+    const user = { id: 'user-1', email: 'a@b.c', name: 'Alice', image: null, supabaseUserId: 'uuid-1' };
+    const refus = () => new Response(JSON.stringify({ error: 'user_not_in_app' }), { status: 400 });
+    const lien = () => new Response(JSON.stringify({ magic_link_url: 'https://crm.app.veridian.site/auth/token?t=Z' }), { status: 200 });
+
+    it('user_not_in_app → espace garanti, puis lien émis', async () => {
+      getCurrentUserMock.mockResolvedValue(user);
+      fetchMock.mockResolvedValueOnce(refus()).mockResolvedValueOnce(lien());
+      ensureCrmMock.mockResolvedValue({ ok: true, workspaceId: 'ws-1', created: true });
+      const cookie = signNextCookie('https://crm.app.veridian.site/', TEST_SECRET);
+      const { GET } = await import('@/app/api/auth/bounce/complete/route');
+      const res = await GET(makeReq({ cookie }));
+      expect(res.headers.get('location')).toBe('https://crm.app.veridian.site/auth/token?t=Z');
+      expect(ensureCrmMock).toHaveBeenCalledWith(expect.anything(), { hubUserId: 'uuid-1', email: 'a@b.c', name: 'Alice' }, expect.anything());
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('création impossible → page d\'erreur, une seule nouvelle tentative au plus', async () => {
+      getCurrentUserMock.mockResolvedValue(user);
+      fetchMock.mockResolvedValue(refus());
+      ensureCrmMock.mockResolvedValue({ ok: false, error: 'crm_http_502', status: 502 });
+      const cookie = signNextCookie('https://crm.app.veridian.site/', TEST_SECRET);
+      const { GET } = await import('@/app/api/auth/bounce/complete/route');
+      const res = await GET(makeReq({ cookie }));
+      const loc = new URL(res.headers.get('location')!);
+      expect(loc.pathname).toBe('/auth/bounce/error');
+      expect(loc.searchParams.get('code')).toBe('user_not_in_app');
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('une autre app refusée ne crée jamais d\'espace CRM', async () => {
+      getCurrentUserMock.mockResolvedValue(user);
+      fetchMock.mockResolvedValue(refus());
+      const cookie = signNextCookie('https://notifuse.veridian.site/', TEST_SECRET);
+      const { GET } = await import('@/app/api/auth/bounce/complete/route');
+      await GET(makeReq({ cookie }));
+      expect(ensureCrmMock).not.toHaveBeenCalled();
+    });
   });
 });

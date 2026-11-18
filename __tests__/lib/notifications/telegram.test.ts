@@ -13,7 +13,7 @@ describe('sendTelegramAlert', () => {
 
   beforeEach(() => {
     delete process.env.TELEGRAM_BOT_TOKEN;
-    delete process.env.TELEGRAM_CHAT_ID;
+    delete process.env.ALERT_CHAT_ID;
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
 
@@ -59,9 +59,9 @@ describe('sendTelegramAlert', () => {
 
     it('reads botToken/chatId from process.env when not passed in opts', async () => {
       process.env.TELEGRAM_BOT_TOKEN = 'env-token';
-      process.env.TELEGRAM_CHAT_ID = 'env-chat';
+      process.env.ALERT_CHAT_ID = 'env-chat';
       const fetchImpl = vi.fn(async () =>
-        new Response('{"ok":true}', { status: 200 }),
+        new Response('{"ok":true,"result":{"message_id":1}}', { status: 200 }),
       );
 
       const result = await sendTelegramAlert('hello', {
@@ -78,7 +78,7 @@ describe('sendTelegramAlert', () => {
   describe('Telegram 200 (success)', () => {
     it('returns true and calls fetch once with correct URL + payload', async () => {
       const fetchImpl = vi.fn(async () =>
-        new Response('{"ok":true}', { status: 200 }),
+        new Response('{"ok":true,"result":{"message_id":1}}', { status: 200 }),
       );
 
       const result = await sendTelegramAlert('hello world', {
@@ -111,7 +111,7 @@ describe('sendTelegramAlert', () => {
       const fetchImpl = vi
         .fn()
         .mockResolvedValueOnce(new Response('boom', { status: 500 }))
-        .mockResolvedValueOnce(new Response('{"ok":true}', { status: 200 }));
+        .mockResolvedValueOnce(new Response('{"ok":true,"result":{"message_id":1}}', { status: 200 }));
 
       const result = await sendTelegramAlert('msg', {
         botToken: 'tok',
@@ -224,7 +224,7 @@ describe('sendTelegramAlert', () => {
       const fetchImpl = vi
         .fn()
         .mockRejectedValueOnce(new Error('ECONNRESET'))
-        .mockResolvedValueOnce(new Response('{"ok":true}', { status: 200 }));
+        .mockResolvedValueOnce(new Response('{"ok":true,"result":{"message_id":1}}', { status: 200 }));
 
       const result = await sendTelegramAlert('msg', {
         botToken: 'tok',
@@ -264,5 +264,18 @@ describe('sendTelegramAlert', () => {
         }),
       ).resolves.toBe(false);
     });
+  });
+});
+
+describe('livraison confirmée (règle du parc : un 200 ne prouve rien)', () => {
+  it('200 sans message_id : non livrée', async () => {
+    const { sendTelegramAlert } = await import('@/lib/notifications/telegram');
+    const fetchImpl = vi.fn(async () => new Response('{"ok":true}', { status: 200 }));
+    expect(await sendTelegramAlert('x', { botToken: 'b', chatId: 'c', fetchImpl: fetchImpl as never })).toBe(false);
+  });
+  it('ok et message_id : livrée', async () => {
+    const { sendTelegramAlert } = await import('@/lib/notifications/telegram');
+    const fetchImpl = vi.fn(async () => new Response('{"ok":true,"result":{"message_id":42}}', { status: 200 }));
+    expect(await sendTelegramAlert('x', { botToken: 'b', chatId: 'c', fetchImpl: fetchImpl as never })).toBe(true);
   });
 });

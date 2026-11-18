@@ -140,8 +140,9 @@ export async function connexionHub(page: Page, email: string, motDePasse: string
  * cette adresse) est la preuve ; l'activation pose le mot de passe, ouvre la session
  * Hub et provisionne les apps. Aucun mail ne part (`sendEmail: false`).
  */
-export async function creerCompteProuve(browser: Browser, etiquette: string): Promise<Compte> {
-  const email = `${PREFIXE_COMPTE}${ID_RUN}-${etiquette}@${DOMAINE_COMPTE}`;
+export async function creerCompteProuve(browser: Browser, etiquette: string, adresse?: string): Promise<Compte> {
+  // `adresse` : une adresse de test fixe qui a une vraie boîte (cas 12, mail « essai démarré » lu).
+  const email = adresse ?? `${PREFIXE_COMPTE}${ID_RUN}-${etiquette}@${DOMAINE_COMPTE}`;
   const nom = `TEST SYSTEME SSO ${etiquette}`;
   const motDePasse = nouveauMdp();
   noter(email);
@@ -196,8 +197,9 @@ export async function creerCompteProuve(browser: Browser, etiquette: string): Pr
  * Compte NON PROUVÉ : inscription publique (mot de passe posé, adresse jamais confirmée).
  * C'est le scénario d'attaque : quelqu'un s'inscrit au nom d'une adresse qui n'est pas la sienne.
  */
-export async function creerCompteNonProuve(browser: Browser, etiquette: string): Promise<Compte> {
-  const email = `${PREFIXE_COMPTE}${ID_RUN}-${etiquette}@${DOMAINE_COMPTE}`;
+export async function creerCompteNonProuve(browser: Browser, etiquette: string, adresse?: string): Promise<Compte> {
+  // `adresse` : une adresse de test fixe qui a une vraie boîte (cas 11, lien de preuve lu dans le mail).
+  const email = adresse ?? `${PREFIXE_COMPTE}${ID_RUN}-${etiquette}@${DOMAINE_COMPTE}`;
   const motDePasse = nouveauMdp();
   noter(email);
   const ctx = await browser.newContext();

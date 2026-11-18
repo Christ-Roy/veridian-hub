@@ -429,3 +429,10 @@ export const mailSendAsUserLimiter = new RateLimiter({
   windowMs: 60_000,
   name: 'mail-send-as-user',
 });
+
+/** MCP : enregistrement de clients IA (RFC 7591), public. */
+export const mcpRegisterLimiter = new RateLimiter({ capacity: 10, windowMs: 60 * 60_000, name: 'mcp-register' });
+/** MCP : échange et renouvellement de jetons, par IP. */
+export const mcpTokenLimiter = new RateLimiter({ capacity: 60, windowMs: 60_000, name: 'mcp-token' });
+/** MCP : appels de la porte, par utilisateur. */
+export const mcpCallLimiter = new RateLimiter({ capacity: 120, windowMs: 60_000, name: 'mcp-call' });

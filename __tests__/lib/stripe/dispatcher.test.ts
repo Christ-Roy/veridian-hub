@@ -201,9 +201,6 @@ describe('dispatchStripeEvent — checkout.session.completed', () => {
   });
 
   it('mode=payment SANS metadata.kind=refill_leads → ignored (no subscription, no refill)', async () => {
-    // Note : un mode=payment avec metadata.kind=refill_leads est routé vers
-    // handleRefillLeadsCheckout (cf dispatcher-refill.test.ts). Ici on couvre
-    // explicitement la branche "ni subscription, ni refill" → bien ignored.
     const { dispatchStripeEvent } = await import('@/lib/stripe/dispatcher');
     const event = makeEvent('checkout.session.completed', {
       id: 'cs_pay',
@@ -221,127 +218,22 @@ describe('dispatchStripeEvent — checkout.session.completed', () => {
     expect(manageSubscriptionMock).not.toHaveBeenCalled();
   });
 
-  it('mode=payment AVEC metadata.kind=refill_leads → routé vers refill (PAS ignored, PAS update-plan)', async () => {
-    // Garde-fou anti-régression : si quelqu'un casse le routage refill dans le
-    // dispatcher, ce test détecte que le flux `update-plan` est appelé à tort.
-    // Le détail du dispatch (HMAC, retry, idempotency) vit dans
-    // dispatcher-refill.test.ts — ici on vérifie juste la séparation des flux.
+  it('mode=payment AVEC metadata.kind=refill_leads → ignoré (flux retiré), jamais routé', async () => {
     const { dispatchStripeEvent } = await import('@/lib/stripe/dispatcher');
     const event = makeEvent('checkout.session.completed', {
-      id: 'cs_refill_route',
+      id: 'cs_refill_retired',
       mode: 'payment',
+      payment_status: 'paid',
       subscription: null,
       customer: 'cus_refill',
       metadata: { kind: 'refill_leads', quantity: '500' },
     });
 
-    // On injecte un client refill qui throw : le dispatcher doit catch via
-    // l'alertFn (handleRefillLeadsCheckout) — mais surtout PAS appeler
-    // manageSubscriptionStatusChange.
-    const result = await dispatchStripeEvent(event, {
-      creditLeadsClient: {
-        async creditLeads() {
-          throw new Error('refill client mocked');
-        },
-      } as never,
-    });
-
-    // Le contrat est : ne JAMAIS appeler le flow subscription pour un refill.
-    expect(manageSubscriptionMock).not.toHaveBeenCalled();
-    // L'outcome est `processed` (avec refill: ok=false par mock throw) ou
-    // `failed` selon le path d'erreur. Les deux sont acceptables ici, ce qui
-    // compte c'est le non-call subscription.
-    expect(['processed', 'failed']).toContain(result.status);
-  });
-
-  it('mode=subscription but subscription missing → ignored', async () => {
-    const { dispatchStripeEvent } = await import('@/lib/stripe/dispatcher');
-    const event = makeEvent('checkout.session.completed', {
-      id: 'cs_missing',
-      mode: 'subscription',
-      subscription: null,
-      customer: 'cus_x',
-    });
-
     const result = await dispatchStripeEvent(event);
 
     expect(result.status).toBe('ignored');
+    if (result.status === 'ignored') expect(result.reason).toBe('refill_leads_retired');
     expect(manageSubscriptionMock).not.toHaveBeenCalled();
-  });
-
-  // ─── v2.1 refill ICP — sanity dispatcher-side (ticket 2026-05-25) ─────────
-  // Le détail est dans dispatcher-refill-filters.test.ts ; ici on garde un
-  // garde-fou top-level pour qu'une régression sur le routage v2.1 lève une
-  // alerte côté dispatcher.test.ts (mapping 1-pour-1 Nuclear).
-  it('refill v2.1: metadata.filters_json valide → body credit-leads contient filters + contract_version 2.1', async () => {
-    const creditLeadsMock = vi.fn(async () => ({ credited: 500, balance: 500 }));
-
-    const { dispatchStripeEvent } = await import('@/lib/stripe/dispatcher');
-    const event = makeEvent(
-      'checkout.session.completed',
-      {
-        id: 'cs_v21',
-        mode: 'payment',
-        payment_status: 'paid',
-        payment_intent: 'pi_v21',
-        subscription: null,
-        customer: 'cus_v21',
-        metadata: {
-          kind: 'refill_leads',
-          app: 'prospection',
-          hub_tenant_id: '99999999-9999-4999-8999-999999999999',
-          owner_email: 'v21@example.com',
-          quantity: '500',
-          filters_json: JSON.stringify({ industry: ['saas'], country: 'FR' }),
-        },
-      },
-      'evt_v21_route',
-    );
-
-    const result = await dispatchStripeEvent(event, {
-      creditLeadsClient: { creditLeads: creditLeadsMock } as never,
-    });
-
-    expect(result.status).toBe('processed');
-    expect(manageSubscriptionMock).not.toHaveBeenCalled();
-    expect(creditLeadsMock).toHaveBeenCalledTimes(1);
-    const body = creditLeadsMock.mock.calls[0][1] as Record<string, unknown>;
-    expect(body.contract_version).toBe('2.1');
-    expect(body.filters).toEqual({ industry: ['saas'], country: 'FR' });
-  });
-
-  it('refill v2.0 backward compat: pas de filters_json → body credit-leads v2.0 sans filters', async () => {
-    const creditLeadsMock = vi.fn(async () => ({ credited: 100, balance: 100 }));
-
-    const { dispatchStripeEvent } = await import('@/lib/stripe/dispatcher');
-    const event = makeEvent(
-      'checkout.session.completed',
-      {
-        id: 'cs_v20',
-        mode: 'payment',
-        payment_status: 'paid',
-        payment_intent: 'pi_v20',
-        subscription: null,
-        customer: 'cus_v20',
-        metadata: {
-          kind: 'refill_leads',
-          app: 'prospection',
-          hub_tenant_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-          owner_email: 'v20@example.com',
-          quantity: '100',
-        },
-      },
-      'evt_v20_legacy',
-    );
-
-    const result = await dispatchStripeEvent(event, {
-      creditLeadsClient: { creditLeads: creditLeadsMock } as never,
-    });
-
-    expect(result.status).toBe('processed');
-    const body = creditLeadsMock.mock.calls[0][1] as Record<string, unknown>;
-    expect(body.contract_version).toBe('2.0');
-    expect('filters' in body).toBe(false);
   });
 });
 

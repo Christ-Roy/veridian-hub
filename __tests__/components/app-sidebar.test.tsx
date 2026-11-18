@@ -71,12 +71,10 @@ describe('AppSidebar', () => {
     expect(screen.getByText('Paramètres')).toBeInTheDocument();
   });
 
-  it('l\'item Intégration désactivé affiche le badge "Bientôt" (FR)', () => {
-    // L'item disabled porte un badge "Bientôt" — vérifie le wording FR
-    // ajouté par la francisation (pas "Soon" / "Coming soon").
+  it('« Assistants IA » mène à /dashboard/ia (adresse stable, Atlas y renvoie), plus d\'item « Bientôt »', () => {
     renderSidebar();
-    expect(screen.getByText('Intégration')).toBeInTheDocument();
-    expect(screen.getByText('Bientôt')).toBeInTheDocument();
+    expect(screen.getByText('Assistants IA').closest('a')).toHaveAttribute('href', '/dashboard/ia');
+    expect(screen.queryByText('Bientôt')).not.toBeInTheDocument();
   });
 
   it('n\'affiche plus de lien "Aide" (NavSecondary retiré — refonte DA 2026-05-29)', () => {

@@ -896,3 +896,77 @@ model ProspectEvent {
 // Le score n'est plus calculé ni stocké centralement. Table prospect_scores
 // droppée (migration 20260617160000_drop_prospect_scores). Voir
 // todo/2026-06-17-presets-scoring-configurables-avant-push-crm.md.
+
+// ============================================================================
+// MCP : le Hub, serveur OAuth 2.1 des clients IA et porte vers les MCP des apps
+// (docs/CONTRAT-MCP.md). Jetons et codes : empreintes SHA-256 seulement.
+// ============================================================================
+
+/// Client IA enregistré dynamiquement (RFC 7591). Clients publics seulement (PKCE).
+model OauthClient {
+  id           String    @id @default(uuid()) @db.Uuid
+  clientId     String    @unique @map("client_id")
+  name         String
+  redirectUris String[]  @map("redirect_uris")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastUsedAt   DateTime? @map("last_used_at") @db.Timestamptz(6)
+
+  @@map("oauth_clients")
+  @@schema("hub_app")
+}
+
+/// Code d'autorisation, usage unique, 10 min.
+model OauthCode {
+  codeHash      String    @id @map("code_hash")
+  clientId      String    @map("client_id")
+  hubUserId     String    @map("hub_user_id")
+  redirectUri   String    @map("redirect_uri")
+  codeChallenge String    @map("code_challenge")
+  scope         String
+  resource      String
+  expiresAt     DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt        DateTime? @map("used_at") @db.Timestamptz(6)
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([expiresAt])
+  @@map("oauth_codes")
+  @@schema("hub_app")
+}
+
+/// Jeton d'accès (1 h) ou de renouvellement (30 j, rotation, famille révoquée à la réutilisation).
+model OauthToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  tokenHash  String    @unique @map("token_hash")
+  kind       String // 'access' | 'refresh'
+  familyId   String    @map("family_id") @db.Uuid
+  clientId   String    @map("client_id")
+  hubUserId  String    @map("hub_user_id")
+  scope      String
+  resource   String
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt     DateTime? @map("used_at") @db.Timestamptz(6)
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastUsedAt DateTime? @map("last_used_at") @db.Timestamptz(6)
+
+  @@index([hubUserId])
+  @@index([familyId])
+  @@index([expiresAt])
+  @@map("oauth_tokens")
+  @@schema("hub_app")
+}
+
+/// Registre des MCP d'apps. Ajouter une app = une ligne, aucun code au Hub.
+model McpApp {
+  appKey    String   @id @map("app_key")
+  label     String
+  mcpUrl    String   @map("mcp_url")
+  /// 'tous' : proposée à tout compte ; 'tenant_app' : seulement si tenant_apps(app_key) actif.
+  acces     String   @default("tenant_app")
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("mcp_apps")
+  @@schema("hub_app")
+}

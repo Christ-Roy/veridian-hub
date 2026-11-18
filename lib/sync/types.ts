@@ -37,8 +37,18 @@ export interface TenantSnapshot {
   workspaceName?: string;
   /** Id du tenant côté app, quand elle l'expose (Prospection). */
   tenantId?: string;
+  /**
+   * Tenant Hub auquel l'app a relié ce workspace (claim `tenant_id` du JWT MCP). `undefined` : l'app
+   * ne rend pas le champ ; `null` : elle le rend, aucun lien.
+   */
+  hubTenantLink?: string | null;
   role?: string;
   plan?: string;
+  /**
+   * Statut d'essai stocké par l'app (`lib/plans/trial-status.ts`). `undefined` : l'app ne rend pas le
+   * champ (non câblé) ; `null` : elle le rend mais n'en a reçu aucun.
+   */
+  trialStatus?: string | null;
   status?: 'active' | 'suspended' | 'deleted';
   magicLinkCapable?: boolean;
   /** Fallback URL si magic link n'est pas dispo (login natif de l'app). */
@@ -71,8 +81,18 @@ export interface IdentityAuditApp {
   localAccounts: number;
   /** Comptes humains locaux dont l'adresse est inconnue du Hub. */
   withoutHub: string[];
-  /** Adresse connue du Hub, mais pas relié par `hub_user_id`. */
+  /** Adresse connue ET prouvée au Hub, pas encore reliée par `hub_user_id` : reliée au prochain rebond. */
   unlinked: string[];
+  /**
+   * Adresse connue du Hub mais NON prouvée : le Hub envoie la preuve à la prochaine ouverture d'une app
+   * (`denyUnlessEmailProven`), puis le rebond relie le compte. En attente, pas une dérive muette.
+   */
+  awaitingProof: string[];
+  /**
+   * Comptes internes ou témoins protégés (canaris, smoke, opérateur), déclarés hors périmètre avec leur
+   * raison dans `lib/sync/identity-audit.ts` : comptés, jamais une dérive.
+   */
+  horsPerimetre?: { email: string; raison: string }[];
   emailMismatch: string[];
   nameMismatch: string[];
 }
@@ -85,7 +105,10 @@ export type DriftKind =
   | 'status_mismatch'      // Hub local status ≠ snapshot.status
   | 'tenant_missing_app'   // Hub croit que l'app existe, snapshot 404
   | 'tenant_extra_app'     // app a un workspace, Hub n'a pas la trace
-  | 'app_unreachable';     // app down (5xx, timeout)
+  | 'app_unreachable'      // app down (5xx, timeout)
+  | 'trial_mismatch'       // statut d'essai du Hub ≠ celui stocké par l'app
+  | 'plan_unset'           // analytics / crm : app activée au Hub, aucun plan posé
+  | 'hub_tenant_unlinked'; // l'app rend son lien au tenant Hub, absent ou vers un autre tenant
 
 /** Un drift détecté par le cron reconcile pour un (tenant, app). */
 export interface TenantDrift {
@@ -95,6 +118,8 @@ export interface TenantDrift {
   hubValue: unknown;
   appValue: unknown;
   observedAt: string;
+  /** Ce qu'il faut faire, en une commande quand c'est possible. Jamais d'adresse client. */
+  remediation?: string;
 }
 
 /** Summary d'un run de reconciliation (renvoyé par la route cron). */
@@ -126,4 +151,9 @@ export interface ReconcileSummary {
   mode: 'dry-run' | 'auto-repair';
   /** Erreurs non-bloquantes rencontrées pendant le run. */
   errors: Array<{ tenantId?: string; app?: SyncApp; message: string }>;
+  /**
+   * Ce qui n'est pas encore branché, mesuré à chaque run (ou connu et daté) : « ce qui manque » se
+   * lit ici, pas dans la mémoire de quelqu'un.
+   */
+  notWired: string[];
 }

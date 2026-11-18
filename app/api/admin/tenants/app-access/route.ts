@@ -27,7 +27,9 @@ import {
   setTenantAppEnabled,
   type GatedAppKey,
 } from '@/lib/tenant-apps';
-import { provisionCrmWorkspace } from '@/lib/crm/provision';
+import { lierAuHub } from '@/lib/apps/lier-hub';
+import { ensureCrmWorkspace } from '@/lib/crm/provision';
+import { isCanonicalPlan, readAppPlan, setAppPlan } from '@/lib/plans/app-plan';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -77,24 +79,15 @@ export async function POST(request: NextRequest) {
         { status: 409 },
       );
     }
-    const tenant = await prisma.tenant.findFirst({
-      where: { userId: user.supabaseUserId },
-      select: { id: true, name: true },
-      orderBy: { createdAt: 'asc' },
-    });
-    if (!tenant) {
-      return NextResponse.json({ error: 'tenant_not_found' }, { status: 404 });
-    }
-    const provision = await provisionCrmWorkspace({
-      tenantId: tenant.id,
-      hubUserId: user.supabaseUserId,
-      email,
-      workspaceName: tenant.name || user.name || email.split('@')[0],
-    });
+    const provision = await ensureCrmWorkspace(
+      prisma,
+      { hubUserId: user.supabaseUserId, email, name: user.name },
+      { actorEmail: resolveActor(request.headers, authResult.sessionEmail) },
+    );
     if (!provision.ok) {
       return NextResponse.json(
-        { error: 'crm_provision_failed', detail: provision.error },
-        { status: provision.error === 'crm_not_configured' ? 503 : 502 },
+        { error: provision.error === 'tenant_not_found' ? 'tenant_not_found' : 'crm_provision_failed', detail: provision.error },
+        { status: provision.error === 'tenant_not_found' ? 404 : provision.error === 'crm_not_configured' ? 503 : 502 },
       );
     }
     crmWorkspaceId = provision.workspaceId;
@@ -106,6 +99,36 @@ export async function POST(request: NextRequest) {
     enabled: parsed.data.enabled,
     actorEmail: resolveActor(request.headers, authResult.sessionEmail),
   });
+
+  // Analytics : le plan du Hub (sinon free) est posé chez Rybbit dès l'activation. Sans compte
+  // Rybbit relié, Rybbit répond tenant_not_found et rien n'est écrit : l'écart se lit dans reconcile.
+  let analyticsPlan: string | undefined;
+  let analyticsLien: string | undefined;
+  if (parsed.data.app === 'analytics' && parsed.data.enabled) {
+    const tenant = await prisma.tenant.findFirst({
+      where: { userId: user.supabaseUserId, deletedAt: null },
+      select: { id: true, metadata: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (tenant) {
+      const actuel = readAppPlan(tenant.metadata, 'analytics').plan;
+      const pushed = await setAppPlan(prisma, {
+        tenantId: tenant.id,
+        app: 'analytics',
+        plan: isCanonicalPlan(actuel) ? actuel : 'free',
+        planSource: 'grant_manual',
+        reason: 'activation analytics',
+        setBy: resolveActor(request.headers, authResult.sessionEmail),
+      });
+      analyticsPlan = pushed.ok ? 'posé' : `non posé : ${pushed.error}`;
+      // Lien d'espace pour le tenant_id du JWT MCP (lien seul, jamais écrasé) : sans lui, choisir
+      // cet espace par la porte rendait tenant_not_linked (mesuré le 09/11).
+      const lien = await lierAuHub('analytics', { hubUserId: user.supabaseUserId, hubTenantId: tenant.id }).catch(
+        (err: unknown) => ({ linked: false, raison: err instanceof Error ? err.message.slice(0, 80) : 'erreur' }),
+      );
+      analyticsLien = lien.linked ? lien.raison : `non relié : ${lien.raison}`;
+    }
+  }
 
   const actor = resolveActor(request.headers, authResult.sessionEmail);
   await writeAuditLog(prisma, {
@@ -127,5 +150,7 @@ export async function POST(request: NextRequest) {
     app: result.appKey,
     enabled: result.enabled,
     ...(crmWorkspaceId ? { crm_workspace_id: crmWorkspaceId } : {}),
+    ...(analyticsPlan ? { analytics_plan: analyticsPlan } : {}),
+    ...(analyticsLien ? { analytics_lien: analyticsLien } : {}),
   });
 }

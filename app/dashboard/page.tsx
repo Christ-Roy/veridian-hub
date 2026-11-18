@@ -46,14 +46,14 @@ export default async function DashboardPage({
   // cards restent en mode "Bientôt" (ShadowAppCard). Prospection + Notifuse
   // ne sont PAS concernés (toujours grand public). Lecture par UUID bridge.
   const enabledApps = await getEnabledGatedApps(prisma, userUuid(user));
-  // L'espace CRM est créé à l'activation (app-access) ; la carte ouvre le CRM, qui rebondit par le Hub.
+  // Le CRM est ouvert à tout compte : la première ouverture crée l'espace (rebond, ensureCrmWorkspace).
   const crmUrl = process.env.CRM_API_URL;
-  const isTwentyEnabled = enabledApps.has('twenty') && !!crmUrl;
+  const isTwentyEnabled = !!crmUrl;
   const isAnalyticsEnabled = enabledApps.has('analytics');
   const isCmsEnabled = enabledApps.has('cms');
 
   const tenant = await prisma.tenant.findFirst({
-    where: { userId: userUuid(user) },
+    where: { userId: userUuid(user), deletedAt: null },
     select: {
       id: true,
       name: true,
@@ -154,6 +154,7 @@ export default async function DashboardPage({
   const analyticsTarget = await resolveAnalyticsCardTarget({
     // Adresse non prouvée : on ne demande rien, sinon la carte révélerait les sites d'un tiers.
     email: emailProven ? user.email : null,
+    hubUserId: emailProven ? userUuid(user) : null,
     metadataFallbackUrl: analyticsMeta?.fallback_url,
     metadataTenantName: analyticsMeta?.tenant_name,
   });

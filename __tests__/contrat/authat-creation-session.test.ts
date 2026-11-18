@@ -25,7 +25,12 @@ const APPEL_ENCODE = /(?<![.\w])encode\s*\(/g;
 /** Fabriques de jeton signé autrement qu'avec Auth.js : toute nouvelle doit être examinée. */
 const AUTRE_SIGNATURE = /\bnew SignJWT\b/;
 /** Seul usage connu : le cookie « hint » de la landing, qui n'est pas une session. */
-const SIGNJWT_CONNUS = ['lib/auth/session-hint-cookie.ts'];
+const SIGNJWT_CONNUS = [
+  'lib/auth/session-hint-cookie.ts',
+  // Pas une session du Hub : identité ES256 de 5 min présentée aux MCP des apps, `aud` = l'app
+  // (docs/CONTRAT-MCP.md). Ne porte aucun cookie, n'ouvre aucune session au Hub.
+  'lib/mcp/identite.ts',
+];
 
 /** Les ~700 caractères après chaque `encode(` : l'objet `token` y tient. */
 function appels(src: string): string[] {

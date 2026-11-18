@@ -66,7 +66,10 @@ export class NotifuseClient {
       owner_email: input.ownerEmail,
       workspace_name: input.workspaceName,
       plan: input.plan,
-      ...(input.hubUserId ? { metadata: { hub_user_id: input.hubUserId } } : {}),
+      ...(input.hubUserId || input.hubTenantId
+        ? { metadata: { ...(input.hubUserId ? { hub_user_id: input.hubUserId } : {}), ...(input.hubTenantId ? { hub_tenant_id: input.hubTenantId } : {}) } }
+        : {}),
+      ...(input.hubTenantId ? { hub_tenant_id: input.hubTenantId } : {}),
       ...(input.emailProven ? { email_proven: true } : {}),
     });
   }
@@ -75,6 +78,8 @@ export class NotifuseClient {
     await this.hmacRequest<unknown>('POST', '/api/tenants/update-plan', {
       tenant_id: input.tenantId,
       plan: input.plan,
+      ...(input.trial ? { trial_status: input.trial.status, trial_ends_at: input.trial.endsAt } : {}),
+      ...(input.hubTenantId ? { hub_tenant_id: input.hubTenantId } : {}),
     });
   }
 

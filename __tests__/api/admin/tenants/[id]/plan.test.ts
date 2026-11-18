@@ -53,6 +53,8 @@ vi.mock('@/lib/prisma', () => ({
     provisioningLog: {
       create: vi.fn(async () => ({})),
     },
+    tenantTrial: { findMany: vi.fn(async () => []) },
+    subscription: { findMany: vi.fn(async () => []) },
   },
 }));
 
@@ -121,7 +123,7 @@ describe('POST /api/admin/tenants/[id]/plan', () => {
     const { POST } = await import('@/app/api/admin/tenants/[id]/plan/route');
     const res = await POST(makeReq({ app: 'notifuse', plan: 'pro' }), ctx('t-1'));
     expect(res.status).toBe(200);
-    expect(updatePlanMock).toHaveBeenCalledWith({ tenantId: 'ws-1', plan: 'pro' });
+    expect(updatePlanMock).toHaveBeenCalledWith(expect.objectContaining({ tenantId: 'ws-1', plan: 'pro' }));
     expect(updateTenantMock).toHaveBeenCalled();
     const body = await res.json();
     expect(body.app).toBe('notifuse');
@@ -135,10 +137,10 @@ describe('POST /api/admin/tenants/[id]/plan', () => {
       ctx('t-1'),
     );
     expect(res.status).toBe(200);
-    expect(updatePlanMock).toHaveBeenCalledWith({
+    expect(updatePlanMock).toHaveBeenCalledWith(expect.objectContaining({
       tenantId: 'ws-1',
       plan: 'lifetime_site_vitrine',
-    });
+    }));
   });
 
   it('tenant non provisionné dans Prospection : écrit le Hub seul et le dit', async () => {
@@ -191,5 +193,50 @@ describe('POST /api/admin/tenants/[id]/plan', () => {
       ctx('t-1'),
     );
     expect(res.status).toBe(400);
+  });
+});
+
+describe('POST /api/admin/tenants/[id]/plan — analytics et crm', () => {
+  it.each(['analytics', 'crm'])('%s : pose le plan chez l\'app puis au Hub (grant_manual)', async (app) => {
+    tenantRow.metadata = { [app]: { linked_at: 'x' } };
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ plan: 'business', previous_plan: 'free' }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    process.env.ANALYTICS_API_URL = 'https://analytics.app.veridian.site';
+    process.env.ANALYTICS_HUB_API_SECRET = 's';
+    process.env.CRM_API_URL = 'https://crm.app.veridian.site';
+    process.env.CRM_HUB_API_SECRET = 's';
+    const { POST } = await import('@/app/api/admin/tenants/[id]/plan/route');
+    const res = await POST(makeReq({ app, plan: 'business' }), ctx('t-1'));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ app, plan: 'business', previous_plan: 'free' });
+    const corps = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+    expect(corps).toMatchObject({ plan: 'business', plan_source: 'grant_manual', tenant_id: 't-1' });
+    expect(updateTenantMock.mock.calls.at(-1)?.[0].data.metadata).toMatchObject({ [`${app}_plan`]: 'business' });
+    vi.unstubAllGlobals();
+  });
+
+  it('plan hors enum canonique : 400, rien poussé', async () => {
+    tenantRow.metadata = { analytics: {} };
+    const { POST } = await import('@/app/api/admin/tenants/[id]/plan/route');
+    const res = await POST(makeReq({ app: 'analytics', plan: 'freemium' }), ctx('t-1'));
+    expect(res.status).toBe(400);
+  });
+
+  it('app non activée pour ce tenant : 409', async () => {
+    const { POST } = await import('@/app/api/admin/tenants/[id]/plan/route');
+    const res = await POST(makeReq({ app: 'crm', plan: 'pro' }), ctx('t-1'));
+    expect(res.status).toBe(409);
+  });
+
+  it('refus de l\'app : 502 et rien écrit', async () => {
+    tenantRow.metadata = { analytics: {} };
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ error: 'tenant_not_found' }), { status: 404 })));
+    process.env.ANALYTICS_API_URL = 'https://analytics.app.veridian.site';
+    process.env.ANALYTICS_HUB_API_SECRET = 's';
+    const { POST } = await import('@/app/api/admin/tenants/[id]/plan/route');
+    const res = await POST(makeReq({ app: 'analytics', plan: 'pro' }), ctx('t-1'));
+    expect(res.status).toBe(502);
+    expect(updateTenantMock).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
   });
 });

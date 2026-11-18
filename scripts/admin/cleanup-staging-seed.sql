@@ -4,7 +4,7 @@
 -- Nettoyage du seed E2E accumulé dans `hub-staging-db` par les sessions E2E
 -- successives (Playwright `e2e/staging-full/*`, scénarios mock-OAuth, etc.).
 --
--- À jouer UNIQUEMENT sur hub-staging-db. JAMAIS sur veridian-core-db (prod).
+-- À jouer UNIQUEMENT sur hub-staging-db. JAMAIS sur pg-saas (prod, base hub).
 --
 -- USAGE :
 --   ssh dev-pub 'docker exec -i hub-staging-db psql -U hub -d hub' \

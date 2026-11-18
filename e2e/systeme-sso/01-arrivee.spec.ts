@@ -7,7 +7,6 @@ import { expect } from '@playwright/test';
 import { devraitEtreArrive } from './lib/assertions';
 import { APP_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
-import { activerTwentyAuHub } from './lib/hub-admin';
 import { noterEspaceTwenty } from './lib/parcours';
 import { compte, contexteDe, noterArrivee, ouvrirApp , assurerRybbit } from './lib/monde';
 
@@ -87,7 +86,7 @@ cas('twenty', T, async ({ browser }) => {
   const A = await compte(browser, 'A');
   if (!A.tenantId) throw new NonAbouti('compte de test sans tenant Hub');
   noterEspaceTwenty(A.email, A.tenantId); // noté AVANT la création : un plantage ne doit rien laisser
-  const espace = await activerTwentyAuHub(A.email);
+  // Le geste réel : aucune activation admin, la première ouverture crée l'espace (rebond du Hub).
   const ctx = await contexteDe(browser, A);
   const a = await ouvrirApp(ctx, 'twenty');
   let ok = false;
@@ -109,11 +108,30 @@ cas('twenty', T, async ({ browser }) => {
         data?: { currentUser?: { email?: string }; currentWorkspace?: { id?: string } };
       } | null;
     });
+    // Une écriture à son nom, relue : l'espace n'est pas qu'une vitrine.
+    const nom = `Systeme SSO ${Date.now()}`;
+    const ecrit = await page.evaluate(async (n) => {
+      const gql = async (query: string, variables: object) =>
+        (await (
+          await fetch('/graphql', {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'content-type': 'application/json', 'x-twenty-session-cookie': '1' },
+            body: JSON.stringify({ query, variables }),
+          })
+        ).json().catch(() => null)) as any;
+      const cree = await gql('mutation($d:CompanyCreateInput!){createCompany(data:$d){id name}}', { d: { name: n } });
+      const id = cree?.data?.createCompany?.id;
+      const lu = id ? await gql('query($i:UUID!){company(filter:{id:{eq:$i}}){name}}', { i: id }) : null;
+      return { id, relu: lu?.data?.company?.name ?? null, erreur: cree?.errors?.[0]?.message ?? null };
+    }, nom);
     await page.close();
+    expect(ecrit.relu, `Twenty : société créée puis relue (${ecrit.erreur ?? ''})`).toBe(nom);
     expect(lu?.data?.currentUser?.email?.toLowerCase(), 'Twenty : session au nom du compte').toBe(A.email.toLowerCase());
-    expect(lu?.data?.currentWorkspace?.id, 'Twenty : son espace, celui créé par le Hub').toBe(espace);
+    const espace = lu?.data?.currentWorkspace?.id;
+    expect(espace, 'Twenty : un espace créé à la première ouverture').toBeTruthy();
     ok = true;
-    return `espace ${espace} créé par le Hub, session ${A.email} sur ${a.hote}`;
+    return `espace ${espace} créé à la première ouverture, session ${A.email} sur ${a.hote}, société ${ecrit.id} écrite et relue`;
   } finally {
     noterArrivee('twenty', ok, a);
     await ctx.close();

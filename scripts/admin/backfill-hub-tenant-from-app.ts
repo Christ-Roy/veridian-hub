@@ -6,7 +6,7 @@
  *
  *   Un workspace existe côté app (ex Prospection
  *   `tenant_id=462a4295-…`) MAIS aucune row `hub_app.tenants` n'a cet `id`
- *   → la route `POST /api/billing/refill-leads/checkout` refuse 404 le
+ *   → les routes Hub qui valident l'ownership refusent 404 le
  *   tenantId (`tenant_not_found_or_forbidden`). Le user paye ailleurs, on
  *   le bloque sur le Hub.
  *
@@ -49,7 +49,7 @@
  *     --execute
  *
  * ENV requis :
- *   DATABASE_URL — Postgres veridian-core-db (schema hub_app)
+ *   DATABASE_URL — Postgres pg-saas (base hub) (schema hub_app)
  *
  * Sécurité :
  *   - Mode dry-run par défaut (oblige --execute explicite)

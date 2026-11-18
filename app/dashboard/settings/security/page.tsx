@@ -12,6 +12,7 @@ import { Card } from '@/components/ui/card';
 import { DashboardPageHeader } from '@/components/dashboard/PageHeader';
 import { SecurityMfaToggle } from './SecurityMfaToggle';
 import { SignOutEverywhere } from './SignOutEverywhere';
+import Link from 'next/link';
 
 export default async function SecuritySettingsPage() {
   const session = await auth();
@@ -21,7 +22,7 @@ export default async function SecuritySettingsPage() {
 
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { id: true, email: true, mfaEnabled: true },
+    select: { id: true, email: true, mfaEnabled: true, supabaseUserId: true },
   });
 
   if (!user) {
@@ -57,6 +58,14 @@ export default async function SecuritySettingsPage() {
       <Card className="p-6 space-y-4">
         <h2 className="text-lg font-medium">Sessions</h2>
         <SignOutEverywhere />
+      </Card>
+
+      <Card className="p-6 space-y-2">
+        <h2 className="text-lg font-medium">Assistants IA</h2>
+        <p className="text-sm text-muted-foreground">
+          Les assistants reliés à votre compte se gèrent sur la page{' '}
+          <Link href="/dashboard/ia" className="underline">Assistants IA</Link>.
+        </p>
       </Card>
     </div>
   );

@@ -18,8 +18,14 @@ const {
   writeAuditLogMock,
   authenticateAdminMock,
   tenantFindFirstMock,
+  tenantUpdateMock,
   provisionMock,
+  lierMock,
+  setAppPlanMock,
 } = vi.hoisted(() => ({
+  lierMock: vi.fn(),
+  setAppPlanMock: vi.fn(),
+  tenantUpdateMock: vi.fn(),
   tenantFindFirstMock: vi.fn(),
   provisionMock: vi.fn(),
   findUniqueMock: vi.fn(),
@@ -29,10 +35,10 @@ const {
 }));
 
 vi.mock('@/lib/prisma', () => ({
-  prisma: { user: { findUnique: findUniqueMock }, tenant: { findFirst: tenantFindFirstMock }, tenantApp: {} },
+  prisma: { user: { findUnique: findUniqueMock }, tenant: { findFirst: tenantFindFirstMock, update: tenantUpdateMock }, tenantApp: {} },
 }));
 vi.mock('@/lib/crm/provision', () => ({
-  provisionCrmWorkspace: (...args: unknown[]) => provisionMock(...args),
+  ensureCrmWorkspace: (...args: unknown[]) => provisionMock(...args),
 }));
 vi.mock('@/lib/tenant-apps', async () => {
   const actual = await vi.importActual<any>('@/lib/tenant-apps');
@@ -45,6 +51,11 @@ vi.mock('@/lib/admin/audit-log', () => ({
   writeAuditLog: (...args: unknown[]) => writeAuditLogMock(...args),
   resolveActor: () => 'token:ADMIN_SECRET',
 }));
+vi.mock('@/lib/apps/lier-hub', () => ({ lierAuHub: (...a: unknown[]) => lierMock(...a) }));
+vi.mock('@/lib/plans/app-plan', async () => {
+  const actual = await vi.importActual<any>('@/lib/plans/app-plan');
+  return { ...actual, setAppPlan: (...a: unknown[]) => setAppPlanMock(...a) };
+});
 vi.mock('@/lib/admin/authenticate', () => ({
   authenticateAdmin: (...args: unknown[]) => authenticateAdminMock(...args),
 }));
@@ -74,6 +85,7 @@ beforeEach(() => {
   writeAuditLogMock.mockReset();
   authenticateAdminMock.mockReset();
   tenantFindFirstMock.mockReset();
+  tenantUpdateMock.mockReset();
   provisionMock.mockReset();
   authenticateAdminMock.mockResolvedValue(authOK);
   process.env.ADMIN_SECRET = 'admin-test-secret';
@@ -167,26 +179,30 @@ describe('POST /api/admin/tenants/app-access', () => {
 
     it('503 si le CRM n\'est pas configuré, l\'app reste coupée', async () => {
       findUniqueMock.mockResolvedValue(proved);
-      tenantFindFirstMock.mockResolvedValue({ id: 'tenant-1', name: 'ACME' });
       provisionMock.mockResolvedValue({ ok: false, error: 'crm_not_configured' });
       const res = await POST(req({ user_email: 'a@x.io', app: 'twenty', enabled: true }));
       expect(res.status).toBe(503);
       expect(setTenantAppEnabledMock).not.toHaveBeenCalled();
     });
 
-    it('200 : provisionne avec le tenant et le hub_user_id, puis active', async () => {
+    it('404 sans tenant Hub', async () => {
       findUniqueMock.mockResolvedValue(proved);
-      tenantFindFirstMock.mockResolvedValue({ id: 'tenant-1', name: 'ACME' });
+      provisionMock.mockResolvedValue({ ok: false, error: 'tenant_not_found', status: 404 });
+      const res = await POST(req({ user_email: 'a@x.io', app: 'twenty', enabled: true }));
+      expect(res.status).toBe(404);
+    });
+
+    it('200 : garantit l\'espace avec le hub_user_id, puis active', async () => {
+      findUniqueMock.mockResolvedValue(proved);
       provisionMock.mockResolvedValue({ ok: true, workspaceId: 'ws-1', created: true });
       setTenantAppEnabledMock.mockResolvedValue({ appKey: 'twenty', enabled: true });
       const res = await POST(req({ user_email: 'A@X.io', app: 'twenty', enabled: true }));
       expect(res.status).toBe(200);
-      expect(provisionMock).toHaveBeenCalledWith({
-        tenantId: 'tenant-1',
-        hubUserId: 'uuid-1',
-        email: 'a@x.io',
-        workspaceName: 'ACME',
-      });
+      expect(provisionMock).toHaveBeenCalledWith(
+        expect.anything(),
+        { hubUserId: 'uuid-1', email: 'a@x.io', name: 'Alice' },
+        expect.objectContaining({ actorEmail: expect.any(String) }),
+      );
       expect(await res.json()).toMatchObject({ app: 'twenty', enabled: true, crm_workspace_id: 'ws-1' });
     });
 
@@ -197,5 +213,16 @@ describe('POST /api/admin/tenants/app-access', () => {
       expect(res.status).toBe(200);
       expect(provisionMock).not.toHaveBeenCalled();
     });
+  });
+
+  it('activation Analytics : plan posé puis espace relié au tenant Hub (tenant_id du MCP)', async () => {
+    findUniqueMock.mockResolvedValue({ id: 'u1', supabaseUserId: 'uuid-1' });
+    setTenantAppEnabledMock.mockResolvedValue({ appKey: 'analytics', enabled: true });
+    tenantFindFirstMock.mockResolvedValue({ id: 't-1', metadata: {} });
+    setAppPlanMock.mockResolvedValue({ ok: true, previousPlan: null });
+    lierMock.mockResolvedValue({ linked: true, raison: 'relie' });
+    const body = await (await POST(req({ user_email: 'a@x.io', app: 'analytics', enabled: true }))).json();
+    expect(lierMock).toHaveBeenCalledWith('analytics', { hubUserId: 'uuid-1', hubTenantId: 't-1' });
+    expect(body.analytics_lien).toBe('relie');
   });
 });

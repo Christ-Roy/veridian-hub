@@ -633,6 +633,8 @@ Throttle 24h : un seul `tenant.touched` par tenant par fenêtre 24h
 
 ### USAGE — GET /api/tenants/{id}/usage-summary (§5.8.5)
 
+> Prospection ne l'expose plus depuis le 15/11/2026 (`ed71da3`).
+
 **Direction** : Hub → app.
 **Auth** : HMAC.
 **Trigger** : Hub dashboard admin / cron.
@@ -1574,10 +1576,6 @@ stale-while-revalidate=86400`. ISR 1h côté Next.
 ```json
 {
   "plans": [ /* PLANS du submodule @veridian/shared */ ],
-  "refill": {
-    "pricing_cents": [...],
-    "max_per_order": 1000
-  },
   "annual_perks": [...],
   "version": "0.1.0",
   "generated_at": "2026-05-21T14:00:00.000Z"

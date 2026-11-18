@@ -3,11 +3,11 @@
 import * as React from "react"
 import Link from "next/link"
 import {
+  BotIcon,
   FileIcon,
   LayoutDashboardIcon,
   SettingsIcon,
   Users2Icon,
-  ZapIcon,
 } from "lucide-react"
 
 import { VeridianHubLogo } from "@/components/icons/VeridianHubLogo"
@@ -31,10 +31,9 @@ const navMain = [
     icon: LayoutDashboardIcon,
   },
   {
-    title: "Intégration",
-    url: "/dashboard/integration",
-    icon: ZapIcon,
-    disabled: true,
+    title: "Assistants IA",
+    url: "/dashboard/ia",
+    icon: BotIcon,
   },
   {
     title: "Membres",

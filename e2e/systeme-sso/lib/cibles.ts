@@ -10,9 +10,15 @@ export const APP_URL: Record<AppKey, string> = {
   prospection: process.env.PROSPECTION_URL || 'https://prospection.app.veridian.site',
   notifuse: process.env.NOTIFUSE_URL || 'https://notifuse.app.veridian.site',
   analytics: process.env.ANALYTICS_URL || 'https://analytics.app.veridian.site',
-  // Twenty : staging seulement, et seulement s'il est servi (sinon NON ABOUTI).
-  twenty: process.env.TWENTY_URL || 'https://crm.staging.veridian.site',
+  // Twenty : suit le Hub. Prod = crm.app.veridian.site (CRM_API_URL du job hub) ; staging sinon.
+  // 09/11 : un défaut staging sur un Hub prod faisait échouer l'arrivée Twenty (refus d'un next hors liste).
+  twenty: process.env.TWENTY_URL || twentyPar(process.env.HUB_URL || 'https://app.veridian.site'),
 };
+
+/** Hôte Twenty d'un Hub donné : staging si le Hub est staging, prod sinon. Pur, testé en CI. */
+export function twentyPar(hub: string): string {
+  return /staging/.test(hub) ? 'https://crm.staging.veridian.site' : 'https://crm.app.veridian.site';
+}
 
 /**
  * Nom Nomad du job de chaque app. `corrige` ne sert qu'au Hub (version minimale). `avant` liste

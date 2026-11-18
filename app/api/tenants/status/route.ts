@@ -17,7 +17,7 @@ export async function GET() {
     const uuid = userUuid(user);
 
     const tenant = await prisma.tenant.findFirst({
-      where: { userId: uuid },
+      where: { userId: uuid, deletedAt: null },
       select: {
         id: true,
         name: true,
