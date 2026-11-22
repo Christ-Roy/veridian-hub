@@ -129,6 +129,32 @@ avec l'image Alpine du Hub), épinglé par la version du SDK.
 products or services (e.g. in hosted sandboxes…) requires agreeing to our Commercial Terms of Service »
 (legal-and-compliance). Acte de Robert, gratuit. Sans lui, l'atelier n'est pas construit.
 
+## Brancher un compte (parcours de Robert, 22/11)
+
+**Quel moteur répond** : l'abonnement s'il est branché (déjà payé), sinon la clé du dernier branchement
+(`moteurActif`). Une clé rangée après l'abonnement ne le remplace donc pas.
+
+**(a) Clé API, depuis le bastion**, sans qu'elle s'affiche nulle part : la clé est lue dans `~/credentials/.all-creds.env`
+par son nom, vérifiée gratuitement chez le fournisseur (liste des modèles), puis chiffrée au coffre.
+```bash
+hub ia brancher robert.brunon@veridian.site --fournisseur anthropic --depuis ANTHROPIC_BASTION_AGENTS_KEY
+hub ia branchements robert.brunon@veridian.site
+```
+« reconnue » ne prouve pas le crédit (le 22/11, solde Anthropic à 0 : « credit balance is too low » à la première
+question). Sans crédit, la question échoue chez le fournisseur ; rien n'est dépensé de notre côté.
+
+**(b) Abonnement claude.ai, par l'atelier** (Robert seul, `ATELIER_COMPTES`, jusqu'à l'accord écrit d'Anthropic) :
+1. Ouvrir `https://app.veridian.site/dashboard/ia`, connecté en `robert.brunon@veridian.site`.
+2. Carte « Mon abonnement Claude » (absente si le compte n'est pas dans la liste ou si l'atelier ne répond pas) :
+   cliquer « Brancher mon abonnement ».
+3. Cliquer « Ouvrez la page de connexion d'Anthropic » : un onglet claude.com s'ouvre. Se connecter avec le compte de
+   l'abonnement, cliquer « Autoriser ».
+4. Anthropic affiche un code : le copier, revenir sur l'onglet Veridian, le coller dans « Code de connexion », « Valider »
+   (dans les 10 minutes). Message attendu : « Votre abonnement est branché. »
+5. Carte « Mon IA » : allumer l'interrupteur de l'app voulue (Academy, ou CRM pour l'espace qui a un workspace Twenty).
+6. Ouvrir l'app, ouvrir l'Assistant Veridian, poser une question qui lit une donnée réelle.
+Débrancher : même carte, « Débrancher » (le binaire se déconnecte dans l'atelier).
+
 ## Le chemin d'une question
 
 1. La fenêtre de chat (composant servi par le Hub, inséré dans l'app) lit le fil par l'API de l'app, puis envoie la question

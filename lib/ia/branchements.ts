@@ -73,8 +73,14 @@ export async function cleEnClair(
   return { fournisseur: b.fournisseur, modele: b.modele, cle: dechiffrer(b.cleScellee, env) };
 }
 
-/** Le moteur du dernier branchement : la clé API ou l'abonnement (atelier). */
+/**
+ * Le moteur du compte. L'abonnement passe devant toute clé : il est déjà payé par le client, alors qu'une clé se
+ * paie à la question (22/11 : une clé sans crédit rangée après l'abonnement aurait coupé le chat de Robert).
+ * Sinon, la clé du dernier branchement.
+ */
 export async function moteurActif(db: Db, hubUserId: string): Promise<'cle-api' | 'claude-code-abonnement' | null> {
+  const abonnement = await db.iaBranchement.findFirst({ where: { hubUserId, moteur: 'claude-code-abonnement' }, select: { moteur: true } });
+  if (abonnement) return 'claude-code-abonnement';
   const b = await db.iaBranchement.findFirst({ where: { hubUserId }, orderBy: { updatedAt: 'desc' }, select: { moteur: true } });
   if (!b) return null;
   return b.moteur === 'claude-code-abonnement' ? 'claude-code-abonnement' : 'cle-api';

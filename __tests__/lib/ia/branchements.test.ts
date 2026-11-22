@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { activer, brancher, branchementsDe, cleEnClair, estActive, ouvrirSession, revoquer } from '@/lib/ia/branchements';
+import { activer, brancher, branchementsDe, cleEnClair, estActive, moteurActif, ouvrirSession, revoquer } from '@/lib/ia/branchements';
 
 const env = { VAULT_ENC_KEY: 'k'.repeat(43) } as NodeJS.ProcessEnv;
 const CLE = 'sk-ant-api03-ROBERT-0123456789abcdefghijklmnop';
@@ -112,5 +112,21 @@ describe('menace 7 : reprise de session', () => {
     const invente = '11111111-1111-4111-8111-111111111111';
     expect(await ouvrirSession(db as never, robert, 'cle-api', invente)).toBeNull();
     expect(db.sessions.find((x) => x.id === invente)).toBeUndefined();
+  });
+});
+
+describe('moteur actif', () => {
+  it('l\'abonnement passe devant une clé branchée après lui ; sans abonnement, la clé', async () => {
+    expect(await moteurActif(db as never, 'hub-robert')).toBeNull();
+    await brancher(db as never, 'hub-robert', { fournisseur: 'anthropic', cle: CLE }, env);
+    expect(await moteurActif(db as never, 'hub-robert')).toBe('cle-api');
+    await db.iaBranchement.upsert({
+      where: { hubUserId_fournisseur: { hubUserId: 'hub-robert', fournisseur: 'claude-abonnement' } },
+      create: { hubUserId: 'hub-robert', fournisseur: 'claude-abonnement', moteur: 'claude-code-abonnement', modele: 'max', cleScellee: '', cleEmpreinte: '', cleFin: '' },
+      update: {},
+    });
+    // La clé est rangée de nouveau après l'abonnement (hub ia brancher) : l'abonnement reste le moteur.
+    await brancher(db as never, 'hub-robert', { fournisseur: 'openrouter', cle: CLE.replace('ant', 'or') }, env);
+    expect(await moteurActif(db as never, 'hub-robert')).toBe('claude-code-abonnement');
   });
 });
