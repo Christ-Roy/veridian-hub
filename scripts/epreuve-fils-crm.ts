@@ -98,6 +98,12 @@ async function main(): Promise<number> {
   noter('scope ia.espace sur la route des fils', refus, await appeler(url, await signer(url, { ...base, scope: 'ia.espace', corps_sha256: sha('') })));
   noter('sans jeton', refus, await appeler(url, null));
   noter('espace avec scope ia.fils', refus, await appeler(urlEspace, await signer(urlEspace, { scope: 'ia.fils' })));
+  const autreEspace = `https://pas-${randomUUID().slice(0, 8)}.crm.app.veridian.site/s/veridian-ia/espace`;
+  noter('espace avec aud faux (autre sous-domaine)', refus, await appeler(urlEspace, await signer(autreEspace, { scope: 'ia.espace' })));
+  const jetonEspace = (await signer(urlEspace, { scope: 'ia.espace' }))!;
+  await appeler(urlEspace, jetonEspace);
+  noter('espace, rejeu du même jeton', refus, await appeler(urlEspace, jetonEspace));
+  noter('espace sans jeton', refus, await appeler(urlEspace, null));
 
   let ecarts = 0;
   for (const r of res) {
@@ -105,7 +111,8 @@ async function main(): Promise<number> {
     if (!ok) ecarts++;
     console.log(`${ok ? 'OK    ' : 'ÉCART '} ${r.nom.padEnd(44)} ${r.statut}  ${ok && r.statut === 200 ? '' : r.corps}`);
   }
-  console.log(`\nfil d'épreuve : ${session} (workspace ${workspaceId}) · ${ecarts ? `${ecarts} ÉCART(S)` : 'tout conforme'}`);
+  console.log(`\n${new Date().toISOString()} · workspace ${workspaceId} · ${ecarts ? `${ecarts} ÉCART(S)` : 'tout conforme'}`);
+  console.log(`sessions créées (à retirer côté CRM) : ${session}`);
   if (res.some((r) => r.statut === 0)) return 2;
   return ecarts ? 1 : 0;
 }
