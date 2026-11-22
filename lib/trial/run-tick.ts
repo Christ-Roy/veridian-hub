@@ -68,7 +68,7 @@ import {
 } from '@/lib/email/templates/trial';
 import { computeTrialEndsAt } from '@/lib/trial/transitions';
 import { trialMachineEnabled } from '@/lib/trial/flag';
-import { PLAN_APPS, readAppPlan, setAppPlan, tenantHasApp } from '@/lib/plans/app-plan';
+import { estPlanOffert, PLAN_APPS, setAppPlan, tenantHasApp } from '@/lib/plans/app-plan';
 import { trialStatusForTenant } from '@/lib/plans/trial-status';
 import {
   TRIAL_ELIGIBLE_WAIT_HOURS,
@@ -553,7 +553,7 @@ async function suivreAnalyticsEtCrm(tenantId: string, plan: NotifusePlan): Promi
   const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { metadata: true } });
   for (const appPlan of PLAN_APPS) {
     if (!tenant || !tenantHasApp(tenant.metadata, appPlan)) continue;
-    if (readAppPlan(tenant.metadata, appPlan).source === 'grant_manual') continue;
+    if (estPlanOffert(tenant.metadata, appPlan)) continue;
     const canonical = plan === 'pro' || plan === 'business' || plan === 'enterprise' ? plan : 'free';
     const r = await setAppPlan(prisma, {
       tenantId,

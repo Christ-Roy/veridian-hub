@@ -10,8 +10,9 @@
  * signé avec le secret du webhook, parce que le point d'arrivée Stripe du staging est désactivé : le
  * staging dort (scale-to-zero) et sa page de réveil répond 200 à Stripe.
  *
- * Épreuve : `SSO_SABOTAGE=stripe-free-offert` rejoue l'ancien défaut (free posé en grant_manual avant
- * l'abonnement) : le cas doit échouer.
+ * Épreuve : `SSO_SABOTAGE=stripe-sans-webhook` ne remet pas l'événement au Hub : le cas doit échouer
+ * (le plan ne monte que par Stripe). L'ancien défaut, un free posé en grant_manual, est corrigé des deux
+ * côtés (Hub `estPlanOffert`, Twenty `decidePlanUpdate`) : il ne bloque plus, `stripe-free-offert` passe.
  */
 import { createHmac } from 'node:crypto';
 
@@ -95,7 +96,7 @@ cas('twenty', 'un abonnement Stripe fait passer le CRM du free au plan payé', a
   const meta = (await lookup(S.email)).json?.tenants?.[0]?.metadata ?? {};
   if (meta.crm_plan_source) throw new Error(`le Hub a posé un plan_source à la création : ${meta.crm_plan}/${meta.crm_plan_source}`);
 
-  // Épreuve : l'ancien défaut, un free posé comme plan offert avant l'abonnement.
+  // Ancien défaut rejoué : un free posé comme plan offert avant l'abonnement. Il ne doit plus bloquer.
   if (process.env.SSO_SABOTAGE === 'stripe-free-offert') await planHub(tenantId, 'crm', 'free');
 
   // 3. Abonnement Stripe de test au bundle Veridian Pro, avec la carte de test qui passe.
@@ -125,8 +126,10 @@ cas('twenty', 'un abonnement Stripe fait passer le CRM du free au plan payé', a
     );
     const evenement = evts.data.find((x: any) => x.data?.object?.id === abonnement.id);
     if (!evenement) throw new NonAbouti('événement customer.subscription.created introuvable chez Stripe');
-    const statut = await remettreAuHub(evenement);
-    if (statut !== 200) throw new Error(`webhook du Hub : HTTP ${statut}`);
+    if (process.env.SSO_SABOTAGE !== 'stripe-sans-webhook') {
+      const statut = await remettreAuHub(evenement);
+      if (statut !== 200) throw new Error(`webhook du Hub : HTTP ${statut}`);
+    }
 
     // 5. Le CRM suit : pro chez Twenty, pro/stripe au Hub.
     const plan = await attendre(() => planTwenty(S.email, S.hubUserId!), (p) => p === 'pro');

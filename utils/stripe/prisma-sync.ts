@@ -12,7 +12,7 @@
 //   getPlanByStripePriceId() qui regarde le catalogue ET le mapping legacy.
 
 import { pushProspectionPlan } from '@/lib/prospection/plan-push';
-import { bundleTier, PLAN_APPS, readAppPlan, setAppPlan, tenantHasApp, type PlanApp } from '@/lib/plans/app-plan';
+import { bundleTier, estPlanOffert, PLAN_APPS, setAppPlan, tenantHasApp, type PlanApp } from '@/lib/plans/app-plan';
 import { trialStatusForTenant } from '@/lib/plans/trial-status';
 import Stripe from 'stripe';
 
@@ -454,7 +454,7 @@ export async function manageSubscriptionStatusChange(
   if (tier) {
     for (const app of PLAN_APPS) {
       if (!tenantHasApp(tenant.metadata, app)) continue;
-      if (readAppPlan(tenant.metadata, app).source === 'grant_manual') {
+      if (estPlanOffert(tenant.metadata, app)) {
         result.applied.push({ app, targetPlan: tier, immune: true });
         continue;
       }
