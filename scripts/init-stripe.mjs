@@ -16,6 +16,7 @@
 
 import Stripe from 'stripe';
 import { withPg } from './lib/db.mjs';
+import { estProduitVeridian, listerTout } from './lib/stripe-catalogue.mjs';
 
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY_LIVE || process.env.STRIPE_SECRET_KEY;
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -58,14 +59,12 @@ async function checkIfSyncNeeded(client) {
 }
 
 async function syncProducts(client) {
-  const products = await stripe.products.list({ limit: 100 });
+  const products = { data: await listerTout((p) => stripe.products.list(p)) };
   let errorCount = 0;
   let syncedCount = 0;
 
   for (const product of products.data) {
-    const isVeridianProduct = product.metadata.namespace === 'veridian' ||
-                               (product.metadata.productKey === 'BASE_PRODUCT' && !product.metadata.namespace);
-    if (!isVeridianProduct) continue;
+    if (!estProduitVeridian(product)) continue;
 
     try {
       await client.query(
@@ -98,17 +97,13 @@ async function syncProducts(client) {
 }
 
 async function syncPrices(client) {
-  const prices = await stripe.prices.list({ limit: 100, expand: ['data.product'] });
+  const prices = { data: await listerTout((p) => stripe.prices.list(p), { expand: ['data.product'] }) };
   let errorCount = 0;
   let syncedCount = 0;
 
   for (const price of prices.data) {
     const product = price.product;
-    if (typeof product === 'object' && product.metadata) {
-      const isVeridianProduct = product.metadata.namespace === 'veridian' ||
-                                 (product.metadata.productKey === 'BASE_PRODUCT' && !product.metadata.namespace);
-      if (!isVeridianProduct) continue;
-    }
+    if (typeof product === 'object' && product.metadata && !estProduitVeridian(product)) continue;
 
     try {
       await client.query(
@@ -154,11 +149,10 @@ async function syncPrices(client) {
 
 async function main() {
   await withPg(async (client) => {
-    const needsSync = await checkIfSyncNeeded(client);
-    if (!needsSync) {
-      console.log('[Stripe Init] Products already synced - skipping');
-      return;
-    }
+    // Toujours rejouée (upsert idempotent) : « déjà synchronisé dès qu'un produit existe » figeait le
+    // catalogue au premier démarrage, et un prix créé ensuite n'y entrait jamais. checkIfSyncNeeded
+    // garde son seul rôle utile : vider le catalogue quand le mode (test/live) change.
+    await checkIfSyncNeeded(client);
     console.log('[Stripe Init] Starting sync...');
     const productsCount = await syncProducts(client);
     const pricesCount = await syncPrices(client);
