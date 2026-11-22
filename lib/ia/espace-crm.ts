@@ -1,21 +1,29 @@
 /**
- * L'espace CRM qui affiche la fenêtre est-il bien celui du workspace demandé ? (docs/MON-IA.md, « Le CRM », menace 8.)
+ * Quel espace CRM affiche la fenêtre ? (docs/MON-IA.md, « Le CRM », menace 8.)
  *
- * frame-ancestors laisse tout `*.crm.app.veridian.site` afficher la fenêtre : un autre espace Twenty pourrait l'afficher
- * avec le workspace de sa victime, ou poster au Hub une origine à lui pour recevoir le fil (donc les données lues). Le
- * Hub ne connaît pas le sous-domaine d'un workspace : il le demande au plugin de l'origine elle-même,
- *   GET <origine>/s/veridian-ia/espace   Authorization: Bearer <JWT ES256 du Hub, scope ia.espace, aud = l'URL exacte>
+ * Le plugin sert la fenêtre par le widget IFRAME natif de Twenty, à une adresse figée : le Hub retrouve l'espace par
+ * l'origine de la page hôte (en-tête Referer). Il ne connaît pas le sous-domaine d'un workspace : il le demande au
+ * plugin de cette origine,
+ *   GET <origine>/s/veridian-ia/espace   X-Veridian-Ia-Jeton: <JWT ES256 du Hub, scope ia.espace, aud = l'URL exacte>
  *   → 200 { workspace_id }  (le workspace que Twenty sert sur cet hôte)
- * et compare. Fermé par défaut : sans réponse lisible, refus. Seules les réponses concordantes sont gardées en mémoire.
+ * (Twenty retire `Authorization` des requêtes de ses fonctions de plugin : le jeton voyage dans son propre en-tête.)
+ *
+ * SSRF : le Referer est fourni par l'appelant. Aucun appel sortant tant que l'origine n'est pas exactement
+ * `https://<label>.<hôte de CRM_API_URL>` (port par défaut, ni IP, ni autre domaine : `origineCrmValide`) ; délai de
+ * 3 s, aucune redirection suivie. Fermé par défaut : sans réponse lisible, refus. Seules les réponses lisibles sont
+ * gardées, 5 minutes.
  */
 import { origineCrmValide } from './fils';
 import { signerPourRouteApp } from '@/lib/mcp/identite';
 
 export const CHEMIN_ESPACE_PLUGIN = '/s/veridian-ia/espace';
-const DUREE_MEMOIRE_MS = 10 * 60_000;
+export const EN_TETE_JETON = 'X-Veridian-Ia-Jeton';
+const DUREE_MEMOIRE_MS = 5 * 60_000;
+const DELAI_MS = 3_000;
 const memoire = new Map<string, { workspaceId: string; jusqua: number }>();
 
 export type VerdictEspace = 'ok' | 'origine_invalide' | 'origine_etrangere' | 'non_abouti';
+type Opts = { env?: NodeJS.ProcessEnv; fetchImpl?: typeof fetch; maintenant?: number };
 
 export function oublierEspacesCrm() {
   memoire.clear();
@@ -31,28 +39,38 @@ export function origineDe(referer: string | null | undefined): string | null {
   }
 }
 
-export async function verifierEspaceCrm(
+/** Le workspace que Twenty sert sur cette origine, ou un refus. */
+export async function workspaceDeLOrigine(
   origine: unknown,
-  workspaceId: string,
   hubUserId: string,
-  opts: { env?: NodeJS.ProcessEnv; fetchImpl?: typeof fetch; maintenant?: number } = {},
-): Promise<VerdictEspace> {
+  opts: Opts = {},
+): Promise<{ ok: true; workspaceId: string } | { ok: false; verdict: 'origine_invalide' | 'non_abouti' }> {
   const env = opts.env ?? process.env;
-  if (!origineCrmValide(origine, env)) return 'origine_invalide';
+  if (!origineCrmValide(origine, env)) return { ok: false, verdict: 'origine_invalide' };
   const maintenant = opts.maintenant ?? Date.now();
   const connu = memoire.get(origine);
-  if (connu && connu.jusqua > maintenant) return connu.workspaceId === workspaceId ? 'ok' : 'origine_etrangere';
+  if (connu && connu.jusqua > maintenant) return { ok: true, workspaceId: connu.workspaceId };
 
   const url = `${origine}${CHEMIN_ESPACE_PLUGIN}`;
-  const jeton = await signerPourRouteApp({ audience: url, hubUserId, claims: { scope: 'ia.espace', workspace_id: workspaceId } }, env);
-  if (!jeton) return 'non_abouti';
-  const r = await (opts.fetchImpl ?? fetch)(url, { headers: { Authorization: `Bearer ${jeton}` }, signal: AbortSignal.timeout(5_000) }).catch(() => null);
-  if (!r?.ok) return 'non_abouti';
+  const jeton = await signerPourRouteApp({ audience: url, hubUserId, claims: { scope: 'ia.espace' } }, env);
+  if (!jeton) return { ok: false, verdict: 'non_abouti' };
+  const r = await (opts.fetchImpl ?? fetch)(url, {
+    headers: { [EN_TETE_JETON]: jeton },
+    redirect: 'manual',
+    signal: AbortSignal.timeout(DELAI_MS),
+  }).catch(() => null);
+  if (!r || r.status !== 200) return { ok: false, verdict: 'non_abouti' };
   const j = (await r.json().catch(() => null)) as { workspace_id?: unknown } | null;
-  if (typeof j?.workspace_id !== 'string') return 'non_abouti';
-  if (j.workspace_id !== workspaceId) return 'origine_etrangere';
-  memoire.set(origine, { workspaceId, jusqua: maintenant + DUREE_MEMOIRE_MS });
-  return 'ok';
+  if (typeof j?.workspace_id !== 'string' || !/^[0-9a-f-]{36}$/i.test(j.workspace_id)) return { ok: false, verdict: 'non_abouti' };
+  memoire.set(origine, { workspaceId: j.workspace_id, jusqua: maintenant + DUREE_MEMOIRE_MS });
+  return { ok: true, workspaceId: j.workspace_id };
+}
+
+/** L'origine sert-elle bien ce workspace ? */
+export async function verifierEspaceCrm(origine: unknown, workspaceId: string, hubUserId: string, opts: Opts = {}): Promise<VerdictEspace> {
+  const w = await workspaceDeLOrigine(origine, hubUserId, opts);
+  if (!w.ok) return w.verdict;
+  return w.workspaceId === workspaceId ? 'ok' : 'origine_etrangere';
 }
 
 /** Le refus d'API qui correspond au verdict (jamais muet : le code dit pourquoi). */

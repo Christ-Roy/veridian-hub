@@ -53,7 +53,11 @@ describe('fils du CRM : route du plugin, jeton ES256', () => {
     expect(url).toBe('https://acme.crm.app.veridian.site/s/veridian-ia/fils/s-1');
     const corps = String(init.body);
     expect(JSON.parse(corps)).toEqual({ messages: [{ id: 'm1' }] });
-    const jeton = String((init.headers as Record<string, string>).Authorization).replace(/^Bearer /, '');
+    // Twenty retire Authorization des requêtes de ses fonctions de plugin : le jeton a son propre en-tête.
+    const h = init.headers as Record<string, string>;
+    expect(h.Authorization).toBeUndefined();
+    expect(init.redirect).toBe('manual');
+    const jeton = String(h['X-Veridian-Ia-Jeton']);
     const { payload } = await jwtVerify(jeton, createLocalJWKSet(await jwksPublic(env)), { audience: url, issuer: 'https://app.veridian.site' });
     expect(payload).toMatchObject({ sub: cible.hubUserId, scope: 'ia.fils', tenant_id: 't-1', workspace_id: WS, session_id: 's-1' });
     expect(payload.corps_sha256).toBe(createHash('sha256').update(corps).digest('hex'));

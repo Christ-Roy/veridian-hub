@@ -15,14 +15,14 @@ export const dynamic = 'force-dynamic';
 
 export default async function ChatPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const p = await searchParams;
-  // L'espace : le tenant Hub (Academy), ou le workspace de l'app (Twenty : le plugin ne connaît que le sien).
-  if (!estAppChat(p.app) || (!p.tenant && !p.workspace)) return <p className="p-4 text-sm">Assistant indisponible : app ou espace manquant.</p>;
+  // L'espace : le tenant Hub (Academy) ; pour le CRM, l'origine de la page hôte (widget IFRAME à adresse figée).
+  if (!estAppChat(p.app) || (p.app !== 'crm' && !p.tenant)) return <p className="p-4 text-sm">Assistant indisponible : app ou espace manquant.</p>;
   const user = await getCurrentUser();
   if (!user?.supabaseUserId) {
     return (
       <p className="p-4 text-sm">
         Connectez-vous à votre espace Veridian pour utiliser l&apos;assistant.{' '}
-        <a className="underline" href="/login" target="_top">
+        <a className="underline" href="/login" target="_blank" rel="noopener">
           Se connecter
         </a>
       </p>

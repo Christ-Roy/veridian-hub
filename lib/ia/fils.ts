@@ -8,8 +8,8 @@
  * Contrat du CRM (Twenty ne se touche que par plugin) : la route de la fonction serveur du plugin, sur l'origine
  * de l'espace (Twenty trouve le workspace par l'hôte), authentifiée par un JWT ES256 du Hub vérifiable par la
  * clé publique (/.well-known/jwks.json) : aucun secret à confier au plugin.
- *   GET <origine>/s/veridian-ia/fils/:session          Authorization: Bearer <jeton>
- *   PUT <origine>/s/veridian-ia/fils/:session { messages }  Authorization: Bearer <jeton>
+ *   GET <origine>/s/veridian-ia/fils/:session          X-Veridian-Ia-Jeton: <jeton>
+ *   PUT <origine>/s/veridian-ia/fils/:session { messages }  X-Veridian-Ia-Jeton: <jeton>
  * Jeton : iss Hub, aud = l'URL exacte appelée, sub = hub_user_id, scope `ia.fils`, tenant_id, workspace_id,
  * session_id, corps_sha256 (sha256 hex du corps, chaîne vide pour GET), 60 s. Le plugin refuse si workspace_id
  * n'est pas le sien, et ne rend un fil qu'à son auteur.
@@ -79,7 +79,7 @@ async function appel(app: string, t: CibleFil, corps: string, env: NodeJS.Proces
     if (!t.workspaceId || !origineCrmValide(t.origine, env)) return null;
     const url = `${t.origine}${CHEMIN_FILS_PLUGIN}/${encodeURIComponent(t.sessionId)}`;
     const jeton = await jetonPlugin(url, t, corps, env);
-    return jeton ? { url, headers: { Authorization: `Bearer ${jeton}` } as Record<string, string> } : null;
+    return jeton ? { url, headers: { 'X-Veridian-Ia-Jeton': jeton } as Record<string, string> } : null;
   }
   const c = resolveAppConfig(app, env);
   if (!c) return null;
@@ -92,7 +92,7 @@ export async function lireFil(app: string, t: CibleFil, opts: Opts = {}): Promis
   if (!a) return null;
   // Le CRM tient l'auteur et l'espace dans le jeton ; les autres apps les reçoivent en paramètres signés.
   const url = app === 'crm' ? a.url : `${a.url}?${new URLSearchParams({ hub_user_id: t.hubUserId, tenant_id: t.tenantId })}`;
-  const r = await (opts.fetchImpl ?? fetch)(url, { headers: a.headers, signal: AbortSignal.timeout(TIMEOUT_MS) }).catch(() => null);
+  const r = await (opts.fetchImpl ?? fetch)(url, { headers: a.headers, redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT_MS) }).catch(() => null);
   if (!r || !r.ok) return null;
   const j = (await r.json().catch(() => null)) as { messages?: unknown[] } | null;
   return Array.isArray(j?.messages) ? j.messages : null;
@@ -107,6 +107,7 @@ export async function ecrireFil(app: string, t: CibleFil & { messages: unknown[]
   if (!a) return false;
   const r = await (opts.fetchImpl ?? fetch)(a.url, {
     method: 'PUT',
+    redirect: 'manual',
     headers: { 'Content-Type': 'application/json', ...a.headers },
     body: corps,
     signal: AbortSignal.timeout(TIMEOUT_MS),

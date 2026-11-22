@@ -97,26 +97,30 @@ Une app ne parle jamais à un fournisseur d'IA, ni à l'atelier : elle passe par
 
 ### Le CRM (Twenty, par plugin seulement)
 
-Mesuré dans le code de Twenty le 22/11 : un front component tourne dans une iframe `sandbox="allow-scripts"` (origine
-`null`) puis un Web Worker. Il ne peut donc pas appeler le Hub avec la session de l'utilisateur ; il affiche la fenêtre
-du Hub par le composant `HtmlIframe` (rendu par l'hôte Twenty, dont le document n'a pas de `frame-src`).
+Mesuré dans Twenty v2.56.1 servi (session CRM, 22/11) : un front component et `HtmlIframe` reçoivent un `sandbox` imposé
+sans `allow-same-origin` (origine nulle : ni cookie, ni stockage) ; sur les routes `/s/` des fonctions de plugin, Twenty
+retire `authorization`, `cookie` et `proxy-authorization`. D'où :
 
-- **Fenêtre** : `https://app.veridian.site/ia/chat?app=crm&workspace=<workspace_id Twenty>`, iframe sans `sandbox`
-  (même site `veridian.site` : le cookie du Hub suit). Le Hub trouve le tenant de l'utilisateur dont
-  `metadata.crm.workspace_id` vaut ce workspace (`espaceDe`), sinon 404. La fenêtre garde la dernière session de l'espace
-  dans son propre stockage et transmet l'origine de l'hôte (`document.referrer`).
-- **Fils** : rangés par une fonction serveur du plugin, route `GET|PUT <origine de l'espace>/s/veridian-ia/fils/:session`
-  (Twenty trouve le workspace par l'hôte). Le Hub n'appelle qu'un sous-domaine direct de l'hôte de `CRM_API_URL`
-  (`origineCrmValide`). Authentification : `Authorization: Bearer <JWT ES256 du Hub>`, vérifié par
+- **Fenêtre** : une page du plugin avec le widget `IFRAME` natif (`allow-scripts allow-forms allow-popups
+  allow-same-origin`), à l'adresse figée `https://app.veridian.site/ia/chat?app=crm`. Le Hub trouve l'espace par
+  l'**origine de la page hôte** (en-tête `Referer` ; Twenty sert `strict-origin-when-cross-origin`, l'iframe ne pose pas
+  `referrerpolicy="no-referrer"`) : il demande au plugin de cette origine le workspace qu'il sert (« Espace hôte »), puis
+  le tenant de l'utilisateur dont `metadata.crm.workspace_id` vaut ce workspace (`espaceDe`). Aucune valeur par défaut :
+  Referer absent, origine hors du CRM, plugin muet, espace dont l'utilisateur n'est pas membre, ou `workspace=` fourni qui
+  diffère, tout est refusé à l'écran et journalisé (`lib/ia/fenetre.ts`). La fenêtre garde la dernière session de
+  l'espace dans son propre stockage.
+- **Fils** : rangés par une fonction serveur du plugin, `GET|PUT <origine de l'espace>/s/veridian-ia/fils/:session`.
+  Jeton dans **`X-Veridian-Ia-Jeton: <JWT ES256 du Hub>`** (sans « Bearer »), vérifié par
   `https://app.veridian.site/.well-known/jwks.json` : `iss` le Hub, `aud` l'URL exacte appelée, `sub` le hub_user_id,
   `scope` `ia.fils`, `tenant_id`, `workspace_id` (le plugin refuse s'il n'est pas le sien), `session_id` (celui du
   chemin), `corps_sha256` (sha256 hex du corps, vide pour GET), 60 s. PUT `{ messages }` remplace le fil ; GET rend
   `{ messages }` ou 404, seulement à son auteur (`sub`). Aucun secret partagé.
-- **Espace hôte** (menace 8) : le Hub ne connaît pas le sous-domaine d'un workspace ; il le demande au plugin de la page
-  qui affiche la fenêtre, `GET <origine>/s/veridian-ia/espace` (même jeton, `scope` `ia.espace`) → `{ workspace_id }`
-  du workspace que Twenty sert sur cet hôte. Origine lue dans l'en-tête `Referer` (Twenty sert
-  `strict-origin-when-cross-origin` ; l'iframe ne doit pas poser `referrerpolicy="no-referrer"`). Sans plugin ou sans
-  réponse lisible, la fenêtre refuse (fermé par défaut). Concordance gardée 10 min en mémoire (`lib/ia/espace-crm.ts`).
+- **Espace hôte** : `GET <origine>/s/veridian-ia/espace`, même en-tête, `scope` `ia.espace` (sans `workspace_id`) →
+  `200 { workspace_id }`, le workspace que Twenty sert sur cet hôte. `/api/ia/chat` et `/api/ia/fil` refont la
+  vérification avant tout envoi de fil (`lib/ia/espace-crm.ts`).
+- **SSRF** : le Referer vient de l'appelant. Aucun appel sortant si l'origine n'est pas exactement
+  `https://<label>.crm.app.veridian.site` (hôte de `CRM_API_URL`, port par défaut, ni IP, ni autre domaine :
+  `origineCrmValide`) ; délai 3 s, aucune redirection suivie, réponse gardée 5 min.
 - **Interrupteur** : `/dashboard/ia` le propose pour les espaces qui ont un workspace Twenty, si l'app est ouverte au
   compte (`twenty`).
 
@@ -182,7 +186,7 @@ Débrancher : même carte, « Débrancher » (le binaire se déconnecte dans l'a
 | **Fuite de la clé** | clé dans un log, une erreur, une trace du SDK, un mail | Chiffrée au repos, jamais renvoyée au navigateur ; déchiffrée en mémoire le temps de l'appel ; masquée dans toute erreur du fournisseur et toute trace du SDK avant journal. Épreuve : une fuite provoquée (clé glissée dans une erreur et une trace) doit faire échouer le test. |
 | **Coût et abus** | boucle d'outils, script qui martèle le chat | Plafonds par minute et par jour, nombre de tours borné, refus journalisé ; c'est la clé du client, mais une boucle reste un défaut chez nous. |
 | **Reprise de session** | `--resume` (ou l'identifiant de session de `cle-api`) d'un fil d'un autre client | L'identifiant de session est créé par le Hub, lié au (utilisateur, app, tenant) et vérifié côté Hub avant toute reprise : un identifiant inconnu ou d'un autre tenant est refusé et journalisé. Le modèle et le navigateur ne choisissent jamais l'identifiant repris. Le volume `CLAUDE_CONFIG_DIR` d'un client n'est monté que dans son propre bac à sable, jamais chez un autre (nom de volume dérivé du couple et vérifié par le Hub au lancement). Test vu échouer à l'étape 2 si un identifiant étranger est accepté. |
-| **Espace hôte étranger** (menace 8) | frame-ancestors autorise tout `*.crm.app.veridian.site` : l'espace Twenty d'un autre client affiche la fenêtre avec `workspace=` de la victime, ou poste au Hub sa propre origine pour recevoir le fil (donc les données lues) | `/ia/chat` refuse, visiblement et journalisé (`ia.refus`), (1) un espace qui n'est pas à l'utilisateur, (2) une page hôte qui n'est pas l'espace de ce workspace, vérifiée auprès de son plugin (`lib/ia/fenetre.ts`) ; `/api/ia/chat` et `/api/ia/fil` refont la vérification avant tout envoi de fil ; toutes les routes `/api/ia/*` refusent une requête d'une autre origine que le Hub (`lib/ia/requete.ts`). Tests vus échouer : `__tests__/lib/ia/fenetre.test.ts`, `espace-crm.test.ts`, `__tests__/api/ia/chat.test.ts`. |
+| **Espace hôte étranger** (menace 8) | frame-ancestors autorise tout `*.crm.app.veridian.site` : l'espace Twenty d'un autre client affiche la fenêtre avec `workspace=` de la victime, ou poste au Hub sa propre origine pour recevoir le fil (donc les données lues) | `/ia/chat` refuse, visiblement et journalisé (`ia.refus`), (1) un espace qui n'est pas à l'utilisateur, (2) une page hôte qui n'est pas un espace CRM de l'utilisateur : l'espace est trouvé par l'origine de l'hôte et demandé à son plugin, sans SSRF (`lib/ia/fenetre.ts`, `espace-crm.ts`) ; `/api/ia/chat` et `/api/ia/fil` refont la vérification avant tout envoi de fil ; toutes les routes `/api/ia/*` refusent une requête d'une autre origine que le Hub (`lib/ia/requete.ts`). Tests vus échouer : `__tests__/lib/ia/fenetre.test.ts`, `espace-crm.test.ts`, `__tests__/api/ia/chat.test.ts`. |
 | **Bac à sable** (moteur 2) | le code du client vise le tailnet ou le bastion | Pas d'accès au tailnet ni au réseau interne (le 22/11, un runner CI a obtenu un shell sudo sur le bastion par Tailscale SSH), sortie filtrée, job détruit, aucun secret de la flotte dans l'image. |
 
 ## Ordre de livraison (chaque étape jusqu'à la prod mesurée, tests vus échouer)
