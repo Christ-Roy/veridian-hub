@@ -334,10 +334,11 @@ EOH
       auto_revert      = true
     }
 
-    # Le volume hub-atelier vit sur ovh-prod (nomad-veridian nodes/volumes/hub-atelier.volume.hcl).
+    # Sur rise, à l'écart de la prod du Hub : le volume hub-atelier y vit (nomad-veridian
+    # nodes/volumes/hub-atelier.volume.hcl, 0700, propriétaire 1001:1001 = nextjs:nodejs).
     constraint {
-      attribute = "${meta.provider}"
-      value     = "ovh-prod"
+      attribute = "${node.unique.name}"
+      value     = "veridian-rise-01"
     }
 
     volume "hub-atelier" {
