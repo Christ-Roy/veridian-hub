@@ -10,6 +10,33 @@ import { Input } from '@/components/ui/input';
 
 type Statut = { connecte: boolean; email?: string | null; abonnement?: string | null };
 
+/**
+ * La vraie raison d'un échec, jamais un « réessayez » générique (23/11 : l'atelier en panne, Robert recliquait dans le
+ * vide). Le code reste affiché pour le support.
+ */
+export function messageEchec(code: string | undefined, etape: 'debut' | 'code'): string {
+  switch (code) {
+    case 'atelier_injoignable':
+    case 'atelier_indisponible':
+    case 'hors_reseau_atelier':
+    case 'binaire_introuvable':
+      return "Le service qui relie votre abonnement est indisponible : l'incident est de notre côté. Inutile de recliquer, réessayez plus tard.";
+    case 'abonnement_ferme':
+    case 'client_refuse':
+      return "Le branchement par abonnement n'est pas ouvert pour ce compte.";
+    case 'adresse_introuvable':
+      return "Anthropic n'a pas proposé de page de connexion. Réessayez dans quelques minutes.";
+    case 'connexion_non_commencee':
+      return 'La connexion a expiré (10 minutes). Recommencez depuis « Brancher mon abonnement ».';
+    case 'code_invalide':
+      return "Ce code n'a pas la forme attendue : copiez-le en entier depuis la page d'Anthropic.";
+    case 'connexion_refusee':
+      return "Anthropic a refusé ce code (déjà utilisé ou expiré). Recommencez la connexion.";
+    default:
+      return etape === 'debut' ? "La connexion n'a pas pu démarrer." : "Le code n'a pas été accepté. Recommencez la connexion.";
+  }
+}
+
 async function appel(action: string, extra: Record<string, unknown> = {}) {
   const r = await fetch('/api/ia/abonnement', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, ...extra }) });
   return { ok: r.ok, j: (await r.json().catch(() => ({}))) as Statut & { url?: string; error?: string } };
@@ -27,7 +54,7 @@ export function MonAbonnement({ branche }: { branche: boolean }) {
     setMessage(null);
     const { ok, j } = await appel('debut');
     setEnvoi(false);
-    if (!ok || !j.url) return setMessage("La connexion n'a pas pu démarrer. Réessayez dans un instant.");
+    if (!ok || !j.url) return setMessage(`${messageEchec(j.error, 'debut')}${j.error ? ` (code : ${j.error})` : ''}`);
     setUrl(j.url);
   }
 
@@ -37,7 +64,7 @@ export function MonAbonnement({ branche }: { branche: boolean }) {
     const { ok, j } = await appel('code', { code });
     setCode('');
     setEnvoi(false);
-    if (!ok || !j.connecte) return setMessage("Le code n'a pas été accepté. Recommencez la connexion.");
+    if (!ok || !j.connecte) return setMessage(`${messageEchec(j.error, 'code')}${j.error ? ` (code : ${j.error})` : ''}`);
     setUrl(null);
     setStatut(j);
     setMessage('Votre abonnement est branché.');
