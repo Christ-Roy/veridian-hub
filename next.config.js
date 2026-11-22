@@ -58,10 +58,20 @@ const nextConfig = {
   async headers() {
     return [
       {
-        source: '/:path*',
+        // Tout sauf la fenêtre de l'assistant.
+        source: '/((?!ia/chat).*)',
         headers: [
           { key: 'X-Frame-Options', value: 'SAMEORIGIN' },
           { key: 'Content-Security-Policy', value: "frame-ancestors 'self'" },
+        ],
+      },
+      {
+        // L'Assistant Veridian (docs/MON-IA.md) s'affiche dans les apps, et seulement elles : les sites
+        // clients (<nom>.veridian.site) ne sont pas des apps et ne peuvent pas l'encadrer (une page
+        // hostile ferait cliquer « Autoriser » à l'insu de l'utilisateur).
+        source: '/ia/chat',
+        headers: [
+          { key: 'Content-Security-Policy', value: "frame-ancestors 'self' https://*.app.veridian.site https://*.crm.app.veridian.site" },
         ],
       },
     ];

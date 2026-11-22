@@ -7,12 +7,16 @@ import { BotIcon } from 'lucide-react';
 import { auth } from '@/auth';
 import { Card } from '@/components/ui/card';
 import { DashboardPageHeader } from '@/components/dashboard/PageHeader';
+import { branchementsDe } from '@/lib/ia/branchements';
+import { espacesDe } from '@/lib/mcp/catalogue';
 import { connexionsActives } from '@/lib/mcp/connexions';
+import { getEnabledGatedApps } from '@/lib/tenant-apps';
 import { liensInstallation } from '@/lib/mcp/liens-installation';
 import { prisma } from '@/lib/prisma';
 
 import { ConnecterAssistant } from './ConnecterAssistant';
 import { ConnexionsIa } from './ConnexionsIa';
+import { MonIa } from './MonIa';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +26,18 @@ export default async function AssistantsIaPage() {
   const user = await prisma.user.findUnique({ where: { id: session.user.id }, select: { supabaseUserId: true } });
   if (!user) redirect('/login');
   const connexions = user.supabaseUserId ? await connexionsActives(prisma, user.supabaseUserId) : [];
+  const hubUserId = user.supabaseUserId;
+  const [branchements, espaces, activations, ouvertes] = hubUserId
+    ? await Promise.all([
+        branchementsDe(prisma, hubUserId),
+        espacesDe(prisma, hubUserId),
+        prisma.iaActivation.findMany({ where: { hubUserId }, select: { app: true, tenantId: true, enabled: true } }),
+        getEnabledGatedApps(prisma, hubUserId),
+      ])
+    : [[], [], [], new Set<string>()];
+  // L'assistant n'est proposé que dans une app ouverte pour ce compte, et qui range ses fils (Academy
+  // d'abord ; le CRM à l'étape 3 du chantier, docs/MON-IA.md).
+  const apps = ouvertes.has('academy') ? ['academy'] : [];
 
   return (
     <div className="max-w-2xl mx-auto p-6 space-y-6">
@@ -30,6 +46,18 @@ export default async function AssistantsIaPage() {
         description="Une seule connexion donne à votre assistant l'accès à toutes vos apps Veridian, en votre nom."
         icon={BotIcon}
       />
+      <Card className="p-6 space-y-4">
+        <h2 className="text-lg font-medium">Mon IA</h2>
+        <p className="text-sm text-muted-foreground">
+          Branchez votre propre IA une fois : elle devient l&apos;Assistant Veridian dans les apps où vous l&apos;allumez.
+        </p>
+        <MonIa
+          branchements={branchements}
+          espaces={espaces.map((e) => ({ id: e.id, nom: e.nom }))}
+          activations={activations}
+          apps={apps}
+        />
+      </Card>
       <Card className="p-6 space-y-4">
         <h2 className="text-lg font-medium">Connecter un assistant</h2>
         <ConnecterAssistant liens={liensInstallation()} />
