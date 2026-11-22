@@ -51,6 +51,9 @@ export default async function DashboardPage({
   const isTwentyEnabled = !!crmUrl;
   const isAnalyticsEnabled = enabledApps.has('analytics');
   const isCmsEnabled = enabledApps.has('cms');
+  // Academy est réservée : sa tuile n'existe que pour un compte activé (Robert seul, 22/11).
+  const academyUrl = process.env.ACADEMY_API_URL;
+  const isAcademyEnabled = enabledApps.has('academy') && !!academyUrl;
 
   const tenant = await prisma.tenant.findFirst({
     where: { userId: userUuid(user), deletedAt: null },
@@ -275,6 +278,22 @@ export default async function DashboardPage({
                 'Vues, filtres et tableaux de bord',
                 'Automatisations sans code',
                 'Accès API et MCP pour vos outils',
+              ]}
+            />
+          )}
+          {isAcademyEnabled && academyUrl && (
+            <ServiceCard
+              name="Veridian Academy"
+              description="Vos formations en ligne, prêtes à suivre."
+              url={academyUrl}
+              icon="GraduationCap"
+              appKey="academy"
+              badge="BETA"
+              features={[
+                'Parcours de formation guidés',
+                'Leçons courtes et pratiques',
+                'Suivi de votre progression',
+                'Accès MCP pour votre assistant IA',
               ]}
             />
           )}

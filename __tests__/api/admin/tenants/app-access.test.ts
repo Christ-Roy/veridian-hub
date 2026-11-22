@@ -20,9 +20,11 @@ const {
   tenantFindFirstMock,
   tenantUpdateMock,
   provisionMock,
+  academyMock,
   lierMock,
   setAppPlanMock,
 } = vi.hoisted(() => ({
+  academyMock: vi.fn(),
   lierMock: vi.fn(),
   setAppPlanMock: vi.fn(),
   tenantUpdateMock: vi.fn(),
@@ -39,6 +41,9 @@ vi.mock('@/lib/prisma', () => ({
 }));
 vi.mock('@/lib/crm/provision', () => ({
   ensureCrmWorkspace: (...args: unknown[]) => provisionMock(...args),
+}));
+vi.mock('@/lib/academy/provision', () => ({
+  ensureAcademyWorkspace: (...args: unknown[]) => academyMock(...args),
 }));
 vi.mock('@/lib/tenant-apps', async () => {
   const actual = await vi.importActual<any>('@/lib/tenant-apps');
@@ -87,6 +92,7 @@ beforeEach(() => {
   tenantFindFirstMock.mockReset();
   tenantUpdateMock.mockReset();
   provisionMock.mockReset();
+  academyMock.mockReset();
   authenticateAdminMock.mockResolvedValue(authOK);
   process.env.ADMIN_SECRET = 'admin-test-secret';
 });
@@ -215,6 +221,49 @@ describe('POST /api/admin/tenants/app-access', () => {
     });
   });
 
+  describe('Academy : espace créé à l\'activation, jamais par le chemin du CRM', () => {
+    const proved = { id: 'u1', supabaseUserId: 'uuid-1', emailVerified: new Date(), name: 'Robert' };
+
+    it('200 : espace Academy garanti puis activé, réponse academy_workspace_id', async () => {
+      findUniqueMock.mockResolvedValue(proved);
+      academyMock.mockResolvedValue({ ok: true, workspaceId: 'aw-1', created: true });
+      setTenantAppEnabledMock.mockResolvedValue({ appKey: 'academy', enabled: true });
+      const res = await POST(req({ user_email: 'R@X.io', app: 'academy', enabled: true }));
+      expect(res.status).toBe(200);
+      expect(academyMock).toHaveBeenCalledWith(
+        expect.anything(),
+        { hubUserId: 'uuid-1', email: 'r@x.io', name: 'Robert' },
+        expect.objectContaining({ actorEmail: expect.any(String) }),
+      );
+      expect(provisionMock).not.toHaveBeenCalled();
+      expect(await res.json()).toMatchObject({ app: 'academy', enabled: true, academy_workspace_id: 'aw-1' });
+    });
+
+    it('503 si Academy n\'est pas configurée, l\'app reste coupée', async () => {
+      findUniqueMock.mockResolvedValue(proved);
+      academyMock.mockResolvedValue({ ok: false, error: 'academy_not_configured' });
+      const res = await POST(req({ user_email: 'r@x.io', app: 'academy', enabled: true }));
+      expect(res.status).toBe(503);
+      expect(setTenantAppEnabledMock).not.toHaveBeenCalled();
+    });
+
+    it('502 si Academy est injoignable (pas encore en ligne), rien n\'est activé', async () => {
+      findUniqueMock.mockResolvedValue(proved);
+      academyMock.mockResolvedValue({ ok: false, error: 'academy_unreachable: fetch failed' });
+      const res = await POST(req({ user_email: 'r@x.io', app: 'academy', enabled: true }));
+      expect(res.status).toBe(502);
+      expect(await res.json()).toMatchObject({ error: 'academy_provision_failed' });
+      expect(setTenantAppEnabledMock).not.toHaveBeenCalled();
+    });
+
+    it('409 si l\'adresse n\'est pas prouvée', async () => {
+      findUniqueMock.mockResolvedValue({ ...proved, emailVerified: null });
+      const res = await POST(req({ user_email: 'r@x.io', app: 'academy', enabled: true }));
+      expect(res.status).toBe(409);
+      expect(academyMock).not.toHaveBeenCalled();
+    });
+  });
+
   it('activation Analytics : plan posé puis espace relié au tenant Hub (tenant_id du MCP)', async () => {
     findUniqueMock.mockResolvedValue({ id: 'u1', supabaseUserId: 'uuid-1' });
     setTenantAppEnabledMock.mockResolvedValue({ appKey: 'analytics', enabled: true });
@@ -224,5 +273,26 @@ describe('POST /api/admin/tenants/app-access', () => {
     const body = await (await POST(req({ user_email: 'a@x.io', app: 'analytics', enabled: true }))).json();
     expect(lierMock).toHaveBeenCalledWith('analytics', { hubUserId: 'uuid-1', hubTenantId: 't-1' });
     expect(body.analytics_lien).toBe('relie');
+  });
+
+  it('activation Analytics sans plan choisi : aucun plan poussé (jamais un free en grant_manual)', async () => {
+    findUniqueMock.mockResolvedValue({ id: 'u1', supabaseUserId: 'uuid-1' });
+    setTenantAppEnabledMock.mockResolvedValue({ appKey: 'analytics', enabled: true });
+    tenantFindFirstMock.mockResolvedValue({ id: 't-1', metadata: {} });
+    setAppPlanMock.mockReset();
+    lierMock.mockResolvedValue({ linked: true, raison: 'relie' });
+    await POST(req({ user_email: 'a@x.io', app: 'analytics', enabled: true }));
+    expect(setAppPlanMock).not.toHaveBeenCalled();
+  });
+
+  it('activation Analytics avec un plan payé déjà choisi : repoussé avec sa source', async () => {
+    findUniqueMock.mockResolvedValue({ id: 'u1', supabaseUserId: 'uuid-1' });
+    setTenantAppEnabledMock.mockResolvedValue({ appKey: 'analytics', enabled: true });
+    tenantFindFirstMock.mockResolvedValue({ id: 't-1', metadata: { analytics_plan: 'pro', analytics_plan_source: 'stripe' } });
+    setAppPlanMock.mockReset();
+    setAppPlanMock.mockResolvedValue({ ok: true, previousPlan: 'free' });
+    lierMock.mockResolvedValue({ linked: true, raison: 'relie' });
+    await POST(req({ user_email: 'a@x.io', app: 'analytics', enabled: true }));
+    expect(setAppPlanMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ plan: 'pro', planSource: 'stripe' }));
   });
 });

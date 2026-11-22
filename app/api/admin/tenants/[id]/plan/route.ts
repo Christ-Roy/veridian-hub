@@ -1,6 +1,6 @@
 // POST /api/admin/tenants/[id]/plan — endpoint admin unifié pour les plans.
 //
-// Body : { app: 'notifuse' | 'prospection' | 'analytics' | 'crm', plan: string, trialEndsAt?: string | null }
+// Body : { app: 'notifuse' | 'prospection' | 'analytics' | 'crm' | 'academy', plan: string, trialEndsAt?: string | null }
 //
 // Comportement :
 //   - notifuse : valide contre NOTIFUSE_PLANS (incl. lifetime_*, internal),
@@ -9,7 +9,8 @@
 //   - prospection : valide contre la liste prospection, pousse à Prospection si
 //     le tenant y est provisionné (`lib/prospection/plan-push.ts`), puis écrit
 //     `prospectionPlan`. Un refus de l'app n'écrit rien : pas d'écart silencieux.
-//   - analytics, crm : plan canonique (free, pro, business, enterprise), poussé à l'app
+//   - analytics, crm : plan canonique (free, pro, business, enterprise) ; academy : sa grille
+//     (free, entreprise, internal, lifetime_partner, lifetime_site_vitrine). Poussé à l'app
 //     (`lib/plans/app-plan.ts`) puis écrit dans `metadata.<app>_plan`. Refus de l'app : rien écrit.
 //   - trialEndsAt : si présent dans le body, met à jour le champ Tenant.
 //     `null` = pas d'expiration (free pour toujours). Absent = pas de
@@ -27,7 +28,7 @@ import { buildNotifuseClient } from '@/lib/notifuse/admin-helpers';
 import { isNotifusePlan, NOTIFUSE_PLANS, NotifuseError } from '@/lib/notifuse/types';
 import { prisma } from '@/lib/prisma';
 import { pushProspectionPlan } from '@/lib/prospection/plan-push';
-import { CANONICAL_PLANS, isCanonicalPlan, PLAN_APPS, setAppPlan, tenantHasApp, type PlanApp } from '@/lib/plans/app-plan';
+import { APP_PLAN_GRIDS, isAppPlan, isPlannedApp, setAppPlan, tenantHasApp, type PlanApp } from '@/lib/plans/app-plan';
 import { trialStatusForTenant } from '@/lib/plans/trial-status';
 
 export const dynamic = 'force-dynamic';
@@ -38,7 +39,7 @@ type ProspectionPlan = (typeof PROSPECTION_PLANS)[number];
 
 interface RequestBody {
   app?: 'notifuse' | 'prospection' | PlanApp;
-  plan?: string;
+  plan?: string | null;
   trialEndsAt?: string | null;
   reason?: string;
 }
@@ -62,10 +63,10 @@ export async function POST(
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  const planApp = (PLAN_APPS as readonly string[]).includes(body.app ?? '') ? (body.app as PlanApp) : null;
+  const planApp = isPlannedApp(body.app) ? body.app : null;
   if (body.app !== 'notifuse' && body.app !== 'prospection' && !planApp) {
     return NextResponse.json(
-      { error: 'app must be "notifuse", "prospection", "analytics" or "crm"' },
+      { error: 'app must be "notifuse", "prospection", "analytics", "crm" or "academy"' },
       { status: 400 },
     );
   }
@@ -109,10 +110,36 @@ export async function POST(
     }
   }
 
-  // ============== ANALYTICS, CRM ==============
+  // ============== ANALYTICS, CRM, ACADEMY ==============
+  // `plan: null` : le Hub oublie le plan qu'il avait choisi (et sa source), rien n'est poussé, l'app
+  // garde le sien. Sert à défaire un plan inventé, comme les free marqués grant_manual que la création
+  // d'espace posait avant le 22/11 : immunisés, ils empêchaient Stripe de faire monter le plan.
+  if (planApp && body.plan === null) {
+    const meta =
+      tenant.metadata && typeof tenant.metadata === 'object' && !Array.isArray(tenant.metadata)
+        ? { ...(tenant.metadata as Record<string, unknown>) }
+        : {};
+    const avant = { plan: meta[`${planApp}_plan`] ?? null, source: meta[`${planApp}_plan_source`] ?? null };
+    for (const suffixe of ['_plan', '_plan_source', '_plan_set_at', '_plan_set_by']) delete meta[`${planApp}${suffixe}`];
+    await prisma.tenant.update({ where: { id: tenantId }, data: { metadata: meta as object } });
+    try {
+      await prisma.provisioningLog.create({
+        data: {
+          tenantId,
+          level: 'info',
+          service: planApp,
+          message: `Plan ${planApp} retiré au Hub (était ${String(avant.plan)}/${String(avant.source)})`,
+          metadata: { avant, reason: body.reason ?? null, set_by: setBy, set_at: setAt } as object,
+        },
+      });
+    } catch (logErr) {
+      console.warn('[admin/tenants/plan] provisioning_log create failed:', logErr);
+    }
+    return NextResponse.json({ ok: true, tenant_id: tenantId, app: planApp, plan: null, previous: avant, set_by: setBy, set_at: setAt, propagated: false });
+  }
   if (planApp) {
-    if (!isCanonicalPlan(body.plan)) {
-      return NextResponse.json({ error: `plan must be one of: ${CANONICAL_PLANS.join(', ')}` }, { status: 400 });
+    if (!isAppPlan(planApp, body.plan)) {
+      return NextResponse.json({ error: `plan must be one of: ${APP_PLAN_GRIDS[planApp].join(', ')}` }, { status: 400 });
     }
     if (!tenantHasApp(tenant.metadata, planApp)) {
       return NextResponse.json({ error: `Tenant has no ${planApp} — activate it first` }, { status: 409 });

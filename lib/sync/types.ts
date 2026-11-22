@@ -14,7 +14,7 @@ import type { TestResidue } from '@/lib/sync/test-residue';
  */
 
 /** Identifiant d'une app downstream gérée par le sync. */
-export type SyncApp = 'notifuse' | 'prospection' | 'analytics' | 'crm';
+export type SyncApp = 'notifuse' | 'prospection' | 'analytics' | 'crm' | 'academy';
 
 // Le CMS (Payload) n'en fait pas partie : il reste à part, sans discovery ni
 // secret HMAC côté Hub, et il s'éteint peu à peu (décision Robert, 06/11).
@@ -23,6 +23,7 @@ export const SYNC_APPS: readonly SyncApp[] = [
   'prospection',
   'analytics',
   'crm',
+  'academy',
 ] as const;
 
 /**

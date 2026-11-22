@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
  * Gradients multi-stops (comme le favicon) pour un rendu riche.
  */
 
-export type AppKey = 'mail' | 'prospection' | 'analytics' | 'crm' | 'cms';
+export type AppKey = 'mail' | 'prospection' | 'analytics' | 'crm' | 'cms' | 'academy';
 
 const REGISTRY: Record<AppKey, { name: string; gradient: string }> = {
   // Mail → violet Notifuse
@@ -39,6 +39,12 @@ const REGISTRY: Record<AppKey, { name: string; gradient: string }> = {
     name: 'Veridian CMS',
     gradient:
       'linear-gradient(135deg, oklch(0.66 0.15 225) 0%, oklch(0.52 0.14 228) 55%, oklch(0.40 0.13 232) 100%)',
+  },
+  // Academy → ambre
+  academy: {
+    name: 'Veridian Academy',
+    gradient:
+      'linear-gradient(135deg, oklch(0.78 0.15 75) 0%, oklch(0.64 0.15 65) 55%, oklch(0.50 0.13 55) 100%)',
   },
 };
 

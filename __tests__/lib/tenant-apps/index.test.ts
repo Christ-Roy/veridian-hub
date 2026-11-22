@@ -30,8 +30,8 @@ describe('isGatedAppKey', () => {
     expect(isGatedAppKey('')).toBe(false);
   });
 
-  it('GATED_APP_KEYS contient exactement twenty/analytics/cms', () => {
-    expect([...GATED_APP_KEYS].sort()).toEqual(['analytics', 'cms', 'twenty']);
+  it('GATED_APP_KEYS contient exactement twenty/analytics/cms/academy', () => {
+    expect([...GATED_APP_KEYS].sort()).toEqual(['academy', 'analytics', 'cms', 'twenty']);
   });
 });
 

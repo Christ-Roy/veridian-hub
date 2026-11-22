@@ -29,7 +29,7 @@ export type TenantADeprovisionner = {
   metadata: unknown;
 };
 
-export type IssueApp = { app: 'prospection' | 'notifuse' | 'crm'; cible: string; ok: boolean; detail: string };
+export type IssueApp = { app: 'prospection' | 'notifuse' | 'crm' | 'academy'; cible: string; ok: boolean; detail: string };
 
 type Deps = {
   env?: NodeJS.ProcessEnv;
@@ -41,9 +41,10 @@ function message(err: unknown): string {
   return err instanceof Error ? err.message.slice(0, 160) : 'erreur';
 }
 
-async function supprimerEspaceCrm(hubTenantId: string, deps: Deps): Promise<{ ok: boolean; detail: string }> {
-  const config = resolveAppConfig('crm', deps.env ?? process.env);
-  if (!config) return { ok: false, detail: 'crm_not_configured' };
+/** Retire l'espace d'une app à espace par utilisateur (CRM, Academy) : `DELETE /api/tenants/:id`. */
+async function supprimerEspace(app: 'crm' | 'academy', hubTenantId: string, deps: Deps): Promise<{ ok: boolean; detail: string }> {
+  const config = resolveAppConfig(app, deps.env ?? process.env);
+  if (!config) return { ok: false, detail: `${app}_not_configured` };
   const ts = String((deps.maintenant ?? (() => new Date()))().getTime());
   const res = await (deps.fetchImpl ?? fetch)(`${config.apiUrl}/api/tenants/${encodeURIComponent(hubTenantId)}`, {
     method: 'DELETE',
@@ -105,12 +106,14 @@ export async function deprovisionnerCompte(
 
   for (const t of compte.tenants) {
     const meta = t.metadata && typeof t.metadata === 'object' ? (t.metadata as Record<string, unknown>) : {};
-    if (!meta.crm) continue;
-    try {
-      const r = await supprimerEspaceCrm(t.id, deps);
-      issues.push({ app: 'crm', cible: t.id, ...r });
-    } catch (err) {
-      issues.push({ app: 'crm', cible: t.id, ok: false, detail: message(err) });
+    for (const app of ['crm', 'academy'] as const) {
+      if (!meta[app]) continue;
+      try {
+        const r = await supprimerEspace(app, t.id, deps);
+        issues.push({ app, cible: t.id, ...r });
+      } catch (err) {
+        issues.push({ app, cible: t.id, ok: false, detail: message(err) });
+      }
     }
   }
   return issues;

@@ -128,6 +128,11 @@ const APP_ENV_MAP: Record<
     urlVar: 'CRM_API_URL',
     secretVar: 'CRM_HUB_API_SECRET',
   },
+  // Academy (e-learning, hôte `academy.app.veridian.site`), même contrat que le CRM.
+  academy: {
+    urlVar: 'ACADEMY_API_URL',
+    secretVar: 'ACADEMY_HUB_API_SECRET',
+  },
 };
 
 /**

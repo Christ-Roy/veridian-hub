@@ -21,6 +21,7 @@ import {
   Database,
   Globe,
   Activity,
+  GraduationCap,
   type LucideIcon,
 } from 'lucide-react';
 import { AppIdentity, type AppKey } from './AppIdentity';
@@ -38,6 +39,7 @@ const ICON_MAP: Record<string, LucideIcon> = {
   Database,
   Globe,
   Activity,
+  GraduationCap,
 };
 
 export type ServiceCardIcon = keyof typeof ICON_MAP;

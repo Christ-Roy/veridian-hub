@@ -35,7 +35,7 @@ import { buildNotifuseClient } from '@/lib/notifuse/admin-helpers';
 import { NotifuseClient } from '@/lib/notifuse/client';
 import { auditIdentity, identityCounts } from '@/lib/sync/identity-audit';
 import { measureTestResidue, residueCounts, type TestResidue } from '@/lib/sync/test-residue';
-import { PLAN_APPS } from '@/lib/plans/app-plan';
+import { PLANNED_APPS } from '@/lib/plans/app-plan';
 import { trialStatusesForTenants } from '@/lib/plans/trial-status';
 import { trialMachineEnabled } from '@/lib/webhooks/notifuse-handlers';
 import type {
@@ -112,7 +112,7 @@ function samePlan(app: SyncApp, a: string, b: string): boolean {
   return (PROSPECTION_PLAN_TIER[a] ?? a) === (PROSPECTION_PLAN_TIER[b] ?? b);
 }
 
-const APP_CLI: Record<SyncApp, string> = { notifuse: 'notifuse', prospection: 'prospection', analytics: 'analytics', crm: 'crm' };
+const APP_CLI: Record<SyncApp, string> = { notifuse: 'notifuse', prospection: 'prospection', analytics: 'analytics', crm: 'crm', academy: 'academy' };
 
 /** La marche à suivre de chaque écart, en une commande quand c'est possible. Jamais d'adresse client. */
 export function remediationFor(d: Pick<TenantDrift, 'hubTenantId' | 'app' | 'kind' | 'hubValue'>): string {
@@ -218,8 +218,8 @@ export function diffTenantApp(
       observedAt,
     });
   }
-  // Analytics et CRM : app activée au Hub, aucun plan posé. Le plan de l'app ne vient de personne.
-  if (!localPlan && (PLAN_APPS as readonly string[]).includes(app)) {
+  // Analytics, CRM et Academy : app activée au Hub, aucun plan posé. Le plan de l'app ne vient de personne.
+  if (!localPlan && (PLANNED_APPS as readonly string[]).includes(app)) {
     drifts.push({
       hubTenantId: t.hubTenantId,
       app,

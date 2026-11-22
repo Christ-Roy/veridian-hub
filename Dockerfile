@@ -108,7 +108,7 @@ COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 # Install in /tmp then merge with standalone's node_modules (overwrites are OK - standalone doesn't need these)
 # Même remarque que pour /opt/prisma-cli plus bas : install hors lockfile pnpm,
 # donc les overrides doivent être rappelés ici.
-RUN echo '{"type":"module","overrides":{"deepmerge-ts":"8.0.1"}}' > /tmp/package.json && \
+RUN echo '{"type":"module","overrides":{"deepmerge-ts":"8.0.1","effect":"3.22.5"}}' > /tmp/package.json && \
     cd /tmp && \
     npm install --omit=dev --no-package-lock \
       stripe@14.25.0 \
@@ -132,8 +132,9 @@ RUN echo '{"type":"module","overrides":{"deepmerge-ts":"8.0.1"}}' > /tmp/package
 # `deepmerge-ts@7.1.5` via `@prisma/config` — CVE-2026-40345 (HIGH), qui fait
 # échouer le gate Trivy image et bloque tout déploiement prod. Le lockfile
 # racine, lui, résout bien 8.0.1. Garder les deux bornes alignées.
+# Idem pour `effect` (CVE-2026-121707, HIGH, via @prisma/config) depuis le 22/11.
 RUN mkdir -p /opt/prisma-cli && \
-    echo '{"type":"module","overrides":{"deepmerge-ts":"8.0.1"}}' > /opt/prisma-cli/package.json && \
+    echo '{"type":"module","overrides":{"deepmerge-ts":"8.0.1","effect":"3.22.5"}}' > /opt/prisma-cli/package.json && \
     cd /opt/prisma-cli && \
     npm install --omit=dev --no-package-lock \
       prisma@7.7.0 \

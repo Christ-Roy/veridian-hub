@@ -21,6 +21,10 @@ const userFindUniqueMock = vi.hoisted(() => vi.fn(async (): Promise<unknown> => 
 vi.mock('@/lib/prisma', () => ({ prisma: { user: { findUnique: userFindUniqueMock } } }));
 const ensureCrmMock = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/crm/provision', () => ({ ensureCrmWorkspace: (...a: unknown[]) => ensureCrmMock(...a) }));
+const ensureAcademyMock = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/academy/provision', () => ({ ensureAcademyWorkspace: (...a: unknown[]) => ensureAcademyMock(...a) }));
+const appsActiveesMock = vi.hoisted(() => vi.fn(async (): Promise<Set<string>> => new Set()));
+vi.mock('@/lib/tenant-apps', () => ({ getEnabledGatedApps: (...a: unknown[]) => appsActiveesMock(...(a as [])) }));
 const mockDenyUnlessEmailProven = vi.hoisted(() => vi.fn(async (): Promise<unknown> => null));
 vi.mock('@/lib/auth/email-proof', () => ({
   denyUnlessEmailProven: mockDenyUnlessEmailProven,
@@ -54,6 +58,9 @@ beforeEach(() => {
   process.env.NOTIFUSE_HUB_API_SECRET = 'hub-secret-test';
   process.env.CRM_API_URL = 'https://crm.app.veridian.site';
   process.env.CRM_HUB_API_SECRET = 'crm-secret-test';
+  process.env.ACADEMY_API_URL = 'https://academy.app.veridian.site';
+  process.env.ACADEMY_HUB_API_SECRET = 'academy-secret-test';
+  appsActiveesMock.mockResolvedValue(new Set());
   // @ts-expect-error — patch global fetch pour les tests
   globalThis.fetch = fetchMock;
 });
@@ -429,6 +436,50 @@ describe('GET /api/auth/bounce/complete', () => {
       const { GET } = await import('@/app/api/auth/bounce/complete/route');
       await GET(makeReq({ cookie }));
       expect(ensureCrmMock).not.toHaveBeenCalled();
+    });
+  });
+  describe('Academy : réservée aux comptes activés au Hub', () => {
+    const user = { id: 'user-1', email: 'r@b.c', name: 'Robert', image: null, supabaseUserId: 'uuid-1' };
+    const refus = () => new Response(JSON.stringify({ error: 'user_not_in_app' }), { status: 400 });
+    const lien = () =>
+      new Response(JSON.stringify({ magic_link_url: 'https://academy.app.veridian.site/auth/token?t=A' }), { status: 200 });
+    const ouvrir = async () => {
+      const cookie = signNextCookie('https://academy.app.veridian.site/', TEST_SECRET);
+      const { GET } = await import('@/app/api/auth/bounce/complete/route');
+      return GET(makeReq({ cookie }));
+    };
+
+    it('compte non activé : aucun appel à Academy, page d\'erreur user_not_in_app', async () => {
+      getCurrentUserMock.mockResolvedValue(user);
+      fetchMock.mockResolvedValue(lien());
+      const res = await ouvrir();
+      const loc = new URL(res.headers.get('location')!);
+      expect(loc.pathname).toBe('/auth/bounce/error');
+      expect(loc.searchParams.get('app')).toBe('academy');
+      expect(loc.searchParams.get('code')).toBe('user_not_in_app');
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(ensureAcademyMock).not.toHaveBeenCalled();
+    });
+
+    it('compte activé, espace absent : espace créé puis lien émis', async () => {
+      getCurrentUserMock.mockResolvedValue(user);
+      appsActiveesMock.mockResolvedValue(new Set(['academy']));
+      fetchMock.mockResolvedValueOnce(refus()).mockResolvedValueOnce(lien());
+      ensureAcademyMock.mockResolvedValue({ ok: true, workspaceId: 'aw-1', created: true });
+      const res = await ouvrir();
+      expect(res.headers.get('location')).toBe('https://academy.app.veridian.site/auth/token?t=A');
+      expect(ensureAcademyMock).toHaveBeenCalledWith(expect.anything(), { hubUserId: 'uuid-1', email: 'r@b.c', name: 'Robert' }, expect.anything());
+      expect(ensureCrmMock).not.toHaveBeenCalled();
+      expect((fetchMock.mock.calls[0] as unknown as [string])[0]).toBe('https://academy.app.veridian.site/api/sso/issue-magic-link');
+    });
+
+    it('compte activé, espace présent : lien direct, aucune création', async () => {
+      getCurrentUserMock.mockResolvedValue(user);
+      appsActiveesMock.mockResolvedValue(new Set(['academy']));
+      fetchMock.mockResolvedValue(lien());
+      const res = await ouvrir();
+      expect(res.headers.get('location')).toBe('https://academy.app.veridian.site/auth/token?t=A');
+      expect(ensureAcademyMock).not.toHaveBeenCalled();
     });
   });
 });

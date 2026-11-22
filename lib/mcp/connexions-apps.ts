@@ -8,7 +8,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
 
 const DERIVE_MS = 5 * 60_000;
-const APPS = ['prospection', 'notifuse', 'analytics', 'crm'] as const;
+const APPS = ['prospection', 'notifuse', 'analytics', 'crm', 'academy'] as const;
 
 function egal(a: string, b: string): boolean {
   const x = Buffer.from(a);
