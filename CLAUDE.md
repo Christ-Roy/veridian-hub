@@ -69,14 +69,15 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   `tenant_id` signé seulement si l'IA choisit un espace ; espace non relié → `hub relier --app <app>`. Boutons
   « Ajouter à Claude… » : `/dashboard/ia` au Hub, et dans chaque app par `GET /api/mcp/liens-installation?app=<cle>`
   (public ; une origine de lien nouvelle s'annonce aux apps, Twenty les filtre).
-- **Garde rapide** : `__tests__/contrat/` (revocation sans `iat`, `authAt` sur toute création de session,
-  cibles du rebond, origines). Un nouveau `encode(` de JWT de session s'ajoute à sa liste. Détail par
-  parcours et état prouvé ou accepté : `docs/PARCOURS-IDENTITE.md`.
-- **Sonde de prod** : étape « Sonde identité » de `hub-ci.yml` (lectures seules). Le cron de reconcile
-  alerte au-dessus de `RESIDUE_SEUIL` (0 par défaut).
-- **Coupure** : aucune (08/11, prouvé à la sonde). Base sur pg-saas (grappe Patroni, hors du job Hub), app en bleu-vert : canari,
-  health check Traefik, retry. Tags Traefik changés = déploiement annoncé (deux versions aux tags différents : 12 s de 404).
-  Regrouper les changements. `e2e/systeme-sso/**` ne redéploie rien.
+- **Mon IA** (22/11, VER-203) : branchement IA par utilisateur (clé chiffrée, jamais affichée), interrupteur par app et
+  tenant (coupé par défaut), audit ; chat servi par le Hub, outils par la porte MCP, écriture confirmée. Pas de
+  microservice. Architecture et menaces : `docs/MON-IA.md`.
+- **Garde rapide** : `__tests__/contrat/` (révocation sans `iat`, `authAt`, cibles du rebond, origines) ; tout nouvel
+  `encode(` de JWT de session s'y ajoute. Détail : `docs/PARCOURS-IDENTITE.md`.
+- **Sonde de prod** : « Sonde identité » de `hub-ci.yml` (lecture seule) ; le cron de reconcile alerte au-dessus de
+  `RESIDUE_SEUIL` (0).
+- **Coupure** : aucune (08/11). Base sur pg-saas (Patroni), app en bleu-vert (canari, health check Traefik). Changer les
+  tags Traefik coupe 12 s : regrouper. `e2e/systeme-sso/**` ne redéploie rien.
 
 ## Que faire si
 
