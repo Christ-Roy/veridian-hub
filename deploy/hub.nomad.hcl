@@ -327,6 +327,15 @@ EOH
   group "atelier" {
     count = 1
 
+    # Sonde de sortie (ADR-033) : une allocation en échec est replacée vite, sans fin (défaut Nomad : 30 s puis
+    # tentatives bornées). Gabarit des relais mail, éprouvé sur dragonair.
+    reschedule {
+      delay          = "10s"
+      delay_function = "exponential"
+      max_delay      = "10m"
+      unlimited      = true
+    }
+
     update {
       max_parallel     = 1
       min_healthy_time = "10s"
