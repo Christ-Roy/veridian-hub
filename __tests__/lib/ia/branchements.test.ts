@@ -80,14 +80,17 @@ describe('branchement de l\'IA', () => {
   });
 });
 
-describe('interrupteur : coupé par défaut', () => {
-  it('sans ligne, inactif ; activé pour un tenant, pas pour un autre', async () => {
+describe('interrupteur : allumé d\'office, retrait volontaire (Robert, 23/11 : SSO-like)', () => {
+  it('sans ligne, allumé ; un retrait n\'éteint que cette app et cet espace ; rallumer rétablit', async () => {
     const t = { hubUserId: 'robert', app: 'academy', tenantId: 't1' };
+    expect(await estActive(db as never, t)).toBe(true);
+    expect(await estActive(db as never, { ...t, app: 'crm' })).toBe(true);
+    await activer(db as never, t, false);
     expect(await estActive(db as never, t)).toBe(false);
+    expect(await estActive(db as never, { ...t, tenantId: 't2' })).toBe(true);
+    expect(await estActive(db as never, { ...t, app: 'crm' })).toBe(true);
     await activer(db as never, t, true);
     expect(await estActive(db as never, t)).toBe(true);
-    expect(await estActive(db as never, { ...t, tenantId: 't2' })).toBe(false);
-    expect(await estActive(db as never, { ...t, app: 'crm' })).toBe(false);
   });
 });
 

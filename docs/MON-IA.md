@@ -1,7 +1,8 @@
 # « Mon IA » : l'assistant de chaque utilisateur, porté par le Hub
 
 Demande de Robert du 22/11/2026 (VER-203, sous-tâche de VER-202) : chaque utilisateur branche son IA une fois au Hub, et
-chaque app peut proposer un chatbot (optionnel, désactivé par défaut) qui agit sur ses données par la porte MCP. **Tout vit
+chaque app propose un chatbot, allumé d'office dès que l'IA est branchée (Robert, 23/11 : « SSO-like ») et éteignable app
+par app, qui agit sur ses données par la porte MCP. **Tout vit
 dans le Hub** : pas de microservice (un service séparé a été lancé puis retiré le 22/11, c'était une erreur).
 
 Cadre légal, tranché sur sources primaires : `veridian-academy/docs/CLAUDE-DANS-LA-PLATEFORME.md`, section « Décision et
@@ -19,7 +20,7 @@ architecture » (786b547). Ce fichier n'en recopie rien : il porte l'architectur
 | Élément | Où | Règle |
 |---|---|---|
 | Le branchement (`moteur`, fournisseur, modèle, clé) | table `ia_branchements`, une ligne par utilisateur et fournisseur | Clé chiffrée au repos (AES-256-GCM, `VAULT_ENC_KEY` de `nomad/jobs/hub`, IV par ligne, empreinte pour reconnaître sans révéler). Jamais renvoyée, affichée ni journalisée ; seuls les 4 derniers caractères se montrent. Révocable d'un clic, la ligne est effacée. |
-| L'interrupteur | table `ia_activations` (`hub_user_id`, `tenant_id`, `app`) | **Désactivé par défaut**, par app et par tenant. Sans ligne active, la fenêtre de chat n'apparaît pas et la route refuse. |
+| L'interrupteur | table `ia_activations` (`hub_user_id`, `tenant_id`, `app`) | **Allumé d'office** dès qu'une IA est branchée (Robert, 23/11 : « je ne veux pas avoir à cliquer »). Une ligne à `enabled = false` est un retrait volontaire pour cette app et ce tenant : la route refuse (`chat_desactive`). L'espace doit toujours être à l'utilisateur, et la session reste liée au triplet (menace 7). |
 | Le journal | `audit_log` (action `ia.*`) | Qui, quelle app, quel tenant, quel outil, combien de jetons, refus et confirmations. Jamais le contenu des messages ni la clé. |
 | Les plafonds | par branchement : messages par minute, jetons par jour, appels d'outils par tour | Valeurs par défaut prudentes, modifiables par l'utilisateur à la baisse. |
 

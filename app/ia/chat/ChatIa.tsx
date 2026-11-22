@@ -42,7 +42,7 @@ function ecrireMemoire(cle: string, v: string | null) {
 }
 
 const MESSAGES_ERREUR: Record<string, string> = {
-  chat_desactive: "L'assistant n'est pas allumé pour cette app. Allumez-le dans votre espace Veridian, rubrique Assistants IA.",
+  chat_desactive: "Vous avez éteint l'assistant pour cette app. Rallumez-le dans votre espace Veridian, rubrique Assistants IA.",
   pas_de_branchement: "Aucune IA n'est branchée. Branchez la vôtre dans votre espace Veridian, rubrique Assistants IA.",
   plafond: 'Trop de questions en peu de temps : réessayez dans un instant.',
   session_inconnue: 'Cette conversation ne peut pas être reprise ici.',

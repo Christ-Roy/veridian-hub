@@ -104,7 +104,19 @@ describe('POST /api/ia/chat : gardes', () => {
     expect(m.contexte).not.toHaveBeenCalled();
   });
 
-  it('chat non activé pour (app, tenant) : 403, coupé par défaut', async () => {
+  it('SSO-like (Robert, 23/11) : un nouvel utilisateur branche son IA, ouvre le CRM, obtient une réponse sans rien toucher', async () => {
+    // La vraie règle d'activation, sur une base sans aucune ligne d'interrupteur.
+    const vrai = await vi.importActual<typeof import('@/lib/ia/branchements')>('@/lib/ia/branchements');
+    m.active.mockImplementation((_db: unknown, t: unknown) => vrai.estActive({ iaActivation: { findUnique: async () => null } } as never, t as never));
+    const ws = '38627be0-428f-4924-aa67-4a35884ba7b4';
+    m.espace.mockResolvedValue({ id: 't1', slug: 'robert', workspaceId: ws });
+    m.streamText.mockReturnValue({ toUIMessageStreamResponse: () => new Response('ok') });
+    const r = await POST(req({ app: 'crm', workspaceId: ws, origine: 'https://veridian-4.crm.app.veridian.site', messages: question.messages }));
+    expect(r.status).toBe(200);
+    expect(m.streamText).toHaveBeenCalledTimes(1);
+  });
+
+  it('retrait volontaire pour (app, tenant) : 403, rien n\'est appelé', async () => {
     m.active.mockResolvedValue(false);
     const r = await POST(req(question));
     expect(r.status).toBe(403);

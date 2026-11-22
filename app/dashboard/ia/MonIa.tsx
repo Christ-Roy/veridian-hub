@@ -66,7 +66,8 @@ export function MonIa(props: { branchements: Branchement[]; espaces: Espace[]; a
     if (r.ok) setActivations((a) => [...a.filter((x) => !(x.app === app && x.tenantId === tenantId)), { app, tenantId, enabled }]);
   }
 
-  const actif = (app: string, tenantId: string) => activations.some((a) => a.app === app && a.tenantId === tenantId && a.enabled);
+  // Allumé d'office ; seule une ligne à `enabled = false` (retrait volontaire) l'éteint.
+  const actif = (app: string, tenantId: string) => !activations.some((a) => a.app === app && a.tenantId === tenantId && !a.enabled);
   const apps = APPS.filter((a) => props.apps.includes(a.cle));
 
   return (

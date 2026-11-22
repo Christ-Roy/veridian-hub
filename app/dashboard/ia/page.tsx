@@ -63,7 +63,7 @@ export default async function AssistantsIaPage() {
       <Card className="p-6 space-y-4">
         <h2 className="text-lg font-medium">Mon IA</h2>
         <p className="text-sm text-muted-foreground">
-          Branchez votre propre IA une fois : elle devient l&apos;Assistant Veridian dans les apps où vous l&apos;allumez.
+          Branchez votre propre IA une fois : elle devient l&apos;Assistant Veridian dans toutes vos apps, d&apos;office. Vous pouvez l&apos;éteindre app par app.
         </p>
         <MonIa
           branchements={branchements.filter((b) => b.fournisseur !== FOURNISSEUR_ABONNEMENT)}

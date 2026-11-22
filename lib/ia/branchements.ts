@@ -86,7 +86,7 @@ export async function moteurActif(db: Db, hubUserId: string): Promise<'cle-api' 
   return b.moteur === 'claude-code-abonnement' ? 'claude-code-abonnement' : 'cle-api';
 }
 
-// ── Interrupteurs : coupés par défaut ──
+// ── Interrupteurs : allumés d'office, retrait volontaire par app et espace ──
 
 export async function activer(db: Db, t: { hubUserId: string; app: string; tenantId: string }, enabled: boolean) {
   await db.iaActivation.upsert({
@@ -96,9 +96,15 @@ export async function activer(db: Db, t: { hubUserId: string; app: string; tenan
   });
 }
 
+/**
+ * L'assistant est allumé d'office dans toutes les apps des espaces de l'utilisateur dès qu'une IA est branchée
+ * (Robert, 23/11 : « SSO-like, je ne veux pas avoir à cliquer »). Seul un retrait volontaire (ligne à `enabled =
+ * false`) l'éteint pour une app et un espace. La vérification que l'espace est à l'utilisateur reste à l'appelant
+ * (espaceDe), et la session reste liée au triplet (menace 7).
+ */
 export async function estActive(db: Db, t: { hubUserId: string; app: string; tenantId: string }): Promise<boolean> {
   const a = await db.iaActivation.findUnique({ where: { hubUserId_app_tenantId: t } });
-  return a?.enabled === true;
+  return a ? a.enabled : true;
 }
 
 // ── Sessions (menace 7) : créées par le Hub, reprises seulement pour leur triplet ──
