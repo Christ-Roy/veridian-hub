@@ -69,7 +69,7 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   `tenant_id` signé seulement si l'IA choisit un espace ; espace non relié → `hub relier --app <app>`. Boutons
   « Ajouter à Claude… » : `/dashboard/ia` au Hub, et dans chaque app par `GET /api/mcp/liens-installation?app=<cle>`
   (public ; une origine de lien nouvelle s'annonce aux apps, Twenty les filtre).
-- **Mon IA** (VER-203, `docs/MON-IA.md`) : clé chiffrée, interrupteur par app et tenant (coupé), outils par la porte MCP.
+- **Mon IA** (VER-203, `docs/MON-IA.md`) : clé chiffrée, interrupteur par app et tenant (coupé).
   Clé d'un compte : `hub ia brancher <email> --fournisseur <f> --depuis <VARIABLE de ~/credentials>`. CRM : espace
   trouvé par l'origine de l'hôte ; épreuve `pnpm tsx scripts/epreuve-fils-crm.ts <origine>`. Atelier : rise, `cni/atelier`.
 - **Garde rapide** : `__tests__/contrat/` (révocation sans `iat`, `authAt`, cibles du rebond, origines) ; tout nouvel
@@ -112,7 +112,7 @@ Outil admin : `hub` (`hub doctor` d'abord : santé, secret, auth admin). Aucune 
 
 ## Commandes
 
-Dév : `dev -d <domaine> pnpm dev` (job Nomad) · `pnpm test` (2 workers, nice 19 ; `VITEST_MAX_WORKERS=n`).
+Dév : `dev -d <domaine> pnpm dev` (job Nomad) · `pnpm test` (2 workers, nice 19).
 
 ## Où travailler (Robert, 18/11)
 
@@ -157,7 +157,7 @@ Jamais de limite visible. Stripe → Hub → apps, jamais Stripe → app.
 
 - `.github/workflows/hub-ci.yml` : test → audit (npm) → docker → **trivy** → deploy-prod (sur `main`) → e2e-prod-smoke → rollback-prod (si fail)
 - **Pas de cron Trivy** : CVE de l'image servie via `secu`, `_trivy-image.yml` à la construction.
-- Runners hébergés par GitHub (dépôt public) : le smoke garde `playwright install --with-deps`.
+- Runners GitHub (dépôt public) : le smoke garde `playwright install --with-deps`.
 - Déploiement : job Nomad. Logs `nomad-v logs hub`, redeploy `nomad-v run hub`, état `nomad-v state`.
   Secrets = Nomad Variable `nomad/jobs/hub`. Skill `/nomad`.
 
