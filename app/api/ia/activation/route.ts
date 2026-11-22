@@ -4,12 +4,15 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { writeAuditLog } from '@/lib/admin/audit-log';
 import { activer, estAppChat } from '@/lib/ia/branchements';
 import { contexteUtilisateur, espaceDe } from '@/lib/ia/contexte';
+import { refusSiCroisee } from '@/lib/ia/requete';
 import { prisma } from '@/lib/prisma';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: NextRequest) {
+  const croisee = refusSiCroisee(req);
+  if (croisee) return croisee;
   const c = await contexteUtilisateur();
   if (c instanceof NextResponse) return c;
   const corps = (await req.json().catch(() => null)) as { app?: unknown; tenantId?: unknown; enabled?: unknown } | null;

@@ -8,6 +8,7 @@ import { writeAuditLog } from '@/lib/admin/audit-log';
 import { brancher, branchementsDe, estFournisseur, revoquer } from '@/lib/ia/branchements';
 import { CoffreIndisponible } from '@/lib/ia/coffre';
 import { contexteUtilisateur } from '@/lib/ia/contexte';
+import { refusSiCroisee } from '@/lib/ia/requete';
 import { prisma } from '@/lib/prisma';
 
 export const runtime = 'nodejs';
@@ -20,6 +21,8 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const croisee = refusSiCroisee(req);
+  if (croisee) return croisee;
   const c = await contexteUtilisateur();
   if (c instanceof NextResponse) return c;
   const corps = (await req.json().catch(() => null)) as { fournisseur?: unknown; modele?: unknown; cle?: unknown } | null;
@@ -49,6 +52,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const croisee = refusSiCroisee(req);
+  if (croisee) return croisee;
   const c = await contexteUtilisateur();
   if (c instanceof NextResponse) return c;
   const fournisseur = req.nextUrl.searchParams.get('fournisseur');

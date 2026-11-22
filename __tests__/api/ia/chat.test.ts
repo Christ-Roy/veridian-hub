@@ -13,6 +13,7 @@ const m = vi.hoisted(() => ({
   moteur: vi.fn(),
   streamText: vi.fn(),
   audit: vi.fn(),
+  verdict: vi.fn(),
   minute: { enforce: vi.fn(() => ({ ok: true })) },
   jour: { enforce: vi.fn(() => ({ ok: true })) },
 }));
@@ -33,6 +34,10 @@ vi.mock('@/lib/ia/branchements', async (orig) => ({
 vi.mock('ai', async (orig) => ({ ...(await orig<typeof import('ai')>()), streamText: (...a: unknown[]) => m.streamText(...a) }));
 vi.mock('@/lib/admin/audit-log', () => ({ writeAuditLog: (...a: unknown[]) => m.audit(...a) }));
 vi.mock('@/lib/prisma', () => ({ prisma: {} }));
+vi.mock('@/lib/ia/espace-crm', async (orig) => ({
+  ...(await orig<typeof import('@/lib/ia/espace-crm')>()),
+  verifierEspaceCrm: (...a: unknown[]) => m.verdict(...a),
+}));
 
 import { POST } from '@/app/api/ia/chat/route';
 
@@ -50,6 +55,7 @@ beforeEach(() => {
   m.cle.mockResolvedValue({ fournisseur: 'anthropic', modele: 'm', cle: 'sk-ant-api03-SECRET-0123456789abcdef' });
   m.minute.enforce.mockReturnValue({ ok: true });
   m.moteur.mockResolvedValue('cle-api');
+  m.verdict.mockResolvedValue('ok');
 });
 
 describe('POST /api/ia/chat : gardes', () => {
@@ -76,6 +82,26 @@ describe('POST /api/ia/chat : gardes', () => {
     expect(r.status).toBe(404);
     expect(m.espace).toHaveBeenCalledWith('robert', undefined, { app: 'crm', workspaceId: ws });
     expect(m.streamText).not.toHaveBeenCalled();
+  });
+
+  it('menace 8 : CRM, origine qui n\'est pas l\'espace de ce workspace : 403 journalisé, ni question ni fil', async () => {
+    const ws = '38627be0-428f-4924-aa67-4a35884ba7b4';
+    m.espace.mockResolvedValue({ id: 't1', slug: 'robert', workspaceId: ws });
+    m.verdict.mockResolvedValue('origine_etrangere');
+    const r = await POST(req({ app: 'crm', workspaceId: ws, origine: 'https://pirate.crm.app.veridian.site', messages: question.messages }));
+    expect(r.status).toBe(403);
+    expect(await r.json()).toMatchObject({ error: 'espace_hote_refuse' });
+    expect(m.verdict).toHaveBeenCalledWith('https://pirate.crm.app.veridian.site', ws, 'robert');
+    expect(m.streamText).not.toHaveBeenCalled();
+    expect(JSON.stringify(m.audit.mock.calls)).toContain('origine_etrangere');
+  });
+
+  it('menace 8 : une autre origine que le Hub (page d\'un espace CRM, même site) : 403 avant toute lecture', async () => {
+    const croisee = new NextRequest('https://app.veridian.site/api/ia/chat', { method: 'POST', body: JSON.stringify(question) });
+    // L'environnement de test filtre Origin d'une Request : on la pose comme le ferait le navigateur.
+    Object.defineProperty(croisee, 'headers', { value: new Headers({ origin: 'https://pirate.crm.app.veridian.site', 'sec-fetch-site': 'same-site' }) });
+    expect((await POST(croisee)).status).toBe(403);
+    expect(m.contexte).not.toHaveBeenCalled();
   });
 
   it('chat non activé pour (app, tenant) : 403, coupé par défaut', async () => {

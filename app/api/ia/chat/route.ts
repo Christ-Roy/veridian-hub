@@ -14,6 +14,8 @@ import { tourAbonnement } from '@/lib/ia/chat-abonnement';
 import { CoffreIndisponible, masquer } from '@/lib/ia/coffre';
 import { contexteUtilisateur, espaceDe, parJour, parMinute } from '@/lib/ia/contexte';
 import { ecrireFil } from '@/lib/ia/fils';
+import { refusEspaceHote, verifierEspaceCrm } from '@/lib/ia/espace-crm';
+import { refusSiCroisee } from '@/lib/ia/requete';
 import { approbationPour, CONSIGNES, modelePour, outilsDeLaPorte, secretApprobation, TOURS_MAX } from '@/lib/ia/moteur';
 import { prisma } from '@/lib/prisma';
 
@@ -24,6 +26,8 @@ export const maxDuration = 120;
 const TAILLE_MAX = 400_000;
 
 export async function POST(req: NextRequest) {
+  const croisee = refusSiCroisee(req);
+  if (croisee) return croisee;
   const c = await contexteUtilisateur();
   if (c instanceof NextResponse) return c;
   const brut = await req.text();
@@ -40,6 +44,14 @@ export async function POST(req: NextRequest) {
   const triplet = { hubUserId: c.hubUserId, app, tenantId: espace.id };
   // Où ranger le fil : l'origine de l'espace n'est retenue que si c'est un espace du CRM (lib/ia/fils.ts).
   const ou = { workspaceId: espace.workspaceId, origine: typeof corps.origine === 'string' ? corps.origine : null };
+  // Menace 8 : le fil (donc les données lues) ne part qu'à l'espace CRM de ce workspace, vérifié auprès de son plugin.
+  if (app === 'crm') {
+    const verdict = await verifierEspaceCrm(ou.origine, espace.workspaceId ?? '', c.hubUserId);
+    if (verdict !== 'ok') {
+      await writeAuditLog(prisma, { action: 'ia.refus', actor: c.email, targetType: 'ia_chat', targetId: c.hubUserId, payload: { app, raison: verdict } });
+      return refusEspaceHote(verdict);
+    }
+  }
   if (!(await estActive(prisma, triplet))) return NextResponse.json({ error: 'chat_desactive' }, { status: 403 });
 
   for (const [lim, nom] of [[parMinute, 'minute'], [parJour, 'jour']] as const) {

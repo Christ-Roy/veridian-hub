@@ -9,6 +9,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { writeAuditLog } from '@/lib/admin/audit-log';
 import { abonnementOuvert, appelerAtelier, atelierConfigure, FOURNISSEUR_ABONNEMENT, MOTEUR_ABONNEMENT } from '@/lib/ia/atelier';
 import { contexteUtilisateur } from '@/lib/ia/contexte';
+import { refusSiCroisee } from '@/lib/ia/requete';
 import { prisma } from '@/lib/prisma';
 
 export const runtime = 'nodejs';
@@ -17,6 +18,8 @@ export const dynamic = 'force-dynamic';
 const ACTIONS = { debut: '/connexion/debut', code: '/connexion/code', statut: '/connexion/statut', fin: '/connexion/fin', approbation: '/approbation' } as const;
 
 export async function POST(req: NextRequest) {
+  const croisee = refusSiCroisee(req);
+  if (croisee) return croisee;
   const c = await contexteUtilisateur();
   if (c instanceof NextResponse) return c;
   if (!abonnementOuvert(c.hubUserId)) return NextResponse.json({ error: 'abonnement_ferme' }, { status: 403 });

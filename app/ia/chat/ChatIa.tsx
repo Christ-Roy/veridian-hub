@@ -8,7 +8,8 @@ import { useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 
-type Props = { app: string; tenantId: string | null; workspaceId: string | null; sessionId: string | null };
+/** `origine` : l'espace hôte vérifié par le serveur (CRM) ; à défaut, l'app hôte lue dans document.referrer. */
+type Props = { app: string; tenantId: string | null; workspaceId: string | null; origine?: string | null; sessionId: string | null };
 
 /** L'origine de l'app hôte, si c'est une app Veridian ; jamais une origine quelconque. */
 function origineHote(): string | null {
@@ -47,13 +48,13 @@ const MESSAGES_ERREUR: Record<string, string> = {
   session_inconnue: 'Cette conversation ne peut pas être reprise ici.',
 };
 
-export function ChatIa({ app, tenantId, workspaceId, sessionId: donnee }: Props) {
+export function ChatIa({ app, tenantId, workspaceId, origine: origineVerifiee = null, sessionId: donnee }: Props) {
   const memoire = cleMemoire(app, tenantId ?? `ws:${workspaceId}`);
   const [sessionId, setSessionId] = useState<string | null>(donnee);
   const session = useRef<string | null>(donnee);
   const origine = useRef<string | null>(null);
   useEffect(() => {
-    origine.current = origineHote();
+    origine.current = origineVerifiee ?? origineHote();
     if (!donnee) {
       const m = lireMemoire(memoire);
       if (m) {
@@ -61,7 +62,7 @@ export function ChatIa({ app, tenantId, workspaceId, sessionId: donnee }: Props)
         setSessionId(m);
       }
     }
-  }, [donnee, memoire]);
+  }, [donnee, memoire, origineVerifiee]);
   const [texte, setTexte] = useState('');
   const [erreur, setErreur] = useState<string | null>(null);
 
@@ -89,13 +90,13 @@ export function ChatIa({ app, tenantId, workspaceId, sessionId: donnee }: Props)
     const q = new URLSearchParams({ app, session: sessionId });
     if (tenantId) q.set('tenant', tenantId);
     if (workspaceId) q.set('workspace', workspaceId);
-    const o = origineHote();
+    const o = origineVerifiee ?? origineHote();
     if (o) q.set('origine', o);
     fetch(`/api/ia/fil?${q}`)
       .then((r) => (r.ok ? r.json() : { messages: [] }))
       .then((j: { messages?: UIMessage[] }) => setMessages(j.messages ?? []))
       .catch(() => undefined);
-  }, [app, tenantId, workspaceId, sessionId, setMessages]);
+  }, [app, tenantId, workspaceId, origineVerifiee, sessionId, setMessages]);
 
   // L'identifiant de session vient du Hub (métadonnée du premier message) ; l'app hôte le garde pour
   // rouvrir le fil.
@@ -106,11 +107,11 @@ export function ChatIa({ app, tenantId, workspaceId, sessionId: donnee }: Props)
         session.current = id;
         ecrireMemoire(memoire, id);
         // Seulement vers l'app hôte, jamais vers une origine quelconque.
-        const hote = origineHote();
+        const hote = origineVerifiee ?? origineHote();
         if (hote) window.parent?.postMessage({ type: 'veridian-ia-session', sessionId: id }, hote);
       }
     }
-  }, [messages, memoire]);
+  }, [messages, memoire, origineVerifiee]);
 
   function nouvelleConversation() {
     session.current = null;

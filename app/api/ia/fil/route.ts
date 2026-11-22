@@ -7,12 +7,16 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { estAppChat, moteurActif, ouvrirSession } from '@/lib/ia/branchements';
 import { contexteUtilisateur, espaceDe } from '@/lib/ia/contexte';
 import { lireFil } from '@/lib/ia/fils';
+import { refusEspaceHote, verifierEspaceCrm } from '@/lib/ia/espace-crm';
+import { refusSiCroisee } from '@/lib/ia/requete';
 import { prisma } from '@/lib/prisma';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
+  const croisee = refusSiCroisee(req);
+  if (croisee) return croisee;
   const c = await contexteUtilisateur();
   if (c instanceof NextResponse) return c;
   const app = req.nextUrl.searchParams.get('app');
@@ -21,6 +25,10 @@ export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams;
   const espace = await espaceDe(c.hubUserId, q.get('tenant'), { app, workspaceId: q.get('workspace') });
   if (!espace) return NextResponse.json({ error: 'espace_inconnu' }, { status: 404 });
+  if (app === 'crm') {
+    const verdict = await verifierEspaceCrm(q.get('origine'), espace.workspaceId ?? '', c.hubUserId);
+    if (verdict !== 'ok') return refusEspaceHote(verdict);
+  }
   // La session est celle du moteur qui l'a ouverte (clé API ou abonnement), jamais une autre.
   const moteur = await moteurActif(prisma, c.hubUserId);
   const s = moteur ? await ouvrirSession(prisma, { hubUserId: c.hubUserId, app, tenantId: espace.id }, moteur, sessionId) : null;

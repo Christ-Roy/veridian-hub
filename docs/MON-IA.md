@@ -112,6 +112,11 @@ du Hub par le composant `HtmlIframe` (rendu par l'hôte Twenty, dont le document
   `scope` `ia.fils`, `tenant_id`, `workspace_id` (le plugin refuse s'il n'est pas le sien), `session_id` (celui du
   chemin), `corps_sha256` (sha256 hex du corps, vide pour GET), 60 s. PUT `{ messages }` remplace le fil ; GET rend
   `{ messages }` ou 404, seulement à son auteur (`sub`). Aucun secret partagé.
+- **Espace hôte** (menace 8) : le Hub ne connaît pas le sous-domaine d'un workspace ; il le demande au plugin de la page
+  qui affiche la fenêtre, `GET <origine>/s/veridian-ia/espace` (même jeton, `scope` `ia.espace`) → `{ workspace_id }`
+  du workspace que Twenty sert sur cet hôte. Origine lue dans l'en-tête `Referer` (Twenty sert
+  `strict-origin-when-cross-origin` ; l'iframe ne doit pas poser `referrerpolicy="no-referrer"`). Sans plugin ou sans
+  réponse lisible, la fenêtre refuse (fermé par défaut). Concordance gardée 10 min en mémoire (`lib/ia/espace-crm.ts`).
 - **Interrupteur** : `/dashboard/ia` le propose pour les espaces qui ont un workspace Twenty, si l'app est ouverte au
   compte (`twenty`).
 
@@ -177,6 +182,7 @@ Débrancher : même carte, « Débrancher » (le binaire se déconnecte dans l'a
 | **Fuite de la clé** | clé dans un log, une erreur, une trace du SDK, un mail | Chiffrée au repos, jamais renvoyée au navigateur ; déchiffrée en mémoire le temps de l'appel ; masquée dans toute erreur du fournisseur et toute trace du SDK avant journal. Épreuve : une fuite provoquée (clé glissée dans une erreur et une trace) doit faire échouer le test. |
 | **Coût et abus** | boucle d'outils, script qui martèle le chat | Plafonds par minute et par jour, nombre de tours borné, refus journalisé ; c'est la clé du client, mais une boucle reste un défaut chez nous. |
 | **Reprise de session** | `--resume` (ou l'identifiant de session de `cle-api`) d'un fil d'un autre client | L'identifiant de session est créé par le Hub, lié au (utilisateur, app, tenant) et vérifié côté Hub avant toute reprise : un identifiant inconnu ou d'un autre tenant est refusé et journalisé. Le modèle et le navigateur ne choisissent jamais l'identifiant repris. Le volume `CLAUDE_CONFIG_DIR` d'un client n'est monté que dans son propre bac à sable, jamais chez un autre (nom de volume dérivé du couple et vérifié par le Hub au lancement). Test vu échouer à l'étape 2 si un identifiant étranger est accepté. |
+| **Espace hôte étranger** (menace 8) | frame-ancestors autorise tout `*.crm.app.veridian.site` : l'espace Twenty d'un autre client affiche la fenêtre avec `workspace=` de la victime, ou poste au Hub sa propre origine pour recevoir le fil (donc les données lues) | `/ia/chat` refuse, visiblement et journalisé (`ia.refus`), (1) un espace qui n'est pas à l'utilisateur, (2) une page hôte qui n'est pas l'espace de ce workspace, vérifiée auprès de son plugin (`lib/ia/fenetre.ts`) ; `/api/ia/chat` et `/api/ia/fil` refont la vérification avant tout envoi de fil ; toutes les routes `/api/ia/*` refusent une requête d'une autre origine que le Hub (`lib/ia/requete.ts`). Tests vus échouer : `__tests__/lib/ia/fenetre.test.ts`, `espace-crm.test.ts`, `__tests__/api/ia/chat.test.ts`. |
 | **Bac à sable** (moteur 2) | le code du client vise le tailnet ou le bastion | Pas d'accès au tailnet ni au réseau interne (le 22/11, un runner CI a obtenu un shell sudo sur le bastion par Tailscale SSH), sortie filtrée, job détruit, aucun secret de la flotte dans l'image. |
 
 ## Ordre de livraison (chaque étape jusqu'à la prod mesurée, tests vus échouer)
