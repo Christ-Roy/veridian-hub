@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 
 // @ts-expect-error module .mjs sans déclaration de types
-import { adresseDeConnexion, clientAutorise, codeValide, dossierClient, environnementBinaire, hoteAutorise, optionsBinaire, signatureValide, signer } from '../../atelier/regles.mjs';
+import { adresseDeConnexion, clientAutorise, dansReseau, surReseauAtelier, codeValide, dossierClient, environnementBinaire, hoteAutorise, optionsBinaire, signatureValide, signer } from '../../atelier/regles.mjs';
 
 const A = '53245ae1-6bf8-4ec6-870f-32d75b7c0281';
 const B = '7aa7d4b4-3515-4101-9119-5bc2e6c9a651';
@@ -82,5 +82,29 @@ describe('un atelier, un seul client', () => {
     expect(clientAutorise(A, A)).toBe(true);
     expect(clientAutorise(A, B)).toBe(false);
     expect(clientAutorise(`${A},${B}`, A)).toBe(false);
+  });
+});
+
+describe('fermé hors du réseau atelier (pare-feu de sortie de rise)', () => {
+  const iface = (address: string, internal = false) => ({ eth0: [{ address, family: 'IPv4', internal }] });
+
+  it('ouvert seulement sur 172.31.250.0/24', () => {
+    expect(surReseauAtelier(iface('172.31.250.17'))).toBe(true);
+  });
+
+  it('pont Nomad ordinaire, tailnet, hôte, boucle locale ou aucune interface : fermé', () => {
+    for (const ip of ['172.26.64.12', '172.31.251.2', '100.96.29.49', '10.0.0.5', '192.168.1.2']) expect(surReseauAtelier(iface(ip)), ip).toBe(false);
+    expect(surReseauAtelier(iface('172.31.250.1', true))).toBe(false);
+    expect(surReseauAtelier({})).toBe(false);
+    expect(surReseauAtelier(undefined)).toBe(false);
+    expect(surReseauAtelier({ eth0: [{ address: 'fe80::1', family: 'IPv6', internal: false }] })).toBe(false);
+  });
+
+  it('calcul de plage : bornes et adresses illisibles', () => {
+    expect(dansReseau('172.31.250.0', '172.31.250.0/24')).toBe(true);
+    expect(dansReseau('172.31.250.255', '172.31.250.0/24')).toBe(true);
+    expect(dansReseau('172.31.249.255', '172.31.250.0/24')).toBe(false);
+    for (const ip of ['172.31.250', '172.31.250.300', 'abc', '']) expect(dansReseau(ip, '172.31.250.0/24'), ip).toBe(false);
+    expect(dansReseau('172.31.250.4', '0.0.0.0/0')).toBe(false);
   });
 });

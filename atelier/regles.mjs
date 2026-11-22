@@ -92,3 +92,34 @@ export function clientAutorise(liste, hubUserId) {
   const ids = String(liste ?? '').split(',').map((s) => s.trim()).filter(Boolean);
   return ids.length === 1 && ids[0] === hubUserId;
 }
+
+/**
+ * L'atelier ne sert que s'il tourne sur le réseau CNI « atelier » de rise (pont atelier0), seul réseau où le pare-feu
+ * de sortie s'applique (nomad-veridian nodes/atelier/, 22/11). Ailleurs (pont Nomad ordinaire, autre nœud), le
+ * binaire pourrait joindre le tailnet ou l'API Nomad : l'atelier se ferme et sa santé échoue. Plage fixe par défaut,
+ * jamais « ouvert » faute de variable.
+ */
+export const RESEAU_ATELIER = '172.31.250.0/24';
+
+function ipv4VersNombre(ip) {
+  const p = String(ip).split('.');
+  if (p.length !== 4 || p.some((x) => !/^\d{1,3}$/.test(x) || Number(x) > 255)) return null;
+  return p.reduce((n, x) => n * 256 + Number(x), 0);
+}
+
+export function dansReseau(ip, cidr) {
+  const [base, bits] = String(cidr).split('/');
+  const b = ipv4VersNombre(base);
+  const n = ipv4VersNombre(ip);
+  const l = Number(bits);
+  if (b === null || n === null || !Number.isInteger(l) || l < 8 || l > 32) return false;
+  const masque = l === 32 ? 0xffffffff : (0xffffffff << (32 - l)) >>> 0;
+  return ((n & masque) >>> 0) === ((b & masque) >>> 0);
+}
+
+/** `interfaces` : la forme de os.networkInterfaces(). Vrai si une adresse IPv4 non interne est dans la plage. */
+export function surReseauAtelier(interfaces, cidr = RESEAU_ATELIER) {
+  return Object.values(interfaces ?? {})
+    .flat()
+    .some((a) => a && a.family === 'IPv4' && !a.internal && dansReseau(a.address, cidr));
+}

@@ -17,7 +17,9 @@ import path from 'node:path';
 import { createSdkMcpServer, query, tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 
-import { adresseDeConnexion, clientAutorise, codeValide, dossierClient, environnementBinaire, optionsBinaire, signatureValide, signer, TAILLE_DOSSIER_MAX, TOURS_SIMULTANES } from './regles.mjs';
+import { networkInterfaces } from 'node:os';
+
+import { adresseDeConnexion, clientAutorise, codeValide, dossierClient, environnementBinaire, optionsBinaire, signatureValide, signer, surReseauAtelier, TAILLE_DOSSIER_MAX, TOURS_SIMULTANES } from './regles.mjs';
 
 const PORT = Number(process.env.ATELIER_PORT || 3100);
 const RACINE = process.env.ATELIER_DONNEES || '/donnees';
@@ -251,7 +253,14 @@ const ROUTES = {
 http
   .createServer(async (req, res) => {
     try {
-      if (req.method === 'GET' && req.url === '/sante') return repondre(res, 200, { status: 'ok' });
+      // Hors du réseau atelier, le pare-feu de sortie ne s'applique pas : fermé, et la santé échoue (Nomad ne
+      // valide pas le déploiement, auto_revert). Relu à chaque requête : une interface peut changer.
+      const protege = surReseauAtelier(networkInterfaces());
+      if (req.method === 'GET' && req.url === '/sante') return repondre(res, protege ? 200 : 503, { status: protege ? 'ok' : 'hors_reseau_atelier' });
+      if (!protege) {
+        journal({ evt: 'refus.hors_reseau' });
+        return repondre(res, 503, { error: 'hors_reseau_atelier' });
+      }
       const route = ROUTES[req.url ?? ''];
       if (req.method !== 'POST' || !route) return repondre(res, 404, { error: 'inconnu' });
       const brut = await lireCorps(req);

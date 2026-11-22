@@ -134,6 +134,13 @@ doit pas partager son espace réseau ni son environnement avec le binaire. Le Hu
 jeton à lui ; l'atelier n'a aucun secret de la flotte. Le binaire vient du TypeScript Agent SDK (variante musl, compatible
 avec l'image Alpine du Hub), épinglé par la version du SDK.
 
+**Réseau protégé, condition dure (parente, 22/11)** : l'atelier tourne sur le réseau CNI `atelier` de rise (pont
+`atelier0`, 172.31.250.0/24, pare-feu nftables `veridian_atelier` de l'infra : sortie DNS 1.1.1.1/9.9.9.9, HTTPS
+public, Hub ; entrée Hub et hôte), avec la sonde `hub-atelier-sonde-sortie` (ADR-033). Hors de cette plage, l'atelier
+refuse tout (503 `hors_reseau_atelier`) et `/sante` échoue (`atelier/regles.mjs`, `surReseauAtelier`, test vu
+échouer). Aucune connexion d'abonnement ni conversation réelle avant que l'infra ait rejoué sa batterie depuis
+l'atelier déployé.
+
 **Préalable légal, avant même d'installer le binaire dans l'image** : « preinstalling or running Claude Code in your
 products or services (e.g. in hosted sandboxes…) requires agreeing to our Commercial Terms of Service »
 (legal-and-compliance). Acte de Robert, gratuit. Sans lui, l'atelier n'est pas construit.
