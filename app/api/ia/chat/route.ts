@@ -8,7 +8,9 @@ import { convertToModelMessages, stepCountIs, streamText, type UIMessage } from 
 import { NextResponse, type NextRequest } from 'next/server';
 
 import { writeAuditLog } from '@/lib/admin/audit-log';
-import { cleEnClair, estActive, estAppChat, ouvrirSession } from '@/lib/ia/branchements';
+import { abonnementOuvert } from '@/lib/ia/atelier';
+import { cleEnClair, estActive, estAppChat, moteurActif, ouvrirSession } from '@/lib/ia/branchements';
+import { tourAbonnement } from '@/lib/ia/chat-abonnement';
 import { CoffreIndisponible, masquer } from '@/lib/ia/coffre';
 import { contexteUtilisateur, espaceDe, parJour, parMinute } from '@/lib/ia/contexte';
 import { ecrireFil } from '@/lib/ia/fils';
@@ -46,10 +48,20 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const session = await ouvrirSession(prisma, triplet, 'cle-api', typeof corps.sessionId === 'string' ? corps.sessionId : null);
+  const moteur = await moteurActif(prisma, c.hubUserId);
+  if (!moteur) return NextResponse.json({ error: 'pas_de_branchement' }, { status: 409 });
+  if (moteur === 'claude-code-abonnement' && !abonnementOuvert(c.hubUserId)) {
+    return NextResponse.json({ error: 'abonnement_ferme' }, { status: 403 });
+  }
+  const demandee = typeof corps.sessionId === 'string' ? corps.sessionId : null;
+  const session = await ouvrirSession(prisma, triplet, moteur, demandee);
   if (!session) {
     await writeAuditLog(prisma, { action: 'ia.refus', actor: c.email, targetType: 'ia_chat', targetId: c.hubUserId, payload: { app, raison: 'session_etrangere' } });
     return NextResponse.json({ error: 'session_inconnue' }, { status: 403 });
+  }
+
+  if (moteur === 'claude-code-abonnement') {
+    return tourAbonnement({ app, email: c.email, hubUserId: c.hubUserId, tenantId: espace.id, sessionId: session.id, nouvelle: !demandee, messages: corps.messages as UIMessage[] });
   }
 
   let branche;

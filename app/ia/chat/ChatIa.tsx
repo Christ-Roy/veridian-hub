@@ -74,6 +74,13 @@ export function ChatIa({ app, tenantId, sessionId }: Props) {
 
   const occupe = status === 'submitted' || status === 'streaming';
 
+  // Moteur abonnement : l'approbation repart à l'atelier par le Hub, pendant que le tour attend.
+  const [decisions, setDecisions] = useState<Record<string, boolean>>({});
+  async function decider(id: string, ok: boolean) {
+    setDecisions((d) => ({ ...d, [id]: ok }));
+    await fetch('/api/ia/abonnement', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'approbation', id, ok }) });
+  }
+
   return (
     <div className="flex h-dvh flex-col bg-background text-foreground">
       <header className="border-b border-border px-4 py-2 text-sm font-medium">Assistant Veridian</header>
@@ -94,6 +101,29 @@ export function ChatIa({ app, tenantId, sessionId }: Props) {
                   >
                     {p.text}
                   </p>
+                );
+              }
+              if (p.type === 'data-approbation') {
+                const d = (p as unknown as { data: { id: string; outil: string; arguments: unknown } }).data;
+                const reponse = decisions[d.id];
+                return (
+                  <div key={i} className="space-y-2 rounded-lg border border-border p-3" role="group" aria-label="Autorisation demandée">
+                    <p className="font-medium">L&apos;assistant veut modifier vos données</p>
+                    <p className="text-muted-foreground">Outil : {d.outil}</p>
+                    <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded bg-muted p-2 text-xs">{JSON.stringify(d.arguments ?? {}, null, 2)}</pre>
+                    {reponse === undefined ? (
+                      <div className="flex gap-2">
+                        <Button size="sm" onClick={() => decider(d.id, true)}>
+                          Autoriser
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => decider(d.id, false)}>
+                          Refuser
+                        </Button>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-muted-foreground">{reponse ? 'Autorisé' : 'Refusé'}</p>
+                    )}
+                  </div>
                 );
               }
               if (p.type.startsWith('tool-')) {

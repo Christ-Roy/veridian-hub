@@ -7,6 +7,7 @@ import { BotIcon } from 'lucide-react';
 import { auth } from '@/auth';
 import { Card } from '@/components/ui/card';
 import { DashboardPageHeader } from '@/components/dashboard/PageHeader';
+import { abonnementOuvert, atelierConfigure, FOURNISSEUR_ABONNEMENT } from '@/lib/ia/atelier';
 import { branchementsDe } from '@/lib/ia/branchements';
 import { espacesDe } from '@/lib/mcp/catalogue';
 import { connexionsActives } from '@/lib/mcp/connexions';
@@ -16,6 +17,7 @@ import { prisma } from '@/lib/prisma';
 
 import { ConnecterAssistant } from './ConnecterAssistant';
 import { ConnexionsIa } from './ConnexionsIa';
+import { MonAbonnement } from './MonAbonnement';
 import { MonIa } from './MonIa';
 
 export const dynamic = 'force-dynamic';
@@ -38,6 +40,9 @@ export default async function AssistantsIaPage() {
   // L'assistant n'est proposé que dans une app ouverte pour ce compte, et qui range ses fils (Academy
   // d'abord ; le CRM à l'étape 3 du chantier, docs/MON-IA.md).
   const apps = ouvertes.has('academy') ? ['academy'] : [];
+  // L'abonnement Claude : Robert seul tant qu'Anthropic n'a pas confirmé par écrit (docs/MON-IA.md).
+  const abonnement = hubUserId && abonnementOuvert(hubUserId) && atelierConfigure();
+  const abonnementBranche = branchements.some((b) => b.fournisseur === FOURNISSEUR_ABONNEMENT);
 
   return (
     <div className="max-w-2xl mx-auto p-6 space-y-6">
@@ -52,12 +57,18 @@ export default async function AssistantsIaPage() {
           Branchez votre propre IA une fois : elle devient l&apos;Assistant Veridian dans les apps où vous l&apos;allumez.
         </p>
         <MonIa
-          branchements={branchements}
+          branchements={branchements.filter((b) => b.fournisseur !== FOURNISSEUR_ABONNEMENT)}
           espaces={espaces.map((e) => ({ id: e.id, nom: e.nom }))}
           activations={activations}
           apps={apps}
         />
       </Card>
+      {abonnement && (
+        <Card className="p-6 space-y-4">
+          <h2 className="text-lg font-medium">Mon abonnement Claude</h2>
+          <MonAbonnement branche={abonnementBranche} />
+        </Card>
+      )}
       <Card className="p-6 space-y-4">
         <h2 className="text-lg font-medium">Connecter un assistant</h2>
         <ConnecterAssistant liens={liensInstallation()} />

@@ -10,6 +10,7 @@ const m = vi.hoisted(() => ({
   active: vi.fn(),
   session: vi.fn(),
   cle: vi.fn(),
+  moteur: vi.fn(),
   streamText: vi.fn(),
   audit: vi.fn(),
   minute: { enforce: vi.fn(() => ({ ok: true })) },
@@ -27,6 +28,7 @@ vi.mock('@/lib/ia/branchements', async (orig) => ({
   estActive: (...a: unknown[]) => m.active(...a),
   ouvrirSession: (...a: unknown[]) => m.session(...a),
   cleEnClair: (...a: unknown[]) => m.cle(...a),
+  moteurActif: (...a: unknown[]) => m.moteur(...a),
 }));
 vi.mock('ai', async (orig) => ({ ...(await orig<typeof import('ai')>()), streamText: (...a: unknown[]) => m.streamText(...a) }));
 vi.mock('@/lib/admin/audit-log', () => ({ writeAuditLog: (...a: unknown[]) => m.audit(...a) }));
@@ -47,6 +49,7 @@ beforeEach(() => {
   m.session.mockResolvedValue({ id: 's1' });
   m.cle.mockResolvedValue({ fournisseur: 'anthropic', modele: 'm', cle: 'sk-ant-api03-SECRET-0123456789abcdef' });
   m.minute.enforce.mockReturnValue({ ok: true });
+  m.moteur.mockResolvedValue('cle-api');
 });
 
 describe('POST /api/ia/chat : gardes', () => {
@@ -90,7 +93,17 @@ describe('POST /api/ia/chat : gardes', () => {
     expect(m.streamText).not.toHaveBeenCalled();
   });
 
+  it('abonnement branché par un compte non autorisé : 403, aucun appel à l\'atelier', async () => {
+    m.moteur.mockResolvedValue('claude-code-abonnement');
+    process.env.ATELIER_COMPTES = 'quelqu-un-d-autre';
+    const r = await POST(req(question));
+    expect(r.status).toBe(403);
+    expect(await r.json()).toEqual({ error: 'abonnement_ferme' });
+    expect(m.session).not.toHaveBeenCalled();
+  });
+
   it('aucune IA branchée : 409', async () => {
+    m.moteur.mockResolvedValue(null);
     m.cle.mockResolvedValue(null);
     expect((await POST(req(question))).status).toBe(409);
   });

@@ -22,7 +22,7 @@ export const estAppChat = (v: unknown): v is (typeof APPS_CHAT)[number] =>
 type Db = Pick<PrismaClient, 'iaBranchement' | 'iaActivation' | 'iaSession'>;
 
 /** Ce que le navigateur peut voir d'un branchement : jamais la clé, seulement sa fin. */
-export type VueBranchement = { fournisseur: Fournisseur; modele: string; cleFin: string; moteur: string; misAJour: string };
+export type VueBranchement = { fournisseur: Fournisseur | 'claude-abonnement'; modele: string; cleFin: string; moteur: string; misAJour: string };
 
 export async function brancher(
   db: Db,
@@ -49,7 +49,7 @@ export async function brancher(
 }
 
 function vue(b: { fournisseur: string; modele: string; cleFin: string; moteur: string; updatedAt: Date }): VueBranchement {
-  return { fournisseur: b.fournisseur as Fournisseur, modele: b.modele, cleFin: b.cleFin, moteur: b.moteur, misAJour: b.updatedAt.toISOString() };
+  return { fournisseur: b.fournisseur as VueBranchement['fournisseur'], modele: b.modele, cleFin: b.cleFin, moteur: b.moteur, misAJour: b.updatedAt.toISOString() };
 }
 
 export async function branchementsDe(db: Db, hubUserId: string): Promise<VueBranchement[]> {
@@ -68,9 +68,16 @@ export async function cleEnClair(
   hubUserId: string,
   env?: NodeJS.ProcessEnv,
 ): Promise<{ fournisseur: Fournisseur; modele: string; cle: string } | null> {
-  const b = await db.iaBranchement.findFirst({ where: { hubUserId }, orderBy: { updatedAt: 'desc' } });
+  const b = await db.iaBranchement.findFirst({ where: { hubUserId, moteur: 'cle-api' }, orderBy: { updatedAt: 'desc' } });
   if (!b || !estFournisseur(b.fournisseur)) return null;
   return { fournisseur: b.fournisseur, modele: b.modele, cle: dechiffrer(b.cleScellee, env) };
+}
+
+/** Le moteur du dernier branchement : la clé API ou l'abonnement (atelier). */
+export async function moteurActif(db: Db, hubUserId: string): Promise<'cle-api' | 'claude-code-abonnement' | null> {
+  const b = await db.iaBranchement.findFirst({ where: { hubUserId }, orderBy: { updatedAt: 'desc' }, select: { moteur: true } });
+  if (!b) return null;
+  return b.moteur === 'claude-code-abonnement' ? 'claude-code-abonnement' : 'cle-api';
 }
 
 // ── Interrupteurs : coupés par défaut ──
