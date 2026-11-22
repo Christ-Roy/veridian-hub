@@ -92,6 +92,32 @@ async function resolveUserUuid(customerId: string): Promise<string> {
  *  - customer.subscription.deleted
  *  - checkout.session.completed (via subscriptionId)
  */
+/** Produit et prix Stripe d'un abonnement, écrits au catalogue local s'ils y manquent ou ont changé. */
+export async function assurerPrixAuCatalogue(price: Stripe.Price): Promise<void> {
+  const produit = price.product;
+  const produitId = typeof produit === 'string' ? produit : produit?.id;
+  if (produitId) {
+    const p = produit && typeof produit === 'object' && !('deleted' in produit && produit.deleted) ? (produit as Stripe.Product) : null;
+    const champs = p
+      ? { active: p.active, name: p.name, description: p.description ?? null, image: p.images?.[0] ?? null, metadata: (p.metadata ?? {}) as object }
+      : {};
+    await prisma.product.upsert({ where: { id: produitId }, create: { id: produitId, ...champs }, update: champs });
+  }
+  const champsPrix = {
+    productId: produitId ?? null,
+    active: price.active,
+    currency: price.currency,
+    description: price.nickname ?? null,
+    type: price.type,
+    unitAmount: price.unit_amount ?? null,
+    interval: price.recurring?.interval ?? null,
+    intervalCount: price.recurring?.interval_count ?? null,
+    trialPeriodDays: price.recurring?.trial_period_days ?? 0,
+    metadata: (price.metadata ?? {}) as object,
+  };
+  await prisma.price.upsert({ where: { id: price.id }, create: { id: price.id, ...champsPrix }, update: champsPrix });
+}
+
 export async function manageSubscriptionStatusChange(
   subscriptionId: string,
   customerId: string,
@@ -192,6 +218,12 @@ export async function manageSubscriptionStatusChange(
     trialStart: subscription.trial_start ? toDateTime(subscription.trial_start) : null,
     trialEnd: subscription.trial_end ? toDateTime(subscription.trial_end) : null,
   };
+
+  // Le prix doit exister au catalogue local AVANT l'abonnement (clé étrangère). Ce catalogue n'était
+  // rempli qu'au démarrage (scripts/init-stripe.mjs : 100 premiers prix, produits `namespace=veridian`) :
+  // un prix absent faisait échouer l'enregistrement de l'abonnement, le webhook répondait quand même
+  // 200, et le plan ne suivait pas (mesuré au staging le 22/11). On l'écrit ici depuis Stripe.
+  if (priceObj) await assurerPrixAuCatalogue(priceObj);
 
   await prisma.subscription.upsert({
     where: { stripeSubscriptionId: subscription.id },

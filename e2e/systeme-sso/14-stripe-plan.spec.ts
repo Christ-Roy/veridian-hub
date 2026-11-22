@@ -19,7 +19,7 @@ import { devraitAvoirPlan } from './lib/assertions';
 import { APP_URL, HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
 import { activerTwentyAuHub, lookup, planDansApp, planHub, secretDe } from './lib/hub-admin';
-import { compte, contexteDe, ouvrirApp } from './lib/monde';
+import { compte, contexteDe } from './lib/monde';
 import { noterEspaceTwenty } from './lib/parcours';
 
 const STRIPE = 'https://api.stripe.com/v1';
@@ -95,39 +95,6 @@ cas('twenty', 'un abonnement Stripe fait passer le CRM du free au plan payé', a
   const meta = (await lookup(S.email)).json?.tenants?.[0]?.metadata ?? {};
   if (meta.crm_plan_source) throw new Error(`le Hub a posé un plan_source à la création : ${meta.crm_plan}/${meta.crm_plan_source}`);
 
-  // 2. L'espace est vivant : connexion par le rebond, lecture, écriture, effacement.
-  const ctx = await contexteDe(browser, S);
-  try {
-    const arrivee = await ouvrirApp(ctx, 'twenty');
-    const page = await ctx.newPage();
-    await page.goto(arrivee.url, { waitUntil: 'domcontentloaded' });
-    const gql = (chemin: string, query: string) =>
-      page.evaluate(
-        async ([c, q]) => {
-          const r = await fetch(c as string, {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'content-type': 'application/json', 'x-twenty-session-cookie': '1' },
-            body: JSON.stringify({ query: q }),
-          });
-          return { status: r.status, corps: (await r.json().catch(() => null)) as any };
-        },
-        [chemin, query],
-      );
-    const moi = await gql('/metadata', '{currentUser{email}}');
-    if (moi.corps?.data?.currentUser?.email !== S.email) {
-      throw new Error(`Twenty : session absente après le rebond (${moi.status}, ${JSON.stringify(moi.corps).slice(0, 120)})`);
-    }
-    const cree = await gql('/graphql', 'mutation{createCompany(data:{name:"E2E plan Stripe"}){id name}}');
-    const id = cree.corps?.data?.createCompany?.id;
-    if (!id) throw new Error(`Twenty : écriture refusée (${cree.status}, ${JSON.stringify(cree.corps).slice(0, 160)})`);
-    const lu = await gql('/graphql', `{company(filter:{id:{eq:"${id}"}}){name}}`);
-    if (lu.corps?.data?.company?.name !== 'E2E plan Stripe') throw new Error('Twenty : relecture de la société écrite impossible');
-    await gql('/graphql', `mutation{destroyCompany(id:"${id}"){id}}`);
-  } finally {
-    await ctx.close();
-  }
-
   // Épreuve : l'ancien défaut, un free posé comme plan offert avant l'abonnement.
   if (process.env.SSO_SABOTAGE === 'stripe-free-offert') await planHub(tenantId, 'crm', 'free');
 
@@ -174,3 +141,61 @@ cas('twenty', 'un abonnement Stripe fait passer le CRM du free au plan payé', a
     await stripe('DELETE', `/customers/${client.id}`).catch(() => undefined);
   }
 }, { timeout: 420_000 });
+
+cas('twenty', 'un espace créé sans plan_source s\'ouvre par le rebond, se lit et s\'écrit', async ({ browser }) => {
+  if (!/staging/.test(HUB_URL)) throw new NonAbouti('cas joué sur le Hub de staging seulement');
+  const S = await compte(browser, 'S');
+  const meta = (await lookup(S.email)).json?.tenants?.[0]?.metadata ?? {};
+  if (!meta.crm) {
+    await activerTwentyAuHub(S.email);
+    const tenantId: string | undefined = (await lookup(S.email)).json?.tenants?.[0]?.id;
+    if (tenantId) noterEspaceTwenty(S.email, tenantId);
+  }
+  const ctx = await contexteDe(browser, S);
+  try {
+    // Une seule page suit le rebond jusqu'à l'espace : `/verify?loginToken=` est à usage unique.
+    const page = await ctx.newPage();
+    await page.goto(`${APP_URL.twenty}/settings/profile`, { waitUntil: 'domcontentloaded', timeout: 45_000 }).catch(() => {});
+    const fin = Date.now() + 90_000;
+    let vue = page.url();
+    let depuis = Date.now();
+    while (Date.now() < fin && (Date.now() - depuis < 15_000 || new URL(page.url()).pathname === '/verify')) {
+      await page.waitForTimeout(500);
+      if (page.url() !== vue) {
+        vue = page.url();
+        depuis = Date.now();
+      }
+    }
+    if (!new URL(page.url()).host.includes('.crm.')) throw new Error(`Twenty : le rebond n'arrive pas dans l'espace (${new URL(page.url()).host}${new URL(page.url()).pathname})`);
+    // Même lecture de session que la batterie (`sessionLue`) : cookie de session du fork.
+    const gql = (chemin: string, query: string) =>
+      page.evaluate(
+        async ([c, q]) => {
+          const r = await fetch(c as string, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'content-type': 'application/json', 'x-twenty-session-cookie': '1' },
+            body: JSON.stringify({ query: q }),
+          });
+          return { status: r.status, corps: (await r.json().catch(() => null)) as any };
+        },
+        [chemin, query],
+      );
+    const moi = await gql('/metadata', '{currentUser{email}}');
+    if (moi.corps?.data?.currentUser?.email !== S.email) {
+      const cles = await page.evaluate(() => Object.keys(localStorage)).catch(() => []);
+      const tous = (await ctx.cookies()).map((c) => `${c.name}@${c.domain}`).join(', ');
+      throw new Error(`Twenty : session absente sur ${new URL(page.url()).host}${new URL(page.url()).pathname} (${moi.status}) ; cookies : ${tous} ; localStorage : ${cles.join(', ')}`);
+    }
+    const cree = await gql('/graphql', 'mutation{createCompany(data:{name:"E2E plan Stripe"}){id name}}');
+    const id = cree.corps?.data?.createCompany?.id;
+    if (!id) throw new Error(`Twenty : écriture refusée (${cree.status}, ${JSON.stringify(cree.corps).slice(0, 160)})`);
+    const lu = await gql('/graphql', `{company(filter:{id:{eq:"${id}"}}){name}}`);
+    if (lu.corps?.data?.company?.name !== 'E2E plan Stripe') throw new Error('Twenty : relecture de la société écrite impossible');
+    await gql('/graphql', `mutation{destroyCompany(id:"${id}"){id}}`);
+  } finally {
+    await ctx.close();
+  }
+
+  return 'session ouverte par le rebond, société écrite, relue puis effacée';
+}, { timeout: 300_000 });
