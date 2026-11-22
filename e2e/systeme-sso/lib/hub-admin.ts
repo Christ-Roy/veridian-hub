@@ -17,17 +17,19 @@ let secret: string | null = null;
 
 function lireSecret(): string {
   if (secret) return secret;
-  if (process.env.ADMIN_SECRET) return (secret = process.env.ADMIN_SECRET);
+  // Le secret suit le Hub visé : celui de la prod rend 401 au staging (22/11, cas 14 non abouti).
+  const nom = /staging/.test(HUB_URL) ? 'ADMIN_SECRET_STAGING' : 'ADMIN_SECRET';
+  if (process.env[nom]) return (secret = process.env[nom] as string);
   try {
     const txt = readFileSync(path.join(os.homedir(), 'credentials', '.all-creds.env'), 'utf8');
     for (const l of txt.split('\n')) {
-      const m = l.match(/^\s*ADMIN_SECRET\s*=\s*(.*)$/);
+      const m = l.match(new RegExp(`^\\s*${nom}\\s*=\\s*(.*)$`));
       if (m) return (secret = m[1].trim().replace(/^['"]|['"]$/g, ''));
     }
   } catch {
     /* tombe sur NonAbouti ci-dessous */
   }
-  throw new NonAbouti('secret admin du Hub introuvable (ADMIN_SECRET ou ~/credentials/.all-creds.env)');
+  throw new NonAbouti(`secret admin du Hub introuvable (${nom} ou ~/credentials/.all-creds.env)`);
 }
 
 export type Reponse<T = any> = { status: number; json: T };
@@ -226,7 +228,7 @@ export async function activerAnalyticsAuHub(email: string): Promise<string | und
   return r.json?.analytics_plan;
 }
 
-function secretDe(nom: string): string {
+export function secretDe(nom: string): string {
   try {
     const txt = readFileSync(path.join(os.homedir(), 'credentials', '.all-creds.env'), 'utf8');
     const m = txt.match(new RegExp(`^\\s*${nom}\\s*=\\s*(.*)$`, 'm'));

@@ -41,17 +41,27 @@ describe('ensureCrmWorkspace', () => {
   });
 
   const ok = () => vi.fn(async () => new Response(JSON.stringify({ workspace_id: 'ws-9', created: true }), { status: 200 }));
-  const db = (tenant: unknown) => ({
-    tenant: { findFirst: vi.fn(async () => tenant), update: vi.fn(async () => ({})) },
-    tenantApp: { upsert: vi.fn(async () => ({})) },
-  });
+  const db = (tenant: { id: string; name: string; metadata: unknown } | null) => {
+    const cree = { id: 't-neuf', name: 'a', metadata: null };
+    return {
+      tenant: {
+        findFirst: vi.fn(async () => (tenant ? { id: tenant.id } : null)),
+        findUnique: vi.fn(async ({ where }: { where: { id?: string; slug?: string } }) =>
+          where.slug ? null : where.id === tenant?.id ? tenant : where.id === cree.id ? cree : null,
+        ),
+        create: vi.fn(async () => ({ id: cree.id })),
+        update: vi.fn(async () => ({})),
+      },
+      tenantApp: { upsert: vi.fn(async () => ({})) },
+    };
+  };
 
-  it('sans tenant Hub : aucun appel au CRM', async () => {
+  it('sans tenant Hub (client « CRM seul ») : le tenant est créé, puis l\'espace', async () => {
     const d = db(null);
-    const fetchImpl = vi.fn();
-    const r = await ensureCrmWorkspace(d as never, { hubUserId: 'h', email: 'a@x.io' }, { env, fetchImpl });
-    expect(r).toEqual({ ok: false, error: 'tenant_not_found', status: 404 });
-    expect(fetchImpl).not.toHaveBeenCalled();
+    const r = await ensureCrmWorkspace(d as never, { hubUserId: 'h', email: 'a@x.io' }, { env, fetchImpl: ok() as unknown as typeof fetch });
+    expect(d.tenant.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ userId: 'h', status: 'active' }) }));
+    expect(r).toMatchObject({ ok: true, workspaceId: 'ws-9' });
+    expect(d.tenant.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 't-neuf' } }));
   });
 
   it('inscrit metadata.crm (lu par reconcile) et active twenty', async () => {
