@@ -17,9 +17,11 @@ import path from 'node:path';
 import { createSdkMcpServer, query, tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 
+import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { networkInterfaces } from 'node:os';
 
-import { adresseDeConnexion, clientAutorise, codeValide, dossierClient, environnementBinaire, optionsBinaire, signatureValide, signer, surReseauAtelier, TAILLE_DOSSIER_MAX, TOURS_SIMULTANES } from './regles.mjs';
+import { adresseDeConnexion, clientAutorise, codeValide, dossierClient, environnementBinaire, optionsBinaire, signatureValide, signer, surReseauAtelier, cheminBinaire, TAILLE_DOSSIER_MAX, TOURS_SIMULTANES } from './regles.mjs';
 
 const PORT = Number(process.env.ATELIER_PORT || 3100);
 const RACINE = process.env.ATELIER_DONNEES || '/donnees';
@@ -39,7 +41,8 @@ function adressesHub() {
 const PROXY = process.env.ATELIER_PROXY || '';
 const reseau = PROXY ? { HTTPS_PROXY: PROXY, HTTP_PROXY: PROXY } : {};
 let toursEnCours = 0;
-const BINAIRE = process.env.ATELIER_BINAIRE || undefined; // sinon, le binaire du SDK
+// Le binaire officiel embarqué par le SDK, résolu comme le SDK le fait (jamais par le PATH, où il n'est pas).
+const BINAIRE = process.env.ATELIER_BINAIRE || cheminBinaire(createRequire(import.meta.url).resolve, existsSync) || undefined;
 const ATTENTE_APPROBATION_MS = 5 * 60_000;
 
 if (SECRET.length < 32) {
@@ -60,9 +63,17 @@ async function preparer(hubUserId) {
 }
 
 function lancerBinaire(dossier, args) {
-  const exe = BINAIRE || 'claude';
-  return spawn(exe, args, { cwd: path.join(dossier, 'travail'), env: environnementBinaire(dossier, { BROWSER: '/bin/false', ...reseau }), stdio: ['pipe', 'pipe', 'pipe'] });
+  const proc = spawn(BINAIRE ?? 'binaire-introuvable', args, { cwd: path.join(dossier, 'travail'), env: environnementBinaire(dossier, { BROWSER: '/bin/false', ...reseau }), stdio: ['pipe', 'pipe', 'pipe'] });
+  // Un échec de lancement ne doit jamais faire tomber le serveur (23/11 : ENOENT non rattrapé, atelier relancé).
+  proc.on('error', (e) => journal({ evt: 'binaire.erreur', code: e && e.code }));
+  return proc;
 }
+
+/** Fin du processus : code de sortie, ou -1 s'il n'a jamais démarré (sans quoi l'attente ne finirait pas). */
+const finDe = (proc) => new Promise((r) => {
+  proc.once('exit', r);
+  proc.once('error', () => r(-1));
+});
 
 async function appelHub(chemin, corps) {
   const brut = JSON.stringify(corps);
@@ -132,6 +143,7 @@ async function debutConnexion(res, { hubUserId }) {
   proc.stdout.on('data', (d) => (etat.sortie += d.toString()));
   proc.stderr.on('data', (d) => (etat.sortie += d.toString()));
   proc.on('exit', (code) => (etat.fin = code));
+  proc.on('error', () => (etat.fin = -1));
   setTimeout(() => proc.kill(), 10 * 60_000).unref();
   const debut = Date.now();
   while (!adresseDeConnexion(etat.sortie) && etat.fin === null && Date.now() - debut < 15_000) await new Promise((r) => setTimeout(r, 200));
@@ -157,7 +169,7 @@ async function statutConnexion(res, { hubUserId }) {
   const proc = lancerBinaire(dossier, ['auth', 'status', '--json']);
   let sortie = '';
   proc.stdout.on('data', (d) => (sortie += d.toString()));
-  const code = await new Promise((r) => proc.on('exit', r));
+  const code = await finDe(proc);
   let s = {};
   try {
     s = JSON.parse(sortie);
@@ -172,7 +184,7 @@ async function statutConnexion(res, { hubUserId }) {
 async function finConnexion(res, { hubUserId }) {
   const dossier = dossierClient(RACINE, hubUserId);
   const proc = lancerBinaire(dossier, ['auth', 'logout']);
-  await new Promise((r) => proc.on('exit', r));
+  await finDe(proc);
   await rm(dossier, { recursive: true, force: true });
   journal({ evt: 'connexion.fin' });
   return repondre(res, 200, { deconnecte: true });
@@ -256,7 +268,11 @@ http
       // Hors du réseau atelier, le pare-feu de sortie ne s'applique pas : fermé, et la santé échoue (Nomad ne
       // valide pas le déploiement, auto_revert). Relu à chaque requête : une interface peut changer.
       const protege = surReseauAtelier(networkInterfaces());
-      if (req.method === 'GET' && req.url === '/sante') return repondre(res, protege ? 200 : 503, { status: protege ? 'ok' : 'hors_reseau_atelier' });
+      // Sans binaire, l'atelier ne sert à rien : la santé le dit, le déploiement ne passe pas.
+      if (req.method === 'GET' && req.url === '/sante') {
+        const etat = !protege ? 'hors_reseau_atelier' : !BINAIRE ? 'binaire_introuvable' : 'ok';
+        return repondre(res, etat === 'ok' ? 200 : 503, { status: etat });
+      }
       if (!protege) {
         journal({ evt: 'refus.hors_reseau' });
         return repondre(res, 503, { error: 'hors_reseau_atelier' });
@@ -278,4 +294,4 @@ http
       else res.end();
     }
   })
-  .listen(PORT, () => journal({ evt: 'pret', port: PORT }));
+  .listen(PORT, () => journal({ evt: 'pret', port: PORT, binaire: Boolean(BINAIRE) }));

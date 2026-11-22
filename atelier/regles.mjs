@@ -123,3 +123,22 @@ export function surReseauAtelier(interfaces, cidr = RESEAU_ATELIER) {
     .flat()
     .some((a) => a && a.family === 'IPv4' && !a.internal && dansReseau(a.address, cidr));
 }
+
+/**
+ * Le binaire officiel embarqué par le SDK (paquet optionnel par plateforme, comme le SDK le cherche lui-même) :
+ * `@anthropic-ai/claude-agent-sdk-linux-<arch>[-musl]/claude`. musl d'abord (image Alpine). Rien dans le PATH :
+ * le 23/11, `spawn claude` sortait en ENOENT et la connexion par abonnement ne démarrait pas.
+ * `resoudre` : require.resolve du module de l'atelier ; `existe` : fs.existsSync.
+ */
+export function cheminBinaire(resoudre, existe, arch = process.arch, muslDabord = true) {
+  const variantes = muslDabord ? [`linux-${arch}-musl`, `linux-${arch}`] : [`linux-${arch}`, `linux-${arch}-musl`];
+  for (const v of variantes) {
+    try {
+      const chemin = resoudre(`@anthropic-ai/claude-agent-sdk-${v}/claude`);
+      if (chemin && existe(chemin)) return chemin;
+    } catch {
+      /* paquet absent pour cette variante */
+    }
+  }
+  return null;
+}

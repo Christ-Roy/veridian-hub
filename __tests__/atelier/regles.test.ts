@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 
 // @ts-expect-error module .mjs sans déclaration de types
-import { adresseDeConnexion, clientAutorise, dansReseau, surReseauAtelier, codeValide, dossierClient, environnementBinaire, hoteAutorise, optionsBinaire, signatureValide, signer } from '../../atelier/regles.mjs';
+import { adresseDeConnexion, cheminBinaire, clientAutorise, dansReseau, surReseauAtelier, codeValide, dossierClient, environnementBinaire, hoteAutorise, optionsBinaire, signatureValide, signer } from '../../atelier/regles.mjs';
 
 const A = '53245ae1-6bf8-4ec6-870f-32d75b7c0281';
 const B = '7aa7d4b4-3515-4101-9119-5bc2e6c9a651';
@@ -106,5 +106,27 @@ describe('fermé hors du réseau atelier (pare-feu de sortie de rise)', () => {
     expect(dansReseau('172.31.249.255', '172.31.250.0/24')).toBe(false);
     for (const ip of ['172.31.250', '172.31.250.300', 'abc', '']) expect(dansReseau(ip, '172.31.250.0/24'), ip).toBe(false);
     expect(dansReseau('172.31.250.4', '0.0.0.0/0')).toBe(false);
+  });
+});
+
+describe('binaire embarqué par le SDK, jamais le PATH', () => {
+  const resoudre = (dispo: string[]) => (m: string) => {
+    if (!dispo.includes(m)) throw new Error('MODULE_NOT_FOUND');
+    return `/opt/atelier/node_modules/${m}`;
+  };
+  const existe = () => true;
+
+  it('Alpine : la variante musl d\'abord', () => {
+    const r = resoudre(['@anthropic-ai/claude-agent-sdk-linux-x64-musl/claude', '@anthropic-ai/claude-agent-sdk-linux-x64/claude']);
+    expect(cheminBinaire(r, existe, 'x64')).toBe('/opt/atelier/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64-musl/claude');
+  });
+
+  it('variante glibc si musl manque ; rien du tout : null, jamais « claude » du PATH', () => {
+    expect(cheminBinaire(resoudre(['@anthropic-ai/claude-agent-sdk-linux-x64/claude']), existe, 'x64')).toBe('/opt/atelier/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude');
+    expect(cheminBinaire(resoudre([]), existe, 'x64')).toBeNull();
+  });
+
+  it('résolu mais absent du disque : null', () => {
+    expect(cheminBinaire(resoudre(['@anthropic-ai/claude-agent-sdk-linux-x64-musl/claude']), () => false, 'x64')).toBeNull();
   });
 });

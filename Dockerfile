@@ -150,6 +150,9 @@ RUN mkdir -p /opt/atelier && \
     npm install --omit=dev --no-package-lock \
       @anthropic-ai/claude-agent-sdk@0.3.330 \
       zod@4.6.7
+# Le binaire embarqué par le SDK doit exister et démarrer (23/11 : absent du PATH, la connexion par abonnement
+# sortait en ENOENT au premier clic). Image x64 Alpine : variante musl.
+RUN /opt/atelier/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64-musl/claude --version
 COPY atelier/regles.mjs atelier/serveur.mjs atelier/proxy.mjs /opt/atelier/
 
 # npm et corepack ne servent qu'à fabriquer les deux ensembles de dépendances
