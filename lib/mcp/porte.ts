@@ -5,6 +5,8 @@
 import type { PrismaClient } from '@prisma/client';
 
 import { catalogue, chercher, espacesDe, sessionOuCreation, type Deps, type Espace, type Outil } from './catalogue';
+import { PLANNED_APPS, readAppPlan, tenantHasApp } from '@/lib/plans/app-plan';
+
 import { AppInjoignable } from './client-app';
 import { PROTOCOLES, SORTIE_MAX_CAR } from './config';
 import type { Appelant } from './oauth';
@@ -76,7 +78,7 @@ async function monCompte(db: DbPorte, qui: Appelant, apps: { appKey: string; lab
   const ids = espaces.map((e) => e.id);
   const [tenants, essais] = ids.length
     ? await Promise.all([
-        db.tenant.findMany({ where: { id: { in: ids } }, select: { id: true, status: true, notifusePlan: true, prospectionPlan: true } }),
+        db.tenant.findMany({ where: { id: { in: ids } }, select: { id: true, status: true, notifusePlan: true, prospectionPlan: true, metadata: true } }),
         db.tenantTrial.findMany({ where: { tenantId: { in: ids } }, select: { tenantId: true, app: true, state: true, trialEndsAt: true } }),
       ])
     : [[], []];
@@ -90,12 +92,25 @@ async function monCompte(db: DbPorte, qui: Appelant, apps: { appKey: string; lab
         slug: e.slug,
         role: e.role,
         statut: t?.status,
-        plans: { mail: t?.notifusePlan, prospection: t?.prospectionPlan },
+        // Le Hub est la seule source des plans : tous ceux qu'il tient, pas seulement Mail et Prospection.
+        plans: t ? plansDuHub(t) : {},
         essais: essais.filter((x) => x.tenantId === e.id).map((x) => ({ app: x.app, etat: x.state, fin: x.trialEndsAt })),
       };
     }),
     apps_connectees: apps.map((a) => ({ cle: a.appKey, nom: a.label })),
   };
+}
+
+/** Les plans que le Hub tient pour un tenant, app par app (une app non activée n'apparaît pas). */
+export function plansDuHub(t: { notifusePlan: string | null; prospectionPlan: string | null; metadata: unknown }): Record<string, string> {
+  const plans: Record<string, string> = {};
+  if (t.notifusePlan) plans.mail = t.notifusePlan;
+  if (t.prospectionPlan) plans.prospection = t.prospectionPlan;
+  for (const app of PLANNED_APPS) {
+    const { plan } = readAppPlan(t.metadata, app);
+    if (plan && tenantHasApp(t.metadata, app)) plans[app] = plan;
+  }
+  return plans;
 }
 
 // ── Utilitaires ────────────────────────────────────────────────────────────────
