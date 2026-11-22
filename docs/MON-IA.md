@@ -95,6 +95,26 @@ Une app ne parle jamais à un fournisseur d'IA, ni à l'atelier : elle passe par
   signé §6.1 par l'app, `{ hub_user_id, tenant_id, question }` → réponse texte. Même interrupteur, mêmes plafonds, mêmes
   outils ; aucune écriture sans humain, donc un appel serveur ne joue que des outils en lecture seule.
 
+### Le CRM (Twenty, par plugin seulement)
+
+Mesuré dans le code de Twenty le 22/11 : un front component tourne dans une iframe `sandbox="allow-scripts"` (origine
+`null`) puis un Web Worker. Il ne peut donc pas appeler le Hub avec la session de l'utilisateur ; il affiche la fenêtre
+du Hub par le composant `HtmlIframe` (rendu par l'hôte Twenty, dont le document n'a pas de `frame-src`).
+
+- **Fenêtre** : `https://app.veridian.site/ia/chat?app=crm&workspace=<workspace_id Twenty>`, iframe sans `sandbox`
+  (même site `veridian.site` : le cookie du Hub suit). Le Hub trouve le tenant de l'utilisateur dont
+  `metadata.crm.workspace_id` vaut ce workspace (`espaceDe`), sinon 404. La fenêtre garde la dernière session de l'espace
+  dans son propre stockage et transmet l'origine de l'hôte (`document.referrer`).
+- **Fils** : rangés par une fonction serveur du plugin, route `GET|PUT <origine de l'espace>/s/veridian-ia/fils/:session`
+  (Twenty trouve le workspace par l'hôte). Le Hub n'appelle qu'un sous-domaine direct de l'hôte de `CRM_API_URL`
+  (`origineCrmValide`). Authentification : `Authorization: Bearer <JWT ES256 du Hub>`, vérifié par
+  `https://app.veridian.site/.well-known/jwks.json` : `iss` le Hub, `aud` l'URL exacte appelée, `sub` le hub_user_id,
+  `scope` `ia.fils`, `tenant_id`, `workspace_id` (le plugin refuse s'il n'est pas le sien), `session_id` (celui du
+  chemin), `corps_sha256` (sha256 hex du corps, vide pour GET), 60 s. PUT `{ messages }` remplace le fil ; GET rend
+  `{ messages }` ou 404, seulement à son auteur (`sub`). Aucun secret partagé.
+- **Interrupteur** : `/dashboard/ia` le propose pour les espaces qui ont un workspace Twenty, si l'app est ouverte au
+  compte (`twenty`).
+
 ## Où vit l'atelier (moteur abonnement)
 
 Dans le déploiement du Hub, pas dans un service à part : un **groupe `atelier` du job Nomad du Hub**
@@ -138,7 +158,7 @@ products or services (e.g. in hosted sandboxes…) requires agreeing to our Comm
 1. Cette fiche.
 2. `cle-api` en pilote sur Academy (Robert seul) : il branche sa clé au Hub, active le chatbot, pose une question, l'IA lit
    une donnée réelle par la porte. Preuve dans un vrai navigateur.
-3. Twenty : son chatbot natif (coupé par `VERIDIAN_AI_DISABLED`) branché sur « Mon IA », avec la session CRM.
+3. Twenty : un plugin affiche la fenêtre du Hub et range les fils (« Le CRM » plus haut) ; côté Hub prêt le 22/11.
 4. Le bac à sable `claude-code-abonnement`, prouvé avec le compte de Robert, fermé aux autres.
 
 Interdits : aucune dépense, aucun jeton claude.ai ou ChatGPT collecté ni relayé, jamais « Claude » dans le nom ou le logo

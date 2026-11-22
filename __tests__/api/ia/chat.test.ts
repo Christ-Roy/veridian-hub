@@ -69,6 +69,15 @@ describe('POST /api/ia/chat : gardes', () => {
     expect(m.streamText).not.toHaveBeenCalled();
   });
 
+  it('CRM : l\'espace se résout par le workspace Twenty, jamais par le seul dire du navigateur', async () => {
+    m.espace.mockResolvedValue(null);
+    const ws = '11111111-1111-4111-8111-111111111111';
+    const r = await POST(req({ app: 'crm', workspaceId: ws, origine: 'https://acme.crm.app.veridian.site', messages: question.messages }));
+    expect(r.status).toBe(404);
+    expect(m.espace).toHaveBeenCalledWith('robert', undefined, { app: 'crm', workspaceId: ws });
+    expect(m.streamText).not.toHaveBeenCalled();
+  });
+
   it('chat non activé pour (app, tenant) : 403, coupé par défaut', async () => {
     m.active.mockResolvedValue(false);
     const r = await POST(req(question));

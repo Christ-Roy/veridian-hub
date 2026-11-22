@@ -29,15 +29,17 @@ export async function POST(req: NextRequest) {
   const brut = await req.text();
   if (brut.length > TAILLE_MAX) return NextResponse.json({ error: 'trop_gros' }, { status: 413 });
   const corps = (() => { try { return JSON.parse(brut); } catch { return null; } })() as
-    | { app?: unknown; tenantId?: unknown; sessionId?: unknown; messages?: unknown }
+    | { app?: unknown; tenantId?: unknown; workspaceId?: unknown; origine?: unknown; sessionId?: unknown; messages?: unknown }
     | null;
   if (!corps || !estAppChat(corps.app) || !Array.isArray(corps.messages)) {
     return NextResponse.json({ error: 'requete_invalide' }, { status: 400 });
   }
   const app = corps.app;
-  const espace = await espaceDe(c.hubUserId, corps.tenantId);
+  const espace = await espaceDe(c.hubUserId, corps.tenantId, { app, workspaceId: corps.workspaceId });
   if (!espace) return NextResponse.json({ error: 'espace_inconnu' }, { status: 404 });
   const triplet = { hubUserId: c.hubUserId, app, tenantId: espace.id };
+  // Où ranger le fil : l'origine de l'espace n'est retenue que si c'est un espace du CRM (lib/ia/fils.ts).
+  const ou = { workspaceId: espace.workspaceId, origine: typeof corps.origine === 'string' ? corps.origine : null };
   if (!(await estActive(prisma, triplet))) return NextResponse.json({ error: 'chat_desactive' }, { status: 403 });
 
   for (const [lim, nom] of [[parMinute, 'minute'], [parJour, 'jour']] as const) {
@@ -61,7 +63,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (moteur === 'claude-code-abonnement') {
-    return tourAbonnement({ app, email: c.email, hubUserId: c.hubUserId, tenantId: espace.id, sessionId: session.id, nouvelle: !demandee, messages: corps.messages as UIMessage[] });
+    return tourAbonnement({ app, email: c.email, hubUserId: c.hubUserId, tenantId: espace.id, ...ou, sessionId: session.id, nouvelle: !demandee, messages: corps.messages as UIMessage[] });
   }
 
   let branche;
@@ -107,7 +109,7 @@ export async function POST(req: NextRequest) {
     messageMetadata: ({ part }) => (part.type === 'start' ? { sessionId: session.id } : undefined),
     onError: (error) => masquer(error instanceof Error ? error.message : 'erreur du fournisseur', cles),
     onEnd: async ({ messages: fil }) => {
-      const ok = await ecrireFil(app, { sessionId: session.id, hubUserId: c.hubUserId, tenantId: espace.id, messages: fil });
+      const ok = await ecrireFil(app, { sessionId: session.id, hubUserId: c.hubUserId, tenantId: espace.id, ...ou, messages: fil });
       if (!ok) console.warn(JSON.stringify({ tag: '[ia][fil]', level: 'warn', app, session: session.id, msg: "fil non rangé dans l'app" }));
     },
   });

@@ -39,10 +39,36 @@ export async function contexteUtilisateur(): Promise<ContexteIa | NextResponse> 
   };
 }
 
-/** L'espace demandé, s'il appartient à l'utilisateur ; sinon null. */
-export async function espaceDe(hubUserId: string, tenantId: unknown): Promise<{ id: string; slug: string } | null> {
-  if (typeof tenantId !== 'string' || !tenantId) return null;
+export type Espace = { id: string; slug: string; workspaceId: string | null };
+
+const WORKSPACE_ID = /^[0-9a-f-]{36}$/i;
+
+/**
+ * L'espace demandé, s'il appartient à l'utilisateur ; sinon null. Désigné par le tenant Hub, ou par
+ * l'identifiant d'espace de l'app (`metadata.<app>.workspace_id`) quand l'app ne connaît que le sien
+ * (Twenty : le plugin ne voit que son workspace). Dans les deux cas, seuls les espaces de l'utilisateur
+ * sont cherchés.
+ */
+export async function espaceDe(
+  hubUserId: string,
+  tenantId: unknown,
+  parApp?: { app: string; workspaceId: unknown },
+): Promise<Espace | null> {
+  const parTenant = typeof tenantId === 'string' && tenantId.length > 0;
+  const ws = parApp && typeof parApp.workspaceId === 'string' && WORKSPACE_ID.test(parApp.workspaceId) ? parApp.workspaceId : null;
+  if (!parTenant && !ws) return null;
   const espaces = await espacesDe(prisma, hubUserId);
-  const e = espaces.find((x) => x.id === tenantId);
-  return e ? { id: e.id, slug: e.slug } : null;
+  const ids = espaces.map((e) => e.id);
+  if (!ids.length) return null;
+  const lignes = await prisma.tenant.findMany({ where: { id: { in: ids }, deletedAt: null }, select: { id: true, slug: true, metadata: true } });
+  const wsDe = (meta: unknown, app: string): string | null => {
+    const v = (meta as Record<string, { workspace_id?: unknown } | undefined> | null)?.[app]?.workspace_id;
+    return typeof v === 'string' ? v : null;
+  };
+  const app = parApp?.app ?? '';
+  const t = parTenant ? lignes.find((l) => l.id === tenantId) : lignes.find((l) => app && wsDe(l.metadata, app) === ws);
+  if (!t) return null;
+  // Les deux donnés : ils doivent désigner le même espace.
+  if (parTenant && ws && wsDe(t.metadata, app) !== ws) return null;
+  return { id: t.id, slug: t.slug, workspaceId: app ? wsDe(t.metadata, app) : null };
 }

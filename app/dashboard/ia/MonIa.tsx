@@ -23,7 +23,7 @@ const APPS = [
   { cle: 'crm', nom: 'CRM' },
 ];
 
-export function MonIa(props: { branchements: Branchement[]; espaces: Espace[]; activations: Activation[]; apps: string[] }) {
+export function MonIa(props: { branchements: Branchement[]; espaces: Espace[]; activations: Activation[]; apps: string[]; espacesParApp?: Record<string, string[]> }) {
   const [branchements, setBranchements] = useState(props.branchements);
   const [activations, setActivations] = useState(props.activations);
   const [fournisseur, setFournisseur] = useState('anthropic');
@@ -132,7 +132,7 @@ export function MonIa(props: { branchements: Branchement[]; espaces: Espace[]; a
           <p className="text-xs text-muted-foreground">Coupé par défaut. Il agit dans l&apos;espace choisi, et vous demande avant toute modification.</p>
           <ul className="divide-y divide-border">
             {apps.flatMap((a) =>
-              props.espaces.map((e) => (
+              props.espaces.filter((e) => !props.espacesParApp || props.espacesParApp[a.cle]?.includes(e.id)).map((e) => (
                 <li key={`${a.cle}-${e.id}`} className="flex items-center justify-between gap-4 py-2 text-sm">
                   <span>
                     {a.nom} · {e.nom}

@@ -150,7 +150,7 @@ RUN mkdir -p /opt/atelier && \
     npm install --omit=dev --no-package-lock \
       @anthropic-ai/claude-agent-sdk@0.3.330 \
       zod@4.6.7
-COPY atelier/regles.mjs atelier/serveur.mjs /opt/atelier/
+COPY atelier/regles.mjs atelier/serveur.mjs atelier/proxy.mjs /opt/atelier/
 
 # npm et corepack ne servent qu'à fabriquer les deux ensembles de dépendances
 # ci-dessus. Le runtime lance directement node et le CLI Prisma. Les retirer de

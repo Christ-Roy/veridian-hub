@@ -10,7 +10,8 @@ export const dynamic = 'force-dynamic';
 export default async function ChatPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const p = await searchParams;
   const session = await auth();
-  if (!estAppChat(p.app) || !p.tenant) return <p className="p-4 text-sm">Assistant indisponible : app ou espace manquant.</p>;
+  // L'espace : le tenant Hub (Academy), ou le workspace de l'app (Twenty : le plugin ne connaît que le sien).
+  if (!estAppChat(p.app) || (!p.tenant && !p.workspace)) return <p className="p-4 text-sm">Assistant indisponible : app ou espace manquant.</p>;
   if (!session?.user?.id) {
     return (
       <p className="p-4 text-sm">
@@ -21,5 +22,5 @@ export default async function ChatPage({ searchParams }: { searchParams: Promise
       </p>
     );
   }
-  return <ChatIa app={p.app} tenantId={p.tenant} sessionId={p.session ?? null} />;
+  return <ChatIa app={p.app} tenantId={p.tenant ?? null} workspaceId={p.workspace ?? null} sessionId={p.session ?? null} />;
 }

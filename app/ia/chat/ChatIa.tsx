@@ -8,7 +8,37 @@ import { useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 
-type Props = { app: string; tenantId: string; sessionId: string | null };
+type Props = { app: string; tenantId: string | null; workspaceId: string | null; sessionId: string | null };
+
+/** L'origine de l'app hôte, si c'est une app Veridian ; jamais une origine quelconque. */
+function origineHote(): string | null {
+  try {
+    const o = new URL(document.referrer).origin;
+    return /^https:\/\/([a-z0-9-]+\.)*app\.veridian\.site$/.test(o) ? o : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Dernière conversation de cet espace, gardée dans le navigateur quand l'app hôte ne la rend pas. */
+function cleMemoire(app: string, espace: string) {
+  return `veridian-ia:${app}:${espace}`;
+}
+function lireMemoire(cle: string): string | null {
+  try {
+    return window.localStorage.getItem(cle);
+  } catch {
+    return null;
+  }
+}
+function ecrireMemoire(cle: string, v: string | null) {
+  try {
+    if (v) window.localStorage.setItem(cle, v);
+    else window.localStorage.removeItem(cle);
+  } catch {
+    /* stockage refusé : la conversation ne sera simplement pas reprise */
+  }
+}
 
 const MESSAGES_ERREUR: Record<string, string> = {
   chat_desactive: "L'assistant n'est pas allumé pour cette app. Allumez-le dans votre espace Veridian, rubrique Assistants IA.",
@@ -17,15 +47,28 @@ const MESSAGES_ERREUR: Record<string, string> = {
   session_inconnue: 'Cette conversation ne peut pas être reprise ici.',
 };
 
-export function ChatIa({ app, tenantId, sessionId }: Props) {
-  const session = useRef<string | null>(sessionId);
+export function ChatIa({ app, tenantId, workspaceId, sessionId: donnee }: Props) {
+  const memoire = cleMemoire(app, tenantId ?? `ws:${workspaceId}`);
+  const [sessionId, setSessionId] = useState<string | null>(donnee);
+  const session = useRef<string | null>(donnee);
+  const origine = useRef<string | null>(null);
+  useEffect(() => {
+    origine.current = origineHote();
+    if (!donnee) {
+      const m = lireMemoire(memoire);
+      if (m) {
+        session.current = m;
+        setSessionId(m);
+      }
+    }
+  }, [donnee, memoire]);
   const [texte, setTexte] = useState('');
   const [erreur, setErreur] = useState<string | null>(null);
 
   const { messages, setMessages, sendMessage, status, addToolApprovalResponse } = useChat({
     transport: new DefaultChatTransport({
       api: '/api/ia/chat',
-      body: () => ({ app, tenantId, sessionId: session.current }),
+      body: () => ({ app, tenantId, workspaceId, origine: origine.current, sessionId: session.current }),
     }),
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
     onError: (e) => {
@@ -43,12 +86,16 @@ export function ChatIa({ app, tenantId, sessionId }: Props) {
   // Fil existant : relu dans l'app, par le Hub.
   useEffect(() => {
     if (!sessionId) return;
-    const q = new URLSearchParams({ app, tenant: tenantId, session: sessionId });
+    const q = new URLSearchParams({ app, session: sessionId });
+    if (tenantId) q.set('tenant', tenantId);
+    if (workspaceId) q.set('workspace', workspaceId);
+    const o = origineHote();
+    if (o) q.set('origine', o);
     fetch(`/api/ia/fil?${q}`)
       .then((r) => (r.ok ? r.json() : { messages: [] }))
       .then((j: { messages?: UIMessage[] }) => setMessages(j.messages ?? []))
       .catch(() => undefined);
-  }, [app, tenantId, sessionId, setMessages]);
+  }, [app, tenantId, workspaceId, sessionId, setMessages]);
 
   // L'identifiant de session vient du Hub (métadonnée du premier message) ; l'app hôte le garde pour
   // rouvrir le fil.
@@ -57,20 +104,21 @@ export function ChatIa({ app, tenantId, sessionId }: Props) {
       const id = (m.metadata as { sessionId?: string } | undefined)?.sessionId;
       if (id && id !== session.current) {
         session.current = id;
+        ecrireMemoire(memoire, id);
         // Seulement vers l'app hôte, jamais vers une origine quelconque.
-        const hote = (() => {
-          try {
-            return new URL(document.referrer).origin;
-          } catch {
-            return null;
-          }
-        })();
-        if (hote && /^https:\/\/([a-z0-9-]+\.)*app\.veridian\.site$/.test(hote)) {
-          window.parent?.postMessage({ type: 'veridian-ia-session', sessionId: id }, hote);
-        }
+        const hote = origineHote();
+        if (hote) window.parent?.postMessage({ type: 'veridian-ia-session', sessionId: id }, hote);
       }
     }
-  }, [messages]);
+  }, [messages, memoire]);
+
+  function nouvelleConversation() {
+    session.current = null;
+    ecrireMemoire(memoire, null);
+    setSessionId(null);
+    setMessages([]);
+    setErreur(null);
+  }
 
   const occupe = status === 'submitted' || status === 'streaming';
 
@@ -83,7 +131,14 @@ export function ChatIa({ app, tenantId, sessionId }: Props) {
 
   return (
     <div className="flex h-dvh flex-col bg-background text-foreground">
-      <header className="border-b border-border px-4 py-2 text-sm font-medium">Assistant Veridian</header>
+      <header className="flex items-center justify-between border-b border-border px-4 py-2 text-sm font-medium">
+        <span>Assistant Veridian</span>
+        {messages.length > 0 && (
+          <Button size="sm" variant="ghost" onClick={nouvelleConversation} disabled={status === 'submitted' || status === 'streaming'}>
+            Nouvelle conversation
+          </Button>
+        )}
+      </header>
       <div className="flex-1 space-y-3 overflow-y-auto p-4 text-sm" aria-live="polite">
         {messages.length === 0 && <p className="text-muted-foreground">Posez une question sur vos données.</p>}
         {messages.map((m) => (

@@ -37,9 +37,18 @@ export default async function AssistantsIaPage() {
         getEnabledGatedApps(prisma, hubUserId),
       ])
     : [[], [], [], new Set<string>()];
-  // L'assistant n'est proposé que dans une app ouverte pour ce compte, et qui range ses fils (Academy
-  // d'abord ; le CRM à l'étape 3 du chantier, docs/MON-IA.md).
-  const apps = ouvertes.has('academy') ? ['academy'] : [];
+  // L'assistant n'est proposé que dans une app ouverte pour ce compte, et seulement pour les espaces
+  // qui y existent : Academy pour tous ses espaces, le CRM pour ceux qui ont un workspace Twenty.
+  const metas = espaces.length
+    ? await prisma.tenant.findMany({ where: { id: { in: espaces.map((e) => e.id) } }, select: { id: true, metadata: true } })
+    : [];
+  const avecCrm = metas
+    .filter((t) => typeof (t.metadata as { crm?: { workspace_id?: unknown } } | null)?.crm?.workspace_id === 'string')
+    .map((t) => t.id);
+  const espacesParApp: Record<string, string[]> = {};
+  if (ouvertes.has('academy')) espacesParApp.academy = espaces.map((e) => e.id);
+  if (ouvertes.has('twenty') && avecCrm.length) espacesParApp.crm = avecCrm;
+  const apps = Object.keys(espacesParApp);
   // L'abonnement Claude : Robert seul tant qu'Anthropic n'a pas confirmé par écrit (docs/MON-IA.md).
   const abonnement = hubUserId && abonnementOuvert(hubUserId) && atelierConfigure();
   const abonnementBranche = branchements.some((b) => b.fournisseur === FOURNISSEUR_ABONNEMENT);
@@ -61,6 +70,7 @@ export default async function AssistantsIaPage() {
           espaces={espaces.map((e) => ({ id: e.id, nom: e.nom }))}
           activations={activations}
           apps={apps}
+          espacesParApp={espacesParApp}
         />
       </Card>
       {abonnement && (
