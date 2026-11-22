@@ -69,9 +69,9 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   `tenant_id` signé seulement si l'IA choisit un espace ; espace non relié → `hub relier --app <app>`. Boutons
   « Ajouter à Claude… » : `/dashboard/ia` au Hub, et dans chaque app par `GET /api/mcp/liens-installation?app=<cle>`
   (public ; une origine de lien nouvelle s'annonce aux apps, Twenty les filtre).
-- **Mon IA** (22/11, VER-203) : branchement IA par utilisateur (clé chiffrée, jamais affichée), interrupteur par app et
-  tenant (coupé par défaut), audit ; chat servi par le Hub, outils par la porte MCP, écriture confirmée. Pas de
-  microservice. Architecture et menaces : `docs/MON-IA.md`.
+- **Mon IA** (VER-203, `docs/MON-IA.md`) : clé chiffrée, interrupteur par app et tenant (coupé), outils par la porte MCP.
+  Clé d'un compte : `hub ia brancher <email> --fournisseur <f> --depuis <VARIABLE de ~/credentials>`. CRM : espace
+  trouvé par l'origine de l'hôte ; épreuve `pnpm tsx scripts/epreuve-fils-crm.ts <origine>`. Atelier : rise, `cni/atelier`.
 - **Garde rapide** : `__tests__/contrat/` (révocation sans `iat`, `authAt`, cibles du rebond, origines) ; tout nouvel
   `encode(` de JWT de session s'y ajoute. Détail : `docs/PARCOURS-IDENTITE.md`.
 - **Sonde de prod** : « Sonde identité » de `hub-ci.yml` (lecture seule) ; le cron de reconcile alerte au-dessus de
@@ -112,7 +112,7 @@ Outil admin : `hub` (`hub doctor` d'abord : santé, secret, auth admin). Aucune 
 
 ## Commandes
 
-`pnpm install` · `pnpm dev` (port 3000) · `pnpm build` · `pnpm test` (Vitest, 3000+ tests).
+Dév : `dev -d <domaine> pnpm dev` (job Nomad) · `pnpm test` (2 workers, nice 19 ; `VITEST_MAX_WORKERS=n`).
 
 ## Où travailler (Robert, 18/11)
 
@@ -156,7 +156,7 @@ Jamais de limite visible. Stripe → Hub → apps, jamais Stripe → app.
 ## CI/CD
 
 - `.github/workflows/hub-ci.yml` : test → audit (npm) → docker → **trivy** → deploy-prod (sur `main`) → e2e-prod-smoke → rollback-prod (si fail)
-- **Pas de cron Trivy** (il scannait `:latest`) : CVE de l'image en cours via `secu` ; `_trivy-image.yml` à la construction.
+- **Pas de cron Trivy** : CVE de l'image servie via `secu`, `_trivy-image.yml` à la construction.
 - Runners hébergés par GitHub (dépôt public) : le smoke garde `playwright install --with-deps`.
 - Déploiement : job Nomad. Logs `nomad-v logs hub`, redeploy `nomad-v run hub`, état `nomad-v state`.
   Secrets = Nomad Variable `nomad/jobs/hub`. Skill `/nomad`.
