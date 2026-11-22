@@ -17,7 +17,7 @@ import path from 'node:path';
 import { createSdkMcpServer, query, tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 
-import { adresseDeConnexion, codeValide, dossierClient, environnementBinaire, optionsBinaire, signatureValide, signer, TAILLE_DOSSIER_MAX, TOURS_SIMULTANES } from './regles.mjs';
+import { adresseDeConnexion, clientAutorise, codeValide, dossierClient, environnementBinaire, optionsBinaire, signatureValide, signer, TAILLE_DOSSIER_MAX, TOURS_SIMULTANES } from './regles.mjs';
 
 const PORT = Number(process.env.ATELIER_PORT || 3100);
 const RACINE = process.env.ATELIER_DONNEES || '/donnees';
@@ -260,6 +260,8 @@ http
       }
       const corps = JSON.parse(brut);
       dossierClient(RACINE, corps.hubUserId); // refuse un hub_user_id mal formé avant tout
+      // Un atelier sert un seul client, faute d'enfermement par processus sur nos nœuds.
+      if (!clientAutorise(process.env.ATELIER_CLIENTS, corps.hubUserId)) return repondre(res, 403, { error: 'client_refuse' });
       return await route(res, corps);
     } catch (err) {
       journal({ evt: 'requete.erreur', erreur: err instanceof Error ? err.name : 'erreur' });

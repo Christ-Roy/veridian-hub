@@ -409,6 +409,8 @@ NODE_ENV=production
 ATELIER_PORT=3100
 ATELIER_DONNEES=/data/atelier
 ATELIER_PROXY=http://127.0.0.1:3128
+# Un seul client par atelier (pas d'enfermement par processus possible sur nos nœuds) : Robert, usage interne.
+ATELIER_CLIENTS=53245ae1-6bf8-4ec6-870f-32d75b7c0281
 ATELIER_HUB_URL_FICHIER=/local/hub-url
 {{ with nomadVar "nomad/jobs/hub" }}{{ with .ATELIER_SECRET }}ATELIER_SECRET={{ .Value }}{{ end }}{{ end }}
 EOH

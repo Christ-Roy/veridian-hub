@@ -66,6 +66,22 @@ architecture » (786b547). Ce fichier n'en recopie rien : il porte l'architectur
      (legal-and-compliance) ; que notre chat fasse passer ses questions par son abonnement reste la zone à faire
      confirmer par écrit (« route requests through… plan credentials on behalf of their users »).
 
+   **Règle tenue par le code (22/11, infra puis parente)** : la doc du Claude Agent SDK demande un accord préalable
+   d'Anthropic pour qu'un produit tiers fasse passer les questions par l'abonnement de ses utilisateurs ; les
+   Commercial Terms ne le couvrent pas. Donc :
+   - `claude-code-abonnement` s'active pour le seul compte de Robert (usage interne) : liste blanche `ATELIER_COMPTES`
+     au Hub et `ATELIER_CLIENTS` dans l'atelier, **fermées par défaut** (liste vide = personne) ;
+   - tout autre utilisateur ne voit que `cle-api` ;
+   - tests : `__tests__/api/ia/abonnement.test.ts` (activation refusée hors liste), `__tests__/api/ia/chat.test.ts`
+     (abonnement d'un compte hors liste refusé), `__tests__/atelier/regles.test.ts` (atelier : un seul client).
+   Levée : à la réponse écrite d'Anthropic (message prêt chez Robert).
+
+   **Enfermement par processus : impossible sur nos nœuds** (mesuré par l'infra le 22/11) : le noyau Ubuntu refuse
+   les espaces de noms non privilégiés (`kernel.apparmor_restrict_unprivileged_userns=1`), en plus du seccomp par
+   défaut de Docker ; bubblewrap ne démarre pas, et un uid distinct par tour demanderait d'être root. Conséquence :
+   **un atelier ne sert qu'un client** (verrou `ATELIER_CLIENTS` à une seule entrée). Le jour où un second client
+   s'ouvre, il a son propre groupe ou job atelier, avec son propre volume : un conteneur par client.
+
 3. **`codex-forfait`** : prévu, fermé tant qu'OpenAI ne nous a pas acceptés.
 
 ## Le Hub, fournisseur d'IA des autres apps (Robert, 22/11)

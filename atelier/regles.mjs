@@ -82,3 +82,13 @@ export function hoteAutorise(hote) {
 /** Plafonds de l'atelier : tours simultanés, taille du dossier d'un client. */
 export const TOURS_SIMULTANES = 4;
 export const TAILLE_DOSSIER_MAX = 200 * 1024 * 1024;
+
+/**
+ * Comptes servis par l'atelier : fermé par défaut, liste dans ATELIER_CLIENTS. Nos nœuds refusent les espaces de
+ * noms non privilégiés (bubblewrap mesuré impossible le 22/11) : sans enfermement par processus, un atelier ne
+ * sert qu'UN client, et chaque client suivant aura son propre conteneur (docs/MON-IA.md).
+ */
+export function clientAutorise(liste, hubUserId) {
+  const ids = String(liste ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  return ids.length === 1 && ids[0] === hubUserId;
+}
