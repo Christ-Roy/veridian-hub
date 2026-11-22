@@ -118,9 +118,8 @@ Outil admin : `hub` (`hub doctor` d'abord : santé, secret, auth admin). Aucune 
 
 La session du Hub travaille dans le dossier principal, sur `main` (la branche qui déploie), jamais en
 worktree. Avant de commencer : `git fetch && git status -sb` doit dire `main...origin/main` sans
-écart ni fichier modifié, sinon on réaligne d'abord (18/11 : 230 fichiers jamais commités). Ce dossier porte aussi le hook
-`~/.claude/hooks/infra-status.sh` (lien symbolique) : la branche extraite ici pilote le démarrage
-de toutes les sessions. Porte de sortie : deux écrivains simultanés, un worktree refusionné aussitôt.
+écart ni fichier modifié, sinon on réaligne d'abord (18/11 : 230 fichiers jamais commités). `~/.claude/hooks/infra-status.sh` est un lien vers ce
+dossier : la branche extraite ici pilote le démarrage de toutes les sessions. Porte de sortie : deux écrivains simultanés, un worktree refusionné aussitôt.
 
 ## Déploiement : la prod vient de `main`
 
