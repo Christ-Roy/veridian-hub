@@ -195,12 +195,13 @@ describe('discoverAppForEmail', () => {
 });
 
 describe('discoverUserApps (cross-app aggregator)', () => {
-  it('returns result for all 4 apps, with not-configured apps as error', async () => {
+  it('returns result for all 5 apps, with not-configured apps as error', async () => {
     const fetchMock = vi.fn(async () => jsonResp(404, { found: false }));
     const result = await discoverUserApps('user@x.com', {
       fetchImpl: fetchMock as unknown as typeof fetch,
     });
     expect(Object.keys(result.apps).sort()).toEqual([
+      'academy',
       'analytics',
       'crm',
       'notifuse',

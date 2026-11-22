@@ -1,5 +1,5 @@
 /**
- * Plan d'Analytics (Rybbit) et du CRM (Twenty), posé au Hub et poussé à l'app.
+ * Plan d'Analytics (Rybbit), du CRM (Twenty) et d'Academy, posé au Hub et poussé à l'app.
  *
  * Même chemin que Notifuse et Prospection : `POST <app>/api/tenants/update-plan`, CONTRAT-BILLING §3
  * v2, signé §6.1, plus `hub_user_id` (Rybbit ne connaît pas les tenants du Hub, il connaît ses
@@ -16,11 +16,34 @@ import type { PrismaClient } from '@prisma/client';
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
 import { trialStatusForTenant, type TenantTrialStatus } from '@/lib/plans/trial-status';
 
+/** Apps à plan canonique qui suivent le bundle Stripe et la machine d'essai. */
 export const PLAN_APPS = ['analytics', 'crm'] as const;
-export type PlanApp = (typeof PLAN_APPS)[number];
+
+/**
+ * Toutes les apps dont le Hub pose le plan (`hub plan --app <app>`). Academy a sa propre grille et
+ * ne suit ni Stripe ni l'essai : ses plans se posent à la main (demande de Robert du 22/11).
+ */
+export const PLANNED_APPS = ['analytics', 'crm', 'academy'] as const;
+export type PlanApp = (typeof PLANNED_APPS)[number];
 
 export const CANONICAL_PLANS = ['free', 'pro', 'business', 'enterprise'] as const;
 export type CanonicalPlan = (typeof CANONICAL_PLANS)[number];
+
+/** Grille d'Academy, telle que l'app la valide. Les trois derniers sont offerts (`grant_manual`). */
+export const ACADEMY_PLANS = ['free', 'entreprise', 'internal', 'lifetime_partner', 'lifetime_site_vitrine'] as const;
+
+export const APP_PLAN_GRIDS: Record<PlanApp, readonly string[]> = {
+  analytics: CANONICAL_PLANS,
+  crm: CANONICAL_PLANS,
+  academy: ACADEMY_PLANS,
+};
+
+/** Le plan fait-il partie de la grille de cette app ? */
+export const isAppPlan = (app: PlanApp, v: unknown): v is string =>
+  typeof v === 'string' && APP_PLAN_GRIDS[app].includes(v);
+
+export const isPlannedApp = (v: unknown): v is PlanApp =>
+  typeof v === 'string' && (PLANNED_APPS as readonly string[]).includes(v);
 
 export type PlanSource = 'stripe' | 'stripe_trial' | 'grant_manual' | 'downgrade_auto';
 
@@ -70,7 +93,7 @@ export async function pushAppPlan(
     app: PlanApp;
     hubTenantId: string;
     hubUserId: string;
-    plan: CanonicalPlan;
+    plan: string;
     planSource: PlanSource;
     reason?: string | null;
     stripeSubscriptionId?: string | null;
@@ -129,7 +152,7 @@ export async function setAppPlan(
   input: {
     tenantId: string;
     app: PlanApp;
-    plan: CanonicalPlan;
+    plan: string;
     planSource: PlanSource;
     reason?: string | null;
     setBy?: string | null;
@@ -137,6 +160,8 @@ export async function setAppPlan(
   },
   opts: { env?: NodeJS.ProcessEnv; fetchImpl?: typeof fetch } = {},
 ): Promise<PushResult> {
+  // Garde au plus près de l'écriture : un plan hors grille ne part jamais vers l'app.
+  if (!isAppPlan(input.app, input.plan)) return { ok: false, error: `plan_invalid_for_${input.app}`, status: 400 };
   const tenant = await db.tenant.findUnique({ where: { id: input.tenantId }, select: { id: true, userId: true } });
   if (!tenant) return { ok: false, error: 'tenant_not_found', status: 404 };
   const trial = await trialStatusForTenant(db, tenant.id);

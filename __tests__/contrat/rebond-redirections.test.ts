@@ -77,6 +77,7 @@ describe('redirections du rebond', () => {
 describe('seules les apps déclarées sont des cibles', () => {
   it('la liste est celle attendue (une app ajoutée sans test de rebond le dit ici)', () => {
     expect(listSupportedApps().sort()).toEqual([
+      'academy',
       'analytics',
       'analytics-rybbit',
       'cms',

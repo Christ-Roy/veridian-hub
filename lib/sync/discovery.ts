@@ -61,6 +61,11 @@ const APP_ENV_MAPPING: Record<
     urlEnv: 'CRM_API_URL',
     secretEnv: 'CRM_HUB_API_SECRET',
   },
+  // Academy (e-learning, `academy.app.veridian.site`) : même contrat que le CRM.
+  academy: {
+    urlEnv: 'ACADEMY_API_URL',
+    secretEnv: 'ACADEMY_HUB_API_SECRET',
+  },
 };
 
 export interface DiscoverOptions {
@@ -260,6 +265,7 @@ export async function discoverUserApps(
     prospection: { found: false },
     analytics: { found: false },
     crm: { found: false },
+    academy: { found: false },
   };
 
   apps.forEach((app, i) => {

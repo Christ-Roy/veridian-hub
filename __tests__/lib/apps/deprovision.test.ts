@@ -16,6 +16,8 @@ const env = {
   NOTIFUSE_HUB_API_SECRET: 'sn',
   CRM_API_URL: 'https://crm.test',
   CRM_HUB_API_SECRET: 'sc',
+  ACADEMY_API_URL: 'https://academy.test',
+  ACADEMY_HUB_API_SECRET: 'sa',
 } as NodeJS.ProcessEnv;
 const MAINTENANT = new Date('2026-11-09T18:00:00Z');
 const tenant = { id: 't1', notifuseWorkspaceSlug: 'ws1', prospectionProvisionedAt: new Date(), metadata: { crm: { workspace_id: 'w' } } };
@@ -27,6 +29,18 @@ function fetchOk(statut = 200) {
 beforeEach(() => softDeleteTenant.mockClear());
 
 describe('deprovisionnerCompte', () => {
+  it('Academy : son espace est retiré avec son propre secret, à côté du CRM', async () => {
+    const f = fetchOk();
+    const t = { ...tenant, notifuseWorkspaceSlug: null, prospectionProvisionedAt: null, metadata: { crm: { workspace_id: 'w' }, academy: { workspace_id: 'a' } } };
+    const issues = await deprovisionnerCompte({ email: 'r@exemple.fr', tenants: [t] }, { env, fetchImpl: f as never, maintenant: () => MAINTENANT });
+    const appels = f.mock.calls as unknown as [string, RequestInit][];
+    expect(appels.map(([u, i]) => `${i.method} ${u}`)).toEqual(['DELETE https://crm.test/api/tenants/t1', 'DELETE https://academy.test/api/tenants/t1']);
+    const [, init] = appels[1];
+    const h = init.headers as Record<string, string>;
+    expect(h['X-Veridian-Hub-Signature']).toBe(createHmac('sha256', 'sa').update(`${h['X-Veridian-Timestamp']}.`).digest('hex'));
+    expect(issues.filter((i) => i.app === 'academy')).toEqual([{ app: 'academy', cible: 't1', ok: true, detail: 'http_200' }]);
+  });
+
   it('client réel : Prospection soft-delete à 90 jours, Notifuse (DELETE, soft-delete chez lui) et Twenty retirés', async () => {
     const f = fetchOk();
     const issues = await deprovisionnerCompte({ email: 'client@exemple.fr', tenants: [tenant] }, { env, fetchImpl: f as never, maintenant: () => MAINTENANT });

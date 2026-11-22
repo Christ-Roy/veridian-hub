@@ -243,6 +243,8 @@ ANALYTICS_API_URL=https://analytics.app.veridian.site
 NEXT_PUBLIC_ANALYTICS_URL=https://analytics.app.veridian.site
 # CRM Veridian (Twenty) : provisioning signé et rebond, CONTRAT-HUB §5.1 et §6bis.8. Secret = HUB_API_SECRET de nomad/jobs/crm.
 CRM_API_URL=https://crm.app.veridian.site
+# Academy (e-learning) : même contrat que le CRM, app réservée aux comptes activés (Robert, 22/11).
+ACADEMY_API_URL=https://academy.app.veridian.site
 {{ with nomadVar "nomad/jobs/hub" }}
 # Base du Hub : pg-saas (grappe Patroni, entree 172.26.64.1:15432, base hub, role hub). Migration du 09/11/2026 (plan §21).
 # DATABASE_URL composee depuis HUB_DATABASE_* (defauts = pg-saas) : une bascule change une cle, pas ce fichier.
@@ -267,6 +269,7 @@ ADMIN_SECRET={{ .ADMIN_SECRET }}
 CRON_SECRET={{ .CRON_SECRET }}
 VAULT_ENC_KEY={{ .VAULT_ENC_KEY }}
 {{ with nomadVar "nomad/jobs/hub/stack" }}CRM_HUB_API_SECRET={{ .CRM_HUB_API_SECRET }}{{ end }}
+{{ with .ACADEMY_HUB_API_SECRET }}ACADEMY_HUB_API_SECRET={{ .Value }}{{ end }}
 SESSION_HINT_SECRET={{ .SESSION_HINT_SECRET }}
 GOOGLE_OAUTH_CLIENT_ID={{ .GOOGLE_OAUTH_CLIENT_ID }}
 GOOGLE_OAUTH_CLIENT_SECRET={{ .GOOGLE_OAUTH_CLIENT_SECRET }}

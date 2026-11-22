@@ -37,7 +37,9 @@ import {
 } from '@/lib/auth/bounce-next';
 import { issueMagicLinkForApp, BounceError } from '@/lib/auth/bounce-apps';
 import { journaliserRefus } from '@/lib/auth/bounce-refus';
+import { ensureAcademyWorkspace } from '@/lib/academy/provision';
 import { ensureCrmWorkspace } from '@/lib/crm/provision';
+import { getEnabledGatedApps } from '@/lib/tenant-apps';
 import { isEmailProvenInDb } from '@/lib/auth/email-proof-provider';
 import { getHubBaseUrl } from '@/lib/mail/oauth-cookies';
 import { prisma } from '@/lib/prisma';
@@ -125,17 +127,26 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       emailProven: await isEmailProvenInDb(prisma, userUuid(user)),
       next: parsed.url,
     };
+    // Academy est réservée : sans activation au Hub, aucun lien, même si l'app connaît encore le compte
+    // (activation retirée). Le refus passe par la page d'erreur, jamais muet.
+    const academyActivee =
+      parsed.app === 'academy' && (await getEnabledGatedApps(prisma, userUuid(user))).has('academy');
+    if (parsed.app === 'academy' && !academyActivee) {
+      throw new BounceError('user_not_in_app', 'academy: compte non activé au Hub');
+    }
     let magicLinkUrl: string;
     try {
       ({ magicLinkUrl } = await issueMagicLinkForApp(demande));
     } catch (err) {
-      // Le CRM est ouvert à tout compte prouvé : à la première ouverture, le Hub crée l'espace puis reprend.
-      if (!(parsed.app === 'crm' && err instanceof BounceError && err.code === 'user_not_in_app')) throw err;
-      const espace = await ensureCrmWorkspace(
-        prisma,
-        { hubUserId: userUuid(user), email: user.email, name: user.name },
-        { actorEmail: 'premiere-ouverture' },
-      );
+      // Le CRM est ouvert à tout compte prouvé, Academy à tout compte activé : à la première ouverture,
+      // le Hub crée l'espace puis reprend.
+      const premiere = err instanceof BounceError && err.code === 'user_not_in_app';
+      if (!premiere || (parsed.app !== 'crm' && parsed.app !== 'academy')) throw err;
+      const qui = { hubUserId: userUuid(user), email: user.email, name: user.name };
+      const espace =
+        parsed.app === 'crm'
+          ? await ensureCrmWorkspace(prisma, qui, { actorEmail: 'premiere-ouverture' })
+          : await ensureAcademyWorkspace(prisma, qui, { actorEmail: 'premiere-ouverture' });
       if (!espace.ok) throw err;
       ({ magicLinkUrl } = await issueMagicLinkForApp(demande));
     }

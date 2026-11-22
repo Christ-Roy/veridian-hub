@@ -57,6 +57,10 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   `TRIAL_MACHINE_ENABLED` (`lib/trial/flag.ts`) rendu par le template depuis `nomad/jobs/hub` : absent = 1, seul `0` coupe.
   **Couper** : clé à 0, bloc complet par stdin (`nomad var put -out none -in json -check-index <index> nomad/jobs/hub -`,
   index via `nomad-v raw var list nomad/jobs/hub`), puis `nomad-v run hub`. Preuve : `__tests__/lib/trial/flag.test.ts`.
+- **Academy** (22/11, réservée à Robert) : app à espace comme le CRM (`lib/apps/espace-app.ts`), clé
+  `tenant_apps` `academy`. Sans activation (`hub app-access <email> --app academy --enabled true`) : ni tuile,
+  ni rebond, ni outil MCP. Grille propre (`free|entreprise|internal|lifetime_*`), plans posés à la main,
+  hors Stripe et hors essai. Secret : clé `ACADEMY_HUB_API_SECRET` de `nomad/jobs/hub`.
 - **Plans d'Analytics et du CRM** : posés par `hub plan --app analytics|crm`, l'activation et Stripe
   (`lib/plans/app-plan.ts`), avec le statut d'essai (`lib/plans/trial-status.ts`). Les apps stockent, aucune
   limite ni lecture seule (drapeau coupé, décision de Robert). Ce qui manque : `hub reconcile --ecarts`.
@@ -113,9 +117,8 @@ Outil admin : `hub` (`hub doctor` d'abord : santé, secret, auth admin). Aucune 
 
 La session du Hub travaille dans le dossier principal, sur `main` (la branche qui déploie), jamais en
 worktree. Avant de commencer : `git fetch && git status -sb` doit dire `main...origin/main` sans
-écart ni fichier modifié, sinon on réaligne d'abord. Pourquoi : le 18/11, ce dossier dormait sur un
-`staging` local à 169 commits de `main` avec 230 fichiers non commités (sauvegardés sur
-`sauvegarde/arbre-hub-2026-11-18`, tri dans ROB-226 à 229). Ce dossier porte aussi le hook
+écart ni fichier modifié, sinon on réaligne d'abord (18/11 : 230 fichiers jamais commités, sauvegardés
+sur `sauvegarde/arbre-hub-2026-11-18`). Ce dossier porte aussi le hook
 `~/.claude/hooks/infra-status.sh` (lien symbolique) : la branche extraite ici pilote le démarrage
 de toutes les sessions. Porte de sortie : deux écrivains simultanés, un worktree refusionné aussitôt.
 

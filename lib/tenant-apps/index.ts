@@ -7,8 +7,8 @@
  *
  * Modèle (décision 2026-05-29) :
  *   - DÉFAUT OFF : sans row `TenantApp.enabled=true`, l'app est désactivée.
- *   - Apps GATED : twenty (CRM), analytics, cms — pas prêtes pour le grand
- *     public, activées au cas par cas par tenant.
+ *   - Apps GATED : twenty (CRM), analytics, cms, academy — pas prêtes pour le
+ *     grand public, activées au cas par cas par tenant (academy : Robert seul, 22/11).
  *   - Apps GRAND PUBLIC : prospection, notifuse — TOUJOURS visibles, jamais
  *     gérées par ce système (ne pas les passer ici).
  */
@@ -16,7 +16,7 @@
 import type { PrismaClient } from '@prisma/client';
 
 /** Apps gérées par le système d'activation par tenant (gated, défaut OFF). */
-export const GATED_APP_KEYS = ['twenty', 'analytics', 'cms'] as const;
+export const GATED_APP_KEYS = ['twenty', 'analytics', 'cms', 'academy'] as const;
 export type GatedAppKey = (typeof GATED_APP_KEYS)[number];
 
 /** True si `key` est une app gated valide. */

@@ -2664,8 +2664,13 @@ pour le bounce OAuth, sa déclaration (point 4) :
 3. Domaine DNS `newapp.app.veridian.site` (et `newapp.staging.veridian.site`).
 4. Côté Hub, déclarer l'app dans `APP_ENV_MAP` (`lib/auth/bounce-apps.ts`) et poser
    `<APP>_API_URL` + `<APP>_HUB_API_SECRET`. La clé est le premier label de l'hôte :
-   `analytics` pour Rybbit, `crm` pour Twenty (`CRM_API_URL`, `CRM_HUB_API_SECRET`).
+   `analytics` pour Rybbit, `crm` pour Twenty (`CRM_API_URL`, `CRM_HUB_API_SECRET`),
+   `academy` pour Academy (`ACADEMY_API_URL`, `ACADEMY_HUB_API_SECRET`).
    Le regex de la whitelist ne suffit pas à lui seul.
+5. App à espace par utilisateur (CRM, Academy) : une entrée dans `ESPACE_APPS`
+   (`lib/apps/espace-app.ts`), qui porte provisionnement, `metadata.<app>`, activation
+   `tenant_apps`, plan initial et suppression. App réservée (Academy) : le rebond refuse
+   (`user_not_in_app`) tout compte non activé au Hub, même connu de l'app.
 Aucune PR Hub, aucune migration Hub, aucun déploiement Hub n'est requis
 pour onboarder l'OAuth de la nouvelle app.
 

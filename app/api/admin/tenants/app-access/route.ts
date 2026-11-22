@@ -1,7 +1,7 @@
 /**
  * POST /api/admin/tenants/app-access
  *
- * Active ou désactive une app GATED (twenty/CRM, analytics, cms) pour un
+ * Active ou désactive une app GATED (twenty/CRM, analytics, cms, academy) pour un
  * tenant. Outil d'admin SaaS : Robert pilote l'accès aux services pas-encore-
  * grand-public, par tenant. Défaut OFF (sans activation explicite, la card
  * reste éteinte sur le dashboard).
@@ -12,7 +12,7 @@
  * Audit : 'admin.tenant.app_access'.
  *
  * Body :
- *   { user_email: string, app: 'twenty'|'analytics'|'cms', enabled: boolean }
+ *   { user_email: string, app: 'twenty'|'analytics'|'cms'|'academy', enabled: boolean }
  *
  * Idempotent : ré-appeler avec le même `enabled` ne change rien (upsert).
  */
@@ -28,6 +28,7 @@ import {
   type GatedAppKey,
 } from '@/lib/tenant-apps';
 import { lierAuHub } from '@/lib/apps/lier-hub';
+import { ensureAcademyWorkspace } from '@/lib/academy/provision';
 import { ensureCrmWorkspace } from '@/lib/crm/provision';
 import { isCanonicalPlan, readAppPlan, setAppPlan } from '@/lib/plans/app-plan';
 
@@ -70,27 +71,30 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Le CRM a un espace par utilisateur, créé ici et nulle part ailleurs (§3.8) : pas d'activation sans espace.
+  // Le CRM et Academy ont un espace par utilisateur, créé ici et à la première ouverture (§3.8) :
+  // pas d'activation sans espace.
   let crmWorkspaceId: string | undefined;
-  if (parsed.data.app === 'twenty' && parsed.data.enabled) {
+  let academyWorkspaceId: string | undefined;
+  const espaceApp = parsed.data.app === 'twenty' ? 'crm' : parsed.data.app === 'academy' ? 'academy' : null;
+  if (espaceApp && parsed.data.enabled) {
     if (!user.emailVerified) {
       return NextResponse.json(
-        { error: 'email_not_proven', message: "L'adresse n'est pas prouvée : aucun espace CRM n'est créé." },
+        { error: 'email_not_proven', message: `L'adresse n'est pas prouvée : aucun espace ${espaceApp} n'est créé.` },
         { status: 409 },
       );
     }
-    const provision = await ensureCrmWorkspace(
-      prisma,
-      { hubUserId: user.supabaseUserId, email, name: user.name },
-      { actorEmail: resolveActor(request.headers, authResult.sessionEmail) },
-    );
+    const qui = { hubUserId: user.supabaseUserId, email, name: user.name };
+    const actorOpts = { actorEmail: resolveActor(request.headers, authResult.sessionEmail) };
+    const provision =
+      espaceApp === 'crm' ? await ensureCrmWorkspace(prisma, qui, actorOpts) : await ensureAcademyWorkspace(prisma, qui, actorOpts);
     if (!provision.ok) {
       return NextResponse.json(
-        { error: provision.error === 'tenant_not_found' ? 'tenant_not_found' : 'crm_provision_failed', detail: provision.error },
-        { status: provision.error === 'tenant_not_found' ? 404 : provision.error === 'crm_not_configured' ? 503 : 502 },
+        { error: provision.error === 'tenant_not_found' ? 'tenant_not_found' : `${espaceApp}_provision_failed`, detail: provision.error },
+        { status: provision.error === 'tenant_not_found' ? 404 : provision.error === `${espaceApp}_not_configured` ? 503 : 502 },
       );
     }
-    crmWorkspaceId = provision.workspaceId;
+    if (espaceApp === 'crm') crmWorkspaceId = provision.workspaceId;
+    else academyWorkspaceId = provision.workspaceId;
   }
 
   const result = await setTenantAppEnabled(prisma, {
@@ -141,6 +145,7 @@ export async function POST(request: NextRequest) {
       app: result.appKey,
       enabled: result.enabled,
       ...(crmWorkspaceId ? { crm_workspace_id: crmWorkspaceId } : {}),
+      ...(academyWorkspaceId ? { academy_workspace_id: academyWorkspaceId } : {}),
     },
   });
 
@@ -150,6 +155,7 @@ export async function POST(request: NextRequest) {
     app: result.appKey,
     enabled: result.enabled,
     ...(crmWorkspaceId ? { crm_workspace_id: crmWorkspaceId } : {}),
+    ...(academyWorkspaceId ? { academy_workspace_id: academyWorkspaceId } : {}),
     ...(analyticsPlan ? { analytics_plan: analyticsPlan } : {}),
     ...(analyticsLien ? { analytics_lien: analyticsLien } : {}),
   });
