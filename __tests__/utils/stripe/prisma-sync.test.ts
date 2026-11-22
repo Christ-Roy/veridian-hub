@@ -18,6 +18,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const subscriptionFindFirstMock = vi.fn();
 const subscriptionUpsertMock = vi.fn();
+const ordre: string[] = [];
+const priceUpsertMock = vi.fn(async (a: { where: { id: string } }) => { ordre.push(`price:${a.where.id}`); return {}; });
+const productUpsertMock = vi.fn(async (a: { where: { id: string } }) => { ordre.push(`product:${a.where.id}`); return {}; });
 const userUpdateManyMock = vi.fn();
 const tenantFindFirstMock = vi.fn();
 const tenantUpdateMock = vi.fn();
@@ -25,9 +28,11 @@ const tenantTrialUpdateManyMock = vi.fn();
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
+    price: { upsert: (a: { where: { id: string } }) => priceUpsertMock(a) },
+    product: { upsert: (a: { where: { id: string } }) => productUpsertMock(a) },
     subscription: {
       findFirst: (...a: unknown[]) => subscriptionFindFirstMock(...a),
-      upsert: (...a: unknown[]) => subscriptionUpsertMock(...a),
+      upsert: (...a: unknown[]) => { ordre.push('subscription'); return subscriptionUpsertMock(...a); },
       findMany: vi.fn(async () => []),
     },
     user: {
@@ -121,6 +126,16 @@ beforeEach(() => {
 });
 
 describe('manageSubscriptionStatusChange — résolution du PlanKey', () => {
+  it('le prix et son produit sont écrits au catalogue AVANT l\'abonnement (clé étrangère, 22/11)', async () => {
+    ordre.length = 0;
+    subscriptionsRetrieveMock.mockResolvedValueOnce(makeSub({ metadata: { plan_key: 'veridian-pro' }, priceId: 'price_absent_du_catalogue' }));
+    const { manageSubscriptionStatusChange } = await import('@/utils/stripe/prisma-sync');
+    await manageSubscriptionStatusChange('sub_test_1', CUSTOMER, true);
+    const iPrix = ordre.indexOf('price:price_absent_du_catalogue');
+    expect(iPrix, `ordre : ${ordre.join(' > ')}`).toBeGreaterThanOrEqual(0);
+    expect(iPrix).toBeLessThan(ordre.indexOf('subscription'));
+  });
+
   it('priorité 1 : metadata.plan_key de la subscription', async () => {
     subscriptionsRetrieveMock.mockResolvedValueOnce(
       makeSub({ metadata: { plan_key: 'notifuse-pro' }, priceId: 'price_x' }),
