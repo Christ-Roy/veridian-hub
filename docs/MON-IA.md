@@ -163,7 +163,7 @@ question). Sans crédit, la question échoue chez le fournisseur ; rien n'est d�
 1. Ouvrir `https://app.veridian.site/dashboard/ia`, connecté en `robert.brunon@veridian.site`.
 2. Carte « Mon abonnement Claude » (absente si le compte n'est pas dans la liste ou si l'atelier ne répond pas) :
    cliquer « Brancher mon abonnement ».
-3. Cliquer « Ouvrez la page de connexion d'Anthropic » : un onglet claude.com s'ouvre. Se connecter avec le compte de
+3. Cliquer « Ouvrez la page de connexion d'Anthropic » : un onglet claude.ai s'ouvre (claude.ai/oauth/authorize, mesuré le 23/11). Se connecter avec le compte de
    l'abonnement, cliquer « Autoriser ».
 4. Anthropic affiche un code : le copier, revenir sur l'onglet Veridian, le coller dans « Code de connexion », « Valider »
    (dans les 10 minutes). Message attendu : « Votre abonnement est branché. »
