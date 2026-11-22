@@ -30,7 +30,7 @@ import {
 import { lierAuHub } from '@/lib/apps/lier-hub';
 import { ensureAcademyWorkspace } from '@/lib/academy/provision';
 import { ensureCrmWorkspace } from '@/lib/crm/provision';
-import { isCanonicalPlan, readAppPlan, setAppPlan } from '@/lib/plans/app-plan';
+import { choisirPlanInitial, setAppPlan } from '@/lib/plans/app-plan';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -115,16 +115,22 @@ export async function POST(request: NextRequest) {
       orderBy: { createdAt: 'asc' },
     });
     if (tenant) {
-      const actuel = readAppPlan(tenant.metadata, 'analytics').plan;
-      const pushed = await setAppPlan(prisma, {
-        tenantId: tenant.id,
-        app: 'analytics',
-        plan: isCanonicalPlan(actuel) ? actuel : 'free',
-        planSource: 'grant_manual',
-        reason: 'activation analytics',
-        setBy: resolveActor(request.headers, authResult.sessionEmail),
-      });
-      analyticsPlan = pushed.ok ? 'posé' : `non posé : ${pushed.error}`;
+      // Un plan déjà choisi au Hub est repoussé avec sa source ; sinon rien : un free par défaut
+      // marqué grant_manual serait immunisé contre Stripe (décision du 22/11).
+      const choisi = choisirPlanInitial(tenant.metadata, 'analytics');
+      if (choisi) {
+        const pushed = await setAppPlan(prisma, {
+          tenantId: tenant.id,
+          app: 'analytics',
+          plan: choisi.plan,
+          planSource: choisi.planSource,
+          reason: 'activation analytics',
+          setBy: resolveActor(request.headers, authResult.sessionEmail),
+        });
+        analyticsPlan = pushed.ok ? 'posé' : `non posé : ${pushed.error}`;
+      } else {
+        analyticsPlan = 'aucun plan choisi : celui de l\'app reste (free)';
+      }
       // Lien d'espace pour le tenant_id du JWT MCP (lien seul, jamais écrasé) : sans lui, choisir
       // cet espace par la porte rendait tenant_not_linked (mesuré le 09/11).
       const lien = await lierAuHub('analytics', { hubUserId: user.supabaseUserId, hubTenantId: tenant.id }).catch(

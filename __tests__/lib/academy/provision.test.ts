@@ -2,8 +2,8 @@ import { createHmac } from 'node:crypto';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ensureAcademyWorkspace } from '@/lib/academy/provision';
-import { provisionAppWorkspace, ESPACE_APPS } from '@/lib/apps/espace-app';
-import { isAppPlan, setAppPlan } from '@/lib/plans/app-plan';
+import { ensureAppWorkspace, provisionAppWorkspace, ESPACE_APPS } from '@/lib/apps/espace-app';
+import { choisirPlanInitial, isAppPlan, setAppPlan } from '@/lib/plans/app-plan';
 
 const env = { ACADEMY_API_URL: 'https://academy.test/', ACADEMY_HUB_API_SECRET: 'acad-s3cret' } as NodeJS.ProcessEnv;
 const input = { tenantId: 't-1', hubUserId: 'h-1', email: 'a@x.io', workspaceName: 'Robert' };
@@ -76,7 +76,7 @@ describe('ensureAcademyWorkspace', () => {
   });
 
   it('garde un plan academy déjà posé (internal), au lieu de le rabattre à free', async () => {
-    const d = db({ id: 't-1', name: 'Veridian', metadata: { academy_plan: 'internal' } });
+    const d = db({ id: 't-1', name: 'Veridian', metadata: { academy_plan: 'internal', academy_plan_source: 'grant_manual' } });
     const fetchImpl = app();
     await ensureAcademyWorkspace(d as never, { hubUserId: 'h-1', email: 'r@x.io' }, { env, fetchImpl: fetchImpl as unknown as typeof fetch });
     const plan = appels(fetchImpl).find(([u]) => u.endsWith('/api/tenants/update-plan'));
@@ -92,6 +92,66 @@ describe('ensureAcademyWorkspace', () => {
     expect(r.ok).toBe(false);
     expect(d.tenant.update).not.toHaveBeenCalled();
     expect(d.tenantApp.upsert).not.toHaveBeenCalled();
+  });
+});
+
+describe('création d\'espace : aucun plan par défaut (décision du 22/11)', () => {
+  // Un free posé en grant_manual est « offert », donc immunisé contre Stripe : le premier abonné
+  // restait en free. La création d'espace ne pose plus rien quand aucun plan n'est choisi.
+  beforeEach(() => {
+    process.env.ACADEMY_API_URL = 'https://academy.test';
+    process.env.ACADEMY_HUB_API_SECRET = 'acad-s3cret';
+    process.env.CRM_API_URL = 'https://crm.test';
+    process.env.CRM_HUB_API_SECRET = 'crm-s3cret';
+  });
+  const db = (metadata: unknown) => ({
+    tenant: {
+      findFirst: vi.fn(async () => ({ id: 't-1', name: 'ACME', metadata })),
+      findUnique: vi.fn(async () => ({ id: 't-1', userId: 'h-1', metadata })),
+      update: vi.fn(async () => ({})),
+    },
+    tenantApp: { upsert: vi.fn(async () => ({})) },
+    tenantTrial: { findMany: vi.fn(async () => []) },
+    subscription: { findMany: vi.fn(async () => []) },
+  });
+  const app = () =>
+    vi.fn(async (url: string) =>
+      url.endsWith('/api/tenants/provision')
+        ? new Response(JSON.stringify({ workspace_id: 'w', created: true }), { status: 200 })
+        : new Response(JSON.stringify({ ok: true }), { status: 200 }),
+    );
+  const plansEnvoyes = (f: ReturnType<typeof vi.fn>) =>
+    appels(f).filter(([u]) => u.endsWith('/api/tenants/update-plan')).map(([, i]) => JSON.parse(i.body as string));
+
+  for (const cfg of [ESPACE_APPS.crm, ESPACE_APPS.academy]) {
+    it(`${cfg.app} : sans plan choisi, aucun update-plan et le provisionnement n'envoie aucun plan_source`, async () => {
+      const f = app();
+      await ensureAppWorkspace(cfg, db({}) as never, { hubUserId: 'h-1', email: 'a@x.io' }, { fetchImpl: f as unknown as typeof fetch });
+      expect(plansEnvoyes(f)).toEqual([]);
+      const provision = appels(f).find(([u]) => u.endsWith('/api/tenants/provision'))!;
+      expect(JSON.parse(provision[1].body as string)).not.toHaveProperty('plan_source');
+    });
+
+    it(`${cfg.app} : un free/grant_manual hérité n'est jamais repoussé`, async () => {
+      const f = app();
+      const meta = { [`${cfg.app}_plan`]: 'free', [`${cfg.app}_plan_source`]: 'grant_manual' };
+      await ensureAppWorkspace(cfg, db(meta) as never, { hubUserId: 'h-1', email: 'a@x.io' }, { fetchImpl: f as unknown as typeof fetch });
+      expect(plansEnvoyes(f)).toEqual([]);
+    });
+  }
+
+  it('un plan payé déjà choisi est repoussé avec sa source Stripe, pas en grant_manual', async () => {
+    const f = app();
+    await ensureAppWorkspace(ESPACE_APPS.crm, db({ crm_plan: 'pro', crm_plan_source: 'stripe' }) as never, { hubUserId: 'h-1', email: 'a@x.io' }, { fetchImpl: f as unknown as typeof fetch });
+    expect(plansEnvoyes(f)).toEqual([expect.objectContaining({ plan: 'pro', plan_source: 'stripe' })]);
+  });
+
+  it('choisirPlanInitial : rien sans plan, rien pour un free offert, sinon le plan et sa source', () => {
+    expect(choisirPlanInitial({}, 'crm')).toBeNull();
+    expect(choisirPlanInitial({ crm_plan: 'free', crm_plan_source: 'grant_manual' }, 'crm')).toBeNull();
+    expect(choisirPlanInitial({ crm_plan: 'pro' }, 'crm')).toBeNull();
+    expect(choisirPlanInitial({ crm_plan: 'pro', crm_plan_source: 'grant_manual' }, 'crm')).toEqual({ plan: 'pro', planSource: 'grant_manual' });
+    expect(choisirPlanInitial({ academy_plan: 'internal', academy_plan_source: 'grant_manual' }, 'academy')).toEqual({ plan: 'internal', planSource: 'grant_manual' });
   });
 });
 

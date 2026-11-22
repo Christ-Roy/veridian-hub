@@ -83,6 +83,25 @@ export function readAppPlan(metadata: unknown, app: PlanApp): { plan: string | n
   return { plan: typeof plan === 'string' ? plan : null, source: typeof source === 'string' ? source : null };
 }
 
+const PLAN_SOURCES: readonly PlanSource[] = ['stripe', 'stripe_trial', 'grant_manual', 'downgrade_auto'];
+
+/**
+ * Plan à repousser à une app au moment où son espace naît ou s'active : celui que le Hub a déjà
+ * choisi, avec sa propre source, ou rien. Jamais un `free` par défaut marqué `grant_manual` : un
+ * plan offert est immunisé contre Stripe (CONTRAT-BILLING §3.4), et ce free-là ne l'était pas.
+ */
+export function choisirPlanInitial(
+  metadata: unknown,
+  app: PlanApp,
+): { plan: string; planSource: PlanSource } | null {
+  const { plan, source } = readAppPlan(metadata, app);
+  if (!isAppPlan(app, plan)) return null;
+  const planSource = (PLAN_SOURCES as readonly string[]).includes(source ?? '') ? (source as PlanSource) : null;
+  if (!planSource) return null;
+  if (planSource === 'grant_manual' && plan === 'free') return null;
+  return { plan, planSource };
+}
+
 export type PushResult =
   | { ok: true; previousPlan: string | null }
   | { ok: true; immune: true }

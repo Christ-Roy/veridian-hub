@@ -274,4 +274,25 @@ describe('POST /api/admin/tenants/app-access', () => {
     expect(lierMock).toHaveBeenCalledWith('analytics', { hubUserId: 'uuid-1', hubTenantId: 't-1' });
     expect(body.analytics_lien).toBe('relie');
   });
+
+  it('activation Analytics sans plan choisi : aucun plan poussé (jamais un free en grant_manual)', async () => {
+    findUniqueMock.mockResolvedValue({ id: 'u1', supabaseUserId: 'uuid-1' });
+    setTenantAppEnabledMock.mockResolvedValue({ appKey: 'analytics', enabled: true });
+    tenantFindFirstMock.mockResolvedValue({ id: 't-1', metadata: {} });
+    setAppPlanMock.mockReset();
+    lierMock.mockResolvedValue({ linked: true, raison: 'relie' });
+    await POST(req({ user_email: 'a@x.io', app: 'analytics', enabled: true }));
+    expect(setAppPlanMock).not.toHaveBeenCalled();
+  });
+
+  it('activation Analytics avec un plan payé déjà choisi : repoussé avec sa source', async () => {
+    findUniqueMock.mockResolvedValue({ id: 'u1', supabaseUserId: 'uuid-1' });
+    setTenantAppEnabledMock.mockResolvedValue({ appKey: 'analytics', enabled: true });
+    tenantFindFirstMock.mockResolvedValue({ id: 't-1', metadata: { analytics_plan: 'pro', analytics_plan_source: 'stripe' } });
+    setAppPlanMock.mockReset();
+    setAppPlanMock.mockResolvedValue({ ok: true, previousPlan: 'free' });
+    lierMock.mockResolvedValue({ linked: true, raison: 'relie' });
+    await POST(req({ user_email: 'a@x.io', app: 'analytics', enabled: true }));
+    expect(setAppPlanMock).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ plan: 'pro', planSource: 'stripe' }));
+  });
 });

@@ -39,7 +39,7 @@ type ProspectionPlan = (typeof PROSPECTION_PLANS)[number];
 
 interface RequestBody {
   app?: 'notifuse' | 'prospection' | PlanApp;
-  plan?: string;
+  plan?: string | null;
   trialEndsAt?: string | null;
   reason?: string;
 }
@@ -111,6 +111,32 @@ export async function POST(
   }
 
   // ============== ANALYTICS, CRM, ACADEMY ==============
+  // `plan: null` : le Hub oublie le plan qu'il avait choisi (et sa source), rien n'est poussé, l'app
+  // garde le sien. Sert à défaire un plan inventé, comme les free marqués grant_manual que la création
+  // d'espace posait avant le 22/11 : immunisés, ils empêchaient Stripe de faire monter le plan.
+  if (planApp && body.plan === null) {
+    const meta =
+      tenant.metadata && typeof tenant.metadata === 'object' && !Array.isArray(tenant.metadata)
+        ? { ...(tenant.metadata as Record<string, unknown>) }
+        : {};
+    const avant = { plan: meta[`${planApp}_plan`] ?? null, source: meta[`${planApp}_plan_source`] ?? null };
+    for (const suffixe of ['_plan', '_plan_source', '_plan_set_at', '_plan_set_by']) delete meta[`${planApp}${suffixe}`];
+    await prisma.tenant.update({ where: { id: tenantId }, data: { metadata: meta as object } });
+    try {
+      await prisma.provisioningLog.create({
+        data: {
+          tenantId,
+          level: 'info',
+          service: planApp,
+          message: `Plan ${planApp} retiré au Hub (était ${String(avant.plan)}/${String(avant.source)})`,
+          metadata: { avant, reason: body.reason ?? null, set_by: setBy, set_at: setAt } as object,
+        },
+      });
+    } catch (logErr) {
+      console.warn('[admin/tenants/plan] provisioning_log create failed:', logErr);
+    }
+    return NextResponse.json({ ok: true, tenant_id: tenantId, app: planApp, plan: null, previous: avant, set_by: setBy, set_at: setAt, propagated: false });
+  }
   if (planApp) {
     if (!isAppPlan(planApp, body.plan)) {
       return NextResponse.json({ error: `plan must be one of: ${APP_PLAN_GRIDS[planApp].join(', ')}` }, { status: 400 });

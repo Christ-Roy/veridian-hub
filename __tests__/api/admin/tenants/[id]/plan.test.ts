@@ -215,6 +215,19 @@ describe('POST /api/admin/tenants/[id]/plan — analytics et crm', () => {
     vi.unstubAllGlobals();
   });
 
+  it('plan null : le Hub oublie le plan choisi et sa source, rien n\'est poussé à l\'app', async () => {
+    tenantRow.metadata = { crm: { workspace_id: 'w' }, crm_plan: 'free', crm_plan_source: 'grant_manual', crm_plan_set_at: 'x', crm_plan_set_by: 'y', garde: 1 };
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const { POST } = await import('@/app/api/admin/tenants/[id]/plan/route');
+    const res = await POST(makeReq({ app: 'crm', plan: null, reason: 'free inventé' }), ctx('t-1'));
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ app: 'crm', plan: null, previous: { plan: 'free', source: 'grant_manual' }, propagated: false });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(updateTenantMock.mock.calls.at(-1)?.[0].data.metadata).toEqual({ crm: { workspace_id: 'w' }, garde: 1 });
+    vi.unstubAllGlobals();
+  });
+
   it('plan hors enum canonique : 400, rien poussé', async () => {
     tenantRow.metadata = { analytics: {} };
     const { POST } = await import('@/app/api/admin/tenants/[id]/plan/route');

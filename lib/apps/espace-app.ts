@@ -15,7 +15,7 @@ import type { PrismaClient } from '@prisma/client';
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
 import { pushUserToApps } from '@/lib/identity/push-user';
 import { oublierUtilisateur } from '@/lib/mcp/cache';
-import { isAppPlan, readAppPlan, setAppPlan, type PlanApp } from '@/lib/plans/app-plan';
+import { choisirPlanInitial, setAppPlan, type PlanApp } from '@/lib/plans/app-plan';
 import type { SyncApp } from '@/lib/sync/types';
 import { setTenantAppEnabled, type GatedAppKey } from '@/lib/tenant-apps';
 
@@ -155,23 +155,28 @@ export async function ensureAppWorkspace(
   });
   // La porte MCP ne doit pas garder « injoignable » pour un compte qui vient d'être créé.
   oublierUtilisateur(user.hubUserId, cfg.appKey);
-  // Le plan suit l'espace dès sa création (CONTRAT-BILLING §3) : celui du Hub, sinon free. Meilleur
-  // effort : l'espace existe, un refus du plan se lit dans reconcile, il ne bloque pas l'ouverture.
-  const actuel = readAppPlan(current, cfg.app).plan;
-  const plan = await setAppPlan(
-    db,
-    {
-      tenantId: tenant.id,
-      app: cfg.app,
-      plan: isAppPlan(cfg.app, actuel) ? actuel : 'free',
-      planSource: 'grant_manual',
-      reason: `création de l'espace ${cfg.app}`,
-      setBy: opts.actorEmail ?? 'hub',
-    },
-    opts,
-  ).catch((err: unknown) => ({ ok: false as const, error: err instanceof Error ? err.message : String(err) }));
-  if (!plan.ok) {
-    console.warn(JSON.stringify({ tag: `[${cfg.app}][plan]`, level: 'warn', tenant_id: tenant.id, error: plan.error }));
+  // Aucun plan n'est inventé à la création (décision du 22/11) : l'app garde le `free` du
+  // provisionnement, sans `plan_source`, et Stripe peut le faire monter. Un `grant_manual` posé ici
+  // rendait ce free « offert », donc immunisé : le premier abonné restait en free, sans erreur.
+  // Un plan déjà choisi au Hub est repoussé avec sa propre source. Meilleur effort : un refus se lit
+  // dans reconcile, il ne bloque pas l'ouverture.
+  const choisi = choisirPlanInitial(current, cfg.app);
+  if (choisi) {
+    const plan = await setAppPlan(
+      db,
+      {
+        tenantId: tenant.id,
+        app: cfg.app,
+        plan: choisi.plan,
+        planSource: choisi.planSource,
+        reason: `création de l'espace ${cfg.app}`,
+        setBy: opts.actorEmail ?? 'hub',
+      },
+      opts,
+    ).catch((err: unknown) => ({ ok: false as const, error: err instanceof Error ? err.message : String(err) }));
+    if (!plan.ok) {
+      console.warn(JSON.stringify({ tag: `[${cfg.app}][plan]`, level: 'warn', tenant_id: tenant.id, error: plan.error }));
+    }
   }
   return provision;
 }
