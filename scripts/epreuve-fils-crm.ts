@@ -52,7 +52,7 @@ async function main(): Promise<number> {
   // 0. La route espace : le workspace servi sur cette origine.
   const urlEspace = `${origine}/s/veridian-ia/espace`;
   const espace = await appeler(urlEspace, await signer(urlEspace, { scope: 'ia.espace' }));
-  let workspaceId = wsArg;
+  let workspaceId: string | undefined = wsArg;
   let wsServi: string | null = null;
   try {
     wsServi = (JSON.parse(espace.corps) as { workspace_id?: string }).workspace_id ?? null;

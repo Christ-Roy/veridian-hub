@@ -16,3 +16,4 @@ rapide	env-sync	.	scripts/ci/check-env-sync.sh	-	process.env du code, .env.examp
 rapide	pas-de-cle-stripe-live	.	scripts/ci/check-no-stripe-live-key.sh	-	Aucune clé Stripe LIVE dans un fichier suivi : elles n'existent qu'en variable d'environnement de prod.
 rapide	contrat-nomad	.	scripts/ci/check-nomad-contract.sh	-	Le contrat GitOps Nomad co-localisé reste cohérent avec le dépôt.
 rapide	volumes-ci	.	scripts/ci/check-volumes-ci.sh	-	Chaque volume hôte des jobspecs est autorisé par la politique ACL de la CI. Le 22/11 (VER-203), le volume hub-atelier sans règle : plan vert, soumission refusée en 403 en prod.
+rapide	typecheck	.	scripts/ci/check-typecheck.sh	-	Aucune erreur de type hors e2e/. Le build de la CI vérifie les types, scripts/ compris : le 22/11 (VER-203), une erreur dans scripts/ a coupé le déploiement 20 minutes après le push.
