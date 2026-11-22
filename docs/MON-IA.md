@@ -42,6 +42,30 @@ architecture » (786b547). Ce fichier n'en recopie rien : il porte l'architectur
    faite par lui-même (`claude auth login` dans un terminal intégré), et ses sessions ; nous ne lisons jamais son jeton.
    Épreuve : voir le binaire refuser un appel shell dans ce mode. Ouvert à Robert seul tant que les Commercial Terms ne sont
    pas acceptés et qu'Anthropic n'a pas répondu par écrit. Isolation montée avec la session infra.
+   **Architecture retenue après lecture de la doc officielle (22/11, 205 pages téléchargées, binaire mesuré)** :
+   - **Un seul conteneur partagé, pas un par client.** La doc d'hébergement décrit ce schéma : « Long-running sessions…
+     often hosting multiple SDK processes per container », avec l'isolation entre tenants *dans* le conteneur
+     (« Multi-tenant isolation » : `settingSources: []`, `CLAUDE_CONFIG_DIR` par tenant, `cwd` par tenant,
+     `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`). Plusieurs comptes sur une machine, un `CLAUDE_CONFIG_DIR` chacun, c'est
+     documenté (authentication : « To stay signed in to multiple accounts at once… »). La connexion vit dans
+     `<CLAUDE_CONFIG_DIR>/.credentials.json` (0600).
+   - **Un job Nomad « atelier », un seul, distinct du Hub** : le Hub porte tous les secrets de la flotte, le binaire
+     n'y tourne pas (frontière de la doc : « place sensitive resources outside the boundary containing the agent »).
+     Dans l'atelier, **un processus par conversation active** (TypeScript Agent SDK : `streamInput`, `prewarm`),
+     arrêté après inactivité et repris par `resume` sur le volume ; un dossier par utilisateur Hub sur ce volume.
+   - **Mesure du binaire 2.1.322** (au repos, `--tools ""`, MCP strict, aucun réglage chargé) : 149 Mo de RSS,
+     pic 153 Mo. Le « 1 GiB par agent » de la doc vise des agents qui exécutent du code ; à mesurer en conversation.
+   - **Isolation par processus, sans conteneur par client** : aucun outil intégré, donc aucun code exécuté ; en plus,
+     chaque processus est enfermé par `sandbox-runtime` (bubblewrap, recommandé par la doc pour l'isolation légère :
+     « Very low » surcoût), avec son seul dossier visible. Sortie réseau de l'atelier : `api.anthropic.com`, le
+     parcours de connexion d'Anthropic et la porte MCP du Hub, rien d'autre. `ENABLE_CLAUDEAI_MCP_SERVERS=false` :
+     les connecteurs claude.ai du client ne se chargent pas (ils échappent sinon à `settingSources`).
+   - **Le curseur pour « faire des choses »** : si un jour une app veut des outils qui exécutent du code (Bash,
+     fichiers), ce client-là bascule dans un conteneur gVisor éphémère à lui, à la demande. Par défaut, rien de tel.
+   - **Le droit ne change pas avec la technique** : héberger le binaire où le client se connecte lui-même est permis
+     (legal-and-compliance) ; que notre chat fasse passer ses questions par son abonnement reste la zone à faire
+     confirmer par écrit (« route requests through… plan credentials on behalf of their users »).
+
 3. **`codex-forfait`** : prévu, fermé tant qu'OpenAI ne nous a pas acceptés.
 
 ## Le chemin d'une question
