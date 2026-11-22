@@ -15,40 +15,15 @@ import {
   ProspectionError,
 } from '@/lib/prospection/client';
 import { prisma } from '@/lib/prisma';
+import { assurerTenantHub as assurerTenantHubDb } from '@/lib/tenants/assurer';
 
 function slugify(email: string): string {
   return email.split('@')[0].replace(/[^a-z0-9]/gi, '').toLowerCase();
 }
 
-/**
- * Le tenant Hub d'un compte, créé s'il manque. Appelé AVANT de provisionner les apps : Notifuse et
- * Prospection tournaient en parallèle, chacun « cherche, sinon crée », et pouvaient créer deux
- * tenants pour un même compte ; Prospection ne recevait pas non plus l'id Hub (tenant_id du JWT MCP).
- * Un tenant supprimé n'est jamais repris.
- */
-export async function assurerTenantHub(email: string, userId: string, nom?: string): Promise<string> {
-  const existant = await prisma.tenant.findFirst({
-    where: { userId, deletedAt: null },
-    orderBy: { createdAt: 'asc' },
-    select: { id: true },
-  });
-  if (existant) return existant.id;
-  const slug = slugify(email);
-  const slugPris = await prisma.tenant.findUnique({ where: { slug }, select: { id: true } });
-  const trialEndsAt = new Date();
-  trialEndsAt.setDate(trialEndsAt.getDate() + 15);
-  const cree = await prisma.tenant.create({
-    data: {
-      userId,
-      name: nom ?? email.split('@')[0],
-      slug: slugPris ? `${slug}-${Math.random().toString(36).slice(2, 7)}` : slug,
-      status: 'active',
-      provisionedAt: new Date(),
-      trialEndsAt,
-    },
-    select: { id: true },
-  });
-  return cree.id;
+/** Cf. `lib/tenants/assurer.ts` : la même règle sert à la création des espaces (CRM, Academy). */
+export function assurerTenantHub(email: string, userId: string, nom?: string): Promise<string> {
+  return assurerTenantHubDb(prisma, email, userId, nom);
 }
 
 // ============================================================

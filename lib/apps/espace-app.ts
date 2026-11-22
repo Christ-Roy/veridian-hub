@@ -18,6 +18,7 @@ import { oublierUtilisateur } from '@/lib/mcp/cache';
 import { choisirPlanInitial, setAppPlan, type PlanApp } from '@/lib/plans/app-plan';
 import type { SyncApp } from '@/lib/sync/types';
 import { setTenantAppEnabled, type GatedAppKey } from '@/lib/tenant-apps';
+import { assurerTenantHub } from '@/lib/tenants/assurer';
 
 const PROVISION_PATH = '/api/tenants/provision';
 
@@ -108,10 +109,11 @@ export async function ensureAppWorkspace(
   user: { hubUserId: string; email: string; name?: string | null },
   opts: { actorEmail?: string | null } & Omit<Opts, 'nowMs'> = {},
 ): Promise<EspaceProvisionResult> {
-  const tenant = await db.tenant.findFirst({
-    where: { userId: user.hubUserId, deletedAt: null },
+  // Le tenant Hub est créé s'il manque (compte sans Notifuse ni Prospection) : sans lui, pas d'espace.
+  const tenantId = await assurerTenantHub(db, user.email.toLowerCase(), user.hubUserId, user.name);
+  const tenant = await db.tenant.findUnique({
+    where: { id: tenantId },
     select: { id: true, name: true, metadata: true },
-    orderBy: { createdAt: 'asc' },
   });
   if (!tenant) return { ok: false, error: 'tenant_not_found', status: 404 };
 
