@@ -83,7 +83,7 @@ export interface DiscoverOptions {
 }
 
 /** Apps dont `GET /api/users/by-email` lit `hub_user_id`. Une app qui ne le lit pas ne le reçoit pas. */
-export const HUB_USER_ID_APPS: readonly SyncApp[] = ['analytics'];
+export const HUB_USER_ID_APPS: readonly SyncApp[] = ['analytics', 'academy'];
 
 /** Lit le secret HMAC d'une app (avec fallback legacy quand applicable). */
 export function readAppSecret(app: SyncApp): string | null {

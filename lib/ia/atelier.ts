@@ -4,12 +4,24 @@
  * autre secret ; le Hub reste le seul à joindre les apps.
  */
 import { createHmac, timingSafeEqual } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 
 export const MOTEUR_ABONNEMENT = 'claude-code-abonnement';
 export const FOURNISSEUR_ABONNEMENT = 'claude-abonnement';
 
+/** Adresse de l'atelier : ATELIER_URL, sinon le fichier que Nomad tient à jour (relu à chaque appel). */
+function adresse(env: NodeJS.ProcessEnv): string | undefined {
+  if (env.ATELIER_URL) return env.ATELIER_URL;
+  if (!env.ATELIER_URL_FICHIER) return undefined;
+  try {
+    return readFileSync(env.ATELIER_URL_FICHIER, 'utf8').split('\n').map((l) => l.trim()).find(Boolean);
+  } catch {
+    return undefined;
+  }
+}
+
 function config(env: NodeJS.ProcessEnv = process.env) {
-  const url = env.ATELIER_URL?.replace(/\/+$/, '');
+  const url = adresse(env)?.replace(/\/+$/, '');
   const secret = env.ATELIER_SECRET ?? '';
   return url && secret.length >= 32 ? { url, secret } : null;
 }

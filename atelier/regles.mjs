@@ -69,3 +69,16 @@ export function adresseDeConnexion(sortie) {
 export function codeValide(code) {
   return typeof code === 'string' && /^[A-Za-z0-9#._~-]{8,512}$/.test(code.trim());
 }
+
+/**
+ * Sortie réseau du binaire : Anthropic seulement (API, connexion et renouvellement OAuth, network-config de la
+ * doc). Ni le tailnet, ni le réseau interne, ni une adresse IP brute.
+ */
+export const HOTES_AUTORISES = ['api.anthropic.com', 'claude.ai', 'claude.com', 'platform.claude.com'];
+export function hoteAutorise(hote) {
+  return typeof hote === 'string' && HOTES_AUTORISES.includes(hote.toLowerCase());
+}
+
+/** Plafonds de l'atelier : tours simultanés, taille du dossier d'un client. */
+export const TOURS_SIMULTANES = 4;
+export const TAILLE_DOSSIER_MAX = 200 * 1024 * 1024;

@@ -10,19 +10,33 @@
 // dans son navigateur et recolle le code affiché, tapé tel quel dans le binaire. Nous ne lisons jamais son jeton.
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { mkdir, rm } from 'node:fs/promises';
+import { mkdir, readdir, rm, stat } from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 
 import { createSdkMcpServer, query, tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 
-import { adresseDeConnexion, codeValide, dossierClient, environnementBinaire, optionsBinaire, signatureValide, signer } from './regles.mjs';
+import { adresseDeConnexion, codeValide, dossierClient, environnementBinaire, optionsBinaire, signatureValide, signer, TAILLE_DOSSIER_MAX, TOURS_SIMULTANES } from './regles.mjs';
 
 const PORT = Number(process.env.ATELIER_PORT || 3100);
 const RACINE = process.env.ATELIER_DONNEES || '/donnees';
 const SECRET = process.env.ATELIER_SECRET || '';
-const HUB = (process.env.ATELIER_HUB_URL || 'https://app.veridian.site').replace(/\/+$/, '');
+import { readFileSync } from 'node:fs';
+/** Adresses internes du Hub, relues à chaque appel dans le fichier tenu par Nomad (bleu-vert : plusieurs lignes). */
+function adressesHub() {
+  try {
+    const l = readFileSync(process.env.ATELIER_HUB_URL_FICHIER || '', 'utf8').split('\n').map((x) => x.trim()).filter(Boolean);
+    if (l.length) return l;
+  } catch {
+    /* pas de fichier : adresse fixe */
+  }
+  return [(process.env.ATELIER_HUB_URL || 'https://app.veridian.site').replace(/\/+$/, '')];
+}
+// Le binaire ne sort que par le proxy à liste blanche de la tâche voisine (atelier/proxy.mjs).
+const PROXY = process.env.ATELIER_PROXY || '';
+const reseau = PROXY ? { HTTPS_PROXY: PROXY, HTTP_PROXY: PROXY } : {};
+let toursEnCours = 0;
 const BINAIRE = process.env.ATELIER_BINAIRE || undefined; // sinon, le binaire du SDK
 const ATTENTE_APPROBATION_MS = 5 * 60_000;
 
@@ -45,18 +59,23 @@ async function preparer(hubUserId) {
 
 function lancerBinaire(dossier, args) {
   const exe = BINAIRE || 'claude';
-  return spawn(exe, args, { cwd: path.join(dossier, 'travail'), env: environnementBinaire(dossier, { BROWSER: '/bin/false' }), stdio: ['pipe', 'pipe', 'pipe'] });
+  return spawn(exe, args, { cwd: path.join(dossier, 'travail'), env: environnementBinaire(dossier, { BROWSER: '/bin/false', ...reseau }), stdio: ['pipe', 'pipe', 'pipe'] });
 }
 
 async function appelHub(chemin, corps) {
   const brut = JSON.stringify(corps);
   const { ts, sig } = signer(SECRET, brut);
-  const r = await fetch(`${HUB}${chemin}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Veridian-Timestamp': ts, 'X-Veridian-Atelier-Signature': sig },
-    body: brut,
-    signal: AbortSignal.timeout(60_000),
-  });
+  let r = null;
+  for (const hub of adressesHub()) {
+    r = await fetch(`${hub}${chemin}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Veridian-Timestamp': ts, 'X-Veridian-Atelier-Signature': sig },
+      body: brut,
+      signal: AbortSignal.timeout(60_000),
+    }).catch(() => null);
+    if (r) break;
+  }
+  if (!r) throw new Error('hub injoignable');
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(`hub ${r.status} ${j.error ?? ''}`);
   return j;
@@ -157,14 +176,27 @@ async function finConnexion(res, { hubUserId }) {
   return repondre(res, 200, { deconnecte: true });
 }
 
+async function taille(dossier) {
+  let total = 0;
+  for (const e of await readdir(dossier, { withFileTypes: true, recursive: true }).catch(() => [])) {
+    if (e.isFile()) total += (await stat(path.join(e.parentPath ?? e.path, e.name)).catch(() => ({ size: 0 }))).size;
+  }
+  return total;
+}
+
 async function tour(res, { hubUserId, tenantId, sessionId, nouvelle, message }) {
   if (typeof message !== 'string' || !message.trim()) return repondre(res, 400, { error: 'message_vide' });
+  if (toursEnCours >= TOURS_SIMULTANES) return repondre(res, 429, { error: 'atelier_occupe' });
   const dossier = await preparer(hubUserId);
+  if ((await taille(dossier)) > TAILLE_DOSSIER_MAX) return repondre(res, 507, { error: 'dossier_plein' });
+  toursEnCours += 1;
+  res.on('close', () => (toursEnCours -= 1));
   res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
   const ecrire = (o) => res.write(`${JSON.stringify(o)}\n`);
   const ctx = { hubUserId, tenantId, sessionId };
   const options = {
     ...optionsBinaire(dossier, serveurOutils(ctx), { sessionId, reprise: !nouvelle }),
+    env: environnementBinaire(dossier, reseau),
     ...(BINAIRE ? { pathToClaudeCodeExecutable: BINAIRE } : {}),
     includePartialMessages: true,
     // Une écriture attend l'humain ; la lecture seule se décide au Hub, d'après la déclaration de l'outil.

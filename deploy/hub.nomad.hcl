@@ -245,6 +245,10 @@ NEXT_PUBLIC_ANALYTICS_URL=https://analytics.app.veridian.site
 CRM_API_URL=https://crm.app.veridian.site
 # Academy (e-learning) : même contrat que le CRM, app réservée aux comptes activés (Robert, 22/11).
 ACADEMY_API_URL=https://academy.app.veridian.site
+# Atelier « Mon IA » (moteur abonnement) : comptes autorisés, Robert seul tant qu'Anthropic n'a pas confirmé par
+# écrit (docs/MON-IA.md). Son adresse est lue dans local/atelier-url (template à part, sans redémarrage du Hub).
+ATELIER_URL_FICHIER=/local/atelier-url
+ATELIER_COMPTES=53245ae1-6bf8-4ec6-870f-32d75b7c0281
 {{ with nomadVar "nomad/jobs/hub" }}
 # Base du Hub : pg-saas (grappe Patroni, entree 172.26.64.1:15432, base hub, role hub). Migration du 09/11/2026 (plan §21).
 # DATABASE_URL composee depuis HUB_DATABASE_* (defauts = pg-saas) : une bascule change une cle, pas ce fichier.
@@ -270,6 +274,7 @@ CRON_SECRET={{ .CRON_SECRET }}
 VAULT_ENC_KEY={{ .VAULT_ENC_KEY }}
 {{ with nomadVar "nomad/jobs/hub/stack" }}CRM_HUB_API_SECRET={{ .CRM_HUB_API_SECRET }}{{ end }}
 {{ with .ACADEMY_HUB_API_SECRET }}ACADEMY_HUB_API_SECRET={{ .Value }}{{ end }}
+{{ with .ATELIER_SECRET }}ATELIER_SECRET={{ .Value }}{{ end }}
 SESSION_HINT_SECRET={{ .SESSION_HINT_SECRET }}
 GOOGLE_OAUTH_CLIENT_ID={{ .GOOGLE_OAUTH_CLIENT_ID }}
 GOOGLE_OAUTH_CLIENT_SECRET={{ .GOOGLE_OAUTH_CLIENT_SECRET }}
@@ -300,12 +305,157 @@ NEXT_PUBLIC_GTM_ID={{ .GTM_ID_APP_VERIDIAN }}
 {{ end }}
 EOH
       }
+      # Adresse de l'atelier, relue à chaque appel : un redéploiement de l'atelier ne relance jamais le Hub.
+      template {
+        destination = "local/atelier-url"
+        change_mode = "noop"
+        data        = "{{ range nomadService \"hub-atelier\" }}http://{{ .Address }}:{{ .Port }}{{ end }}"
+      }
       resources {
         cpu        = 500
         # 08/11 : reservation = memoire non reprenable mesuree (203 Mio) + 50 %, plafond = pointe (284 Mio) x 2,7.
         # Avant : 7000 Mio de plafond, une fuite du Hub pouvait avaler ovh-prod et tout ce qui y tourne.
         memory     = 320
         memory_max = 768
+      }
+    }
+  }
+  # ---- atelier « Mon IA » (docs/MON-IA.md) : le binaire officiel Claude Code pour chaque client connecté avec
+  # son abonnement. Même image que le Hub, autre point d'entrée. Groupe à part : volume durable (la connexion de
+  # chaque client, rangée par le binaire, survit aux déploiements) et aucun secret du Hub dans son environnement.
+  # Le binaire n'a aucun outil intégré et ne sort que par le proxy à liste blanche (Anthropic seulement).
+  group "atelier" {
+    count = 1
+
+    update {
+      max_parallel     = 1
+      min_healthy_time = "10s"
+      healthy_deadline = "5m"
+      auto_revert      = true
+    }
+
+    # Le volume hub-atelier vit sur ovh-prod (nomad-veridian nodes/volumes/hub-atelier.volume.hcl).
+    constraint {
+      attribute = "${meta.provider}"
+      value     = "ovh-prod"
+    }
+
+    volume "hub-atelier" {
+      type            = "host"
+      source          = "hub-atelier"
+      access_mode     = "single-node-single-writer"
+      attachment_mode = "file-system"
+    }
+
+    network {
+      mode = "bridge"
+      port "atelier" {
+        to           = 3100
+        host_network = "tailscale"
+      }
+    }
+
+    service {
+      name     = "hub-atelier"
+      provider = "nomad"
+      port     = "atelier"
+      tags     = ["traefik.enable=false"]
+      check {
+        type     = "http"
+        path     = "/sante"
+        interval = "15s"
+        timeout  = "5s"
+      }
+    }
+
+    task "atelier" {
+      driver = "docker"
+      user   = "nextjs"
+      config {
+        image           = "ghcr.io/christ-roy/veridian-hub:${var.image_tag}"
+        init            = true
+        ports           = ["atelier"]
+        command         = "node"
+        args            = ["/opt/atelier/serveur.mjs"]
+        security_opt    = ["no-new-privileges:true"]
+        readonly_rootfs = true
+        cap_drop        = ["ALL"]
+        labels = {
+          "site.veridian.job"   = "${NOMAD_JOB_NAME}"
+          "site.veridian.group" = "${NOMAD_GROUP_NAME}"
+          "site.veridian.task"  = "${NOMAD_TASK_NAME}"
+          "site.veridian.node"  = "${node.unique.name}"
+          "site.veridian.tier"  = "saas-prod"
+          "site.veridian.app"   = "hub-atelier"
+        }
+        mount {
+          type     = "tmpfs"
+          target   = "/tmp"
+          readonly = false
+          tmpfs_options { size = 134217728 }
+        }
+      }
+      volume_mount {
+        volume      = "hub-atelier"
+        destination = "/data/atelier"
+      }
+      template {
+        destination = "secrets/atelier.env"
+        perms       = "600"
+        env         = true
+        change_mode = "restart"
+        data        = <<EOH
+NODE_ENV=production
+ATELIER_PORT=3100
+ATELIER_DONNEES=/data/atelier
+ATELIER_PROXY=http://127.0.0.1:3128
+ATELIER_HUB_URL_FICHIER=/local/hub-url
+{{ with nomadVar "nomad/jobs/hub" }}{{ with .ATELIER_SECRET }}ATELIER_SECRET={{ .Value }}{{ end }}{{ end }}
+EOH
+      }
+      # Adresse interne du Hub, relue à chaque appel : un déploiement du Hub ne relance pas l'atelier. Pendant un
+      # bleu-vert, deux instances : une par ligne, l'atelier prend la première qui répond.
+      template {
+        destination = "local/hub-url"
+        change_mode = "noop"
+        data        = "{{ range nomadService \"hub\" }}http://{{ .Address }}:{{ .Port }}\n{{ end }}"
+      }
+      resources {
+        cpu        = 300
+        # ~150 Mio par tour actif (binaire mesuré au repos le 22/11), 4 tours simultanés au plus (atelier/regles.mjs).
+        memory     = 256
+        memory_max = 1024
+      }
+    }
+
+    # Proxy de sortie (atelier/proxy.mjs) : seuls api.anthropic.com, claude.ai, claude.com, platform.claude.com.
+    task "atelier-proxy" {
+      driver = "docker"
+      user   = "nextjs"
+      lifecycle {
+        hook    = "prestart"
+        sidecar = true
+      }
+      config {
+        image           = "ghcr.io/christ-roy/veridian-hub:${var.image_tag}"
+        init            = true
+        command         = "node"
+        args            = ["/opt/atelier/proxy.mjs"]
+        security_opt    = ["no-new-privileges:true"]
+        readonly_rootfs = true
+        cap_drop        = ["ALL"]
+        labels = {
+          "site.veridian.job"   = "${NOMAD_JOB_NAME}"
+          "site.veridian.group" = "${NOMAD_GROUP_NAME}"
+          "site.veridian.task"  = "${NOMAD_TASK_NAME}"
+          "site.veridian.node"  = "${node.unique.name}"
+          "site.veridian.tier"  = "saas-prod"
+          "site.veridian.app"   = "hub-atelier"
+        }
+      }
+      resources {
+        cpu    = 50
+        memory = 64
       }
     }
   }
