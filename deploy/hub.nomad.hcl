@@ -348,11 +348,19 @@ EOH
       attachment_mode = "file-system"
     }
 
+    # Réseau CNI dédié « atelier » (pont atelier0, 172.31.250.0/24, nomad-veridian nodes/atelier/) : le pare-feu
+    # nftables veridian_atelier de rise n'y laisse sortir que DNS 1.1.1.1/9.9.9.9, le HTTPS public (Anthropic est
+    # derrière un CDN ; la liste par nom, c'est hub-atelier-proxy) et le Hub sur ses ports dynamiques ; en entrée,
+    # seuls le Hub et l'hôte (check de santé). Prouvé par l'infra le 22/11, 14 cas sur 14.
     network {
-      mode = "bridge"
+      mode = "cni/atelier"
       port "atelier" {
         to           = 3100
         host_network = "tailscale"
+      }
+      # Le résolveur de rise (127.0.0.53) est injoignable depuis le conteneur, et le pare-feu n'autorise que ces deux-là.
+      dns {
+        servers = ["1.1.1.1", "9.9.9.9"]
       }
     }
 
@@ -459,6 +467,39 @@ EOH
       resources {
         cpu    = 50
         memory = 64
+      }
+    }
+
+    # Sonde de sortie (ADR-033) : la sortie du réseau atelier perdue (règle CNI ou pare-feu), l'allocation échoue et
+    # Nomad la replace avec un réseau neuf. Pas de tâche planifiée. DNS sur les deux résolveurs autorisés, deux échecs
+    # consécutifs. Mêmes paramètres que les relais mail (éprouvés sur dragonair, plan/INFRA-CIBLE.md 4.1.6).
+    task "hub-atelier-sonde-sortie" {
+      driver = "docker"
+      restart {
+        attempts = 1
+        interval = "10m"
+        delay    = "5s"
+        mode     = "fail"
+      }
+      config {
+        image        = "busybox:1.36.1@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
+        command      = "sh"
+        args         = ["-c", "sleep 10; k=0; while :; do if timeout 3 nslookup -type=a one.one.one.one 1.1.1.1 >/dev/null 2>&1 || timeout 3 nslookup -type=a dns.quad9.net 9.9.9.9 >/dev/null 2>&1; then k=0; else k=$((k+1)); echo \"sortie KO ($k)\"; fi; [ $k -ge 2 ] && { echo 'sortie perdue : echec pour replanifier'; exit 1; }; sleep 5; done"]
+        security_opt = ["no-new-privileges:true"]
+        cap_drop     = ["ALL"]
+        labels = {
+          "site.veridian.job"   = "${NOMAD_JOB_NAME}"
+          "site.veridian.group" = "${NOMAD_GROUP_NAME}"
+          "site.veridian.task"  = "${NOMAD_TASK_NAME}"
+          "site.veridian.node"  = "${node.unique.name}"
+          "site.veridian.tier"  = "saas-prod"
+          "site.veridian.app"   = "hub-atelier"
+        }
+      }
+      resources {
+        cpu        = 10
+        memory     = 16
+        memory_max = 32
       }
     }
   }
