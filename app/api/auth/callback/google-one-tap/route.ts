@@ -192,7 +192,7 @@ export async function POST(request: NextRequest) {
   }
   if (!freshlyCreated) {
     // Le fournisseur qui prouve garde sa propre ligne `account` (D1).
-    await applyProviderEmailProof(prisma, user.id, 'google');
+    await applyProviderEmailProof(prisma, user.id, 'google', { providerAccountId, sessions: 'toujours' });
   }
 
   const existingAccount = await prisma.account.findUnique({

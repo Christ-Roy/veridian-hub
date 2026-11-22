@@ -239,7 +239,10 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       // `emailVerified` à null. Le callback `signIn` ne l'a pas encore vu.
       // Le fournisseur courant garde sa propre ligne `account` : elle vient d'être créée.
       if (isNewUser && user?.id && providerProvesEmail(account, profile, user.email)) {
-        await applyProviderEmailProof(prisma, user.id, account?.provider);
+        await applyProviderEmailProof(prisma, user.id, account?.provider, {
+          providerAccountId: account?.providerAccountId ?? null,
+          sessions: 'si_retrait',
+        });
       }
       const providerId = account?.provider;
       if (providerId && OAUTH_PROVIDER_IDS.has(providerId)) {

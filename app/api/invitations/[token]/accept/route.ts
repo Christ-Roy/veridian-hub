@@ -35,6 +35,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { auth } from '@/auth';
+import { prouverParMail } from '@/lib/auth/email-proof-provider';
 import { prisma } from '@/lib/prisma';
 import {
   extractClientIp,
@@ -166,11 +167,9 @@ export async function POST(
   }
 
   // Le jeton est parti à cette adresse et le compte porte la même : c'est une preuve.
+  // Même règle que le lien de preuve : les liaisons OAuth posées avant la preuve tombent (M2).
   if (!result.emailMismatch) {
-    await prisma.user.updateMany({
-      where: { id: user.id, emailVerified: null },
-      data: { emailVerified: new Date() },
-    });
+    await prouverParMail(prisma, user.id);
   }
 
   await writeAuditLog(prisma, {

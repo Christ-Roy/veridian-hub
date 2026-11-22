@@ -22,6 +22,9 @@ import { providerProvesEmail } from '@/lib/auth/email-proof-provider';
 /** Page qui explique en français pourquoi la connexion OAuth est refusée (D1). */
 export const LIAISON_REFUSEE_PATH = '/auth/liaison-refusee';
 
+/** Page qui explique qu'un compte neuf exige une adresse prouvée, et mène à l'inscription par adresse (M2). */
+export const PREUVE_REQUISE_PATH = '/auth/preuve-requise';
+
 /** Fournisseurs OAuth dont la ligne `account` peut être liée à un compte existant. */
 const FOURNISSEURS_OAUTH_LIENS = new Set(['google', 'microsoft-entra-id', 'mock-oauth']);
 
@@ -38,7 +41,12 @@ export type SignInDeps = {
   /** Sender MFA email (mockable) */
   issueAndSendMfaCode: (input: { id: string; email: string }) => Promise<unknown>;
   /** Enregistre une preuve fournisseur (annule un mot de passe non prouvé). */
-  applyProviderEmailProof?: (prisma: never, userId: string, provider?: string) => Promise<void>;
+  applyProviderEmailProof?: (
+    prisma: never,
+    userId: string,
+    provider?: string,
+    options?: { providerAccountId?: string | null; sessions?: 'toujours' | 'si_retrait' },
+  ) => Promise<void>;
   /** Logger (mockable) — par défaut console */
   logger?: { error: (...args: unknown[]) => void };
 };
@@ -76,9 +84,16 @@ export function createSignInCallback({
     });
 
     if (!dbUser) {
-      // Premier login OAuth ou Credentials → le PrismaAdapter va créer le
-      // user. On laisse passer (pas de MFA au tout premier login).
-      // Scénarios A (signup Google) et B (signup Microsoft) du catalogue.
+      // M2 (SSO-ORGANISATIONS.md, 23/11) : pas de compte NEUF sans adresse prouvée. Sinon, l'admin d'un
+      // tenant Entra quelconque (ou un compte Google à adresse non vérifiée) crée le compte d'un futur
+      // client et garde la main quand le vrai titulaire arrive. Repli : l'inscription par adresse, dont
+      // le lien de preuve part dans la boîte (PREUVE_REQUISE_PATH).
+      const provider = account?.provider ?? null;
+      if (provider && FOURNISSEURS_OAUTH_LIENS.has(provider) && !providerProvesEmail(account, profile, user.email)) {
+        logger.error('[auth] création de compte refusée : adresse non prouvée par le fournisseur', { provider });
+        return PREUVE_REQUISE_PATH;
+      }
+      // Fournisseur qui prouve (Google vérifié, Entra xms_edov, One Tap) : le PrismaAdapter crée le compte.
       return true;
     }
 
@@ -102,7 +117,11 @@ export function createSignInCallback({
 
     // Avant la pose du JWT : la session qui naît ici reste valide, celles d'avant non.
     if (applyProviderEmailProof && providerProvesEmail(account, profile, dbUser.email)) {
-      await applyProviderEmailProof(prisma as never, dbUser.id, provider ?? undefined);
+      // Avant l'émission de la session : celles d'avant tombent toutes, celle-ci naît valide (M2).
+      await applyProviderEmailProof(prisma as never, dbUser.id, provider ?? undefined, {
+        providerAccountId: account?.providerAccountId ?? null,
+        sessions: 'toujours',
+      });
     }
 
     if (dbUser.mfaEnabled) {
