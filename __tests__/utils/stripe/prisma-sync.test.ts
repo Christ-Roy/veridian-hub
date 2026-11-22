@@ -519,6 +519,15 @@ describe('manageSubscriptionStatusChange — analytics et crm suivent le palier 
     expect(result.failures).toEqual([{ app: 'analytics', targetPlan: 'free', error: 'tenant_not_found' }]);
   });
 
+  it('un free marqué grant_manual n\'est pas offert : le bundle le fait monter (22/11)', async () => {
+    subscriptionsRetrieveMock.mockResolvedValueOnce(makeSub({ metadata: { plan_key: 'veridian-pro' } }));
+    tenantFindFirstMock.mockResolvedValueOnce(tenant({ crm: { workspace_id: 'w' }, crm_plan: 'free', crm_plan_source: 'grant_manual' }));
+    const { manageSubscriptionStatusChange } = await import('@/utils/stripe/prisma-sync');
+    await manageSubscriptionStatusChange('sub_test_1', CUSTOMER, true);
+    const appels = setAppPlanMock.mock.calls.map((c) => (c as unknown as [unknown, { app: string; plan: string; planSource: string }])[1]);
+    expect(appels).toEqual([expect.objectContaining({ app: 'crm', plan: 'pro', planSource: 'stripe' })]);
+  });
+
   it('plan offert (grant_manual) ou abonnement hors bundle : rien poussé', async () => {
     subscriptionsRetrieveMock.mockResolvedValueOnce(makeSub({ metadata: { plan_key: 'veridian-pro' }, status: 'canceled' }));
     tenantFindFirstMock.mockResolvedValueOnce(tenant({ analytics: {}, analytics_plan: 'enterprise', analytics_plan_source: 'grant_manual' }));

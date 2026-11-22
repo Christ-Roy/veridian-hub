@@ -102,6 +102,16 @@ export function choisirPlanInitial(
   return { plan, planSource };
 }
 
+/**
+ * Plan offert, donc immunisé contre Stripe et l'essai (CONTRAT-BILLING §3.4) : `grant_manual` sur un
+ * plan autre que `free`. Un free n'est jamais un cadeau ; l'immuniser bloquait la montée du premier
+ * abonné (22/11). Même règle chez Twenty et Academy.
+ */
+export function estPlanOffert(metadata: unknown, app: PlanApp): boolean {
+  const { plan, source } = readAppPlan(metadata, app);
+  return source === 'grant_manual' && plan !== null && plan !== 'free';
+}
+
 export type PushResult =
   | { ok: true; previousPlan: string | null }
   | { ok: true; immune: true }
