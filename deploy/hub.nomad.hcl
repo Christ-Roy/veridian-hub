@@ -369,7 +369,7 @@ EOH
       }
     }
 
-    task "atelier" {
+    task "hub-atelier" {
       driver = "docker"
       user   = "nextjs"
       config {
@@ -432,7 +432,7 @@ EOH
     }
 
     # Proxy de sortie (atelier/proxy.mjs) : seuls api.anthropic.com, claude.ai, claude.com, platform.claude.com.
-    task "atelier-proxy" {
+    task "hub-atelier-proxy" {
       driver = "docker"
       user   = "nextjs"
       lifecycle {
