@@ -68,6 +68,31 @@ architecture » (786b547). Ce fichier n'en recopie rien : il porte l'architectur
 
 3. **`codex-forfait`** : prévu, fermé tant qu'OpenAI ne nous a pas acceptés.
 
+## Le Hub, fournisseur d'IA des autres apps (Robert, 22/11)
+
+Une app ne parle jamais à un fournisseur d'IA, ni à l'atelier : elle passe par le Hub, qui choisit le moteur du client
+(`cle-api` ou `claude-code-abonnement`), applique interrupteur, plafonds, audit et outils MCP, et range le fil chez elle.
+
+- **Chat** : l'app affiche `https://app.veridian.site/ia/chat?app=<app>&tenant=<hub_tenant_id>&session=<id>` en iframe
+  (seuls `*.app.veridian.site` peuvent l'afficher) et range les fils par `GET|PUT /api/hub/ia/fils/:session` (signés).
+- **Appel serveur** (à venir, pour les automatisations : Notifuse, fonctions d'Analytics) : `POST /api/hub/ia/demander`,
+  signé §6.1 par l'app, `{ hub_user_id, tenant_id, question }` → réponse texte. Même interrupteur, mêmes plafonds, mêmes
+  outils ; aucune écriture sans humain, donc un appel serveur ne joue que des outils en lecture seule.
+
+## Où vit l'atelier (moteur abonnement)
+
+Dans le déploiement du Hub, pas dans un service à part : un **groupe `atelier` du job Nomad du Hub**
+(`deploy/hub.nomad.hcl`, l'équivalent du docker compose depuis la fin de Dokploy), même image que le Hub, autre point
+d'entrée. Groupe séparé et non tâche voisine, pour deux raisons : il lui faut un volume durable (la connexion de chaque
+client, rangée par le binaire lui-même, doit survivre aux déploiements du Hub), et le Hub, qui porte tous les secrets, ne
+doit pas partager son espace réseau ni son environnement avec le binaire. Le Hub lui parle sur le réseau interne, avec un
+jeton à lui ; l'atelier n'a aucun secret de la flotte. Le binaire vient du TypeScript Agent SDK (variante musl, compatible
+avec l'image Alpine du Hub), épinglé par la version du SDK.
+
+**Préalable légal, avant même d'installer le binaire dans l'image** : « preinstalling or running Claude Code in your
+products or services (e.g. in hosted sandboxes…) requires agreeing to our Commercial Terms of Service »
+(legal-and-compliance). Acte de Robert, gratuit. Sans lui, l'atelier n'est pas construit.
+
 ## Le chemin d'une question
 
 1. La fenêtre de chat (composant servi par le Hub, inséré dans l'app) lit le fil par l'API de l'app, puis envoie la question
