@@ -125,6 +125,44 @@ retire `authorization`, `cookie` et `proxy-authorization`. D'où :
 - **Interrupteur** : `/dashboard/ia` le propose pour les espaces qui ont un workspace Twenty, si l'app est ouverte au
   compte (`twenty`).
 
+### Le fournisseur « Veridian » du chat natif de Twenty (contrat, 23/11, à coder)
+
+Robert, 23/11 : le chat d'IA natif de Twenty (« Connect your AI ») est alimenté par le Hub, pas une iframe à part.
+Mesuré par la session CRM sur Twenty v2.56.1 : il appelle un fournisseur `openai-compatible` déclaré dans
+`AI_PROVIDERS`. Le Hub en est le fournisseur, routé vers le moteur de l'utilisateur. La fenêtre iframe reste pour
+les autres apps.
+
+- **Point d'accès** : base `https://app.veridian.site/api/ia/v1`. `POST /chat/completions` (format OpenAI, `stream:
+  true` : SSE `data: {…}` puis `data: [DONE]`, `choices[0].delta.content`, `delta.tool_calls`, `finish_reason`
+  `stop` ou `tool_calls`, `usage` dans le dernier morceau) ; `GET /models` → un seul modèle, `veridian-auto`. Erreurs
+  au format OpenAI (`{ error: { message, type, code } }`), jamais de détail du fournisseur ni de clé.
+- **Authentification, deux niveaux, refus 401 au moindre écart** :
+  1. `Authorization: Bearer <IA_FOURNISSEUR_CLE>` : la clé de l'instance Twenty (comparaison à temps constant).
+  2. `X-Veridian-Ia-Identite: <JWT HS256>` signé par Twenty avec `IA_IDENTITE_SECRET` (≥ 32 octets) : `iss`
+     `veridian-crm`, `aud` `https://app.veridian.site/api/ia/v1`, `workspace_id`, `hub_user_id` (le membre qui
+     parle), `fil` (`[A-Za-z0-9_-]{1,128}`, le fil de Twenty), `iat`, `exp` au plus 60 s après `iat`, `jti` jamais
+     rejoué (mémoire 2 min). Les deux secrets sont dans la Nomad Variable `nomad/jobs/hub` (côté Hub) et dans celle de
+     Twenty, posés par la session CRM ; aucun dans un dépôt.
+- **Contrôles, dans l'ordre (mêmes garde-fous que Mon IA)** : compte `hub_user_id` existant et adresse prouvée ;
+  espace = le tenant de ce compte dont `metadata.crm.workspace_id` vaut `workspace_id` (sinon 403) ; interrupteur
+  (allumé d'office, retrait volontaire) ; plafonds par minute et par jour ; moteur actif.
+- **Menace 7** : la session du moteur est dérivée du triplet et du fil (`uuid v5(hub_user_id, crm, tenant, fil)`),
+  créée par le Hub au premier appel ; un fil ne reprend jamais une session d'un autre triplet.
+- **Moteur `cle-api`** : relais transparent vers le point d'accès compatible OpenAI du fournisseur de l'utilisateur
+  (OpenAI, Mistral, OpenRouter, et Anthropic par sa compatibilité OpenAI), avec sa clé et son modèle à la place de
+  `veridian-auto`. Les `tools` et `tool_calls` passent tels quels : **le Hub n'exécute jamais un outil de Twenty**,
+  Twenty l'exécute sous les droits du membre et renvoie `role: tool`. Clé déchiffrée en mémoire le temps de l'appel,
+  masquée dans toute erreur.
+- **Moteur `claude-code-abonnement`** : l'atelier fait sa boucle avec les outils de la porte MCP du Hub pour ce
+  tenant (JWT ES256 du Hub, identité du membre, jamais une clé d'admin de Twenty) ; le Hub ne rend que le texte final
+  en SSE (`finish_reason: stop`). Pas de fenêtre de confirmation dans le chat natif : **lecture seule**, toute
+  écriture est refusée et l'IA le dit.
+- **Journal** : `ia.reponse` (app `crm`, tenant, fil, moteur, fournisseur, outils, jetons), `ia.refus` avec la raison.
+  Jamais le contenu des messages.
+- **Preuve attendue** : une question dans le chat natif de Twenty, sur le compte de Robert, qui lit une vraie donnée du
+  CRM, et le fil qui revient au message suivant. Tests vus échouer : jeton absent, clé d'instance fausse, signature,
+  `aud`, `exp`, `jti` rejoué, workspace étranger, compte non prouvé, retrait volontaire, plafond.
+
 ## Où vit l'atelier (moteur abonnement)
 
 Dans le déploiement du Hub, pas dans un service à part : un **groupe `atelier` du job Nomad du Hub**
