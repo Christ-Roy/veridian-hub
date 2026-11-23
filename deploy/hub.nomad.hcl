@@ -283,8 +283,6 @@ VAULT_ENC_KEY={{ .VAULT_ENC_KEY }}
 {{ with nomadVar "nomad/jobs/hub/stack" }}CRM_HUB_API_SECRET={{ .CRM_HUB_API_SECRET }}{{ end }}
 {{ with .ACADEMY_HUB_API_SECRET }}ACADEMY_HUB_API_SECRET={{ .Value }}{{ end }}
 {{ with .ATELIER_SECRET }}ATELIER_SECRET={{ .Value }}{{ end }}
-{{ with .IA_FOURNISSEUR_CLE }}IA_FOURNISSEUR_CLE={{ .Value }}{{ end }}
-{{ with .IA_IDENTITE_SECRET }}IA_IDENTITE_SECRET={{ .Value }}{{ end }}
 SESSION_HINT_SECRET={{ .SESSION_HINT_SECRET }}
 GOOGLE_OAUTH_CLIENT_ID={{ .GOOGLE_OAUTH_CLIENT_ID }}
 GOOGLE_OAUTH_CLIENT_SECRET={{ .GOOGLE_OAUTH_CLIENT_SECRET }}
@@ -313,6 +311,9 @@ ANALYTICS_HUB_API_SECRET={{ .ANALYTICS_HUB_API_SECRET }}
 BREVO_API_KEY={{ .BREVO_API_KEY }}
 NEXT_PUBLIC_GTM_ID={{ .GTM_ID_APP_VERIDIAN }}
 {{ end }}
+{{/* Fournisseur « Veridian » du chat natif de Twenty : Variable partagée avec le CRM (infra, ACL lecture hub/crm). */}}
+{{ with nomadVar "veridian/ia-identite" }}IA_IDENTITE_SECRET={{ .secret }}
+IA_FOURNISSEUR_CLE={{ .cle_instance }}{{ end }}
 EOH
       }
       # Adresse de l'atelier, relue à chaque appel : un redéploiement de l'atelier ne relance jamais le Hub.
