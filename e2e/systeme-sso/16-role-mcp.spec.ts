@@ -53,10 +53,6 @@ function role(mode: string, ...args: string[]): void {
 
 cas('twenty', 'porte MCP : un membre à rôle restreint ne lit pas les sociétés, par la porte', async ({ browser }) => {
   if (!/staging/.test(HUB_URL)) throw new NonAbouti('cas joué sur le Hub de staging seulement (espace d\'épreuve du CRM)');
-  // 23/11 : le retrait d'un membre par le Hub (remove-member, users/sync deleted) laissait dans Twenty une fiche orpheline
-  // qui bloquait l'espace pour tous les autres. Gelé tant que le correctif du CRM n'est pas servi ; à lever par
-  // CRM_RETRAIT_CORRIGE=1 une fois membres-orphelins.sh à 0 sur crm-staging.
-  if (process.env.CRM_RETRAIT_CORRIGE !== '1') throw new NonAbouti('retrait d\'un membre par le Hub : correctif du CRM pas encore servi (fiches orphelines, 23/11)');
   if (!existsSync(path.join(CRM_REPO, 'scripts/ci/preuve-mcp-role.py'))) throw new NonAbouti(`${CRM_REPO} sans preuve-mcp-role.py : cas non joué`);
 
   // Le Hub doit signer (clé de staging) : une JWKS vide veut dire qu'aucune identité ne sera présentée.

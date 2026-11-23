@@ -1759,11 +1759,15 @@ Pour transférer l'ownership, utiliser §5.16 (transfer-owner).
 pour audit + restauration éventuelle), bloque ses accès en lecture/écriture
 côté app. Sa data (leads créés, emails envoyés) reste attachée au tenant.
 
-> **Fusible du retrait au CRM (23/11, VER-203).** Le retrait d'un membre laissait dans Twenty une fiche sans
-> appartenance, et l'espace ne chargeait plus pour les autres. Tant que le correctif du CRM n'est pas servi, le Hub
-> n'envoie `users/sync { deleted }` au CRM que si la personne n'est dans aucun espace vivant (`lib/apps/retrait-crm.ts`,
-> doute = retenu) : sessions coupées, audit `crm.retrait.attente`, alerte Telegram. Levée : `CRM_RETRAIT_FUSIBLE=0`
-> dans `deploy/hub.nomad.hcl`, puis `hub crm-retraits` (liste, `--rejouer <hub_user_id>`).
+**CRM (Twenty), depuis le 23/11** (job crm v30, a0965d8) : l'appartenance et la fiche de membre (`workspaceMember`)
+partent ensemble en suppression douce, par `remove-member` comme par `users/sync { deleted }` ; l'historique des auteurs
+reste. `remove-member` rejoué répare une fiche oubliée et rend `removed: false`. Avant, la fiche survivait à
+l'appartenance et l'espace ne chargeait plus pour ses autres membres. Contrôles : `membres-orphelins.sh` (dépôt du CRM),
+cas 16 de la batterie.
+
+> **Fusible du Hub (23/11, VER-203), levé** : `CRM_RETRAIT_FUSIBLE=1` fait retenir `users/sync { deleted }` vers le CRM
+> tant qu'un espace vivant reste à la personne (`lib/apps/retrait-crm.ts`, doute = retenu) : sessions coupées, audit
+> `crm.retrait.attente`, alerte. Rejeu : `hub crm-retraits --rejouer <hub_user_id>`, fusible à 0.
 
 ### 5.20 Restauration d'un membre
 
@@ -1774,6 +1778,8 @@ Si l'admin Hub a retiré un membre par erreur :
 **Comportement** : annule le soft delete `tenant_members.deleted_at = NULL`,
 propage à chaque app via webhook `tenant.member_restored`, chaque app annule
 son soft delete local.
+
+CRM (Twenty) : le rattachement par `attach-member` restaure la fiche de la même personne, avec le rôle par défaut.
 
 ### 5.21 Seat overage — Soft warning 7 jours
 
