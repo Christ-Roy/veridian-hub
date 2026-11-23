@@ -85,8 +85,13 @@ vi.mock('@/lib/prisma', () => {
         return row;
       }),
     },
+    // Invitation acceptée = preuve d'adresse : liaisons OAuth posées avant retirées (M2, prouverParMail).
+    account: {
+      deleteMany: vi.fn(async () => ({ count: 0 })),
+    },
     user: {
       updateMany: vi.fn(async () => ({ count: 1 })),
+      update: vi.fn(async () => ({})),
       // Route accept lookup le supabaseUserId du user loggué (UUID v4 bridge
       // cross-app). Par défaut on retourne un UUID valide pour ne pas
       // bloquer les tests qui ne testent pas ce path. Un test dédié override

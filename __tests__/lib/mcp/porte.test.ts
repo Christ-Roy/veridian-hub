@@ -78,6 +78,24 @@ const appel = (nom: string, args: Record<string, unknown>, f: ReturnType<typeof 
   traiter(db as never, QUI, { jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: nom, arguments: args } }, { fetchImpl: f.fetchImpl });
 const json = (r: any) => JSON.parse(r.result.content[0].text);
 
+describe('plansDuHub : tous les plans tenus par le Hub', () => {
+  it('Mail, Prospection, Analytics, CRM et Academy, depuis la seule source', async () => {
+    const { plansDuHub } = await import('@/lib/mcp/porte');
+    expect(
+      plansDuHub({
+        notifusePlan: 'free',
+        prospectionPlan: 'pro',
+        metadata: { analytics: {}, analytics_plan: 'pro', crm: { workspace_id: 'w' }, crm_plan: 'pro', academy: { workspace_id: 'a' }, academy_plan: 'internal' },
+      }),
+    ).toEqual({ mail: 'free', prospection: 'pro', analytics: 'pro', crm: 'pro', academy: 'internal' });
+  });
+
+  it('une app sans plan posé n\'invente rien', async () => {
+    const { plansDuHub } = await import('@/lib/mcp/porte');
+    expect(plansDuHub({ notifusePlan: 'free', prospectionPlan: null, metadata: { crm: { workspace_id: 'w' } } })).toEqual({ mail: 'free' });
+  });
+});
+
 describe('protocole', () => {
   it('tools/list : exactement trois outils, quel que soit le nombre d\'apps', async () => {
     const r: any = await traiter(db as never, QUI, { jsonrpc: '2.0', id: 1, method: 'tools/list' });

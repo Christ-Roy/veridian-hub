@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createSignInCallback } from '@/lib/auth/sign-in-callback';
+import { createSignInCallback, PREUVE_REQUISE_PATH } from '@/lib/auth/sign-in-callback';
 
 function makeDeps(opts: {
   user?: { id: string; email: string; mfaEnabled: boolean } | null;
@@ -59,6 +59,37 @@ describe('createSignInCallback — scénarios OAuth', () => {
     expect(await cb({ user: { email: 'new.user@outlook.com' } })).toBe(true);
   });
 
+  it('M2 — compte NEUF par Entra sans xms_edov (nOAuth, admin d\'un tenant quelconque) : rien n\'est créé, repli preuve mail', async () => {
+    const deps = makeDeps({ user: null });
+    const r = await createSignInCallback(deps)({
+      user: { email: 'futur.client@acme.fr' },
+      account: { provider: 'microsoft-entra-id', providerAccountId: 'oid-attaquant' },
+      profile: { email: 'futur.client@acme.fr' },
+    });
+    expect(r).toBe(PREUVE_REQUISE_PATH);
+    expect(deps.applyProviderEmailProof).not.toHaveBeenCalled();
+  });
+
+  it('M2 — compte NEUF par Google à adresse non vérifiée : refusé ; adresse du profil différente : refusé', async () => {
+    const deps = makeDeps({ user: null });
+    const cb = createSignInCallback(deps);
+    expect(await cb({ user: { email: 'x@acme.fr' }, account: { provider: 'google', providerAccountId: 'g1' }, profile: { email: 'x@acme.fr', email_verified: false } })).toBe(PREUVE_REQUISE_PATH);
+    expect(await cb({ user: { email: 'x@acme.fr' }, account: { provider: 'google', providerAccountId: 'g1' }, profile: { email: 'autre@acme.fr', email_verified: true } })).toBe(PREUVE_REQUISE_PATH);
+  });
+
+  it('M2 — compte NEUF par un fournisseur qui prouve (Google vérifié, Entra xms_edov) : créé', async () => {
+    const deps = makeDeps({ user: null });
+    const cb = createSignInCallback(deps);
+    expect(await cb({ user: { email: 'x@acme.fr' }, account: { provider: 'google', providerAccountId: 'g1' }, profile: { email: 'x@acme.fr', email_verified: true } })).toBe(true);
+    expect(await cb({ user: { email: 'x@acme.fr' }, account: { provider: 'microsoft-entra-id', providerAccountId: 'o1' }, profile: { email: 'x@acme.fr', xms_edov: true } })).toBe(true);
+  });
+
+  it('M2 — preuve sur un compte existant : le lien qui prouve est désigné exactement, toutes les sessions d\'avant tombent', async () => {
+    const deps = makeDeps({ user: { id: 'u1', email: 'x@acme.fr', mfaEnabled: false } });
+    await createSignInCallback(deps)({ user: { email: 'x@acme.fr' }, account: { provider: 'google', providerAccountId: 'g-victime' }, profile: { email: 'x@acme.fr', email_verified: true } });
+    expect(deps.applyProviderEmailProof).toHaveBeenCalledWith(expect.anything(), 'u1', 'google', { providerAccountId: 'g-victime', sessions: 'toujours' });
+  });
+
   it('Scénario C — user existant, Google avec email_verified=false, pas de ligne account : REFUSE (D1)', async () => {
     const deps = makeDeps({
       user: { id: 'u1', email: 'existing@gmail.com', mfaEnabled: false },
@@ -99,7 +130,7 @@ describe('createSignInCallback — scénarios OAuth', () => {
       profile: { email: 'existing@corp.fr', xms_edov: true },
     });
     expect(r).toBe(true);
-    expect(deps.applyProviderEmailProof).toHaveBeenCalledWith(expect.anything(), 'u2', 'microsoft-entra-id');
+    expect(deps.applyProviderEmailProof).toHaveBeenCalledWith(expect.anything(), 'u2', 'microsoft-entra-id', { providerAccountId: 'ms-2', sessions: 'toujours' });
   });
 
   it('Scénario E — user déjà lié (ligne account), re-login sans preuve cette fois : autorise (D1)', async () => {

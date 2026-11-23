@@ -970,3 +970,51 @@ model McpApp {
   @@map("mcp_apps")
   @@schema("hub_app")
 }
+
+/// « Mon IA » (docs/MON-IA.md) : le branchement de l'IA d'un utilisateur. Une ligne par fournisseur.
+/// La clé n'existe ici que scellée (lib/ia/coffre.ts) ; seuls ses 4 derniers caractères s'affichent.
+model IaBranchement {
+  id           String   @id @default(uuid()) @db.Uuid
+  hubUserId    String   @map("hub_user_id")
+  moteur       String   @default("cle-api")
+  fournisseur  String
+  modele       String
+  cleScellee   String   @map("cle_scellee")
+  cleEmpreinte String   @map("cle_empreinte")
+  cleFin       String   @map("cle_fin")
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([hubUserId, fournisseur])
+  @@map("ia_branchements")
+  @@schema("hub_app")
+}
+
+/// Interrupteur du chat par (utilisateur, app, tenant). Coupé par défaut : sans ligne active, pas de chat.
+model IaActivation {
+  hubUserId String   @map("hub_user_id")
+  app       String
+  tenantId  String   @map("tenant_id")
+  enabled   Boolean  @default(false)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@id([hubUserId, app, tenantId])
+  @@map("ia_activations")
+  @@schema("hub_app")
+}
+
+/// Identifiant de session d'un fil, créé par le Hub et lié à (utilisateur, app, tenant) : menace 7, une
+/// reprise n'est acceptée que pour ce triplet. Aucun message ici : les fils vivent dans l'app.
+model IaSession {
+  id         String   @id @default(uuid()) @db.Uuid
+  hubUserId  String   @map("hub_user_id")
+  app        String
+  tenantId   String   @map("tenant_id")
+  moteur     String
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  lastUsedAt DateTime @default(now()) @map("last_used_at") @db.Timestamptz(6)
+
+  @@index([hubUserId, app, tenantId])
+  @@map("ia_sessions")
+  @@schema("hub_app")
+}

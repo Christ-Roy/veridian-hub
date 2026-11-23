@@ -29,33 +29,44 @@ export function providerProvesEmail(
   return false;
 }
 
+/** Le lien OAuth qui vient de prouver l'adresse : gardé, et lui seul. */
+export type LienProuve = { provider: string; providerAccountId?: string | null };
+
 /**
- * Retire les liaisons OAuth posées sur ce compte avant qu'il soit prouvé (D1). Un tenant Entra
- * ou un compte Google non vérifié a pu rattacher le compte avant la preuve : la preuve, venue
- * d'ailleurs, ne doit pas laisser ce passage ouvert. `gardeProvider` garde la liaison du
- * fournisseur qui vient de prouver. Renvoie le nombre de lignes retirées.
+ * Retire les liaisons OAuth posées sur ce compte avant qu'il soit prouvé (D1, M2 de
+ * SSO-ORGANISATIONS.md : pré-prise de compte). Un tenant Entra ou un compte Google non vérifié a pu
+ * créer ou rattacher le compte avant la preuve : la preuve ne doit pas laisser ce passage ouvert.
+ * `garde` : le lien qui vient de prouver. Avec son `providerAccountId`, seul CE compte du
+ * fournisseur est gardé (23/11 : garder tout le fournisseur laissait le lien Google non vérifié
+ * d'un attaquant à côté du vrai). Le mot de passe (`credentials`) est traité à part.
+ * Renvoie le nombre de lignes retirées.
  */
 export async function retirerLiensNonProuves(
   prisma: Pick<PrismaClient, 'account'>,
   userId: string,
-  gardeProvider?: string,
+  garde?: string | LienProuve,
 ): Promise<number> {
-  const garde = ['credentials', ...(gardeProvider ? [gardeProvider] : [])];
-  const { count } = await prisma.account.deleteMany({
-    where: { userId, provider: { notIn: garde } },
-  });
+  const g = typeof garde === 'string' ? { provider: garde } : garde;
+  const where = g?.providerAccountId
+    ? { userId, provider: { not: 'credentials' }, NOT: { provider: g.provider, providerAccountId: g.providerAccountId } }
+    : { userId, provider: { notIn: ['credentials', ...(g ? [g.provider] : [])] } };
+  const { count } = await prisma.account.deleteMany({ where });
   return count;
 }
 
 /**
- * Enregistre une preuve fournisseur. Si l'adresse n'était pas prouvée, les liaisons OAuth
- * posées avant la preuve sont retirées (D1) ; si un mot de passe existe, il est annulé. Dans
- * les deux cas, les sessions déjà émises deviennent invalides.
+ * Enregistre une preuve fournisseur sur un compte qui n'en avait pas : les liaisons OAuth posées avant
+ * la preuve sont retirées (sauf celle qui prouve), un mot de passe non prouvé est annulé, et les
+ * sessions émises avant tombent.
+ * `sessions` : `toujours` quand l'appel précède l'émission de la session (callback `signIn`, One Tap) :
+ * la session qui naît reste valide (même seconde). `si_retrait` quand la session vient d'être émise
+ * (event `signIn` d'un compte neuf), pour ne pas la révoquer elle-même.
  */
 export async function applyProviderEmailProof(
   prisma: ProofPrisma,
   userId: string,
   provider?: string,
+  options: { providerAccountId?: string | null; sessions?: 'toujours' | 'si_retrait' } = {},
 ): Promise<void> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
@@ -67,25 +78,46 @@ export async function applyProviderEmailProof(
   const { count } = await prisma.account.deleteMany({
     where: { userId, provider: 'credentials' },
   });
-  const liensRetires = await retirerLiensNonProuves(prisma, userId, provider);
+  const liensRetires = await retirerLiensNonProuves(
+    prisma,
+    userId,
+    provider ? { provider, providerAccountId: options.providerAccountId } : undefined,
+  );
+  const invalider = (options.sessions ?? 'si_retrait') === 'toujours' || count > 0 || liensRetires > 0;
   await prisma.user.update({
     where: { id: userId },
-    data: {
-      emailVerified: now,
-      ...(count > 0 || liensRetires > 0 ? { sessionsValidAfter: now } : {}),
-    },
+    data: { emailVerified: now, ...(invalider ? { sessionsValidAfter: now } : {}) },
   });
-  if (count > 0) {
+  if (count > 0 || liensRetires > 0) {
     console.warn(
       JSON.stringify({
         tag: '[email-proof]',
         level: 'warn',
-        msg: 'mot de passe non prouvé annulé par une connexion OAuth',
+        msg: 'première preuve : accès non prouvés retirés',
         userId,
+        mot_de_passe: count,
+        liens_oauth: liensRetires,
         ts: now.toISOString(),
       }),
     );
   }
+}
+
+/**
+ * Preuve par mail (lien de preuve, invitation acceptée) sur un compte non prouvé : liaisons OAuth posées
+ * avant retirées, et les sessions avec si quelque chose a été retiré. Le mot de passe reste : c'est celui
+ * de la personne qui vient de prouver. Renvoie le nombre de liens retirés.
+ */
+export async function prouverParMail(prisma: ProofPrisma, userId: string): Promise<number> {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { emailVerified: true } });
+  if (!user || user.emailVerified) return 0;
+  const now = new Date();
+  const retires = await retirerLiensNonProuves(prisma, userId);
+  await prisma.user.update({
+    where: { id: userId },
+    data: { emailVerified: now, ...(retires > 0 ? { sessionsValidAfter: now } : {}) },
+  });
+  return retires;
 }
 
 /**

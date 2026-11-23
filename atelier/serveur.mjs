@@ -1,0 +1,313 @@
+// Atelier « Mon IA » (docs/MON-IA.md) : fait tourner le binaire officiel Claude Code pour chaque client, connecté
+// avec son propre abonnement. Groupe `atelier` du job Nomad du Hub, même image, autre point d'entrée.
+//
+// Seul le Hub lui parle (signature HMAC, ATELIER_SECRET). Il n'a aucun secret de la flotte. Le binaire :
+//   - n'a aucun outil intégré (`tools: []`) : ni shell, ni fichiers, ni web ;
+//   - ne lit aucun réglage sur le disque, ni les connecteurs claude.ai du client ;
+//   - n'a que nos trois outils, définis ici et relayés au Hub, qui impose l'espace de la conversation ;
+//   - ne joue une écriture qu'après « Autoriser » dans la fenêtre du client.
+// La connexion du client est faite par lui, chez Anthropic : nous lançons `claude auth login`, il ouvre l'adresse
+// dans son navigateur et recolle le code affiché, tapé tel quel dans le binaire. Nous ne lisons jamais son jeton.
+import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { mkdir, readdir, rm, stat } from 'node:fs/promises';
+import http from 'node:http';
+import path from 'node:path';
+
+import { createSdkMcpServer, query, tool } from '@anthropic-ai/claude-agent-sdk';
+import { z } from 'zod';
+
+import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { networkInterfaces } from 'node:os';
+
+import { adresseDeConnexion, clientAdmis, codeValide, dossierClient, environnementBinaire, optionsBinaire, signatureValide, signer, surReseauAtelier, cheminBinaire, TAILLE_DOSSIER_MAX, TOURS_SIMULTANES } from './regles.mjs';
+
+const PORT = Number(process.env.ATELIER_PORT || 3100);
+const RACINE = process.env.ATELIER_DONNEES || '/donnees';
+const SECRET = process.env.ATELIER_SECRET || '';
+import { readFileSync } from 'node:fs';
+/** Adresses internes du Hub, relues à chaque appel dans le fichier tenu par Nomad (bleu-vert : plusieurs lignes). */
+function adressesHub() {
+  try {
+    const l = readFileSync(process.env.ATELIER_HUB_URL_FICHIER || '', 'utf8').split('\n').map((x) => x.trim()).filter(Boolean);
+    if (l.length) return l;
+  } catch {
+    /* pas de fichier : adresse fixe */
+  }
+  return [(process.env.ATELIER_HUB_URL || 'https://app.veridian.site').replace(/\/+$/, '')];
+}
+// Le binaire ne sort que par le proxy à liste blanche de la tâche voisine (atelier/proxy.mjs).
+const PROXY = process.env.ATELIER_PROXY || '';
+const reseau = PROXY ? { HTTPS_PROXY: PROXY, HTTP_PROXY: PROXY } : {};
+let toursEnCours = 0;
+// Le binaire officiel embarqué par le SDK, résolu comme le SDK le fait (jamais par le PATH, où il n'est pas).
+const BINAIRE = process.env.ATELIER_BINAIRE || cheminBinaire(createRequire(import.meta.url).resolve, existsSync) || undefined;
+const ATTENTE_APPROBATION_MS = 5 * 60_000;
+
+if (SECRET.length < 32) {
+  console.error('[atelier] ATELIER_SECRET absent ou trop court : arrêt');
+  process.exit(1);
+}
+
+const connexions = new Map(); // hubUserId → { proc, sortie, fin }
+const approbations = new Map(); // id → { hubUserId, resolve(bool) }
+
+const journal = (o) => console.log(JSON.stringify({ tag: '[atelier]', ts: new Date().toISOString(), ...o }));
+
+async function preparer(hubUserId) {
+  const dossier = dossierClient(RACINE, hubUserId);
+  await mkdir(path.join(dossier, 'config'), { recursive: true, mode: 0o700 });
+  await mkdir(path.join(dossier, 'travail'), { recursive: true, mode: 0o700 });
+  return dossier;
+}
+
+function lancerBinaire(dossier, args) {
+  const proc = spawn(BINAIRE ?? 'binaire-introuvable', args, { cwd: path.join(dossier, 'travail'), env: environnementBinaire(dossier, { BROWSER: '/bin/false', ...reseau }), stdio: ['pipe', 'pipe', 'pipe'] });
+  // Un échec de lancement ne doit jamais faire tomber le serveur (23/11 : ENOENT non rattrapé, atelier relancé).
+  proc.on('error', (e) => journal({ evt: 'binaire.erreur', code: e && e.code }));
+  return proc;
+}
+
+/** Fin du processus : code de sortie, ou -1 s'il n'a jamais démarré (sans quoi l'attente ne finirait pas). */
+const finDe = (proc) => new Promise((r) => {
+  proc.once('exit', r);
+  proc.once('error', () => r(-1));
+});
+
+async function appelHub(chemin, corps) {
+  const brut = JSON.stringify(corps);
+  const { ts, sig } = signer(SECRET, brut);
+  let r = null;
+  for (const hub of adressesHub()) {
+    r = await fetch(`${hub}${chemin}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Veridian-Timestamp': ts, 'X-Veridian-Atelier-Signature': sig },
+      body: brut,
+      signal: AbortSignal.timeout(60_000),
+    }).catch(() => null);
+    if (r) break;
+  }
+  if (!r) throw new Error('hub injoignable');
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(`hub ${r.status} ${j.error ?? ''}`);
+  return j;
+}
+
+/** Nos trois outils, relayés au Hub pour (client, tenant, session) ; le modèle ne choisit pas l'espace. */
+function serveurOutils(ctx) {
+  const relais = (nom) => async (args) => {
+    const r = await appelHub('/api/ia/atelier/outil', { ...ctx, nom, arguments: args });
+    return { content: [{ type: 'text', text: String(r.texte ?? '') }], ...(r.erreur ? { isError: true } : {}) };
+  };
+  return createSdkMcpServer({
+    name: 'veridian',
+    version: '1.0.0',
+    tools: [
+      tool('chercher_outils', "Trouve les outils des apps Veridian du compte pour un besoin. Rend des noms d'outils <app>.<outil>.", { besoin: z.string(), app: z.string().optional() }, relais('chercher_outils')),
+      tool('decrire_outil', "Rend la description et les paramètres d'un outil trouvé par chercher_outils.", { nom: z.string() }, relais('decrire_outil')),
+      tool(
+        'executer_outil',
+        "Exécute un outil d'une app Veridian dans l'espace de cette conversation. Lire d'abord ses paramètres avec decrire_outil.",
+        { nom: z.string(), arguments: z.record(z.string(), z.unknown()).optional() },
+        relais('executer_outil'),
+      ),
+    ],
+  });
+}
+
+// ── Routes ──
+
+async function lireCorps(req) {
+  const morceaux = [];
+  let taille = 0;
+  for await (const m of req) {
+    taille += m.length;
+    if (taille > 400_000) throw new Error('trop_gros');
+    morceaux.push(m);
+  }
+  return Buffer.concat(morceaux).toString('utf8');
+}
+
+const repondre = (res, statut, corps) => {
+  res.writeHead(statut, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify(corps));
+};
+
+async function debutConnexion(res, { hubUserId }) {
+  const dossier = await preparer(hubUserId);
+  connexions.get(hubUserId)?.proc.kill();
+  const proc = lancerBinaire(dossier, ['auth', 'login', '--claudeai']);
+  const etat = { proc, sortie: '', fin: null };
+  connexions.set(hubUserId, etat);
+  proc.stdout.on('data', (d) => (etat.sortie += d.toString()));
+  proc.stderr.on('data', (d) => (etat.sortie += d.toString()));
+  proc.on('exit', (code) => (etat.fin = code));
+  proc.on('error', () => (etat.fin = -1));
+  setTimeout(() => proc.kill(), 10 * 60_000).unref();
+  const debut = Date.now();
+  while (!adresseDeConnexion(etat.sortie) && etat.fin === null && Date.now() - debut < 15_000) await new Promise((r) => setTimeout(r, 200));
+  const url = adresseDeConnexion(etat.sortie);
+  journal({ evt: 'connexion.debut', ok: Boolean(url) });
+  return url ? repondre(res, 200, { url }) : repondre(res, 502, { error: 'adresse_introuvable' });
+}
+
+async function codeConnexion(res, { hubUserId, code }) {
+  const etat = connexions.get(hubUserId);
+  if (!etat || etat.fin !== null) return repondre(res, 409, { error: 'connexion_non_commencee' });
+  if (!codeValide(code)) return repondre(res, 400, { error: 'code_invalide' });
+  etat.proc.stdin.write(`${code.trim()}\n`);
+  const debut = Date.now();
+  while (etat.fin === null && Date.now() - debut < 30_000) await new Promise((r) => setTimeout(r, 250));
+  connexions.delete(hubUserId);
+  journal({ evt: 'connexion.code', fin: etat.fin });
+  return etat.fin === 0 ? statutConnexion(res, { hubUserId }) : repondre(res, 400, { error: 'connexion_refusee' });
+}
+
+async function statutConnexion(res, { hubUserId }) {
+  const dossier = await preparer(hubUserId);
+  const proc = lancerBinaire(dossier, ['auth', 'status', '--json']);
+  let sortie = '';
+  proc.stdout.on('data', (d) => (sortie += d.toString()));
+  const code = await finDe(proc);
+  let s = {};
+  try {
+    s = JSON.parse(sortie);
+  } catch {
+    s = {};
+  }
+  // On ne renvoie que ce qu'il faut à l'écran : connecté ou non, l'adresse, le type d'abonnement.
+  const connecte = code === 0 && Boolean(s.loggedIn ?? s.authenticated ?? s.email);
+  return repondre(res, 200, { connecte, email: connecte ? (s.email ?? s.account?.email ?? null) : null, abonnement: connecte ? (s.subscriptionType ?? s.plan ?? null) : null });
+}
+
+async function finConnexion(res, { hubUserId }) {
+  const dossier = dossierClient(RACINE, hubUserId);
+  const proc = lancerBinaire(dossier, ['auth', 'logout']);
+  await finDe(proc);
+  await rm(dossier, { recursive: true, force: true });
+  journal({ evt: 'connexion.fin' });
+  return repondre(res, 200, { deconnecte: true });
+}
+
+async function taille(dossier) {
+  let total = 0;
+  for (const e of await readdir(dossier, { withFileTypes: true, recursive: true }).catch(() => [])) {
+    if (e.isFile()) total += (await stat(path.join(e.parentPath ?? e.path, e.name)).catch(() => ({ size: 0 }))).size;
+  }
+  return total;
+}
+
+async function tour(res, { hubUserId, tenantId, sessionId, nouvelle, message }) {
+  if (typeof message !== 'string' || !message.trim()) return repondre(res, 400, { error: 'message_vide' });
+  if (toursEnCours >= TOURS_SIMULTANES) return repondre(res, 429, { error: 'atelier_occupe' });
+  const dossier = await preparer(hubUserId);
+  if ((await taille(dossier)) > TAILLE_DOSSIER_MAX) return repondre(res, 507, { error: 'dossier_plein' });
+  toursEnCours += 1;
+  res.on('close', () => (toursEnCours -= 1));
+  res.writeHead(200, { 'Content-Type': 'application/x-ndjson' });
+  const ecrire = (o) => res.write(`${JSON.stringify(o)}\n`);
+  const ctx = { hubUserId, tenantId, sessionId };
+  const options = {
+    ...optionsBinaire(dossier, serveurOutils(ctx), { sessionId, reprise: !nouvelle }),
+    env: environnementBinaire(dossier, reseau),
+    ...(BINAIRE ? { pathToClaudeCodeExecutable: BINAIRE } : {}),
+    includePartialMessages: true,
+    // Une écriture attend l'humain ; la lecture seule se décide au Hub, d'après la déclaration de l'outil.
+    canUseTool: async (nom, input) => {
+      if (nom !== 'mcp__veridian__executer_outil') return { behavior: 'deny', message: 'outil non autorisé' };
+      const { lectureSeule } = await appelHub('/api/ia/atelier/lecture-seule', { ...ctx, nom: input.nom }).catch(() => ({ lectureSeule: false }));
+      if (lectureSeule) return { behavior: 'allow', updatedInput: input };
+      const id = randomUUID();
+      ecrire({ type: 'approbation', id, outil: input.nom, arguments: input.arguments ?? {} });
+      const ok = await new Promise((resolve) => {
+        approbations.set(id, { hubUserId, resolve });
+        setTimeout(() => resolve(false), ATTENTE_APPROBATION_MS).unref();
+      });
+      approbations.delete(id);
+      return ok ? { behavior: 'allow', updatedInput: input } : { behavior: 'deny', message: "L'utilisateur a refusé." };
+    },
+  };
+  try {
+    // 23/11 : un tour a lu le CRM (outils sans erreur) mais seule la note d'avant les outils est arrivée. Le texte qui
+    // suit le dernier outil doit arriver : en flux s'il vient, sinon celui du résultat final ; une fin anormale se dit.
+    let texteApresOutil = false;
+    for await (const m of query({ prompt: message, options })) {
+      if (m.type === 'stream_event' && m.event?.type === 'content_block_delta' && m.event.delta?.type === 'text_delta') {
+        texteApresOutil = true;
+        ecrire({ type: 'texte', delta: m.event.delta.text });
+      } else if (m.type === 'assistant') {
+        for (const b of m.message?.content ?? []) {
+          if (b.type === 'tool_use') {
+            texteApresOutil = false;
+            ecrire({ type: 'outil', nom: b.input?.nom ?? b.name });
+          }
+        }
+      } else if (m.type === 'result') {
+        journal({ evt: 'tour.fin', etat: m.subtype, tours: m.num_turns ?? null, texte_final: texteApresOutil });
+        if (!texteApresOutil && typeof m.result === 'string' && m.result.trim()) ecrire({ type: 'texte', delta: `\n\n${m.result.trim()}` });
+        if (m.subtype !== 'success') ecrire({ type: 'erreur', code: m.subtype });
+        ecrire({ type: 'fin', etat: m.subtype, jetons: (m.usage?.input_tokens ?? 0) + (m.usage?.output_tokens ?? 0) });
+      }
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const code = /log ?in|auth|credential|401/i.test(msg) ? 'non_connecte' : 'erreur_binaire';
+    journal({ evt: 'tour.erreur', code });
+    ecrire({ type: 'erreur', code });
+  }
+  res.end();
+}
+
+const ROUTES = {
+  '/connexion/debut': debutConnexion,
+  '/connexion/code': codeConnexion,
+  '/connexion/statut': statutConnexion,
+  '/connexion/fin': finConnexion,
+  '/tour': tour,
+  // Une approbation ne vaut que pour le client à qui elle a été demandée.
+  '/approbation': async (res, { hubUserId, id, ok }) => {
+    const a = approbations.get(id);
+    if (!a || a.hubUserId !== hubUserId) return repondre(res, 404, { error: 'approbation_inconnue' });
+    a.resolve(ok === true);
+    return repondre(res, 200, { ok: true });
+  },
+};
+
+http
+  .createServer(async (req, res) => {
+    try {
+      // Hors du réseau atelier, le pare-feu de sortie ne s'applique pas : fermé, et la santé échoue (Nomad ne
+      // valide pas le déploiement, auto_revert). Relu à chaque requête : une interface peut changer.
+      const protege = surReseauAtelier(networkInterfaces());
+      // Sans binaire, l'atelier ne sert à rien : la santé le dit, le déploiement ne passe pas.
+      if (req.method === 'GET' && req.url === '/sante') {
+        const etat = !protege ? 'hors_reseau_atelier' : !BINAIRE ? 'binaire_introuvable' : 'ok';
+        return repondre(res, etat === 'ok' ? 200 : 503, { status: etat });
+      }
+      if (!protege) {
+        journal({ evt: 'refus.hors_reseau' });
+        return repondre(res, 503, { error: 'hors_reseau_atelier' });
+      }
+      const route = ROUTES[req.url ?? ''];
+      if (req.method !== 'POST' || !route) return repondre(res, 404, { error: 'inconnu' });
+      const brut = await lireCorps(req);
+      if (!signatureValide(SECRET, req.headers['x-veridian-timestamp'], req.headers['x-veridian-atelier-signature'], brut)) {
+        return repondre(res, 401, { error: 'signature' });
+      }
+      const corps = JSON.parse(brut);
+      const dossier = dossierClient(RACINE, corps.hubUserId); // refuse un hub_user_id mal formé avant tout
+      // Le Hub autorise (ouverture par tenant) ; ici, le fusible de capacité (un client par atelier par défaut).
+      const presents = await readdir(RACINE).catch(() => []);
+      if (!clientAdmis(presents, path.basename(dossier), process.env.ATELIER_CLIENTS_MAX)) {
+        journal({ evt: 'refus.capacite' });
+        return repondre(res, 403, { error: 'capacite_atteinte' });
+      }
+      return await route(res, corps);
+    } catch (err) {
+      journal({ evt: 'requete.erreur', erreur: err instanceof Error ? err.name : 'erreur' });
+      if (!res.headersSent) repondre(res, 400, { error: 'requete_invalide' });
+      else res.end();
+    }
+  })
+  .listen(PORT, () => journal({ evt: 'pret', port: PORT, binaire: Boolean(BINAIRE) }));

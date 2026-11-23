@@ -140,6 +140,21 @@ RUN mkdir -p /opt/prisma-cli && \
       prisma@7.7.0 \
       dotenv@17.2.3
 
+# Atelier « Mon IA » (docs/MON-IA.md) : le binaire officiel Claude Code, par le TypeScript Agent SDK (variante
+# musl, compatible Alpine), dans un préfixe ISOLÉ comme le CLI Prisma. Même image que le Hub, autre point
+# d'entrée (groupe `atelier` du job Nomad). Le binaire n'est pas modifié (Commercial Terms acceptées par Robert
+# le 22/11). Mêmes rappels d'overrides : ces installs vivent hors du lockfile pnpm.
+RUN mkdir -p /opt/atelier && \
+    echo '{"type":"module","overrides":{"deepmerge-ts":"8.0.1","effect":"3.22.5"}}' > /opt/atelier/package.json && \
+    cd /opt/atelier && \
+    npm install --omit=dev --no-package-lock \
+      @anthropic-ai/claude-agent-sdk@0.3.330 \
+      zod@4.6.7
+# Le binaire embarqué par le SDK doit exister et démarrer (23/11 : absent du PATH, la connexion par abonnement
+# sortait en ENOENT au premier clic). Image x64 Alpine : variante musl.
+RUN /opt/atelier/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64-musl/claude --version
+COPY atelier/regles.mjs atelier/serveur.mjs atelier/proxy.mjs /opt/atelier/
+
 # npm et corepack ne servent qu'à fabriquer les deux ensembles de dépendances
 # ci-dessus. Le runtime lance directement node et le CLI Prisma. Les retirer de
 # l'image finale réduit la surface d'attaque et supprime leurs dépendances

@@ -34,7 +34,7 @@ import { renderEmailProofEmail } from '@/lib/email/templates/email-proof';
 import { prisma as defaultPrisma } from '@/lib/prisma';
 import { getURL } from '@/utils/helpers';
 
-import { retirerLiensNonProuves } from '@/lib/auth/email-proof-provider';
+import { prouverParMail } from '@/lib/auth/email-proof-provider';
 
 export { applyProviderEmailProof, providerProvesEmail } from '@/lib/auth/email-proof-provider';
 
@@ -129,16 +129,8 @@ export async function consumeEmailProof(
   }
   await prisma.verificationToken.deleteMany({ where: { identifier: row.identifier } });
   // Preuve venue d'ailleurs sur un compte non prouvé : les liaisons OAuth posées avant sont
-  // retirées, et les sessions d'avant aussi (D1).
-  const now = new Date();
-  let retires = 0;
-  if (!current.emailVerified) {
-    retires = await retirerLiensNonProuves(prisma, sessionUserId);
-  }
-  await prisma.user.update({
-    where: { id: sessionUserId },
-    data: { emailVerified: now, ...(retires > 0 ? { sessionsValidAfter: now } : {}) },
-  });
+  // retirées, et les sessions d'avant aussi (D1, M2).
+  await prouverParMail(prisma, sessionUserId);
   return 'proved';
 }
 

@@ -69,14 +69,15 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   `tenant_id` signé seulement si l'IA choisit un espace ; espace non relié → `hub relier --app <app>`. Boutons
   « Ajouter à Claude… » : `/dashboard/ia` au Hub, et dans chaque app par `GET /api/mcp/liens-installation?app=<cle>`
   (public ; une origine de lien nouvelle s'annonce aux apps, Twenty les filtre).
-- **Garde rapide** : `__tests__/contrat/` (revocation sans `iat`, `authAt` sur toute création de session,
-  cibles du rebond, origines). Un nouveau `encode(` de JWT de session s'ajoute à sa liste. Détail par
-  parcours et état prouvé ou accepté : `docs/PARCOURS-IDENTITE.md`.
-- **Sonde de prod** : étape « Sonde identité » de `hub-ci.yml` (lectures seules). Le cron de reconcile
-  alerte au-dessus de `RESIDUE_SEUIL` (0 par défaut).
-- **Coupure** : aucune (08/11, prouvé à la sonde). Base sur pg-saas (grappe Patroni, hors du job Hub), app en bleu-vert : canari,
-  health check Traefik, retry. Tags Traefik changés = déploiement annoncé (deux versions aux tags différents : 12 s de 404).
-  Regrouper les changements. `e2e/systeme-sso/**` ne redéploie rien.
+- **Mon IA** (VER-203, `docs/MON-IA.md`) : clé chiffrée, interrupteur allumé d'office, éteignable par app.
+  Clé d'un compte : `hub ia brancher <email> --fournisseur <f> --depuis <VARIABLE de ~/credentials>`. CRM : espace
+  trouvé par l'origine de l'hôte ; épreuve `pnpm tsx scripts/epreuve-fils-crm.ts <origine>`. Atelier : rise, `cni/atelier`.
+- **Garde rapide** : `__tests__/contrat/` (révocation sans `iat`, `authAt`, cibles du rebond, origines) ; tout nouvel
+  `encode(` de JWT de session s'y ajoute. Détail : `docs/PARCOURS-IDENTITE.md`.
+- **Sonde de prod** : « Sonde identité » de `hub-ci.yml` (lecture seule) ; le cron de reconcile alerte au-dessus de
+  `RESIDUE_SEUIL` (0).
+- **Coupure** : aucune (08/11). Base sur pg-saas (Patroni), app en bleu-vert (canari, health check Traefik). Changer les
+  tags Traefik coupe 12 s : regrouper. `e2e/systeme-sso/**` ne redéploie rien.
 
 ## Que faire si
 
@@ -111,15 +112,14 @@ Outil admin : `hub` (`hub doctor` d'abord : santé, secret, auth admin). Aucune 
 
 ## Commandes
 
-`pnpm install` · `pnpm dev` (port 3000) · `pnpm build` · `pnpm test` (Vitest, 3000+ tests).
+Dév : `dev -d <domaine> pnpm dev` (job Nomad) · `pnpm test` (2 workers, nice 19).
 
 ## Où travailler (Robert, 18/11)
 
 La session du Hub travaille dans le dossier principal, sur `main` (la branche qui déploie), jamais en
 worktree. Avant de commencer : `git fetch && git status -sb` doit dire `main...origin/main` sans
-écart ni fichier modifié, sinon on réaligne d'abord (18/11 : 230 fichiers jamais commités). Ce dossier porte aussi le hook
-`~/.claude/hooks/infra-status.sh` (lien symbolique) : la branche extraite ici pilote le démarrage
-de toutes les sessions. Porte de sortie : deux écrivains simultanés, un worktree refusionné aussitôt.
+écart ni fichier modifié, sinon on réaligne d'abord (18/11 : 230 fichiers jamais commités). `~/.claude/hooks/infra-status.sh` est un lien vers ce
+dossier : la branche extraite ici pilote le démarrage de toutes les sessions. Sortie : deux écrivains, worktree refusionné aussitôt.
 
 ## Déploiement : la prod vient de `main`
 
@@ -156,8 +156,8 @@ Jamais de limite visible. Stripe → Hub → apps, jamais Stripe → app.
 ## CI/CD
 
 - `.github/workflows/hub-ci.yml` : test → audit (npm) → docker → **trivy** → deploy-prod (sur `main`) → e2e-prod-smoke → rollback-prod (si fail)
-- **Pas de cron Trivy** (il scannait `:latest`) : CVE de l'image en cours via `secu` ; `_trivy-image.yml` à la construction.
-- Runners hébergés par GitHub (dépôt public) : le smoke garde `playwright install --with-deps`.
+- **Pas de cron Trivy** : CVE de l'image servie via `secu`, `_trivy-image.yml` à la construction.
+- Runners GitHub (dépôt public) : le smoke garde `playwright install --with-deps`.
 - Déploiement : job Nomad. Logs `nomad-v logs hub`, redeploy `nomad-v run hub`, état `nomad-v state`.
   Secrets = Nomad Variable `nomad/jobs/hub`. Skill `/nomad`.
 
