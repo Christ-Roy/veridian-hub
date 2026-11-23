@@ -229,12 +229,24 @@ async function tour(res, { hubUserId, tenantId, sessionId, nouvelle, message }) 
     },
   };
   try {
+    // 23/11 : un tour a lu le CRM (outils sans erreur) mais seule la note d'avant les outils est arrivée. Le texte qui
+    // suit le dernier outil doit arriver : en flux s'il vient, sinon celui du résultat final ; une fin anormale se dit.
+    let texteApresOutil = false;
     for await (const m of query({ prompt: message, options })) {
       if (m.type === 'stream_event' && m.event?.type === 'content_block_delta' && m.event.delta?.type === 'text_delta') {
+        texteApresOutil = true;
         ecrire({ type: 'texte', delta: m.event.delta.text });
       } else if (m.type === 'assistant') {
-        for (const b of m.message?.content ?? []) if (b.type === 'tool_use') ecrire({ type: 'outil', nom: b.input?.nom ?? b.name });
+        for (const b of m.message?.content ?? []) {
+          if (b.type === 'tool_use') {
+            texteApresOutil = false;
+            ecrire({ type: 'outil', nom: b.input?.nom ?? b.name });
+          }
+        }
       } else if (m.type === 'result') {
+        journal({ evt: 'tour.fin', etat: m.subtype, tours: m.num_turns ?? null, texte_final: texteApresOutil });
+        if (!texteApresOutil && typeof m.result === 'string' && m.result.trim()) ecrire({ type: 'texte', delta: `\n\n${m.result.trim()}` });
+        if (m.subtype !== 'success') ecrire({ type: 'erreur', code: m.subtype });
         ecrire({ type: 'fin', etat: m.subtype, jetons: (m.usage?.input_tokens ?? 0) + (m.usage?.output_tokens ?? 0) });
       }
     }
