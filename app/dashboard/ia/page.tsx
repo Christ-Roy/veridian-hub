@@ -7,7 +7,7 @@ import { BotIcon } from 'lucide-react';
 import { auth } from '@/auth';
 import { Card } from '@/components/ui/card';
 import { DashboardPageHeader } from '@/components/dashboard/PageHeader';
-import { abonnementOuvertCompte, atelierConfigure, FOURNISSEUR_ABONNEMENT } from '@/lib/ia/atelier';
+import { atelierConfigure, FOURNISSEUR_ABONNEMENT, tenantOuvertDuCompte } from '@/lib/ia/atelier';
 import { branchementsDe } from '@/lib/ia/branchements';
 import { espacesDe } from '@/lib/mcp/catalogue';
 import { connexionsActives } from '@/lib/mcp/connexions';
@@ -50,7 +50,9 @@ export default async function AssistantsIaPage() {
   if (ouvertes.has('twenty') && avecCrm.length) espacesParApp.crm = avecCrm;
   const apps = Object.keys(espacesParApp);
   // L'abonnement Claude : ouvert par tenant (hub ia atelier ouvrir), fermé par défaut (docs/MON-IA.md).
-  const abonnement = hubUserId && atelierConfigure() && (await abonnementOuvertCompte(prisma as never, hubUserId));
+  // Carte affichée seulement si l'atelier de cet espace tourne (un atelier par tenant, décision A).
+  const tenantAbonnement = hubUserId ? await tenantOuvertDuCompte(prisma as never, hubUserId) : null;
+  const abonnement = atelierConfigure(tenantAbonnement);
   const abonnementBranche = branchements.some((b) => b.fournisseur === FOURNISSEUR_ABONNEMENT);
 
   return (

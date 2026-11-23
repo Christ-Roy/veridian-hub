@@ -169,12 +169,13 @@ les autres apps.
 
 **Un atelier par tenant ouvert (décision A de la parente, 23/11)** : jamais les jetons de deux clients dans un même
 conteneur. `local.ateliers` dans `deploy/hub.nomad.hcl` (8 premiers caractères du tenant_id) ; un `dynamic "group"` en
-tire une copie exacte du groupe atelier, avec son volume `hub-atelier-<t8>` (créé, sauvegardé et archivé à la fermeture
+tire un groupe par tenant, avec son volume `hub-atelier-<t8>` (créé, sauvegardé et archivé à la fermeture
 par l'infra : `nomad-veridian/scripts/hub-ateliers.py ouvrir|fermer|migrer`) et son service `hub-atelier-<t8>`. Le Hub
-route chaque appel vers l'atelier du tenant (`local/ateliers`, relu à chaque appel) ; sans atelier propre, l'atelier
-commun, jamais celui d'un autre tenant. Ouvrir un tenant : `hub-ateliers.py ouvrir` (infra), ligne dans
+route chaque appel vers l'atelier du tenant (`local/ateliers`, relu à chaque appel) ; sans atelier propre, aucun
+(`atelier_indisponible`, carte de l'abonnement masquée), jamais celui d'un autre tenant : il n'y a plus d'atelier
+commun. La signature des appels de l'atelier ne dépend que d'`ATELIER_SECRET`. Ouvrir un tenant : `hub-ateliers.py ouvrir` (infra), ligne dans
 `local.ateliers` (déploiement par la CI), puis `hub ia atelier ouvrir <tenant>` ; `ATELIER_CAPACITE` suit le nombre
-d'ateliers. Bascule de Robert en trois déploiements : D1 tenant de test (fait), D2 retrait de l'atelier commun,
+d'ateliers. Bascule de Robert en trois déploiements : D1 tenant de test (fait), D2 retrait de l'atelier commun (fait, 23/11),
 migration à froid de son dossier par l'infra, D3 son atelier.
 
 

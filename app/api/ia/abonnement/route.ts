@@ -7,7 +7,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
 import { writeAuditLog } from '@/lib/admin/audit-log';
-import { abonnementOuvertCompte, appelerAtelier, tenantOuvertDuCompte, atelierConfigure, FOURNISSEUR_ABONNEMENT, MOTEUR_ABONNEMENT } from '@/lib/ia/atelier';
+import { appelerAtelier, tenantOuvertDuCompte, atelierConfigure, FOURNISSEUR_ABONNEMENT, MOTEUR_ABONNEMENT } from '@/lib/ia/atelier';
 import { contexteUtilisateur } from '@/lib/ia/contexte';
 import { refusSiCroisee } from '@/lib/ia/requete';
 import { prisma } from '@/lib/prisma';
@@ -22,8 +22,10 @@ export async function POST(req: NextRequest) {
   if (croisee) return croisee;
   const c = await contexteUtilisateur();
   if (c instanceof NextResponse) return c;
-  if (!(await abonnementOuvertCompte(prisma as never, c.hubUserId))) return NextResponse.json({ error: 'abonnement_ferme' }, { status: 403 });
-  if (!atelierConfigure()) return NextResponse.json({ error: 'atelier_indisponible' }, { status: 503 });
+  // La connexion vit dans l'atelier de l'espace ouvert du compte (un atelier par tenant, décision A).
+  const tenantId = await tenantOuvertDuCompte(prisma as never, c.hubUserId);
+  if (!tenantId) return NextResponse.json({ error: 'abonnement_ferme' }, { status: 403 });
+  if (!atelierConfigure(tenantId)) return NextResponse.json({ error: 'atelier_indisponible' }, { status: 503 });
   const corps = (await req.json().catch(() => null)) as { action?: string; code?: unknown; id?: unknown; ok?: unknown } | null;
   const action = corps?.action as keyof typeof ACTIONS | undefined;
   if (!action || !(action in ACTIONS)) return NextResponse.json({ error: 'requete_invalide' }, { status: 400 });
@@ -32,8 +34,6 @@ export async function POST(req: NextRequest) {
   if (action === 'code') charge.code = corps?.code;
   if (action === 'approbation') Object.assign(charge, { id: corps?.id, ok: corps?.ok === true });
 
-  // La connexion vit dans l'atelier de l'espace ouvert du compte (un atelier par tenant, décision A).
-  const tenantId = (await tenantOuvertDuCompte(prisma as never, c.hubUserId)) ?? undefined;
   const r = await appelerAtelier(ACTIONS[action], charge, { tenantId }).catch(() => null);
   if (!r) return NextResponse.json({ error: 'atelier_injoignable' }, { status: 502 });
   const j = (await r.json().catch(() => ({}))) as { connecte?: boolean; email?: string | null; abonnement?: string | null; url?: string; error?: string };
