@@ -17,7 +17,7 @@
  * Épreuve : `SSO_SABOTAGE=role-mcp` ne pose pas le rôle restreint : le cas doit échouer.
  */
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -94,15 +94,25 @@ cas('twenty', 'porte MCP : un membre à rôle restreint ne lit pas les société
     const recherche = await outil(jeton, 'chercher_outils', { besoin: 'find many companies', app: 'twenty' });
     const description = await outil(jeton, 'decrire_outil', { nom: 'twenty.find_many_companies' });
     const fuite = [refuse, recherche, description].flatMap((r) => noms.filter((n) => r.texte.includes(n)));
-    expect(refuse.texte, 'le refus vient de Twenty (rôle), pas de la porte').toMatch(/not found|permission|FORBIDDEN|"success":\s*false/i);
+    // « Tool "find_many_companies" not found » : Twenty retire du catalogue du membre ce que son rôle ne permet pas.
+    expect(refuse.texte, 'le refus vient de Twenty (rôle), pas de la porte').toMatch(/find_many_companies.*(not found|permission|forbidden)/i);
+    expect(refuse.texte, 'la porte n\'a pas dit « outil inconnu » (catalogue du Hub, cache)').not.toMatch(/outil inconnu/i);
     expect(refuse.texte, 'la réponse ne contient plus de société').not.toMatch(/"companies"|"totalCount"/);
     expect(fuite, 'aucun nom de société rendu à B restreint').toEqual([]);
+
+    // Pour une relecture côté CRM : B reste restreint et attaché (secondes), compte et heures dans .run/role-mcp.json.
+    const pause = Number(process.env.SSO_ROLE_PAUSE_S ?? 0);
+    if (pause > 0) {
+      mkdirSync(path.join(__dirname, '.run'), { recursive: true });
+      writeFileSync(path.join(__dirname, '.run', 'role-mcp.json'), JSON.stringify({ email: B.email, hubUserId: B.hubUserId, restreintA: new Date().toISOString(), refus: refuse.texte.slice(0, 200) }, null, 2));
+      await new Promise((r) => setTimeout(r, pause * 1000));
+    }
 
     // 3. Retour Member : l'appel passe de nouveau.
     role('attribuer', '--membre', B.email, '--role', 'Member');
     const rendu = await outilSocietes();
     expect(rendu.isError || /"success":\s*false/.test(rendu.texte), `Member relit les sociétés (${rendu.texte.slice(0, 160)})`).toBe(false);
-    return `Member lu (${noms.length} noms), restreint refusé par Twenty, 0 fuite, Member relu`;
+    return `Member lu (${noms.length} noms), restreint refusé par Twenty (« ${refuse.texte.replace(/\s+/g, ' ').slice(0, 120)} »), 0 fuite, Member relu`;
   } finally {
     // Remise en état, quoi qu'il arrive : registre du staging, membre retiré de l'espace, compte Twenty désactivé.
     if (avant) await poser(avant.acces);
