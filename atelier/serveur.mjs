@@ -232,10 +232,26 @@ async function tour(res, { hubUserId, tenantId, sessionId, nouvelle, message }) 
     // 23/11 : un tour a lu le CRM (outils sans erreur) mais seule la note d'avant les outils est arrivée. Le texte qui
     // suit le dernier outil doit arriver : en flux s'il vient, sinon celui du résultat final ; une fin anormale se dit.
     let texteApresOutil = false;
+    // Le texte d'un message qui appelle un outil est une note de travail du modèle (« The CRM is Twenty; search
+    // there. », 23/11), pas une réponse : chaque message est mis en attente jusqu'à sa fin, et relayé seulement s'il
+    // n'a appelé aucun outil.
+    let tampon = '';
+    let messageAvecOutil = false;
     for await (const m of query({ prompt: message, options })) {
-      if (m.type === 'stream_event' && m.event?.type === 'content_block_delta' && m.event.delta?.type === 'text_delta') {
-        texteApresOutil = true;
-        ecrire({ type: 'texte', delta: m.event.delta.text });
+      const ev = m.type === 'stream_event' ? m.event : null;
+      if (ev?.type === 'message_start') {
+        tampon = '';
+        messageAvecOutil = false;
+      } else if (ev?.type === 'content_block_start' && ev.content_block?.type === 'tool_use') {
+        messageAvecOutil = true;
+      } else if (ev?.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
+        tampon += ev.delta.text;
+      } else if (ev?.type === 'message_stop') {
+        if (!messageAvecOutil && tampon) {
+          texteApresOutil = true;
+          ecrire({ type: 'texte', delta: tampon });
+        }
+        tampon = '';
       } else if (m.type === 'assistant') {
         for (const b of m.message?.content ?? []) {
           if (b.type === 'tool_use') {
