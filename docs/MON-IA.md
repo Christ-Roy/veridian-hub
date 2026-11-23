@@ -159,7 +159,7 @@ route chaque appel vers l'atelier du tenant (`local/ateliers`, relu à chaque ap
 commun. La signature des appels de l'atelier ne dépend que d'`ATELIER_SECRET`. Ouvrir un tenant : `hub-ateliers.py ouvrir` (infra), ligne dans
 `local.ateliers` (déploiement par la CI), puis `hub ia atelier ouvrir <tenant>` ; `ATELIER_CAPACITE` suit le nombre
 d'ateliers. Bascule de Robert en trois déploiements : D1 tenant de test (fait), D2 retrait de l'atelier commun (fait, 23/11),
-migration à froid de son dossier par l'infra, D3 son atelier.
+migration à froid de son dossier par l'infra (faite, 21 fichiers, empreintes identiques), D3 son atelier (23/11).
 
 
 Dans le déploiement du Hub, pas dans un service à part : un **groupe `atelier` du job Nomad du Hub**

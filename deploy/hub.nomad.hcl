@@ -38,9 +38,9 @@ variable "image_tag" {
 }
 
 # Tenants dont l'abonnement a son propre atelier (8 premiers caractères hexadécimaux du tenant_id). Décision A, 23/11.
-# D1 : le tenant de test seul (8fa7e09d, compte +preprod de Robert) ; Robert (359b76d5) passe ici en D3.
+# 8fa7e09d : tenant de test (compte +preprod de Robert), D1 ; 359b76d5 : Robert, D3 (dossier migré à froid par l'infra).
 locals {
-  ateliers = ["8fa7e09d"]
+  ateliers = ["8fa7e09d", "359b76d5"]
 }
 
 job "hub" {
