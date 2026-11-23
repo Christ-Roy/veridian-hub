@@ -65,6 +65,14 @@ describe('verifierAppel', () => {
     for (const [nom, h] of cas) expect('refus' in (await verifierAppel(h, env, NOW)), nom).toBe(true);
   });
 
+  it('fil nul (génération simple) : accepté, fil « sans-fil »', async () => {
+    expect(await verifierAppel(entetes(await jeton({ claims: { fil: null } })), env, NOW)).toEqual({ workspaceId: WS, hubUserId: ROBERT, fil: 'sans-fil' });
+  });
+
+  it('agent sans membre (hub_user_id nul) : refus nommé', async () => {
+    expect(await verifierAppel(entetes(await jeton({ claims: { hub_user_id: null } })), env, NOW)).toEqual({ refus: 'agent_sans_membre' });
+  });
+
   it('jti rejoué : refusé la seconde fois', async () => {
     const j = await jeton({ jti: 'unique-1' });
     expect('refus' in (await verifierAppel(entetes(j), env, NOW))).toBe(false);

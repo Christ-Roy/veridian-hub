@@ -70,7 +70,11 @@ export async function verifierAppel(
     return { refus: 'identite_invalide' };
   }
   if (!(Number(p.exp) * 1000 <= maintenant + DUREE_MAX_S * 1000)) return { refus: 'identite_duree' };
-  const { workspace_id: ws, hub_user_id: qui, fil, jti } = p as Record<string, unknown>;
+  const { workspace_id: ws, hub_user_id: qui, fil: filBrut, jti } = p as Record<string, unknown>;
+  // Un agent de Twenty sans humain derrière n'a pas de membre : il n'a pas d'IA à lui (refus nommé).
+  if (qui === null || qui === undefined) return { refus: 'agent_sans_membre' };
+  // Génération simple, hors fil de discussion : la session se dérive d'un fil « sans-fil ».
+  const fil = filBrut === null || filBrut === undefined ? 'sans-fil' : filBrut;
   if (typeof ws !== 'string' || !UUID.test(ws) || typeof qui !== 'string' || !UUID.test(qui) || typeof fil !== 'string' || !FIL.test(fil)) {
     return { refus: 'identite_incomplete' };
   }

@@ -42,6 +42,9 @@ async function refuser(qui: Partial<Identite> | null, statut: number, code: stri
 export async function POST(req: Request) {
   const qui = await verifierAppel(req.headers);
   if ('refus' in qui) {
+    if (qui.refus === 'agent_sans_membre') {
+      return refuser(null, 403, qui.refus, "L'Assistant Veridian répond à un membre : un agent sans utilisateur n'a pas d'IA branchée.");
+    }
     return refuser(null, qui.refus === 'fournisseur_non_configure' ? 503 : 401, qui.refus, 'Authentification refusée.');
   }
   const brut = await req.text();
