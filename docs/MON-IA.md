@@ -167,6 +167,17 @@ les autres apps.
 
 ## Où vit l'atelier (moteur abonnement)
 
+**Un atelier par tenant ouvert (décision A de la parente, 23/11)** : jamais les jetons de deux clients dans un même
+conteneur. `local.ateliers` dans `deploy/hub.nomad.hcl` (8 premiers caractères du tenant_id) ; un `dynamic "group"` en
+tire une copie exacte du groupe atelier, avec son volume `hub-atelier-<t8>` (créé, sauvegardé et archivé à la fermeture
+par l'infra : `nomad-veridian/scripts/hub-ateliers.py ouvrir|fermer|migrer`) et son service `hub-atelier-<t8>`. Le Hub
+route chaque appel vers l'atelier du tenant (`local/ateliers`, relu à chaque appel) ; sans atelier propre, l'atelier
+commun, jamais celui d'un autre tenant. Ouvrir un tenant : `hub-ateliers.py ouvrir` (infra), ligne dans
+`local.ateliers` (déploiement par la CI), puis `hub ia atelier ouvrir <tenant>` ; `ATELIER_CAPACITE` suit le nombre
+d'ateliers. Bascule de Robert en trois déploiements : D1 tenant de test (fait), D2 retrait de l'atelier commun,
+migration à froid de son dossier par l'infra, D3 son atelier.
+
+
 Dans le déploiement du Hub, pas dans un service à part : un **groupe `atelier` du job Nomad du Hub**
 (`deploy/hub.nomad.hcl`, l'équivalent du docker compose depuis la fin de Dokploy), même image que le Hub, autre point
 d'entrée. Groupe séparé et non tâche voisine, pour deux raisons : il lui faut un volume durable (la connexion de chaque
