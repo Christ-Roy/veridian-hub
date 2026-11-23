@@ -16,7 +16,7 @@
  *
  * Épreuve : `SSO_SABOTAGE=role-mcp` ne pose pas le rôle restreint : le cas doit échouer.
  */
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -136,6 +136,13 @@ cas('twenty', 'porte MCP : un membre à rôle restreint ne lit pas les société
     if (attache) {
       await lire('remove-member', appelTwenty('POST', `/api/tenants/${TENANT_CRM}/remove-member`, { email: B.email }), (st, c) => st === 200 && /"removed":\s*true/.test(c));
       await lire('users/sync (deleted)', appelTwenty('POST', '/api/hub/users/sync', { hub_user_id: B.hubUserId, deleted: true }), (st, c) => st < 300 || (st === 404 && c.includes('user_not_in_app')));
+    }
+    // Le retrait ne doit laisser aucune fiche de membre sans appartenance : une seule ferme l'espace à tous les autres (23/11).
+    if (attache && !echec && !ratees.length) {
+      const o = spawnSync('bash', ['scripts/ci/membres-orphelins.sh', 'crm-staging'], { cwd: CRM_REPO, encoding: 'utf8', timeout: 180_000 });
+      const texte = `${o.stdout ?? ''}${o.stderr ?? ''}`.replace(/\s+/g, ' ').slice(0, 240);
+      if (o.status === 1) throw new Error(`fiches de membre orphelines après le retrait : ${texte}`);
+      if (o.status !== 0) throw new NonAbouti(`contrôle des fiches orphelines non abouti : ${texte}`);
     }
     if (ratees.length && !echec) throw new Error(`nettoyage incomplet : ${ratees.join(' ; ')}`);
     if (ratees.length) console.error('nettoyage incomplet', ratees.join(' ; '));
