@@ -245,6 +245,8 @@ ADMIN_SECRET={{ .ADMIN_SECRET }}
 CRON_SECRET={{ .CRON_SECRET }}
 VAULT_ENC_KEY={{ .VAULT_ENC_KEY }}
 {{ with nomadVar "nomad/jobs/hub-staging/stack" }}CRM_HUB_API_SECRET={{ .CRM_HUB_API_SECRET }}{{ end }}
+# Clé ES256 de la porte MCP (VER-203) : crm-staging lit sa JWKS pour vérifier le JWT du Hub. Variable à part (tâche), créée le 23/11.
+{{ with nomadVar "nomad/jobs/hub-staging/stack/hub-staging" }}MCP_SIGNING_JWK={{ .MCP_SIGNING_JWK }}{{ end }}
 SESSION_HINT_SECRET={{ .SESSION_HINT_SECRET }}
 E2E_RATELIMIT_BYPASS_SECRET={{ .E2E_RATELIMIT_BYPASS_SECRET }}
 GOOGLE_MAIL_CLIENT_ID={{ .GOOGLE_MAIL_CLIENT_ID }}
