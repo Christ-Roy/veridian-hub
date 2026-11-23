@@ -248,7 +248,8 @@ ACADEMY_API_URL=https://academy.app.veridian.site
 # Atelier « Mon IA » (moteur abonnement) : comptes autorisés, Robert seul tant qu'Anthropic n'a pas confirmé par
 # écrit (docs/MON-IA.md). Son adresse est lue dans local/atelier-url (template à part, sans redémarrage du Hub).
 ATELIER_URL_FICHIER=/local/atelier-url
-ATELIER_COMPTES=53245ae1-6bf8-4ec6-870f-32d75b7c0281
+# Abonnement ouvert par tenant (hub ia atelier ouvrir) ; plafond de tenants ouverts, 1 faute d'isolation par processus.
+ATELIER_CAPACITE=1
 {{ with nomadVar "nomad/jobs/hub" }}
 # Base du Hub : pg-saas (grappe Patroni, entree 172.26.64.1:15432, base hub, role hub). Migration du 09/11/2026 (plan §21).
 # DATABASE_URL composee depuis HUB_DATABASE_* (defauts = pg-saas) : une bascule change une cle, pas ce fichier.
@@ -427,8 +428,8 @@ NODE_ENV=production
 ATELIER_PORT=3100
 ATELIER_DONNEES=/data/atelier
 ATELIER_PROXY=http://127.0.0.1:3128
-# Un seul client par atelier (pas d'enfermement par processus possible sur nos nœuds) : Robert, usage interne.
-ATELIER_CLIENTS=53245ae1-6bf8-4ec6-870f-32d75b7c0281
+# Fusible de capacité : un client par atelier (pas d'enfermement par processus sur nos nœuds, docs/MON-IA.md).
+ATELIER_CLIENTS_MAX=1
 ATELIER_HUB_URL_FICHIER=/local/hub-url
 {{ with nomadVar "nomad/jobs/hub" }}{{ with .ATELIER_SECRET }}ATELIER_SECRET={{ .Value }}{{ end }}{{ end }}
 EOH

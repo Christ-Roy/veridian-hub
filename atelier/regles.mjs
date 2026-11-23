@@ -84,13 +84,17 @@ export const TOURS_SIMULTANES = 4;
 export const TAILLE_DOSSIER_MAX = 200 * 1024 * 1024;
 
 /**
- * Comptes servis par l'atelier : fermé par défaut, liste dans ATELIER_CLIENTS. Nos nœuds refusent les espaces de
- * noms non privilégiés (bubblewrap mesuré impossible le 22/11) : sans enfermement par processus, un atelier ne
- * sert qu'UN client, et chaque client suivant aura son propre conteneur (docs/MON-IA.md).
+ * Capacité de l'atelier (Robert, 23/11 : l'abonnement s'ouvre tenant par tenant au Hub, qui seul autorise ; ici, un
+ * fusible de capacité). Un client déjà servi (son dossier existe) passe ; un client neuf n'entre que sous le plafond
+ * ATELIER_CLIENTS_MAX (1 par défaut, 0 = fermé). Nos nœuds refusent l'enfermement par processus (mesuré le 22/11) :
+ * au-delà de 1, les jetons des clients partageraient le même conteneur (docs/MON-IA.md).
+ * `dossiers` : les noms présents sous la racine ; `dossier` : celui du client (dossierClient).
  */
-export function clientAutorise(liste, hubUserId) {
-  const ids = String(liste ?? '').split(',').map((s) => s.trim()).filter(Boolean);
-  return ids.length === 1 && ids[0] === hubUserId;
+export function clientAdmis(dossiers, dossier, max) {
+  const n = Number.parseInt(String(max ?? ''), 10);
+  const plafond = Number.isInteger(n) && n >= 0 ? n : 1;
+  const clients = (dossiers ?? []).filter((d) => /^[0-9a-f]{32}$/.test(d));
+  return clients.includes(dossier) || clients.length < plafond;
 }
 
 /**

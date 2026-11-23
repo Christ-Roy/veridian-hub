@@ -9,7 +9,8 @@ const m = vi.hoisted(() => ({ contexte: vi.fn(), atelier: vi.fn() }));
 vi.mock('@/lib/ia/contexte', () => ({ contexteUtilisateur: () => m.contexte() }));
 vi.mock('@/lib/ia/atelier', async (orig) => ({ ...(await orig<typeof import('@/lib/ia/atelier')>()), appelerAtelier: (...a: unknown[]) => m.atelier(...a) }));
 vi.mock('@/lib/admin/audit-log', () => ({ writeAuditLog: vi.fn() }));
-vi.mock('@/lib/prisma', () => ({ prisma: { iaBranchement: { upsert: vi.fn(), deleteMany: vi.fn() } } }));
+const t = vi.hoisted(() => ({ tenants: [] as { id: string; userId: string; metadata: unknown }[] }));
+vi.mock('@/lib/prisma', () => ({ prisma: { iaBranchement: { upsert: vi.fn(), deleteMany: vi.fn() }, tenant: { findMany: async ({ where }: { where: { userId: string } }) => t.tenants.filter((x) => x.userId === where.userId) } } }));
 
 import { POST } from '@/app/api/ia/abonnement/route';
 
@@ -20,12 +21,13 @@ beforeEach(() => {
   vi.clearAllMocks();
   process.env.ATELIER_URL = 'http://atelier.test';
   process.env.ATELIER_SECRET = 's'.repeat(40);
-  process.env.ATELIER_COMPTES = ROBERT;
+  // Robert : un espace où l'abonnement est ouvert (hub ia atelier ouvrir).
+  t.tenants = [{ id: 'tenant-robert', userId: ROBERT, metadata: { ia_atelier: { ouvert: true } } }];
   m.atelier.mockResolvedValue(new Response(JSON.stringify({ url: 'https://claude.com/cai/oauth/authorize?x' }), { status: 200 }));
 });
 
 describe('POST /api/ia/abonnement', () => {
-  it('un utilisateur hors liste ne peut pas brancher son abonnement : 403, l\'atelier n\'est pas appelé', async () => {
+  it('un compte sans espace ouvert ne peut pas brancher son abonnement : 403, l\'atelier n\'est pas appelé', async () => {
     m.contexte.mockResolvedValue({ hubUserId: 'autre-client', email: 'c@x.io' });
     const r = await POST(req({ action: 'debut' }));
     expect(r.status).toBe(403);
@@ -33,8 +35,8 @@ describe('POST /api/ia/abonnement', () => {
     expect(m.atelier).not.toHaveBeenCalled();
   });
 
-  it('liste vide : fermé pour tout le monde, Robert compris', async () => {
-    process.env.ATELIER_COMPTES = '';
+  it('espace fermé (défaut) : refusé, Robert compris', async () => {
+    t.tenants = [{ id: 'tenant-robert', userId: ROBERT, metadata: { ia_atelier: { ouvert: false } } }];
     m.contexte.mockResolvedValue({ hubUserId: ROBERT, email: 'r@x.io' });
     expect((await POST(req({ action: 'debut' }))).status).toBe(403);
   });

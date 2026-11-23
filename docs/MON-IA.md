@@ -41,8 +41,8 @@ architecture » (786b547). Ce fichier n'en recopie rien : il porte l'architectur
    **conteneur gVisor par client** (plus besoin de micro-VM), lancé par le Hub comme job Nomad éphémère (pas un service),
    sans réseau sauf l'API d'Anthropic et la porte MCP du Hub. Le volume `CLAUDE_CONFIG_DIR` du client garde sa connexion,
    faite par lui-même (`claude auth login` dans un terminal intégré), et ses sessions ; nous ne lisons jamais son jeton.
-   Épreuve : voir le binaire refuser un appel shell dans ce mode. Ouvert à Robert seul tant que les Commercial Terms ne sont
-   pas acceptés et qu'Anthropic n'a pas répondu par écrit. Isolation montée avec la session infra.
+   Épreuve : voir le binaire refuser un appel shell dans ce mode. Ouvert par tenant (voir « Ouverture » ci-dessous).
+   Isolation montée avec la session infra.
    **Architecture retenue après lecture de la doc officielle (22/11, 205 pages téléchargées, binaire mesuré)** :
    - **Un seul conteneur partagé, pas un par client.** La doc d'hébergement décrit ce schéma : « Long-running sessions…
      often hosting multiple SDK processes per container », avec l'isolation entre tenants *dans* le conteneur
@@ -67,21 +67,23 @@ architecture » (786b547). Ce fichier n'en recopie rien : il porte l'architectur
      (legal-and-compliance) ; que notre chat fasse passer ses questions par son abonnement reste la zone à faire
      confirmer par écrit (« route requests through… plan credentials on behalf of their users »).
 
-   **Règle tenue par le code (22/11, infra puis parente)** : la doc du Claude Agent SDK demande un accord préalable
-   d'Anthropic pour qu'un produit tiers fasse passer les questions par l'abonnement de ses utilisateurs ; les
-   Commercial Terms ne le couvrent pas. Donc :
-   - `claude-code-abonnement` s'active pour le seul compte de Robert (usage interne) : liste blanche `ATELIER_COMPTES`
-     au Hub et `ATELIER_CLIENTS` dans l'atelier, **fermées par défaut** (liste vide = personne) ;
-   - tout autre utilisateur ne voit que `cle-api` ;
-   - tests : `__tests__/api/ia/abonnement.test.ts` (activation refusée hors liste), `__tests__/api/ia/chat.test.ts`
-     (abonnement d'un compte hors liste refusé), `__tests__/atelier/regles.test.ts` (atelier : un seul client).
-   Levée : à la réponse écrite d'Anthropic (message prêt chez Robert).
+   **Ouverture (Robert, 23/11 : « on n'attend plus Anthropic », d'autres apps font cette intégration)** :
+   - `cle-api` (BYOK) : ouvert à tous les clients ;
+   - `claude-code-abonnement` : ouvert **tenant par tenant**, fermé par défaut, par `hub ia atelier ouvrir|fermer
+     <tenant_id>` (drapeau `metadata.ia_atelier.ouvert`, audit `admin.ia.atelier`). La limite est la capacité de
+     l'atelier, plus une autorisation : `ATELIER_CAPACITE` tenants ouverts au Hub (refus 409 au-delà),
+     `ATELIER_CLIENTS_MAX` clients dans l'atelier (fusible, refus `capacite_atteinte`). Fermer un tenant coupe le
+     chat sans déconnecter le compte dans l'atelier.
+   - tests : `__tests__/api/admin/ia-atelier.test.ts` (plafond), `__tests__/api/ia/abonnement.test.ts` (espace fermé
+     par défaut), `__tests__/api/ia/chat.test.ts` (abonnement dans un espace non ouvert refusé),
+     `__tests__/atelier/regles.test.ts` (capacité de l'atelier).
 
    **Enfermement par processus : impossible sur nos nœuds** (mesuré par l'infra le 22/11) : le noyau Ubuntu refuse
    les espaces de noms non privilégiés (`kernel.apparmor_restrict_unprivileged_userns=1`), en plus du seccomp par
    défaut de Docker ; bubblewrap ne démarre pas, et un uid distinct par tour demanderait d'être root. Conséquence :
-   **un atelier ne sert qu'un client** (verrou `ATELIER_CLIENTS` à une seule entrée). Le jour où un second client
-   s'ouvre, il a son propre groupe ou job atelier, avec son propre volume : un conteneur par client.
+   **un atelier ne sert qu'un client** (`ATELIER_CAPACITE` et `ATELIER_CLIENTS_MAX` à 1). Monter la capacité
+   demande un atelier par tenant ouvert (son groupe ou job, son volume), ou d'accepter des jetons de clients dans un
+   même conteneur : arbitrage posé à la parente le 23/11.
 
 3. **`codex-forfait`** : prévu, fermé tant qu'OpenAI ne nous a pas acceptés.
 
@@ -198,7 +200,7 @@ hub ia branchements robert.brunon@veridian.site
 « reconnue » ne prouve pas le crédit (le 22/11, solde Anthropic à 0 : « credit balance is too low » à la première
 question). Sans crédit, la question échoue chez le fournisseur ; rien n'est dépensé de notre côté.
 
-**(b) Abonnement claude.ai, par l'atelier** (Robert seul, `ATELIER_COMPTES`, jusqu'à l'accord écrit d'Anthropic) :
+**(b) Abonnement claude.ai, par l'atelier** (espace ouvert par `hub ia atelier ouvrir <tenant_id>`) :
 1. Ouvrir `https://app.veridian.site/dashboard/ia`, connecté en `robert.brunon@veridian.site`.
 2. Carte « Mon abonnement Claude » (absente si le compte n'est pas dans la liste ou si l'atelier ne répond pas) :
    cliquer « Brancher mon abonnement ».

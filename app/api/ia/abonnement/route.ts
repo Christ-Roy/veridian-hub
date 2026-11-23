@@ -2,12 +2,12 @@
  * « Mon IA », moteur `claude-code-abonnement` : brancher son abonnement Claude (docs/MON-IA.md).
  * Le client se connecte lui-même chez Anthropic : le Hub ne fait que relayer l'adresse de connexion et le code
  * qu'Anthropic lui affiche, tapé tel quel dans le binaire de l'atelier. Aucun jeton ne passe par le Hub.
- * Ouvert aux seuls comptes de ATELIER_COMPTES (Robert) tant qu'Anthropic n'a pas confirmé par écrit.
+ * Ouvert aux comptes dont un espace a l'abonnement ouvert (`hub ia atelier ouvrir <tenant>`), fermé par défaut.
  */
 import { NextResponse, type NextRequest } from 'next/server';
 
 import { writeAuditLog } from '@/lib/admin/audit-log';
-import { abonnementOuvert, appelerAtelier, atelierConfigure, FOURNISSEUR_ABONNEMENT, MOTEUR_ABONNEMENT } from '@/lib/ia/atelier';
+import { abonnementOuvertCompte, appelerAtelier, atelierConfigure, FOURNISSEUR_ABONNEMENT, MOTEUR_ABONNEMENT } from '@/lib/ia/atelier';
 import { contexteUtilisateur } from '@/lib/ia/contexte';
 import { refusSiCroisee } from '@/lib/ia/requete';
 import { prisma } from '@/lib/prisma';
@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
   if (croisee) return croisee;
   const c = await contexteUtilisateur();
   if (c instanceof NextResponse) return c;
-  if (!abonnementOuvert(c.hubUserId)) return NextResponse.json({ error: 'abonnement_ferme' }, { status: 403 });
+  if (!(await abonnementOuvertCompte(prisma as never, c.hubUserId))) return NextResponse.json({ error: 'abonnement_ferme' }, { status: 403 });
   if (!atelierConfigure()) return NextResponse.json({ error: 'atelier_indisponible' }, { status: 503 });
   const corps = (await req.json().catch(() => null)) as { action?: string; code?: unknown; id?: unknown; ok?: unknown } | null;
   const action = corps?.action as keyof typeof ACTIONS | undefined;

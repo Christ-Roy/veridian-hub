@@ -7,7 +7,7 @@ import { BotIcon } from 'lucide-react';
 import { auth } from '@/auth';
 import { Card } from '@/components/ui/card';
 import { DashboardPageHeader } from '@/components/dashboard/PageHeader';
-import { abonnementOuvert, atelierConfigure, FOURNISSEUR_ABONNEMENT } from '@/lib/ia/atelier';
+import { abonnementOuvertCompte, atelierConfigure, FOURNISSEUR_ABONNEMENT } from '@/lib/ia/atelier';
 import { branchementsDe } from '@/lib/ia/branchements';
 import { espacesDe } from '@/lib/mcp/catalogue';
 import { connexionsActives } from '@/lib/mcp/connexions';
@@ -49,8 +49,8 @@ export default async function AssistantsIaPage() {
   if (ouvertes.has('academy')) espacesParApp.academy = espaces.map((e) => e.id);
   if (ouvertes.has('twenty') && avecCrm.length) espacesParApp.crm = avecCrm;
   const apps = Object.keys(espacesParApp);
-  // L'abonnement Claude : Robert seul tant qu'Anthropic n'a pas confirmé par écrit (docs/MON-IA.md).
-  const abonnement = hubUserId && abonnementOuvert(hubUserId) && atelierConfigure();
+  // L'abonnement Claude : ouvert par tenant (hub ia atelier ouvrir), fermé par défaut (docs/MON-IA.md).
+  const abonnement = hubUserId && atelierConfigure() && (await abonnementOuvertCompte(prisma as never, hubUserId));
   const abonnementBranche = branchements.some((b) => b.fournisseur === FOURNISSEUR_ABONNEMENT);
 
   return (

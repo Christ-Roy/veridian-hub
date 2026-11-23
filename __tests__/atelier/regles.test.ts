@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 
 // @ts-expect-error module .mjs sans déclaration de types
-import { adresseDeConnexion, cheminBinaire, clientAutorise, dansReseau, surReseauAtelier, codeValide, dossierClient, environnementBinaire, hoteAutorise, optionsBinaire, signatureValide, signer } from '../../atelier/regles.mjs';
+import { adresseDeConnexion, cheminBinaire, clientAdmis, dansReseau, surReseauAtelier, codeValide, dossierClient, environnementBinaire, hoteAutorise, optionsBinaire, signatureValide, signer } from '../../atelier/regles.mjs';
 
 const A = '53245ae1-6bf8-4ec6-870f-32d75b7c0281';
 const B = '7aa7d4b4-3515-4101-9119-5bc2e6c9a651';
@@ -75,13 +75,22 @@ describe('sortie réseau du binaire : Anthropic seulement', () => {
   });
 });
 
-describe('un atelier, un seul client', () => {
-  it('fermé par défaut ; refuse un autre client ; refuse une liste de plusieurs', () => {
-    expect(clientAutorise('', A)).toBe(false);
-    expect(clientAutorise(undefined, A)).toBe(false);
-    expect(clientAutorise(A, A)).toBe(true);
-    expect(clientAutorise(A, B)).toBe(false);
-    expect(clientAutorise(`${A},${B}`, A)).toBe(false);
+describe('capacité de l\'atelier (fusible ; le Hub autorise, tenant par tenant)', () => {
+  const dA = dossierClient('/d', A).split('/').pop()!;
+  const dB = dossierClient('/d', B).split('/').pop()!;
+  it('un client par défaut : le premier entre, un second est refusé, le premier reste servi', () => {
+    expect(clientAdmis([], dA, undefined)).toBe(true);
+    expect(clientAdmis([dA], dA, undefined)).toBe(true);
+    expect(clientAdmis([dA], dB, undefined)).toBe(false);
+  });
+  it('plafond 0 : fermé à tout client neuf ; plafond 2 : un second entre, pas un troisième', () => {
+    expect(clientAdmis([], dA, '0')).toBe(false);
+    expect(clientAdmis([dA], dB, '2')).toBe(true);
+    expect(clientAdmis([dA, dB], 'c'.repeat(32), '2')).toBe(false);
+  });
+  it('plafond illisible : 1, jamais illimité ; fichiers étrangers ignorés', () => {
+    expect(clientAdmis([dA], dB, 'beaucoup')).toBe(false);
+    expect(clientAdmis(['lost+found', '.tmp'], dA, undefined)).toBe(true);
   });
 });
 

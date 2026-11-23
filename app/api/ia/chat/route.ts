@@ -8,7 +8,7 @@ import { convertToModelMessages, stepCountIs, streamText, type UIMessage } from 
 import { NextResponse, type NextRequest } from 'next/server';
 
 import { writeAuditLog } from '@/lib/admin/audit-log';
-import { abonnementOuvert } from '@/lib/ia/atelier';
+import { atelierOuvertPourTenant } from '@/lib/ia/atelier';
 import { cleEnClair, estActive, estAppChat, moteurActif, ouvrirSession } from '@/lib/ia/branchements';
 import { tourAbonnement } from '@/lib/ia/chat-abonnement';
 import { CoffreIndisponible, masquer } from '@/lib/ia/coffre';
@@ -64,7 +64,8 @@ export async function POST(req: NextRequest) {
 
   const moteur = await moteurActif(prisma, c.hubUserId);
   if (!moteur) return NextResponse.json({ error: 'pas_de_branchement' }, { status: 409 });
-  if (moteur === 'claude-code-abonnement' && !abonnementOuvert(c.hubUserId)) {
+  // L'abonnement ne sert que dans un espace où il est ouvert (par tenant, fermé par défaut).
+  if (moteur === 'claude-code-abonnement' && !(await atelierOuvertPourTenant(prisma as never, espace.id))) {
     return NextResponse.json({ error: 'abonnement_ferme' }, { status: 403 });
   }
   const demandee = typeof corps.sessionId === 'string' ? corps.sessionId : null;

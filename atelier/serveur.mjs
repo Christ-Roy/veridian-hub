@@ -21,7 +21,7 @@ import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { networkInterfaces } from 'node:os';
 
-import { adresseDeConnexion, clientAutorise, codeValide, dossierClient, environnementBinaire, optionsBinaire, signatureValide, signer, surReseauAtelier, cheminBinaire, TAILLE_DOSSIER_MAX, TOURS_SIMULTANES } from './regles.mjs';
+import { adresseDeConnexion, clientAdmis, codeValide, dossierClient, environnementBinaire, optionsBinaire, signatureValide, signer, surReseauAtelier, cheminBinaire, TAILLE_DOSSIER_MAX, TOURS_SIMULTANES } from './regles.mjs';
 
 const PORT = Number(process.env.ATELIER_PORT || 3100);
 const RACINE = process.env.ATELIER_DONNEES || '/donnees';
@@ -284,9 +284,13 @@ http
         return repondre(res, 401, { error: 'signature' });
       }
       const corps = JSON.parse(brut);
-      dossierClient(RACINE, corps.hubUserId); // refuse un hub_user_id mal formé avant tout
-      // Un atelier sert un seul client, faute d'enfermement par processus sur nos nœuds.
-      if (!clientAutorise(process.env.ATELIER_CLIENTS, corps.hubUserId)) return repondre(res, 403, { error: 'client_refuse' });
+      const dossier = dossierClient(RACINE, corps.hubUserId); // refuse un hub_user_id mal formé avant tout
+      // Le Hub autorise (ouverture par tenant) ; ici, le fusible de capacité (un client par atelier par défaut).
+      const presents = await readdir(RACINE).catch(() => []);
+      if (!clientAdmis(presents, path.basename(dossier), process.env.ATELIER_CLIENTS_MAX)) {
+        journal({ evt: 'refus.capacite' });
+        return repondre(res, 403, { error: 'capacite_atteinte' });
+      }
       return await route(res, corps);
     } catch (err) {
       journal({ evt: 'requete.erreur', erreur: err instanceof Error ? err.name : 'erreur' });

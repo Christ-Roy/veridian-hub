@@ -14,6 +14,7 @@ const m = vi.hoisted(() => ({
   streamText: vi.fn(),
   audit: vi.fn(),
   verdict: vi.fn(),
+  atelierOuvert: vi.fn(),
   minute: { enforce: vi.fn(() => ({ ok: true })) },
   jour: { enforce: vi.fn(() => ({ ok: true })) },
 }));
@@ -34,6 +35,10 @@ vi.mock('@/lib/ia/branchements', async (orig) => ({
 vi.mock('ai', async (orig) => ({ ...(await orig<typeof import('ai')>()), streamText: (...a: unknown[]) => m.streamText(...a) }));
 vi.mock('@/lib/admin/audit-log', () => ({ writeAuditLog: (...a: unknown[]) => m.audit(...a) }));
 vi.mock('@/lib/prisma', () => ({ prisma: {} }));
+vi.mock('@/lib/ia/atelier', async (orig) => ({
+  ...(await orig<typeof import('@/lib/ia/atelier')>()),
+  atelierOuvertPourTenant: (...a: unknown[]) => m.atelierOuvert(...a),
+}));
 vi.mock('@/lib/ia/espace-crm', async (orig) => ({
   ...(await orig<typeof import('@/lib/ia/espace-crm')>()),
   verifierEspaceCrm: (...a: unknown[]) => m.verdict(...a),
@@ -140,9 +145,9 @@ describe('POST /api/ia/chat : gardes', () => {
     expect(m.streamText).not.toHaveBeenCalled();
   });
 
-  it('abonnement branché par un compte non autorisé : 403, aucun appel à l\'atelier', async () => {
+  it('abonnement dans un espace où il n\'est pas ouvert : 403, aucun appel à l\'atelier', async () => {
     m.moteur.mockResolvedValue('claude-code-abonnement');
-    process.env.ATELIER_COMPTES = 'quelqu-un-d-autre';
+    m.atelierOuvert.mockResolvedValue(false);
     const r = await POST(req(question));
     expect(r.status).toBe(403);
     expect(await r.json()).toEqual({ error: 'abonnement_ferme' });
