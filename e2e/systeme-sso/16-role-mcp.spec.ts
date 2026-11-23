@@ -68,6 +68,7 @@ cas('twenty', 'porte MCP : un membre à rôle restreint ne lit pas les société
   const avant = registre.find((a) => a.appKey === 'twenty');
   const poser = (acces: string) => adminOk('POST', 'mcp-apps', { app_key: 'twenty', label: avant?.label ?? 'CRM', mcp_url: avant?.mcpUrl ?? URL_MCP_CRM, acces, enabled: avant?.enabled ?? true });
   let attache = false;
+  let echec: unknown = null;
   try {
     const rep = await appelTwenty('POST', `/api/veridian/workspaces/${WS}/attach-member`, { hub_user_id: B.hubUserId, hub_user_email: B.email, role: 'member' });
     if (rep.status !== 201 && rep.status !== 200) throw new NonAbouti(`attach-member de B : HTTP ${rep.status} ${(await rep.text()).slice(0, 160)}`);
@@ -113,13 +114,24 @@ cas('twenty', 'porte MCP : un membre à rôle restreint ne lit pas les société
     const rendu = await outilSocietes();
     expect(rendu.isError || /"success":\s*false/.test(rendu.texte), `Member relit les sociétés (${rendu.texte.slice(0, 160)})`).toBe(false);
     return `Member lu (${noms.length} noms), restreint refusé par Twenty (« ${refuse.texte.replace(/\s+/g, ' ').slice(0, 120)} »), 0 fuite, Member relu`;
+  } catch (e) {
+    echec = e;
+    throw e;
   } finally {
     // Remise en état, quoi qu'il arrive : registre du staging, membre retiré de l'espace, compte Twenty désactivé.
-    if (avant) await poser(avant.acces);
-    else await admin('DELETE', 'mcp-apps?app_key=twenty');
+    // Un nettoyage refusé est un échec du cas (il laisse un compte ou un registre ouvert), sauf s'il masquerait l'échec premier.
+    const ratees: string[] = [];
+    const lire = async (nom: string, r: Promise<{ status: number; text?: () => Promise<string> } | null>) => {
+      const rep = await r.catch((e: Error) => ({ status: 0, text: async () => e.message }));
+      if (!rep || rep.status >= 300 || rep.status === 0) ratees.push(`${nom} : HTTP ${rep?.status ?? '?'} ${rep?.text ? (await rep.text()).slice(0, 120) : ''}`);
+    };
+    const posee: Promise<unknown> = avant ? poser(avant.acces) : admin('DELETE', 'mcp-apps?app_key=twenty').then((r) => { if (r.status >= 300) throw new Error(`HTTP ${r.status}`); });
+    await posee.catch((e: Error) => ratees.push(`registre MCP du staging : ${e.message}`));
     if (attache) {
-      await appelTwenty('POST', `/api/tenants/${TENANT_CRM}/remove-member`, { email: B.email }).catch(() => null);
-      await appelTwenty('POST', '/api/hub/users/sync', { hub_user_id: B.hubUserId, deleted: true }).catch(() => null);
+      await lire('remove-member', appelTwenty('POST', `/api/tenants/${TENANT_CRM}/remove-member`, { email: B.email }));
+      await lire('users/sync (deleted)', appelTwenty('POST', '/api/hub/users/sync', { hub_user_id: B.hubUserId, deleted: true }));
     }
+    if (ratees.length && !echec) throw new Error(`nettoyage incomplet : ${ratees.join(' ; ')}`);
+    if (ratees.length) console.error('nettoyage incomplet', ratees.join(' ; '));
   }
 }, { timeout: 600_000 });
