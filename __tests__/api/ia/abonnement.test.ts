@@ -45,6 +45,6 @@ describe('POST /api/ia/abonnement', () => {
     m.contexte.mockResolvedValue({ hubUserId: ROBERT, email: 'r@x.io' });
     const r = await POST(req({ action: 'debut' }));
     expect(r.status).toBe(200);
-    expect(m.atelier).toHaveBeenCalledWith('/connexion/debut', { hubUserId: ROBERT });
+    expect(m.atelier).toHaveBeenCalledWith('/connexion/debut', { hubUserId: ROBERT }, { tenantId: 'tenant-robert' });
   });
 });

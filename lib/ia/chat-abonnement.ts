@@ -62,7 +62,7 @@ export function tourAbonnement(o: {
     originalMessages: o.messages,
     execute: async ({ writer }) => {
       writer.write({ type: 'start', messageMetadata: { sessionId: o.sessionId } });
-      const r = await appelerAtelier('/tour', { hubUserId: o.hubUserId, tenantId: o.tenantId, sessionId: o.sessionId, nouvelle: o.nouvelle, message: question }).catch(() => null);
+      const r = await appelerAtelier('/tour', { hubUserId: o.hubUserId, tenantId: o.tenantId, sessionId: o.sessionId, nouvelle: o.nouvelle, message: question }, { tenantId: o.tenantId }).catch(() => null);
       if (!r?.ok || !r.body) {
         writer.write({ type: 'error', errorText: 'atelier_injoignable' });
         return;

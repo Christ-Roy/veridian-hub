@@ -9,6 +9,26 @@ import { readFileSync } from 'node:fs';
 export const MOTEUR_ABONNEMENT = 'claude-code-abonnement';
 export const FOURNISSEUR_ABONNEMENT = 'claude-abonnement';
 
+/** Le suffixe d'atelier d'un tenant : 8 premiers caractères hexadécimaux de son identifiant (service hub-atelier-<t8>). */
+export const suffixeAtelier = (tenantId: string): string => tenantId.toLowerCase().replace(/[^0-9a-f]/g, '').slice(0, 8);
+
+/**
+ * L'atelier du tenant (décision A : un atelier par tenant ouvert), lu dans ATELIER_PAR_TENANT_FICHIER que Nomad tient
+ * à jour (« hub-atelier-<t8> http://adresse:port » par ligne). Absent : l'atelier commun d'avant la bascule.
+ */
+export function adresseAtelierDuTenant(tenantId: string, env: NodeJS.ProcessEnv = process.env): string | undefined {
+  if (env.ATELIER_PAR_TENANT_FICHIER) {
+    try {
+      const service = `hub-atelier-${suffixeAtelier(tenantId)}`;
+      const ligne = readFileSync(env.ATELIER_PAR_TENANT_FICHIER, 'utf8').split('\n').map((l) => l.trim().split(/\s+/)).find((l) => l[0] === service);
+      if (ligne?.[1]) return ligne[1];
+    } catch {
+      /* fichier pas encore rendu : repli sur l'atelier commun */
+    }
+  }
+  return adresse(env);
+}
+
 /** Adresse de l'atelier : ATELIER_URL, sinon le fichier que Nomad tient à jour (relu à chaque appel). */
 function adresse(env: NodeJS.ProcessEnv): string | undefined {
   if (env.ATELIER_URL) return env.ATELIER_URL;
@@ -20,8 +40,9 @@ function adresse(env: NodeJS.ProcessEnv): string | undefined {
   }
 }
 
-function config(env: NodeJS.ProcessEnv = process.env) {
-  const url = adresse(env)?.replace(/\/+$/, '');
+function config(env: NodeJS.ProcessEnv = process.env, tenantId?: string) {
+  // L'atelier du tenant quand il existe ; sinon l'atelier commun (jusqu'à la bascule). Jamais celui d'un autre tenant.
+  const url = (tenantId ? adresseAtelierDuTenant(tenantId, env) : adresse(env))?.replace(/\/+$/, '');
   const secret = env.ATELIER_SECRET ?? '';
   return url && secret.length >= 32 ? { url, secret } : null;
 }
@@ -44,6 +65,12 @@ export async function atelierOuvertPourTenant(db: DbTenants, tenantId: string): 
   return ouvertDans(t?.metadata);
 }
 
+/** Le premier espace du compte où l'abonnement est ouvert (son atelier sert la connexion), ou null. */
+export async function tenantOuvertDuCompte(db: DbTenants, hubUserId: string): Promise<string | null> {
+  const lignes = await db.tenant.findMany({ where: { userId: hubUserId, deletedAt: null }, select: { id: true, metadata: true } } as never);
+  return lignes.find((l) => ouvertDans(l.metadata))?.id ?? null;
+}
+
 /** Le compte a-t-il au moins un espace où l'abonnement est ouvert ? (brancher, carte du tableau de bord) */
 export async function abonnementOuvertCompte(db: DbTenants, hubUserId: string): Promise<boolean> {
   const lignes = await db.tenant.findMany({ where: { userId: hubUserId, deletedAt: null }, select: { id: true, metadata: true } } as never);
@@ -55,8 +82,12 @@ export function capaciteAtelier(env: NodeJS.ProcessEnv = process.env): number {
   return Number.isInteger(n) && n >= 0 ? n : 1;
 }
 
-export async function appelerAtelier(chemin: string, corps: object, opts: { env?: NodeJS.ProcessEnv; signal?: AbortSignal } = {}): Promise<Response> {
-  const c = config(opts.env);
+export async function appelerAtelier(
+  chemin: string,
+  corps: object,
+  opts: { env?: NodeJS.ProcessEnv; signal?: AbortSignal; tenantId?: string } = {},
+): Promise<Response> {
+  const c = config(opts.env, opts.tenantId);
   if (!c) throw new Error('atelier_non_configure');
   const brut = JSON.stringify(corps);
   const ts = String(Date.now());

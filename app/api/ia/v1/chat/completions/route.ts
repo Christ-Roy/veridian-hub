@@ -116,7 +116,7 @@ export async function POST(req: Request) {
     async start(ctrl) {
       const w = (s: string) => ctrl.enqueue(enc.encode(s));
       w(morceau(id, { role: 'assistant', content: '' }));
-      const r = await appelerAtelier('/tour', { hubUserId: qui.hubUserId, tenantId: espace.id, sessionId: session.id, nouvelle: session.creee, message: question }).catch(() => null);
+      const r = await appelerAtelier('/tour', { hubUserId: qui.hubUserId, tenantId: espace.id, sessionId: session.id, nouvelle: session.creee, message: question }, { tenantId: espace.id }).catch(() => null);
       let outils = 0;
       let refusees = 0;
       let jetons: number | null = null;
@@ -129,7 +129,7 @@ export async function POST(req: Request) {
           else if (e.type === 'approbation') {
             // Pas de fenêtre de confirmation dans le chat natif : toute écriture est refusée (lecture seule).
             refusees += 1;
-            await appelerAtelier('/approbation', { hubUserId: qui.hubUserId, id: e.id, ok: false }).catch(() => null);
+            await appelerAtelier('/approbation', { hubUserId: qui.hubUserId, id: e.id, ok: false }, { tenantId: espace.id }).catch(() => null);
           } else if (e.type === 'erreur') w(morceau(id, { content: `\n(l'assistant s'est interrompu : ${e.code})` }));
           else if (e.type === 'fin') jetons = e.jetons ?? null;
         }
