@@ -19,6 +19,13 @@ export const APPS_CHAT = ['academy', 'crm', 'notifuse', 'prospection', 'analytic
 export const estAppChat = (v: unknown): v is (typeof APPS_CHAT)[number] =>
   typeof v === 'string' && (APPS_CHAT as readonly string[]).includes(v);
 
+/**
+ * Apps dont le chat est la fenêtre du Hub (/ia/chat). Le CRM n'en est plus : il a son chat natif, servi par le
+ * fournisseur « Veridian » (/api/ia/v1), et le plugin Assistant 0.2.0 a retiré sa page iframe (23/11). Son
+ * interrupteur (APPS_CHAT) reste : le chat natif le lit.
+ */
+export const estAppFenetre = (v: unknown): v is Exclude<(typeof APPS_CHAT)[number], 'crm'> => estAppChat(v) && v !== 'crm';
+
 type Db = Pick<PrismaClient, 'iaBranchement' | 'iaActivation' | 'iaSession'>;
 
 /** Ce que le navigateur peut voir d'un branchement : jamais la clé, seulement sa fin. */

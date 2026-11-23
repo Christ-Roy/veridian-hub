@@ -70,8 +70,8 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   « Ajouter à Claude… » : `/dashboard/ia` au Hub, et dans chaque app par `GET /api/mcp/liens-installation?app=<cle>`
   (public ; une origine de lien nouvelle s'annonce aux apps, Twenty les filtre).
 - **Mon IA** (VER-203, `docs/MON-IA.md`) : clé chiffrée, interrupteur allumé d'office, éteignable par app.
-  Clé d'un compte : `hub ia brancher <email> --fournisseur <f> --depuis <VARIABLE de ~/credentials>`. CRM : espace
-  trouvé par l'origine de l'hôte ; épreuve `pnpm tsx scripts/epreuve-fils-crm.ts <origine>`. Atelier : rise, `cni/atelier`.
+  Clé d'un compte : `hub ia brancher <email> --fournisseur <f> --depuis <VARIABLE de ~/credentials>`. CRM : chat natif de
+  Twenty, fournisseur « Veridian » (`/api/ia/v1`), sans fenêtre au Hub. Ateliers : un par tenant, rise.
 - **Garde rapide** : `__tests__/contrat/` (révocation sans `iat`, `authAt`, cibles du rebond, origines) ; tout nouvel
   `encode(` de JWT de session s'y ajoute. Détail : `docs/PARCOURS-IDENTITE.md`.
 - **Sonde de prod** : « Sonde identité » de `hub-ci.yml` (lecture seule) ; le cron de reconcile alerte au-dessus de

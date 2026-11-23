@@ -51,8 +51,6 @@ export function tourAbonnement(o: {
   email: string;
   hubUserId: string;
   tenantId: string;
-  workspaceId?: string | null;
-  origine?: string | null;
   sessionId: string;
   nouvelle: boolean;
   messages: UIMessage[];
@@ -98,7 +96,7 @@ export function tourAbonnement(o: {
       });
     },
     onEnd: async ({ messages }) => {
-      await ecrireFil(o.app, { sessionId: o.sessionId, hubUserId: o.hubUserId, tenantId: o.tenantId, workspaceId: o.workspaceId, origine: o.origine, messages });
+      await ecrireFil(o.app, { sessionId: o.sessionId, hubUserId: o.hubUserId, tenantId: o.tenantId, messages });
     },
   });
   return createUIMessageStreamResponse({ stream });
