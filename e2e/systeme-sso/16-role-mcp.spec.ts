@@ -121,15 +121,17 @@ cas('twenty', 'porte MCP : un membre à rôle restreint ne lit pas les société
     // Remise en état, quoi qu'il arrive : registre du staging, membre retiré de l'espace, compte Twenty désactivé.
     // Un nettoyage refusé est un échec du cas (il laisse un compte ou un registre ouvert), sauf s'il masquerait l'échec premier.
     const ratees: string[] = [];
-    const lire = async (nom: string, r: Promise<{ status: number; text?: () => Promise<string> } | null>) => {
+    // remove-member rend toujours 200 : c'est `removed` qui dit le retrait (suppression douce, la fiche reste, l'accès est coupé).
+    const lire = async (nom: string, r: Promise<Response>, ok: (statut: number, corps: string) => boolean) => {
       const rep = await r.catch((e: Error) => ({ status: 0, text: async () => e.message }));
-      if (!rep || rep.status >= 300 || rep.status === 0) ratees.push(`${nom} : HTTP ${rep?.status ?? '?'} ${rep?.text ? (await rep.text()).slice(0, 120) : ''}`);
+      const corps = await rep.text().catch(() => '');
+      if (!ok(rep.status, corps)) ratees.push(`${nom} : HTTP ${rep.status} ${corps.slice(0, 120)}`);
     };
     const posee: Promise<unknown> = avant ? poser(avant.acces) : admin('DELETE', 'mcp-apps?app_key=twenty').then((r) => { if (r.status >= 300) throw new Error(`HTTP ${r.status}`); });
     await posee.catch((e: Error) => ratees.push(`registre MCP du staging : ${e.message}`));
     if (attache) {
-      await lire('remove-member', appelTwenty('POST', `/api/tenants/${TENANT_CRM}/remove-member`, { email: B.email }));
-      await lire('users/sync (deleted)', appelTwenty('POST', '/api/hub/users/sync', { hub_user_id: B.hubUserId, deleted: true }));
+      await lire('remove-member', appelTwenty('POST', `/api/tenants/${TENANT_CRM}/remove-member`, { email: B.email }), (st, c) => st === 200 && /"removed":\s*true/.test(c));
+      await lire('users/sync (deleted)', appelTwenty('POST', '/api/hub/users/sync', { hub_user_id: B.hubUserId, deleted: true }), (st, c) => st < 300 || (st === 404 && c.includes('user_not_in_app')));
     }
     if (ratees.length && !echec) throw new Error(`nettoyage incomplet : ${ratees.join(' ; ')}`);
     if (ratees.length) console.error('nettoyage incomplet', ratees.join(' ; '));
