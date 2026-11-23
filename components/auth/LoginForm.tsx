@@ -75,6 +75,11 @@ export function LoginForm({
         setIsSubmitting(false);
         return;
       }
+      if (pre.status === 429) {
+        setError('Trop d’essais récents. Patientez quelques minutes, ou utilisez « Mot de passe oublié ».');
+        setIsSubmitting(false);
+        return;
+      }
       if (!pre.ok) {
         setError('Connexion impossible pour le moment. Réessayez dans un instant.');
         setIsSubmitting(false);

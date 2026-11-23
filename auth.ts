@@ -4,10 +4,9 @@
 // NE PAS importer ce fichier depuis le middleware edge — utiliser auth.config.ts
 // à la place.
 
-import NextAuth from 'next-auth';
+import NextAuth, { CredentialsSignin } from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
 import { PrismaAdapter } from '@auth/prisma-adapter';
-import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 
 import { prisma } from '@/lib/prisma';
@@ -22,6 +21,12 @@ import { buildGoogleOneTapProvider } from '@/lib/auth/google-one-tap-provider';
 import { createOauthEventLogger } from '@/lib/auth/oauth-event-log';
 import { impersonationExpiree } from '@/lib/auth/impersonation';
 import { normaliserEmail } from '@/lib/auth/email-normalize';
+import { verifierMotDePasse } from '@/lib/auth/plafond-compte';
+
+/** Trop d'échecs récents sur ce compte : le formulaire reçoit `code=rate_limited`, jamais « mot de passe faux ». */
+class CompteRalenti extends CredentialsSignin {
+  code = 'rate_limited';
+}
 
 const credentialsSchema = z.object({
   email: z.string().email(),
@@ -129,7 +134,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
         email: { label: 'Email', type: 'email' },
         password: { label: 'Password', type: 'password' },
       },
-      async authorize(credentials) {
+      async authorize(credentials, request) {
         // D6 : même forme que la base (minuscules, sans espaces) : « Robert@X.com » se connecte.
         const parsed = credentialsSchema.safeParse({
           ...credentials,
@@ -146,27 +151,18 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
           include: { accounts: true },
         });
 
-        // Legacy bridge : si le user n'existe pas dans hub_app.users, on ne
-        // tente PAS de re-fetch dans Supabase. Le flow CredentialsProvider ne
-        // gère que les users déjà migrés vers Auth.js. Les autres passent par
-        // l'ancien flow Supabase Auth (inchangé).
-        if (!user) {
-          return null;
-        }
-
-        // Trouver un account "credentials" avec password hash stocké dans
-        // access_token (simple bridge, pas un vrai token OAuth).
-        // Note : type inféré depuis user.accounts (include actif). En CI Prisma 7
-        // le re-export de types peut être incomplet selon le résolveur, on utilise
-        // une annotation type-safe minimale via typeof.
-        type AccountLike = typeof user.accounts[number];
-        const credsAccount = user.accounts.find((a: AccountLike) => a.provider === 'credentials');
-        if (!credsAccount?.access_token) {
-          return null;
-        }
-
-        const ok = await bcrypt.compare(password, credsAccount.access_token);
-        if (!ok) {
+        // Mot de passe : hash bcrypt dans access_token du compte « credentials » (pas un vrai jeton OAuth). Un compte
+        // absent est compté et refusé pareil : la réponse ne dit pas s'il existe.
+        type AccountLike = NonNullable<typeof user>['accounts'][number];
+        const credsAccount = user?.accounts.find((a: AccountLike) => a.provider === 'credentials');
+        const verdict = await verifierMotDePasse({
+          email,
+          password,
+          headers: request.headers,
+          lireHash: async () => credsAccount?.access_token ?? null,
+        });
+        if (verdict.etat === 'ralenti') throw new CompteRalenti();
+        if (!user || verdict.etat !== 'ok') {
           return null;
         }
 

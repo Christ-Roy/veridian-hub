@@ -28,7 +28,7 @@
 
 import { isIP } from 'node:net';
 
-import { extractClientIp } from '@/lib/auth/rate-limit';
+import { ipClient } from '@/lib/auth/ip-client';
 
 /** Site Rybbit du tunnel : veridian.site. Surchargé par `ANALYTICS_TRACK_SITE_ID`. */
 const SITE_PROD = '2';
@@ -116,7 +116,7 @@ export async function trackGoal(
     if (!siteId) return; // hors prod sans site explicite : rien ne part
     // Ingestion serveur de confiance (clé ingest:write) : Rybbit prend l'IP et le navigateur du visiteur au
     // lieu de ceux du Hub. Sans elle, l'appel vient d'OVH et Rybbit le classe robot (mesuré le 09/11).
-    const ipLue = input.request ? extractClientIp(input.request.headers as Headers) : '';
+    const ipLue = input.request ? ipClient(input.request.headers as Headers) : '';
     const ip = isIP(ipLue) ? ipLue : undefined; // Rybbit refuse tout l'événement sur une IP invalide
     const ua = input.request?.headers.get('user-agent') || undefined;
     const cle = process.env.ANALYTICS_TRACK_KEY;

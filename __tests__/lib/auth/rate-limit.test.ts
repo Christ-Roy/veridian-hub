@@ -5,7 +5,7 @@
  *  - cap respecté (N requêtes OK, N+1 = bloquée)
  *  - fenêtre glissante (les hits anciens sortent du compte)
  *  - retryAfterSeconds positif et cohérent
- *  - extractClientIp priorité cf-connecting-ip → x-real-ip → dernier X-Forwarded-For → 'unknown' (D4)
+ *  - extractClientIp : la clé ne dépend d'aucun en-tête écrit par l'appelant (D4)
  *  - constructor refuse les valeurs invalides
  *  - shouldBypassRateLimit : triple garde-fou anti-fuite prod
  */
@@ -113,53 +113,15 @@ describe('RateLimiter', () => {
   });
 });
 
-describe('extractClientIp', () => {
-  const make = (headers: Record<string, string>) => new Headers(headers);
-
-  // D4 : le premier élément de X-Forwarded-For est écrit par le client. Un en-tête forgé
-  // ne doit jamais choisir la clé du limiteur.
-  it('D4 : cf-connecting-ip (posé par Cloudflare) gagne sur un X-Forwarded-For forgé', () => {
-    expect(
-      extractClientIp(make({ 'cf-connecting-ip': '1.1.1.1', 'x-forwarded-for': '9.9.9.9, 1.1.1.1' }))
-    ).toBe('1.1.1.1');
-  });
-
-  it('D4 : 6 requêtes à X-Forwarded-For différents mais même cf-connecting-ip partagent un bucket', () => {
+describe('extractClientIp (clé des limiteurs, détail : ip-client.test.ts)', () => {
+  it('D4 : des en-têtes forgés par un appelant direct ne changent pas sa clé', () => {
     const rl = new RateLimiter({ capacity: 5, windowMs: 60_000, name: 'd4' });
     let last = { ok: true } as { ok: boolean };
     for (let i = 0; i < 6; i++) {
-      const ip = extractClientIp(
-        make({ 'cf-connecting-ip': '1.1.1.1', 'x-forwarded-for': `10.0.0.${i}, 1.1.1.1` })
-      );
-      last = rl.enforce(ip);
+      // cf-connecting-ip : celui que l'appelant écrit ; X-Forwarded-For : ce que Traefik transmet (pair TCP seul).
+      last = rl.enforce(extractClientIp(new Headers({ 'cf-connecting-ip': `9.9.9.${i}`, 'x-real-ip': `8.8.8.${i}`, 'x-forwarded-for': '1.1.1.1' })));
     }
     expect(last.ok).toBe(false);
-  });
-
-  it('D4 : sans cf-connecting-ip, x-real-ip avant X-Forwarded-For', () => {
-    expect(
-      extractClientIp(make({ 'x-real-ip': '5.6.7.8', 'x-forwarded-for': '9.9.9.9' }))
-    ).toBe('5.6.7.8');
-  });
-
-  it('D4 : sans en-tête fiable, dernier élément de X-Forwarded-For, jamais le premier', () => {
-    expect(extractClientIp(make({ 'x-forwarded-for': '9.9.9.9, 1.2.3.4' }))).toBe('1.2.3.4');
-  });
-
-  it('trim les espaces autour des IPs', () => {
-    expect(extractClientIp(make({ 'cf-connecting-ip': '  1.2.3.4 ' }))).toBe('1.2.3.4');
-  });
-
-  it('fallback x-real-ip si cf-connecting-ip absent', () => {
-    expect(extractClientIp(make({ 'x-real-ip': '5.6.7.8' }))).toBe('5.6.7.8');
-  });
-
-  it('retourne "unknown" si aucun header', () => {
-    expect(extractClientIp(make({}))).toBe('unknown');
-  });
-
-  it('retourne "unknown" si x-forwarded-for vide', () => {
-    expect(extractClientIp(make({ 'x-forwarded-for': '' }))).toBe('unknown');
   });
 });
 

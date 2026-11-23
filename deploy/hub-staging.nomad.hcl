@@ -200,6 +200,7 @@ HOSTNAME=0.0.0.0
 NEXT_TELEMETRY_DISABLED=1
 AUTH_TRUST_HOST=true
 DEPLOY_ENV=staging
+CRM_RETRAIT_FUSIBLE=0
 OAUTH_TEST_PROVIDER=true
 ADMIN_EMAILS=brunon5robert@gmail.com,robert.brunon@veridian.site
 

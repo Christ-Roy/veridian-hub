@@ -183,7 +183,7 @@ function secretTwenty(): string {
   throw new NonAbouti(`${nom} introuvable dans ~/credentials/.all-creds.env`);
 }
 
-async function appelTwenty(methode: 'POST' | 'DELETE', chemin: string, corps?: unknown): Promise<Response> {
+export async function appelTwenty(methode: 'POST' | 'DELETE', chemin: string, corps?: unknown): Promise<Response> {
   const body = corps === undefined ? '' : JSON.stringify(corps);
   const ts = Date.now().toString();
   const signature = createHmac('sha256', secretTwenty()).update(`${ts}.${body}`).digest('hex');

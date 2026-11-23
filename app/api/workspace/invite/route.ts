@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { randomBytes } from 'crypto';
 
 import { auth } from '@/auth';
+import { isEmailProvenForSession } from '@/lib/auth/email-proof';
+import { RateLimiter } from '@/lib/auth/rate-limit';
 import { prisma } from '@/lib/prisma';
 import { sendMail } from '@/lib/email/send';
 import { buildInvitationEmail } from '@/lib/email/templates/invitation';
@@ -11,6 +13,13 @@ import type { WorkspaceRole } from '@/types/workspace';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
+
+/**
+ * Cette route envoie un mail de Veridian à une adresse libre (23/11) : bornes par invitant, et par adresse visée
+ * quel que soit l'invitant.
+ */
+const invitationsParInvitant = new RateLimiter({ capacity: 20, windowMs: 60 * 60_000, name: 'workspace-invite' });
+const invitationsParAdresse = new RateLimiter({ capacity: 4, windowMs: 60 * 60_000, name: 'workspace-invite-adresse' });
 
 const InviteSchema = z.object({
   workspaceId: z.string().min(1),
@@ -24,6 +33,11 @@ export async function POST(request: Request) {
 
   if (!sessionUser?.id) {
     return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+  }
+
+  // Un compte à l'adresse non prouvée n'envoie pas de mail au nom de Veridian.
+  if (!(await isEmailProvenForSession(sessionUser.id))) {
+    return NextResponse.json({ error: 'Adresse email non prouvée' }, { status: 403 });
   }
 
   let body: unknown;
@@ -49,6 +63,15 @@ export async function POST(request: Request) {
   });
   if (!actor || !canInviteMembers(actor.role as WorkspaceRole)) {
     return NextResponse.json({ error: 'Droits insuffisants' }, { status: 403 });
+  }
+
+  for (const r of [invitationsParInvitant.enforce(sessionUser.id), invitationsParAdresse.enforce(email.trim().toLowerCase())]) {
+    if (!r.ok) {
+      return NextResponse.json(
+        { error: 'Trop d’invitations envoyées. Réessayez plus tard.' },
+        { status: 429, headers: { 'Retry-After': String(r.retryAfterSeconds) } },
+      );
+    }
   }
 
   // 2. Vérifier que l'email n'est pas déjà membre.

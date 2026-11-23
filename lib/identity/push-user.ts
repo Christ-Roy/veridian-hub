@@ -14,6 +14,7 @@
 
 import { createHmac } from 'node:crypto';
 
+import { fusibleCrmActif, noterRetraitRetenu, verdictRetraitCrm } from '@/lib/apps/retrait-crm';
 import { configuredSyncApps, readAppSecret, readAppUrl } from '@/lib/sync/discovery';
 import type { SyncApp } from '@/lib/sync/types';
 
@@ -28,7 +29,8 @@ export type UserPush = {
   revokeSessions?: boolean;
 };
 
-export type PushOutcome = 'ok' | 'not_in_app' | 'endpoint_missing' | 'failed' | 'not_configured';
+/** `held` : retrait du CRM retenu par le fusible (lib/apps/retrait-crm.ts), à rejouer. */
+export type PushOutcome = 'ok' | 'not_in_app' | 'endpoint_missing' | 'failed' | 'not_configured' | 'held';
 
 async function pushToApp(app: SyncApp, push: UserPush, fetchImpl: typeof fetch): Promise<PushOutcome> {
   const url = readAppUrl(app);
@@ -81,6 +83,16 @@ async function pushWithRetries(
   fetchImpl: typeof fetch,
   delaysMs: readonly number[],
 ): Promise<PushOutcome> {
+  // Fusible (23/11) : un retrait au CRM ne part que si la personne n'est plus dans aucun espace vivant.
+  if (app === 'crm' && push.deleted && fusibleCrmActif()) {
+    const v = await verdictRetraitCrm(push.hubUserId, { fetchImpl });
+    if (!v.propager) {
+      // L'accès se coupe quand même : sessions révoquées, sans retirer l'appartenance.
+      await pushToApp(app, { hubUserId: push.hubUserId, revokeSessions: true }, fetchImpl);
+      await noterRetraitRetenu(push.hubUserId, v);
+      return 'held';
+    }
+  }
   let outcome = await pushToApp(app, push, fetchImpl);
   if (!push.deleted && !push.revokeSessions) return outcome;
   for (const delay of delaysMs) {
@@ -105,7 +117,7 @@ export async function pushUserToApps(
   console.log(
     JSON.stringify({
       tag: '[identity-push]',
-      level: outcomes.includes('failed') ? 'warn' : 'info',
+      level: outcomes.includes('failed') || outcomes.includes('held') ? 'warn' : 'info',
       hub_user_id: push.hubUserId,
       fields: Object.keys(push).filter((k) => k !== 'hubUserId'),
       result,
