@@ -107,7 +107,8 @@ export async function DELETE(request: NextRequest) {
     await prisma.user.delete({ where: { id: user.id } });
     actions.push('Deleted auth user');
     if (user.supabaseUserId) {
-      await pushUserToApps({ hubUserId: user.supabaseUserId, deleted: true });
+      const propage = await pushUserToApps({ hubUserId: user.supabaseUserId, deleted: true });
+      if (propage.crm === 'held') actions.push('⚠️ CRM : retrait en attente (espace vivant ou illisible), sessions coupées ; à rejouer par `hub crm-retraits` après le correctif du CRM');
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';

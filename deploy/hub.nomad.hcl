@@ -256,6 +256,8 @@ ACADEMY_API_URL=https://academy.app.veridian.site
 ATELIER_PAR_TENANT_FICHIER=/local/ateliers
 # Abonnement ouvert par tenant (hub ia atelier ouvrir) ; plafond de tenants ouverts, 1 faute d'isolation par processus.
 ATELIER_CAPACITE=2
+# Fusible du retrait au CRM (23/11, VER-203) : 1 = retenir tant que le correctif du CRM n'est pas servi ; 0 = propager (lib/apps/retrait-crm.ts).
+CRM_RETRAIT_FUSIBLE=1
 {{ with nomadVar "nomad/jobs/hub" }}
 # Base du Hub : pg-saas (grappe Patroni, entree 172.26.64.1:15432, base hub, role hub). Migration du 09/11/2026 (plan §21).
 # DATABASE_URL composee depuis HUB_DATABASE_* (defauts = pg-saas) : une bascule change une cle, pas ce fichier.

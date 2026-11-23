@@ -1759,6 +1759,12 @@ Pour transférer l'ownership, utiliser §5.16 (transfer-owner).
 pour audit + restauration éventuelle), bloque ses accès en lecture/écriture
 côté app. Sa data (leads créés, emails envoyés) reste attachée au tenant.
 
+> **Fusible du retrait au CRM (23/11, VER-203).** Le retrait d'un membre laissait dans Twenty une fiche sans
+> appartenance, et l'espace ne chargeait plus pour les autres. Tant que le correctif du CRM n'est pas servi, le Hub
+> n'envoie `users/sync { deleted }` au CRM que si la personne n'est dans aucun espace vivant (`lib/apps/retrait-crm.ts`,
+> doute = retenu) : sessions coupées, audit `crm.retrait.attente`, alerte Telegram. Levée : `CRM_RETRAIT_FUSIBLE=0`
+> dans `deploy/hub.nomad.hcl`, puis `hub crm-retraits` (liste, `--rejouer <hub_user_id>`).
+
 ### 5.20 Restauration d'un membre
 
 Si l'admin Hub a retiré un membre par erreur :
