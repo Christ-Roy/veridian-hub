@@ -18,13 +18,14 @@ vi.mock('@/lib/mfa', () => ({
 
 import { POST } from '@/app/api/auth/mfa/start/route';
 import { mfaStep1CookieName } from '@/lib/auth/mfa-step1';
+import { ECHECS_MAX, nomCookieAppareil, plafondCompte } from '@/lib/auth/plafond-compte';
 
 let ip = 0;
 function req(body: unknown) {
   ip += 1;
   return new Request('http://localhost/api/auth/mfa/start', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-real-ip': `10.77.0.${ip}` },
+    headers: { 'content-type': 'application/json', 'x-forwarded-for': `203.0.113.${ip % 250}`, 'cf-connecting-ip': `9.9.${ip}.1` },
     body: JSON.stringify(body),
   });
 }
@@ -36,6 +37,7 @@ beforeAll(() => {
 });
 beforeEach(() => {
   issueMock.mockClear();
+  plafondCompte.reset();
 });
 
 describe('POST /api/auth/mfa/start (D3)', () => {
@@ -71,5 +73,25 @@ describe('POST /api/auth/mfa/start (D3)', () => {
     expect(cookie).toContain(`${mfaStep1CookieName(false)}=`);
     expect(cookie).toContain('HttpOnly');
     expect(cookie).not.toContain('authjs.session-token');
+  });
+
+  it('plafond par compte : échecs depuis des IP différentes, puis 429 même avec le bon mot de passe, et aucun code envoyé', async () => {
+    findUniqueMock.mockResolvedValue({
+      id: 'u4', email: 'cible@b.fr', mfaEnabled: true, accounts: [{ provider: 'credentials', access_token: HASH }],
+    });
+    for (let i = 0; i < ECHECS_MAX; i++) expect((await POST(req({ email: 'cible@b.fr', password: 'faux-motdepasse' }))).status).toBe(401);
+    const r = await POST(req({ email: 'cible@b.fr', password: 'motdepasse1' }));
+    expect(r.status).toBe(429);
+    expect(Number(r.headers.get('Retry-After'))).toBeGreaterThan(0);
+    expect(issueMock).not.toHaveBeenCalled();
+  });
+
+  it('entrée réussie : le navigateur devient connu de ce compte ; jamais sur un échec ni avant le code MFA', async () => {
+    const compte = (mfaEnabled: boolean) => ({ id: 'u5', email: 'c@b.fr', mfaEnabled, accounts: [{ provider: 'credentials', access_token: HASH }] });
+    findUniqueMock.mockResolvedValue(compte(false));
+    expect((await POST(req({ email: 'c@b.fr', password: 'motdepasse1' }))).headers.get('set-cookie') ?? '').toContain(`${nomCookieAppareil()}=`);
+    expect((await POST(req({ email: 'c@b.fr', password: 'faux-motdepasse' }))).headers.get('set-cookie') ?? '').not.toContain(nomCookieAppareil());
+    findUniqueMock.mockResolvedValue(compte(true));
+    expect((await POST(req({ email: 'c@b.fr', password: 'motdepasse1' }))).headers.get('set-cookie') ?? '').not.toContain(nomCookieAppareil());
   });
 });

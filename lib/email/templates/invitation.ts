@@ -1,12 +1,16 @@
 // Template email invitation workspace — P1.5
 
-export function buildInvitationEmail(params: {
+import { escapeHtml } from '@/lib/email/templates/cross-app-invitation';
+
+export function buildInvitationEmail(brut: {
   inviterName: string;
   workspaceName: string;
   role: string;
   inviteUrl: string;
   expiresAt: Date;
 }): string {
+  // Le nom de l'espace et de l'invitant sont choisis par un utilisateur : jamais de HTML à lui dans un mail de Veridian (23/11).
+  const params = { ...brut, inviterName: escapeHtml(brut.inviterName), workspaceName: escapeHtml(brut.workspaceName), role: escapeHtml(brut.role) };
   const expiresFormatted = params.expiresAt.toLocaleDateString('fr-FR', {
     day: 'numeric',
     month: 'long',

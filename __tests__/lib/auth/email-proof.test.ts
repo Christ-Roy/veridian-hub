@@ -14,6 +14,8 @@ import {
   consumeEmailProof,
   EMAIL_PROOF_IDENTIFIER_PREFIX,
   issueEmailProof,
+  preuvesParAdresse,
+  preuvesParCompte,
   providerProvesEmail,
 } from '@/lib/auth/email-proof';
 
@@ -148,6 +150,8 @@ describe('lien de preuve par mail', () => {
   const user = { id: 'u1', email: EMAIL };
   let send: ReturnType<typeof vi.fn>;
   beforeEach(() => {
+    preuvesParCompte.reset();
+    preuvesParAdresse.reset();
     send = vi.fn(async () => undefined);
   });
 
@@ -170,6 +174,24 @@ describe('lien de preuve par mail', () => {
     await issueEmailProof(p as never, user, send as never);
     expect(await issueEmailProof(p as never, user, send as never)).toBe(false);
     expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('un compte qui alterne deux adresses ne bombarde pas : 5 mails par heure, et le dernier lien reste valable', async () => {
+    const user = { emailVerified: null, email: 'a@exemple.fr' };
+    const p = fakePrisma(user);
+    let partis = 0;
+    for (let i = 0; i < 20; i++) {
+      user.email = i % 2 ? 'b@exemple.fr' : 'a@exemple.fr';
+      if (await issueEmailProof(p as never, { id: 'u1', email: user.email }, vi.fn())) partis += 1;
+    }
+    expect(partis).toBe(5);
+    expect(p.tokens.size, 'le lien déjà reçu n\'est pas effacé par un refus').toBe(1);
+  });
+
+  it('plusieurs comptes ne bombardent pas la même adresse : 4 mails par heure', async () => {
+    const send = vi.fn();
+    for (let i = 0; i < 10; i++) await issueEmailProof(fakePrisma({ emailVerified: null }) as never, { id: `compte-${i}`, email: 'Cible@Exemple.fr' }, send);
+    expect(send).toHaveBeenCalledTimes(4);
   });
 
   it('prouve le compte de la session qui présente le lien', async () => {

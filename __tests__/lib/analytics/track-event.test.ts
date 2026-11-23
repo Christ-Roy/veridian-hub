@@ -92,7 +92,7 @@ describe('lib/analytics/track-event', () => {
       process.env.ANALYTICS_TRACK_KEY = 'cle-ingest';
       const fetchImpl = ok();
       await trackGoal(
-        { userEmail: 'a@b.c', goal: 'signup', sessionId: 's', request: req({ 'x-real-ip': '90.61.12.34', 'user-agent': 'Mozilla/5.0 Visiteur' }) },
+        { userEmail: 'a@b.c', goal: 'signup', sessionId: 's', request: req({ 'x-forwarded-for': '90.61.12.34, 172.70.1.2', 'user-agent': 'Mozilla/5.0 Visiteur' }) },
         { fetchImpl: fetchImpl as never, logger: silencieux },
       );
       const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
@@ -109,7 +109,7 @@ describe('lib/analytics/track-event', () => {
     it('sans clé : ni Bearer ni IP transmise (Rybbit les ignorerait)', async () => {
       process.env.DEPLOY_ENV = 'prod';
       const fetchImpl = ok();
-      await trackGoal({ userEmail: 'a@b.c', goal: 'signup', sessionId: 's', request: req({ 'x-real-ip': '90.61.12.34' }) }, { fetchImpl: fetchImpl as never, logger: silencieux });
+      await trackGoal({ userEmail: 'a@b.c', goal: 'signup', sessionId: 's', request: req({ 'x-forwarded-for': '90.61.12.34, 172.70.1.2' }) }, { fetchImpl: fetchImpl as never, logger: silencieux });
       const [, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
       expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
       expect(JSON.parse(String(init.body))).not.toHaveProperty('ip_address');

@@ -29,6 +29,7 @@ import { prisma } from '@/lib/prisma';
 import { sendMail } from '@/lib/email/send';
 import { getURL } from '@/utils/helpers';
 import { PASSWORD_MAX, PASSWORD_MIN } from '@/lib/auth/password-policy';
+import { poserAppareil } from '@/lib/auth/plafond-compte';
 import { extractClientIp } from '@/lib/auth/rate-limit';
 import {
   resetRequestIpLimiter,
@@ -255,5 +256,8 @@ async function handleConsume(data: { token: string; password: string }): Promise
   const { appsEnEchec } = await revokeAllSessions(prisma, user);
 
   // Token consommé : supprimé plus haut, avant l'écriture du mot de passe (D11).
-  return NextResponse.json({ ok: true, apps_failed: appsEnEchec });
+  // Sortie de secours d'un compte sous attaque : ce navigateur a prouvé la boîte, il a son couloir.
+  const res = NextResponse.json({ ok: true, apps_failed: appsEnEchec });
+  poserAppareil(res, user.email);
+  return res;
 }

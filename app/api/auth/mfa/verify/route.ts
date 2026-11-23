@@ -12,19 +12,18 @@ import { z } from 'zod';
 import { authConfig } from '@/auth.config';
 import { prisma } from '@/lib/prisma';
 import { verifyMfaCode } from '@/lib/mfa';
-import { RateLimiter } from '@/lib/auth/rate-limit';
+import { PlafondEchecs, poserAppareil } from '@/lib/auth/plafond-compte';
 import { lireEtapeUn, mfaStep1CookieName, verifierEtapeUn } from '@/lib/auth/mfa-step1';
 import { secureCookiesEnabled, sessionCookieName } from '@/lib/auth/impersonation';
 import { safeCallback } from '@/lib/auth/safe-callback';
 
 export const dynamic = 'force-dynamic';
 
-/** Essais de code par utilisateur : 5 par fenêtre de 10 minutes (durée de validité du code). */
-const essaisParUtilisateur = new RateLimiter({
-  capacity: 5,
-  windowMs: 10 * 60 * 1000,
-  name: 'mfa-verify',
-});
+/**
+ * Codes faux par utilisateur, quelle que soit l'IP : 5 par 10 minutes (durée de validité du code). Un essai refusé ne
+ * prolonge plus le blocage (23/11) ; une réussite rend sa place.
+ */
+const essaisParUtilisateur = new PlafondEchecs(5, 10 * 60 * 1000);
 
 const bodySchema = z.object({
   code: z.string().regex(/^\d{6}$/),
@@ -43,7 +42,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: 'mfa_step1_required' }, { status: 401 });
   }
 
-  const essai = essaisParUtilisateur.enforce(uid);
+  const essai = essaisParUtilisateur.reserver(uid);
   if (!essai.ok) {
     return NextResponse.json(
       { ok: false, error: 'too_many_attempts' },
@@ -60,6 +59,7 @@ export async function POST(request: Request) {
   if (!codeValide) {
     return NextResponse.json({ ok: false, error: 'invalid_code' }, { status: 401 });
   }
+  essai.rendre();
 
   const user = await prisma.user.findUnique({
     where: { id: uid },
@@ -92,6 +92,7 @@ export async function POST(request: Request) {
     path: '/',
     maxAge: authConfig.session.maxAge,
   });
+  poserAppareil(res, user.email);
   res.cookies.set(mfaStep1CookieName(secure), '', {
     httpOnly: true,
     secure,

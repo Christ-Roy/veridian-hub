@@ -40,7 +40,7 @@ const GARDES: Array<[invariant: string, fichier: string, titre: string]> = [
   ['récent : routes protégées', '__tests__/lib/auth/recent-auth-routes.test.ts', ''],
   ['reset : jeton haché et à usage unique', '__tests__/api/auth/reset-password.test.ts', ''],
   ['signup : doublon et limiteur', '__tests__/api/auth/signup.test.ts', ''],
-  ['IP client : cf-connecting-ip', '__tests__/lib/auth/rate-limit.test.ts', 'cf-connecting-ip'],
+  ['IP client : non choisie par l\'appelant', '__tests__/lib/auth/ip-client.test.ts', 'forgé'],
 ];
 
 describe('index des gardes d\'identité', () => {

@@ -31,6 +31,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { sendMail } from '@/lib/email/send';
 import { renderEmailProofEmail } from '@/lib/email/templates/email-proof';
+import { RateLimiter } from '@/lib/auth/rate-limit';
 import { prisma as defaultPrisma } from '@/lib/prisma';
 import { getURL } from '@/utils/helpers';
 
@@ -42,6 +43,12 @@ export const EMAIL_PROOF_IDENTIFIER_PREFIX = 'email-proof:';
 export const EMAIL_PROOF_TTL_HOURS = 48;
 /** Un seul mail par compte sur cette fenêtre : pas de bombardement d'une boîte. */
 const RESEND_COOLDOWN_MS = 10 * 60 * 1000;
+/**
+ * Le délai ci-dessus tient au couple compte et adresse : un compte qui alterne deux adresses (réglages) effaçait le jeton
+ * de l'une en demandant l'autre, et bombardait les deux. Bornes par compte et par adresse visée, quelle que soit l'IP (23/11).
+ */
+export const preuvesParCompte = new RateLimiter({ capacity: 5, windowMs: 60 * 60_000, name: 'preuve-compte' });
+export const preuvesParAdresse = new RateLimiter({ capacity: 4, windowMs: 60 * 60_000, name: 'preuve-adresse' });
 
 type ProofPrisma = Pick<PrismaClient, 'user' | 'verificationToken' | 'account'>;
 
@@ -82,6 +89,12 @@ export async function issueEmailProof(
     select: { token: true },
   });
   if (recent) return false;
+  // Avant d'effacer les jetons : le lien déjà reçu reste valable. Le compte d'abord, pour qu'un tiers n'use pas le
+  // plafond d'une adresse qu'il n'a plus le droit de viser.
+  if (!preuvesParCompte.enforce(user.id).ok || !preuvesParAdresse.enforce(hashToken(user.email.trim().toLowerCase())).ok) {
+    console.warn(JSON.stringify({ tag: '[email-proof-ratelimit]', level: 'warn', user_id: user.id, ts: new Date().toISOString() }));
+    return false;
+  }
 
   // Un seul jeton vivant par compte : celui de l'adresse courante remplace aussi ceux
   // des adresses précédentes.

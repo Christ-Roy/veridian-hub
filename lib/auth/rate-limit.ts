@@ -19,6 +19,8 @@
 
 import { timingSafeEqual } from 'node:crypto';
 
+import { cleIp } from '@/lib/auth/ip-client';
+
 export type RateLimitResult =
   | { ok: true; remaining: number; resetAt: number }
   | { ok: false; remaining: 0; resetAt: number; retryAfterSeconds: number };
@@ -162,28 +164,8 @@ export class RateLimiter {
   }
 }
 
-/**
- * Extrait l'IP du caller (clé des limiteurs).
- *
- * Ordre : `cf-connecting-ip` (posé par Cloudflare, qui écrase toute valeur envoyée par le
- * client), puis `x-real-ip`, puis le DERNIER élément de `x-forwarded-for`.
- *
- * Jamais le premier élément de `X-Forwarded-For` : c'est celui que l'appelant écrit lui-même.
- * Avec le premier, un en-tête forgé changeait de clé à chaque requête et vidait le limiteur
- * (D4 : `credentialsLoginLimiter`, `signupLimiter`, reset...).
- */
-export function extractClientIp(headers: Headers): string {
-  const cf = headers.get('cf-connecting-ip')?.trim();
-  if (cf) return cf;
-  const realIp = headers.get('x-real-ip')?.trim();
-  if (realIp) return realIp;
-  const xff = headers.get('x-forwarded-for');
-  if (xff) {
-    const last = xff.split(',').pop()?.trim();
-    if (last) return last;
-  }
-  return 'unknown';
-}
+/** Clé d'un limiteur par appelant : son IPv4, ou le /64 de son IPv6. Non choisie par lui (lib/auth/ip-client.ts). */
+export const extractClientIp = cleIp;
 
 /**
  * Bypass rate-limit pour les tests E2E staging — STRICTEMENT staging.

@@ -9,13 +9,13 @@
 // cookie d'étape 1 ne peut pas être posé depuis ce callback.
 
 import { NextResponse } from 'next/server';
-import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 
 import { prisma } from '@/lib/prisma';
 import { issueAndSendMfaCode, MfaRateLimitError } from '@/lib/mfa';
 import { credentialsLoginIpLimiter, extractClientIp } from '@/lib/auth/rate-limit';
 import { normaliserEmail } from '@/lib/auth/email-normalize';
+import { poserAppareil, verifierMotDePasse } from '@/lib/auth/plafond-compte';
 import { mfaStep1CookieName, MFA_STEP1_TTL_S, signerEtapeUn } from '@/lib/auth/mfa-step1';
 import { secureCookiesEnabled } from '@/lib/auth/impersonation';
 
@@ -48,14 +48,27 @@ export async function POST(request: Request) {
     include: { accounts: true },
   });
   const cred = user?.accounts.find((a) => a.provider === 'credentials');
-  const motDePasseValide =
-    !!user && !!cred?.access_token && (await bcrypt.compare(parsed.data.password, cred.access_token));
-  if (!user || !motDePasseValide) {
+  // Plafond par compte, partagé avec authorize (auth.ts) : cette porte n'avait que celui de l'IP (23/11).
+  const verdict = await verifierMotDePasse({
+    email,
+    password: parsed.data.password,
+    headers: request.headers,
+    lireHash: async () => cred?.access_token ?? null,
+  });
+  if (verdict.etat === 'ralenti') {
+    return NextResponse.json(
+      { ok: false, error: 'rate_limited' },
+      { status: 429, headers: { 'Retry-After': String(verdict.retryAfterSeconds) } },
+    );
+  }
+  if (!user || verdict.etat !== 'ok') {
     return NextResponse.json({ ok: false, error: 'invalid_credentials' }, { status: 401 });
   }
 
   if (!user.mfaEnabled) {
-    return NextResponse.json({ ok: true, mfa: false });
+    const entree = NextResponse.json({ ok: true, mfa: false });
+    poserAppareil(entree, email);
+    return entree;
   }
 
   try {
