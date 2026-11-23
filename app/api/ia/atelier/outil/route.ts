@@ -23,5 +23,17 @@ export async function POST(req: NextRequest) {
   if (d.nom === 'executer_outil') args.espace = a.t.tenantId;
   const r = await traiter(prisma, a.qui, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: d.nom, arguments: args } });
   const res = (r?.result ?? {}) as { content?: { text?: string }[]; isError?: boolean };
-  return NextResponse.json({ texte: (res.content ?? []).map((c) => c.text ?? '').join('\n'), erreur: res.isError === true });
+  const texte = (res.content ?? []).map((c) => c.text ?? '').join('\n');
+  // Ce que l'outil a rendu, jamais le contenu (23/11 : un tour a « lu » le CRM sans rien en tirer, et rien ne disait
+  // pourquoi). L'app visée par executer_outil, l'erreur et la taille suffisent à diagnostiquer.
+  console.log(JSON.stringify({
+    tag: '[ia][outil]',
+    nom: d.nom,
+    app: typeof args.app === 'string' ? args.app : null,
+    erreur: res.isError === true || Boolean(r?.error),
+    code_rpc: (r?.error as { code?: number } | undefined)?.code ?? null,
+    taille: texte.length,
+    session: a.t.sessionId,
+  }));
+  return NextResponse.json({ texte, erreur: res.isError === true });
 }
