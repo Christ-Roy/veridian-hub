@@ -15,8 +15,7 @@ import { code, parcourir } from './source';
 
 /** Lues par le code, volontairement absentes du job de prod : chacune dit pourquoi. */
 const FACULTATIVES: Record<string, string> = {
-  IA_FOURNISSEUR_CLE: 'fournisseur « Veridian » du chat natif de Twenty : sans elle, fermé (503 fournisseur_non_configure)',
-  IA_IDENTITE_SECRET: 'fournisseur « Veridian » du chat natif de Twenty : sans elle, fermé (503 fournisseur_non_configure)',
+  IA_IDENTITE_SECRET: "Variable partagée veridian/ia-identite (secret) ; sans elle, fournisseur fermé (503)",
   // ── Manque réel, à câbler (08/11) ──
   // ── Reste du moteur G2 arrêté ──
   ANALYTICS_ADMIN_KEY: 'client admin du moteur G2 (panneau admin Analytics) : aucune route équivalente dans Rybbit',

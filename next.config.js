@@ -68,10 +68,11 @@ const nextConfig = {
       {
         // L'Assistant Veridian (docs/MON-IA.md) s'affiche dans les apps, et seulement elles : les sites
         // clients (<nom>.veridian.site) ne sont pas des apps et ne peuvent pas l'encadrer (une page
-        // hostile ferait cliquer « Autoriser » à l'insu de l'utilisateur).
+        // hostile ferait cliquer « Autoriser » à l'insu de l'utilisateur). Plus les espaces du CRM
+        // (*.crm.app.veridian.site) : il a son chat natif depuis le 23/11.
         source: '/ia/chat',
         headers: [
-          { key: 'Content-Security-Policy', value: "frame-ancestors 'self' https://*.app.veridian.site https://*.crm.app.veridian.site" },
+          { key: 'Content-Security-Policy', value: "frame-ancestors 'self' https://*.app.veridian.site" },
         ],
       },
     ];

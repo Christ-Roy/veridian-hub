@@ -51,8 +51,6 @@ export function tourAbonnement(o: {
   email: string;
   hubUserId: string;
   tenantId: string;
-  workspaceId?: string | null;
-  origine?: string | null;
   sessionId: string;
   nouvelle: boolean;
   messages: UIMessage[];
@@ -62,7 +60,7 @@ export function tourAbonnement(o: {
     originalMessages: o.messages,
     execute: async ({ writer }) => {
       writer.write({ type: 'start', messageMetadata: { sessionId: o.sessionId } });
-      const r = await appelerAtelier('/tour', { hubUserId: o.hubUserId, tenantId: o.tenantId, sessionId: o.sessionId, nouvelle: o.nouvelle, message: question }).catch(() => null);
+      const r = await appelerAtelier('/tour', { hubUserId: o.hubUserId, tenantId: o.tenantId, sessionId: o.sessionId, nouvelle: o.nouvelle, message: question }, { tenantId: o.tenantId }).catch(() => null);
       if (!r?.ok || !r.body) {
         writer.write({ type: 'error', errorText: 'atelier_injoignable' });
         return;
@@ -98,7 +96,7 @@ export function tourAbonnement(o: {
       });
     },
     onEnd: async ({ messages }) => {
-      await ecrireFil(o.app, { sessionId: o.sessionId, hubUserId: o.hubUserId, tenantId: o.tenantId, workspaceId: o.workspaceId, origine: o.origine, messages });
+      await ecrireFil(o.app, { sessionId: o.sessionId, hubUserId: o.hubUserId, tenantId: o.tenantId, messages });
     },
   });
   return createUIMessageStreamResponse({ stream });

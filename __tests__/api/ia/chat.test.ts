@@ -13,7 +13,6 @@ const m = vi.hoisted(() => ({
   moteur: vi.fn(),
   streamText: vi.fn(),
   audit: vi.fn(),
-  verdict: vi.fn(),
   atelierOuvert: vi.fn(),
   minute: { enforce: vi.fn(() => ({ ok: true })) },
   jour: { enforce: vi.fn(() => ({ ok: true })) },
@@ -39,10 +38,6 @@ vi.mock('@/lib/ia/atelier', async (orig) => ({
   ...(await orig<typeof import('@/lib/ia/atelier')>()),
   atelierOuvertPourTenant: (...a: unknown[]) => m.atelierOuvert(...a),
 }));
-vi.mock('@/lib/ia/espace-crm', async (orig) => ({
-  ...(await orig<typeof import('@/lib/ia/espace-crm')>()),
-  verifierEspaceCrm: (...a: unknown[]) => m.verdict(...a),
-}));
 
 import { POST } from '@/app/api/ia/chat/route';
 
@@ -60,7 +55,6 @@ beforeEach(() => {
   m.cle.mockResolvedValue({ fournisseur: 'anthropic', modele: 'm', cle: 'sk-ant-api03-SECRET-0123456789abcdef' });
   m.minute.enforce.mockReturnValue({ ok: true });
   m.moteur.mockResolvedValue('cle-api');
-  m.verdict.mockResolvedValue('ok');
 });
 
 describe('POST /api/ia/chat : gardes', () => {
@@ -80,28 +74,14 @@ describe('POST /api/ia/chat : gardes', () => {
     expect(m.streamText).not.toHaveBeenCalled();
   });
 
-  it('CRM : l\'espace se résout par le workspace Twenty, jamais par le seul dire du navigateur', async () => {
-    m.espace.mockResolvedValue(null);
-    const ws = '11111111-1111-4111-8111-111111111111';
-    const r = await POST(req({ app: 'crm', workspaceId: ws, origine: 'https://acme.crm.app.veridian.site', messages: question.messages }));
-    expect(r.status).toBe(404);
-    expect(m.espace).toHaveBeenCalledWith('robert', undefined, { app: 'crm', workspaceId: ws });
+  it('CRM : plus de fenêtre au Hub (chat natif depuis le 23/11) : 400, ni espace cherché ni fournisseur appelé', async () => {
+    const r = await POST(req({ app: 'crm', workspaceId: '38627be0-428f-4924-aa67-4a35884ba7b4', messages: question.messages }));
+    expect(r.status).toBe(400);
+    expect(m.espace).not.toHaveBeenCalled();
     expect(m.streamText).not.toHaveBeenCalled();
   });
 
-  it('menace 8 : CRM, origine qui n\'est pas l\'espace de ce workspace : 403 journalisé, ni question ni fil', async () => {
-    const ws = '38627be0-428f-4924-aa67-4a35884ba7b4';
-    m.espace.mockResolvedValue({ id: 't1', slug: 'robert', workspaceId: ws });
-    m.verdict.mockResolvedValue('origine_etrangere');
-    const r = await POST(req({ app: 'crm', workspaceId: ws, origine: 'https://pirate.crm.app.veridian.site', messages: question.messages }));
-    expect(r.status).toBe(403);
-    expect(await r.json()).toMatchObject({ error: 'espace_hote_refuse' });
-    expect(m.verdict).toHaveBeenCalledWith('https://pirate.crm.app.veridian.site', ws, 'robert');
-    expect(m.streamText).not.toHaveBeenCalled();
-    expect(JSON.stringify(m.audit.mock.calls)).toContain('origine_etrangere');
-  });
-
-  it('menace 8 : une autre origine que le Hub (page d\'un espace CRM, même site) : 403 avant toute lecture', async () => {
+  it('une autre origine que le Hub (page d\'une app, même site) : 403 avant toute lecture', async () => {
     const croisee = new NextRequest('https://app.veridian.site/api/ia/chat', { method: 'POST', body: JSON.stringify(question) });
     // L'environnement de test filtre Origin d'une Request : on la pose comme le ferait le navigateur.
     Object.defineProperty(croisee, 'headers', { value: new Headers({ origin: 'https://pirate.crm.app.veridian.site', 'sec-fetch-site': 'same-site' }) });
@@ -109,14 +89,12 @@ describe('POST /api/ia/chat : gardes', () => {
     expect(m.contexte).not.toHaveBeenCalled();
   });
 
-  it('SSO-like (Robert, 23/11) : un nouvel utilisateur branche son IA, ouvre le CRM, obtient une réponse sans rien toucher', async () => {
+  it('SSO-like (Robert, 23/11) : un nouvel utilisateur branche son IA, ouvre une app, obtient une réponse sans rien toucher', async () => {
     // La vraie règle d'activation, sur une base sans aucune ligne d'interrupteur.
     const vrai = await vi.importActual<typeof import('@/lib/ia/branchements')>('@/lib/ia/branchements');
     m.active.mockImplementation((_db: unknown, t: unknown) => vrai.estActive({ iaActivation: { findUnique: async () => null } } as never, t as never));
-    const ws = '38627be0-428f-4924-aa67-4a35884ba7b4';
-    m.espace.mockResolvedValue({ id: 't1', slug: 'robert', workspaceId: ws });
     m.streamText.mockReturnValue({ toUIMessageStreamResponse: () => new Response('ok') });
-    const r = await POST(req({ app: 'crm', workspaceId: ws, origine: 'https://veridian-4.crm.app.veridian.site', messages: question.messages }));
+    const r = await POST(req(question));
     expect(r.status).toBe(200);
     expect(m.streamText).toHaveBeenCalledTimes(1);
   });

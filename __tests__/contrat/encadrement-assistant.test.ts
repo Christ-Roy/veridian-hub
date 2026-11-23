@@ -21,6 +21,12 @@ describe('encadrement du Hub', () => {
     expect(chat?.headers.some((h) => h.key === 'X-Frame-Options')).toBe(false);
   });
 
+  it('/ia/chat : plus aucun espace du CRM (chat natif depuis le 23/11, le plugin n\'encadre plus la fenêtre)', async () => {
+    const regles: Regle[] = await config.headers();
+    const csp = regles.find((r) => r.source === '/ia/chat')?.headers.find((h) => h.key === 'Content-Security-Policy')?.value ?? '';
+    expect(csp).not.toContain('crm.app.veridian.site');
+  });
+
   it('tout le reste garde SAMEORIGIN et frame-ancestors self, /ia/chat exclu de cette règle seulement', async () => {
     const regles: Regle[] = await config.headers();
     const generale = regles.find((r) => r.headers.some((h) => h.key === 'X-Frame-Options'));

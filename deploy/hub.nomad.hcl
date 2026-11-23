@@ -37,6 +37,12 @@ variable "image_tag" {
   default     = "v0.5.35"
 }
 
+# Tenants dont l'abonnement a son propre atelier (8 premiers caractères hexadécimaux du tenant_id). Décision A, 23/11.
+# 8fa7e09d : tenant de test (compte +preprod de Robert), D1 ; 359b76d5 : Robert, D3 (dossier migré à froid par l'infra).
+locals {
+  ateliers = ["8fa7e09d", "359b76d5"]
+}
+
 job "hub" {
   datacenters = ["veridian-eu"]
   type        = "service"
@@ -245,11 +251,11 @@ NEXT_PUBLIC_ANALYTICS_URL=https://analytics.app.veridian.site
 CRM_API_URL=https://crm.app.veridian.site
 # Academy (e-learning) : même contrat que le CRM, app réservée aux comptes activés (Robert, 22/11).
 ACADEMY_API_URL=https://academy.app.veridian.site
-# Atelier « Mon IA » (moteur abonnement) : comptes autorisés, Robert seul tant qu'Anthropic n'a pas confirmé par
-# écrit (docs/MON-IA.md). Son adresse est lue dans local/atelier-url (template à part, sans redémarrage du Hub).
-ATELIER_URL_FICHIER=/local/atelier-url
+# Ateliers « Mon IA » (moteur abonnement, docs/MON-IA.md) : un par tenant ouvert, adresses lues dans local/ateliers
+# (template à part, sans redémarrage du Hub).
+ATELIER_PAR_TENANT_FICHIER=/local/ateliers
 # Abonnement ouvert par tenant (hub ia atelier ouvrir) ; plafond de tenants ouverts, 1 faute d'isolation par processus.
-ATELIER_CAPACITE=1
+ATELIER_CAPACITE=2
 {{ with nomadVar "nomad/jobs/hub" }}
 # Base du Hub : pg-saas (grappe Patroni, entree 172.26.64.1:15432, base hub, role hub). Migration du 09/11/2026 (plan §21).
 # DATABASE_URL composee depuis HUB_DATABASE_* (defauts = pg-saas) : une bascule change une cle, pas ce fichier.
@@ -276,8 +282,6 @@ VAULT_ENC_KEY={{ .VAULT_ENC_KEY }}
 {{ with nomadVar "nomad/jobs/hub/stack" }}CRM_HUB_API_SECRET={{ .CRM_HUB_API_SECRET }}{{ end }}
 {{ with .ACADEMY_HUB_API_SECRET }}ACADEMY_HUB_API_SECRET={{ .Value }}{{ end }}
 {{ with .ATELIER_SECRET }}ATELIER_SECRET={{ .Value }}{{ end }}
-{{ with .IA_FOURNISSEUR_CLE }}IA_FOURNISSEUR_CLE={{ .Value }}{{ end }}
-{{ with .IA_IDENTITE_SECRET }}IA_IDENTITE_SECRET={{ .Value }}{{ end }}
 SESSION_HINT_SECRET={{ .SESSION_HINT_SECRET }}
 GOOGLE_OAUTH_CLIENT_ID={{ .GOOGLE_OAUTH_CLIENT_ID }}
 GOOGLE_OAUTH_CLIENT_SECRET={{ .GOOGLE_OAUTH_CLIENT_SECRET }}
@@ -306,13 +310,17 @@ ANALYTICS_HUB_API_SECRET={{ .ANALYTICS_HUB_API_SECRET }}
 BREVO_API_KEY={{ .BREVO_API_KEY }}
 NEXT_PUBLIC_GTM_ID={{ .GTM_ID_APP_VERIDIAN }}
 {{ end }}
+{{/* Fournisseur « Veridian » du chat natif de Twenty : Variable partagée avec le CRM (infra, ACL lecture hub/crm). */}}
+{{ with nomadVar "veridian/ia-identite" }}IA_IDENTITE_SECRET={{ .secret }}
+IA_FOURNISSEUR_CLE={{ .cle_instance }}{{ end }}
 EOH
       }
-      # Adresse de l'atelier, relue à chaque appel : un redéploiement de l'atelier ne relance jamais le Hub.
+      # Ateliers par tenant (décision A) : « hub-atelier-<t8> http://adresse:port » par ligne, relu à chaque appel
+      # (un redéploiement d'un atelier ne relance jamais le Hub).
       template {
-        destination = "local/atelier-url"
+        destination = "local/ateliers"
         change_mode = "noop"
-        data        = "{{ range nomadService \"hub-atelier\" }}http://{{ .Address }}:{{ .Port }}{{ end }}"
+        data        = "{{ range nomadServices }}{{ if .Name | regexMatch \"^hub-atelier-[0-9a-f]{8}$\" }}{{ $n := .Name }}{{ range nomadService .Name }}{{ $n }} http://{{ .Address }}:{{ .Port }}\n{{ end }}{{ end }}{{ end }}"
       }
       resources {
         cpu        = 500
@@ -323,196 +331,204 @@ EOH
       }
     }
   }
-  # ---- atelier « Mon IA » (docs/MON-IA.md) : le binaire officiel Claude Code pour chaque client connecté avec
-  # son abonnement. Même image que le Hub, autre point d'entrée. Groupe à part : volume durable (la connexion de
-  # chaque client, rangée par le binaire, survit aux déploiements) et aucun secret du Hub dans son environnement.
-  # Le binaire n'a aucun outil intégré et ne sort que par le proxy à liste blanche (Anthropic seulement).
-  group "atelier" {
-    count = 1
+  # ---- Ateliers « Mon IA » PAR TENANT (docs/MON-IA.md ; décision A de la parente, 23/11 : jamais les jetons de deux
+  # clients dans un même conteneur, plus d'atelier commun depuis D2). Le binaire officiel Claude Code pour les clients
+  # connectés avec leur abonnement : même image que le Hub, autre point d'entrée, aucun secret du Hub, aucun outil
+  # intégré, sortie par le proxy à liste blanche (Anthropic seulement). Un groupe, un volume hôte (hub-atelier-<t8>,
+  # créé et sauvegardé par l'infra : nomad-veridian scripts/hub-ateliers.py) et un service (hub-atelier-<t8>) par
+  # tenant ouvert. Liste versionnée : local.ateliers. Ouvrir un tenant = `hub-ateliers.py ouvrir` (infra) puis
+  # l'ajouter ici ; le Hub route vers le service du tenant, jamais vers un autre.
+  dynamic "group" {
+    for_each = local.ateliers
+    labels   = ["atelier-${group.value}"]
+    content {
+      count = 1
 
-    # Sonde de sortie (ADR-033) : une allocation en échec est replacée vite, sans fin (défaut Nomad : 30 s puis
-    # tentatives bornées). Gabarit des relais mail, éprouvé sur dragonair.
-    reschedule {
-      delay          = "10s"
-      delay_function = "exponential"
-      max_delay      = "10m"
-      unlimited      = true
-    }
-
-    update {
-      max_parallel     = 1
-      min_healthy_time = "10s"
-      healthy_deadline = "5m"
-      auto_revert      = true
-    }
-
-    # Sur rise, à l'écart de la prod du Hub : le volume hub-atelier y vit (nomad-veridian
-    # nodes/volumes/hub-atelier.volume.hcl, 0700, propriétaire 1001:1001 = nextjs:nodejs).
-    constraint {
-      attribute = "${node.unique.name}"
-      value     = "veridian-rise-01"
-    }
-
-    volume "hub-atelier" {
-      type            = "host"
-      source          = "hub-atelier"
-      access_mode     = "single-node-single-writer"
-      attachment_mode = "file-system"
-    }
-
-    # Réseau CNI dédié « atelier » (pont atelier0, 172.31.250.0/24, nomad-veridian nodes/atelier/) : le pare-feu
-    # nftables veridian_atelier de rise n'y laisse sortir que DNS 1.1.1.1/9.9.9.9, le HTTPS public (Anthropic est
-    # derrière un CDN ; la liste par nom, c'est hub-atelier-proxy) et le Hub sur ses ports dynamiques ; en entrée,
-    # seuls le Hub et l'hôte (check de santé). Prouvé par l'infra le 22/11, 14 cas sur 14.
-    network {
-      mode = "cni/atelier"
-      port "atelier" {
-        to           = 3100
-        host_network = "tailscale"
+      # Sonde de sortie (ADR-033) : une allocation en échec est replacée vite, sans fin (défaut Nomad : 30 s puis
+      # tentatives bornées). Gabarit des relais mail, éprouvé sur dragonair.
+      reschedule {
+        delay          = "10s"
+        delay_function = "exponential"
+        max_delay      = "10m"
+        unlimited      = true
       }
-      # Le résolveur de rise (127.0.0.53) est injoignable depuis le conteneur, et le pare-feu n'autorise que ces deux-là.
-      dns {
-        servers = ["1.1.1.1", "9.9.9.9"]
-      }
-    }
 
-    service {
-      name     = "hub-atelier"
-      provider = "nomad"
-      port     = "atelier"
-      tags     = ["traefik.enable=false"]
-      check {
-        type     = "http"
-        path     = "/sante"
-        interval = "15s"
-        timeout  = "5s"
+      update {
+        max_parallel     = 1
+        min_healthy_time = "10s"
+        healthy_deadline = "5m"
+        auto_revert      = true
       }
-    }
 
-    task "hub-atelier" {
-      driver = "docker"
-      user   = "nextjs"
-      config {
-        image           = "ghcr.io/christ-roy/veridian-hub:${var.image_tag}"
-        init            = true
-        ports           = ["atelier"]
-        command         = "node"
-        args            = ["/opt/atelier/serveur.mjs"]
-        security_opt    = ["no-new-privileges:true"]
-        readonly_rootfs = true
-        cap_drop        = ["ALL"]
-        labels = {
-          "site.veridian.job"   = "${NOMAD_JOB_NAME}"
-          "site.veridian.group" = "${NOMAD_GROUP_NAME}"
-          "site.veridian.task"  = "${NOMAD_TASK_NAME}"
-          "site.veridian.node"  = "${node.unique.name}"
-          "site.veridian.tier"  = "saas-prod"
-          "site.veridian.app"   = "hub-atelier"
+      # Sur rise, à l'écart de la prod du Hub : le volume hub-atelier-<t8> y vit (créé par l'infra,
+      # nomad-veridian scripts/hub-ateliers.py, 0700, propriétaire 1001:1001 = nextjs:nodejs).
+      constraint {
+        attribute = "${node.unique.name}"
+        value     = "veridian-rise-01"
+      }
+
+      volume "atelier" {
+        type            = "host"
+        source          = "hub-atelier-${group.value}"
+        access_mode     = "single-node-single-writer"
+        attachment_mode = "file-system"
+      }
+
+      # Réseau CNI dédié « atelier » (pont atelier0, 172.31.250.0/24, nomad-veridian nodes/atelier/) : le pare-feu
+      # nftables veridian_atelier de rise n'y laisse sortir que DNS 1.1.1.1/9.9.9.9, le HTTPS public (Anthropic est
+      # derrière un CDN ; la liste par nom, c'est hub-atelier-proxy) et le Hub sur ses ports dynamiques ; en entrée,
+      # seuls le Hub et l'hôte (check de santé). Prouvé par l'infra le 22/11, 14 cas sur 14.
+      network {
+        mode = "cni/atelier"
+        port "atelier" {
+          to           = 3100
+          host_network = "tailscale"
         }
-        mount {
-          type     = "tmpfs"
-          target   = "/tmp"
-          readonly = false
-          tmpfs_options { size = 134217728 }
+        # Le résolveur de rise (127.0.0.53) est injoignable depuis le conteneur, et le pare-feu n'autorise que ces deux-là.
+        dns {
+          servers = ["1.1.1.1", "9.9.9.9"]
         }
       }
-      volume_mount {
-        volume      = "hub-atelier"
-        destination = "/data/atelier"
-      }
-      template {
-        destination = "secrets/atelier.env"
-        perms       = "600"
-        env         = true
-        change_mode = "restart"
-        data        = <<EOH
-NODE_ENV=production
-ATELIER_PORT=3100
-ATELIER_DONNEES=/data/atelier
-ATELIER_PROXY=http://127.0.0.1:3128
-# Fusible de capacité : un client par atelier (pas d'enfermement par processus sur nos nœuds, docs/MON-IA.md).
-ATELIER_CLIENTS_MAX=1
-ATELIER_HUB_URL_FICHIER=/local/hub-url
-{{ with nomadVar "nomad/jobs/hub" }}{{ with .ATELIER_SECRET }}ATELIER_SECRET={{ .Value }}{{ end }}{{ end }}
-EOH
-      }
-      # Adresse interne du Hub, relue à chaque appel : un déploiement du Hub ne relance pas l'atelier. Pendant un
-      # bleu-vert, deux instances : une par ligne, l'atelier prend la première qui répond.
-      template {
-        destination = "local/hub-url"
-        change_mode = "noop"
-        data        = "{{ range nomadService \"hub\" }}http://{{ .Address }}:{{ .Port }}\n{{ end }}"
-      }
-      resources {
-        cpu        = 300
-        # ~150 Mio par tour actif (binaire mesuré au repos le 22/11), 4 tours simultanés au plus (atelier/regles.mjs).
-        memory     = 256
-        memory_max = 1024
-      }
-    }
 
-    # Proxy de sortie (atelier/proxy.mjs) : seuls api.anthropic.com, claude.ai, claude.com, platform.claude.com.
-    task "hub-atelier-proxy" {
-      driver = "docker"
-      user   = "nextjs"
-      lifecycle {
-        hook    = "prestart"
-        sidecar = true
-      }
-      config {
-        image           = "ghcr.io/christ-roy/veridian-hub:${var.image_tag}"
-        init            = true
-        command         = "node"
-        args            = ["/opt/atelier/proxy.mjs"]
-        security_opt    = ["no-new-privileges:true"]
-        readonly_rootfs = true
-        cap_drop        = ["ALL"]
-        labels = {
-          "site.veridian.job"   = "${NOMAD_JOB_NAME}"
-          "site.veridian.group" = "${NOMAD_GROUP_NAME}"
-          "site.veridian.task"  = "${NOMAD_TASK_NAME}"
-          "site.veridian.node"  = "${node.unique.name}"
-          "site.veridian.tier"  = "saas-prod"
-          "site.veridian.app"   = "hub-atelier"
+      service {
+        name     = "hub-atelier-${group.value}"
+        provider = "nomad"
+        port     = "atelier"
+        tags     = ["traefik.enable=false"]
+        check {
+          type     = "http"
+          path     = "/sante"
+          interval = "15s"
+          timeout  = "5s"
         }
       }
-      resources {
-        cpu    = 50
-        memory = 64
-      }
-    }
 
-    # Sonde de sortie (ADR-033) : la sortie du réseau atelier perdue (règle CNI ou pare-feu), l'allocation échoue et
-    # Nomad la replace avec un réseau neuf. Pas de tâche planifiée. DNS sur les deux résolveurs autorisés, deux échecs
-    # consécutifs. Mêmes paramètres que les relais mail (éprouvés sur dragonair, plan/INFRA-CIBLE.md 4.1.6).
-    task "hub-atelier-sonde-sortie" {
-      driver = "docker"
-      restart {
-        attempts = 1
-        interval = "10m"
-        delay    = "5s"
-        mode     = "fail"
-      }
-      config {
-        image        = "busybox:1.36.1@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
-        command      = "sh"
-        args         = ["-c", "sleep 10; k=0; while :; do if timeout 3 nslookup -type=a one.one.one.one 1.1.1.1 >/dev/null 2>&1 || timeout 3 nslookup -type=a dns.quad9.net 9.9.9.9 >/dev/null 2>&1; then k=0; else k=$((k+1)); echo \"sortie KO ($k)\"; fi; [ $k -ge 2 ] && { echo 'sortie perdue : echec pour replanifier'; exit 1; }; sleep 5; done"]
-        security_opt = ["no-new-privileges:true"]
-        cap_drop     = ["ALL"]
-        labels = {
-          "site.veridian.job"   = "${NOMAD_JOB_NAME}"
-          "site.veridian.group" = "${NOMAD_GROUP_NAME}"
-          "site.veridian.task"  = "${NOMAD_TASK_NAME}"
-          "site.veridian.node"  = "${node.unique.name}"
-          "site.veridian.tier"  = "saas-prod"
-          "site.veridian.app"   = "hub-atelier"
+      task "hub-atelier" {
+        driver = "docker"
+        user   = "nextjs"
+        config {
+          image           = "ghcr.io/christ-roy/veridian-hub:${var.image_tag}"
+          init            = true
+          ports           = ["atelier"]
+          command         = "node"
+          args            = ["/opt/atelier/serveur.mjs"]
+          security_opt    = ["no-new-privileges:true"]
+          readonly_rootfs = true
+          cap_drop        = ["ALL"]
+          labels = {
+            "site.veridian.job"   = "${NOMAD_JOB_NAME}"
+            "site.veridian.group" = "${NOMAD_GROUP_NAME}"
+            "site.veridian.task"  = "${NOMAD_TASK_NAME}"
+            "site.veridian.node"  = "${node.unique.name}"
+            "site.veridian.tier"  = "saas-prod"
+            "site.veridian.app"   = "hub-atelier"
+          }
+          mount {
+            type     = "tmpfs"
+            target   = "/tmp"
+            readonly = false
+            tmpfs_options { size = 134217728 }
+          }
+        }
+        volume_mount {
+          volume      = "atelier"
+          destination = "/data/atelier"
+        }
+        template {
+          destination = "secrets/atelier.env"
+          perms       = "600"
+          env         = true
+          change_mode = "restart"
+          data        = <<EOH
+  NODE_ENV=production
+  ATELIER_PORT=3100
+  ATELIER_DONNEES=/data/atelier
+  ATELIER_PROXY=http://127.0.0.1:3128
+  # Fusible de capacité : un client par atelier (pas d'enfermement par processus sur nos nœuds, docs/MON-IA.md).
+  ATELIER_CLIENTS_MAX=1
+  ATELIER_HUB_URL_FICHIER=/local/hub-url
+  {{ with nomadVar "nomad/jobs/hub" }}{{ with .ATELIER_SECRET }}ATELIER_SECRET={{ .Value }}{{ end }}{{ end }}
+  EOH
+        }
+        # Adresse interne du Hub, relue à chaque appel : un déploiement du Hub ne relance pas l'atelier. Pendant un
+        # bleu-vert, deux instances : une par ligne, l'atelier prend la première qui répond.
+        template {
+          destination = "local/hub-url"
+          change_mode = "noop"
+          data        = "{{ range nomadService \"hub\" }}http://{{ .Address }}:{{ .Port }}\n{{ end }}"
+        }
+        resources {
+          cpu        = 300
+          # ~150 Mio par tour actif (binaire mesuré au repos le 22/11), 4 tours simultanés au plus (atelier/regles.mjs).
+          memory     = 256
+          memory_max = 1024
         }
       }
-      resources {
-        cpu        = 10
-        memory     = 16
-        memory_max = 32
+
+      # Proxy de sortie (atelier/proxy.mjs) : seuls api.anthropic.com, claude.ai, claude.com, platform.claude.com.
+      task "hub-atelier-proxy" {
+        driver = "docker"
+        user   = "nextjs"
+        lifecycle {
+          hook    = "prestart"
+          sidecar = true
+        }
+        config {
+          image           = "ghcr.io/christ-roy/veridian-hub:${var.image_tag}"
+          init            = true
+          command         = "node"
+          args            = ["/opt/atelier/proxy.mjs"]
+          security_opt    = ["no-new-privileges:true"]
+          readonly_rootfs = true
+          cap_drop        = ["ALL"]
+          labels = {
+            "site.veridian.job"   = "${NOMAD_JOB_NAME}"
+            "site.veridian.group" = "${NOMAD_GROUP_NAME}"
+            "site.veridian.task"  = "${NOMAD_TASK_NAME}"
+            "site.veridian.node"  = "${node.unique.name}"
+            "site.veridian.tier"  = "saas-prod"
+            "site.veridian.app"   = "hub-atelier"
+          }
+        }
+        resources {
+          cpu    = 50
+          memory = 64
+        }
+      }
+
+      # Sonde de sortie (ADR-033) : la sortie du réseau atelier perdue (règle CNI ou pare-feu), l'allocation échoue et
+      # Nomad la replace avec un réseau neuf. Pas de tâche planifiée. DNS sur les deux résolveurs autorisés, deux échecs
+      # consécutifs. Mêmes paramètres que les relais mail (éprouvés sur dragonair, plan/INFRA-CIBLE.md 4.1.6).
+      task "hub-atelier-sonde-sortie" {
+        driver = "docker"
+        restart {
+          attempts = 1
+          interval = "10m"
+          delay    = "5s"
+          mode     = "fail"
+        }
+        config {
+          image        = "busybox:1.36.1@sha256:73aaf090f3d85aa34ee199857f03fa3a95c8ede2ffd4cc2cdb5b94e566b11662"
+          command      = "sh"
+          args         = ["-c", "sleep 10; k=0; while :; do if timeout 3 nslookup -type=a one.one.one.one 1.1.1.1 >/dev/null 2>&1 || timeout 3 nslookup -type=a dns.quad9.net 9.9.9.9 >/dev/null 2>&1; then k=0; else k=$((k+1)); echo \"sortie KO ($k)\"; fi; [ $k -ge 2 ] && { echo 'sortie perdue : echec pour replanifier'; exit 1; }; sleep 5; done"]
+          security_opt = ["no-new-privileges:true"]
+          cap_drop     = ["ALL"]
+          labels = {
+            "site.veridian.job"   = "${NOMAD_JOB_NAME}"
+            "site.veridian.group" = "${NOMAD_GROUP_NAME}"
+            "site.veridian.task"  = "${NOMAD_TASK_NAME}"
+            "site.veridian.node"  = "${node.unique.name}"
+            "site.veridian.tier"  = "saas-prod"
+            "site.veridian.app"   = "hub-atelier"
+          }
+        }
+        resources {
+          cpu        = 10
+          memory     = 16
+          memory_max = 32
+        }
       }
     }
   }
+
 }

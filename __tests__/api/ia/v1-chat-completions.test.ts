@@ -115,6 +115,6 @@ describe('moteurs', () => {
     expect(texte).toContain('Vous avez 12 sociétés.');
     expect(texte).toContain('lecture seule');
     expect(texte.trim().endsWith('data: [DONE]')).toBe(true);
-    expect(m.atelier).toHaveBeenCalledWith('/approbation', { hubUserId: 'robert', id: 'a1', ok: false });
+    expect(m.atelier).toHaveBeenCalledWith('/approbation', { hubUserId: 'robert', id: 'a1', ok: false }, { tenantId: 't1' });
   });
 });

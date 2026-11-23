@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 # Typecheck avant le push : le build Next vérifie les types (scripts/ compris) et la CI tombait là, 20 minutes après
-# le push (22/11, VER-203 : scripts/epreuve-fils-crm.ts). e2e/ est exclu : ses erreurs Playwright sont anciennes et
+# le push (22/11, VER-203 : un script de scripts/ non typé). e2e/ est exclu : ses erreurs Playwright sont anciennes et
 # le build ne le lit pas. nice 19 : le bastion porte la coordination de la flotte.
 set -u
 sortie="$(nice -n 19 pnpm -s tsc --noEmit -p . 2>&1)"

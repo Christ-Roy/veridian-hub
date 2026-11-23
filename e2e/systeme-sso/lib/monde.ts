@@ -71,6 +71,9 @@ export function assurerRybbit(c: Compte) {
   ecrire(m);
   noterRybbit(c.email); // noté AVANT la création : un crash ne doit pas orpheliner le compte
   rybbitCompte('creer', c.email);
+  // Analytics reconnaît l'utilisateur par son hub_user_id (HUB_USER_ID_APPS), pas par l'adresse : un compte créé sans
+  // ce lien répond « ne connaît pas ce compte » au rebond (23/11). Le vrai parcours le pose (app-access → lierAuHub).
+  if (c.hubUserId) rybbitCompte('lier', c.email, c.hubUserId);
 }
 
 export function reconcileBase() {

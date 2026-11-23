@@ -9,12 +9,11 @@ import { NextResponse, type NextRequest } from 'next/server';
 
 import { writeAuditLog } from '@/lib/admin/audit-log';
 import { atelierOuvertPourTenant } from '@/lib/ia/atelier';
-import { cleEnClair, estActive, estAppChat, moteurActif, ouvrirSession } from '@/lib/ia/branchements';
+import { cleEnClair, estActive, estAppFenetre, moteurActif, ouvrirSession } from '@/lib/ia/branchements';
 import { tourAbonnement } from '@/lib/ia/chat-abonnement';
 import { CoffreIndisponible, masquer } from '@/lib/ia/coffre';
 import { contexteUtilisateur, espaceDe, parJour, parMinute } from '@/lib/ia/contexte';
 import { ecrireFil } from '@/lib/ia/fils';
-import { refusEspaceHote, verifierEspaceCrm } from '@/lib/ia/espace-crm';
 import { refusSiCroisee } from '@/lib/ia/requete';
 import { approbationPour, CONSIGNES, modelePour, outilsDeLaPorte, secretApprobation, TOURS_MAX } from '@/lib/ia/moteur';
 import { prisma } from '@/lib/prisma';
@@ -33,25 +32,16 @@ export async function POST(req: NextRequest) {
   const brut = await req.text();
   if (brut.length > TAILLE_MAX) return NextResponse.json({ error: 'trop_gros' }, { status: 413 });
   const corps = (() => { try { return JSON.parse(brut); } catch { return null; } })() as
-    | { app?: unknown; tenantId?: unknown; workspaceId?: unknown; origine?: unknown; sessionId?: unknown; messages?: unknown }
+    | { app?: unknown; tenantId?: unknown; sessionId?: unknown; messages?: unknown }
     | null;
-  if (!corps || !estAppChat(corps.app) || !Array.isArray(corps.messages)) {
+  // Le CRM n'a plus de fenêtre au Hub : son chat natif passe par /api/ia/v1 (23/11).
+  if (!corps || !estAppFenetre(corps.app) || !Array.isArray(corps.messages)) {
     return NextResponse.json({ error: 'requete_invalide' }, { status: 400 });
   }
   const app = corps.app;
-  const espace = await espaceDe(c.hubUserId, corps.tenantId, { app, workspaceId: corps.workspaceId });
+  const espace = await espaceDe(c.hubUserId, corps.tenantId, { app, workspaceId: null });
   if (!espace) return NextResponse.json({ error: 'espace_inconnu' }, { status: 404 });
   const triplet = { hubUserId: c.hubUserId, app, tenantId: espace.id };
-  // Où ranger le fil : l'origine de l'espace n'est retenue que si c'est un espace du CRM (lib/ia/fils.ts).
-  const ou = { workspaceId: espace.workspaceId, origine: typeof corps.origine === 'string' ? corps.origine : null };
-  // Menace 8 : le fil (donc les données lues) ne part qu'à l'espace CRM de ce workspace, vérifié auprès de son plugin.
-  if (app === 'crm') {
-    const verdict = await verifierEspaceCrm(ou.origine, espace.workspaceId ?? '', c.hubUserId);
-    if (verdict !== 'ok') {
-      await writeAuditLog(prisma, { action: 'ia.refus', actor: c.email, targetType: 'ia_chat', targetId: c.hubUserId, payload: { app, raison: verdict } });
-      return refusEspaceHote(verdict);
-    }
-  }
   if (!(await estActive(prisma, triplet))) return NextResponse.json({ error: 'chat_desactive' }, { status: 403 });
 
   for (const [lim, nom] of [[parMinute, 'minute'], [parJour, 'jour']] as const) {
@@ -76,7 +66,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (moteur === 'claude-code-abonnement') {
-    return tourAbonnement({ app, email: c.email, hubUserId: c.hubUserId, tenantId: espace.id, ...ou, sessionId: session.id, nouvelle: !demandee, messages: corps.messages as UIMessage[] });
+    return tourAbonnement({ app, email: c.email, hubUserId: c.hubUserId, tenantId: espace.id, sessionId: session.id, nouvelle: !demandee, messages: corps.messages as UIMessage[] });
   }
 
   let branche;
@@ -122,7 +112,7 @@ export async function POST(req: NextRequest) {
     messageMetadata: ({ part }) => (part.type === 'start' ? { sessionId: session.id } : undefined),
     onError: (error) => masquer(error instanceof Error ? error.message : 'erreur du fournisseur', cles),
     onEnd: async ({ messages: fil }) => {
-      const ok = await ecrireFil(app, { sessionId: session.id, hubUserId: c.hubUserId, tenantId: espace.id, ...ou, messages: fil });
+      const ok = await ecrireFil(app, { sessionId: session.id, hubUserId: c.hubUserId, tenantId: espace.id, messages: fil });
       if (!ok) console.warn(JSON.stringify({ tag: '[ia][fil]', level: 'warn', app, session: session.id, msg: "fil non rangé dans l'app" }));
     },
   });

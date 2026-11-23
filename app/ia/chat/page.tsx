@@ -1,9 +1,7 @@
 // Fenêtre de l'Assistant Veridian (docs/MON-IA.md), affichée dans une app Veridian par une iframe.
 // Seuls les hôtes des apps peuvent l'afficher (next.config.js, frame-ancestors) ; la clé et la session
 // restent sur le Hub. Le fil vit dans l'app, relu par /api/ia/fil. Avant tout affichage, le serveur vérifie que
-// l'espace est à l'utilisateur et, pour le CRM, que la page hôte est l'espace de ce workspace (menace 8).
-import { headers } from 'next/headers';
-
+// l'espace est à l'utilisateur. Le CRM n'a plus de fenêtre ici : il a son chat natif (23/11).
 import { writeAuditLog } from '@/lib/admin/audit-log';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { estAppChat } from '@/lib/ia/branchements';
@@ -15,8 +13,7 @@ export const dynamic = 'force-dynamic';
 
 export default async function ChatPage({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const p = await searchParams;
-  // L'espace : le tenant Hub (Academy) ; pour le CRM, l'origine de la page hôte (widget IFRAME à adresse figée).
-  if (!estAppChat(p.app) || (p.app !== 'crm' && !p.tenant)) return <p className="p-4 text-sm">Assistant indisponible : app ou espace manquant.</p>;
+  if (!estAppChat(p.app) || !p.tenant) return <p className="p-4 text-sm">Assistant indisponible : app ou espace manquant.</p>;
   const user = await getCurrentUser();
   if (!user?.supabaseUserId) {
     return (
@@ -28,13 +25,7 @@ export default async function ChatPage({ searchParams }: { searchParams: Promise
       </p>
     );
   }
-  const f = await autoriserFenetre({
-    app: p.app,
-    tenant: p.tenant ?? null,
-    workspace: p.workspace ?? null,
-    referer: (await headers()).get('referer'),
-    hubUserId: user.supabaseUserId,
-  });
+  const f = await autoriserFenetre({ app: p.app, tenant: p.tenant, hubUserId: user.supabaseUserId });
   if (!f.ok) {
     await writeAuditLog(prisma, { action: 'ia.refus', actor: user.email ?? 'inconnu', targetType: 'ia_chat', targetId: user.supabaseUserId, payload: { app: p.app, raison: f.refus } }).catch(() => {});
     return (
@@ -43,5 +34,5 @@ export default async function ChatPage({ searchParams }: { searchParams: Promise
       </p>
     );
   }
-  return <ChatIa app={p.app} tenantId={f.espace.id} workspaceId={f.espace.workspaceId} origine={f.origine} sessionId={p.session ?? null} />;
+  return <ChatIa app={p.app} tenantId={f.espace.id} sessionId={p.session ?? null} />;
 }
