@@ -127,7 +127,7 @@ retire `authorization`, `cookie` et `proxy-authorization`. D'où :
 - **Interrupteur** : `/dashboard/ia` le propose pour les espaces qui ont un workspace Twenty, si l'app est ouverte au
   compte (`twenty`).
 
-### Le fournisseur « Veridian » du chat natif de Twenty (contrat, 23/11, à coder)
+### Le fournisseur « Veridian » du chat natif de Twenty (contrat et code, 23/11)
 
 Robert, 23/11 : le chat d'IA natif de Twenty (« Connect your AI ») est alimenté par le Hub, pas une iframe à part.
 Mesuré par la session CRM sur Twenty v2.56.1 : il appelle un fournisseur `openai-compatible` déclaré dans

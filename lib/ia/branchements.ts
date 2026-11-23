@@ -125,3 +125,18 @@ export async function ouvrirSession(db: Db, t: Triplet, moteur: string, id?: str
   const s = await db.iaSession.create({ data: { ...t, moteur } });
   return { id: s.id };
 }
+
+/**
+ * Session d'un fil d'une app qui garde ses fils elle-même (chat natif de Twenty) : l'identifiant est dérivé par le Hub
+ * du triplet et du fil (sessionDuFil). Créée au premier appel ; reprise seulement pour ce triplet et ce moteur.
+ */
+export async function sessionDerivee(db: Db, t: Triplet, moteur: string, id: string): Promise<{ id: string; creee: boolean } | null> {
+  const s = await db.iaSession.findUnique({ where: { id } }).catch(() => null);
+  if (s) {
+    if (s.hubUserId !== t.hubUserId || s.app !== t.app || s.tenantId !== t.tenantId || s.moteur !== moteur) return null;
+    await db.iaSession.update({ where: { id }, data: { lastUsedAt: new Date() } });
+    return { id, creee: false };
+  }
+  await db.iaSession.create({ data: { id, ...t, moteur } });
+  return { id, creee: true };
+}
