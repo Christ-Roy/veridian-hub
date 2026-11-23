@@ -62,24 +62,3 @@ export async function signerPourApp(
     .setJti(randomUUID())
     .sign(cle.privee);
 }
-
-/**
- * Même identité, pour une route d'app qui n'est pas un MCP : les fils « Mon IA » rangés par le plugin du CRM
- * (lib/ia/fils.ts). `aud` = l'URL exacte appelée, 60 s, portée `ia.fils` : inutilisable ailleurs.
- */
-export async function signerPourRouteApp(
-  c: { audience: string; hubUserId: string; claims: Record<string, unknown>; ttlS?: number },
-  env: NodeJS.ProcessEnv = process.env,
-): Promise<string | null> {
-  const cle = await cleSignature(env);
-  if (!cle) return null;
-  return new SignJWT(c.claims)
-    .setProtectedHeader({ alg: 'ES256', kid: cle.kid, typ: 'JWT' })
-    .setIssuer(hubIssuer(env))
-    .setAudience(c.audience)
-    .setSubject(c.hubUserId)
-    .setIssuedAt()
-    .setExpirationTime(`${c.ttlS ?? 60}s`)
-    .setJti(randomUUID())
-    .sign(cle.privee);
-}
