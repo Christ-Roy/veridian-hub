@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 
 import { vientDeLAtelier } from '@/lib/ia/atelier';
 import { appelantPourAtelier } from '@/lib/ia/atelier-appel';
+import { presenterResultat } from '@/lib/ia/moteur';
 import { traiter } from '@/lib/mcp/porte';
 import { prisma } from '@/lib/prisma';
 
@@ -35,5 +36,5 @@ export async function POST(req: NextRequest) {
     taille: texte.length,
     session: a.t.sessionId,
   }));
-  return NextResponse.json({ texte, erreur: res.isError === true });
+  return NextResponse.json({ texte: presenterResultat(texte, res.isError === true || Boolean(r?.error)), erreur: res.isError === true || Boolean(r?.error) });
 }
