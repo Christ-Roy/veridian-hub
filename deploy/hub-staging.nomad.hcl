@@ -278,7 +278,7 @@ EOH
       template {
         destination = "local/programme"
         change_mode = "noop"
-        data        = "{{ range nomadService \"hub-staging-programme\" }}http://{{ .Address }}:{{ .Port }}\n{{ end }}"
+        data        = "http://127.0.0.1:3200\n"
       }
       resources {
         # Pic 7 j observé : 201 MiB. La réserve garde 27 % de marge.
@@ -287,58 +287,9 @@ EOH
         memory_max = 1024
       }
     }
-  }
 
-  # ---- Mode programme de la porte MCP (docs/CONTRAT-MCP.md) : le code d'un client, écrit par un modèle, tourne ici et
-  # nulle part ailleurs. `moteur` n'a PAS de réseau (network_mode none), aucun secret, rootfs en lecture seule ; chaque
-  # programme y est un processus neuf, en chroot, sous un uid réservé. `passerelle` a le réseau et ne fait que transporter :
-  # elle vérifie la signature ES256 du Hub par sa clé publique. Éprouvé par scripts/epreuve-programme.sh (exécuteur
-  # compromis : rien à lire). Loin du nœud du Hub : une boucle infinie ne lui prend rien.
-  group "programme" {
-    count = 1
-
-    update {
-      max_parallel     = 1
-      min_healthy_time = "10s"
-      healthy_deadline = "5m"
-      # Une panne du moteur n'annule pas un déploiement du Hub : l'outil dit « indisponible ».
-      health_check     = "task_states"
-      auto_revert      = false
-    }
-
-    reschedule {
-      delay          = "10s"
-      delay_function = "exponential"
-      max_delay      = "10m"
-      unlimited      = true
-    }
-
-    constraint {
-      attribute = "${node.unique.name}"
-      value     = "veridian-rise-01"
-    }
-
-    network {
-      mode = "bridge"
-      port "programme" {
-        to           = 3200
-        host_network = "tailscale"
-      }
-    }
-
-    service {
-      name     = "hub-staging-programme"
-      provider = "nomad"
-      port     = "programme"
-      tags     = ["traefik.enable=false"]
-      check {
-        type     = "http"
-        path     = "/sante"
-        interval = "15s"
-        timeout  = "5s"
-      }
-    }
-
+    # ---- Mode programme de la porte MCP (docs/CONTRAT-MCP.md) : en prod, un groupe à part sur un autre nœud. Ici dans le
+    # groupe : Sablier refuse un job à deux groupes (24/11, hub.staging en 500). Mêmes tâches : moteur sans réseau ni secret.
     task "hub-staging-programme-moteur" {
       driver = "docker"
       # root dans le conteneur, réduit à quatre capacités : entrer en chroot, changer d'uid, tuer. Sans réseau ni secret.
@@ -386,7 +337,6 @@ EOH
       config {
         image           = "ghcr.io/christ-roy/veridian-hub:${var.image_tag}"
         init            = true
-        ports           = ["programme"]
         command         = "node"
         args            = ["/opt/programme/passerelle.mjs"]
         security_opt    = ["no-new-privileges:true"]
@@ -408,7 +358,7 @@ EOH
       template {
         destination = "local/hub-url"
         change_mode = "noop"
-        data        = "{{ range nomadService \"hub-staging\" }}http://{{ .Address }}:{{ .Port }}\n{{ end }}"
+        data        = "http://127.0.0.1:3000\n"
       }
       resources {
         cpu    = 50
