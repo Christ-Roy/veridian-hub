@@ -13,6 +13,13 @@ export type OutilApp = {
 
 export class AppInjoignable extends Error {}
 
+/** L'app limite le débit (429) : rien n'a été joué, l'appel peut être refait après ce délai. */
+export class AppDebit extends AppInjoignable {
+  constructor(readonly attenteMs: number) {
+    super('HTTP 429, trop de requêtes pour cette app');
+  }
+}
+
 /** L'app vérifie l'identité du Hub mais n'a pas (encore) ce compte : `hub_user_unknown`. */
 export class CompteAbsent extends AppInjoignable {}
 
@@ -20,9 +27,28 @@ type Fetch = typeof fetch;
 const DELAI_MS = 15_000;
 const VERSION = '2025-06-18';
 
-async function lireReponse(res: Response, id: number): Promise<{ result?: unknown; error?: { message?: string } }> {
+/** Corps d'une réponse, jamais plus de `max` octets en mémoire. */
+async function lireTexte(res: Response, max?: number): Promise<string> {
+  if (!max || !res.body) return res.text();
+  const lecteur = res.body.getReader();
+  const morceaux: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await lecteur.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > max) {
+      await lecteur.cancel().catch(() => {});
+      throw new AppInjoignable(`réponse de plus de ${max} octets : demander moins de lignes ou moins de colonnes`);
+    }
+    morceaux.push(value);
+  }
+  return Buffer.concat(morceaux).toString('utf8');
+}
+
+async function lireReponse(res: Response, id: number, max?: number): Promise<{ result?: unknown; error?: { message?: string } }> {
   const type = res.headers.get('content-type') ?? '';
-  const texte = await res.text();
+  const texte = await lireTexte(res, max);
   if (type.includes('text/event-stream')) {
     for (const bloc of texte.split(/\r?\n\r?\n/)) {
       const data = bloc
@@ -55,6 +81,8 @@ export class SessionApp {
     private readonly url: string,
     private readonly jeton: string,
     private readonly fetchImpl: Fetch = fetch,
+    /** Mode programme : en-tête annoncé à l'app, taille de réponse bornée, abandon à l'échéance. */
+    private readonly options: { entetes?: Record<string, string>; maxOctets?: number; signal?: AbortSignal } = {},
   ) {}
 
   private async envoyer(corps: Record<string, unknown>): Promise<Response> {
@@ -63,10 +91,12 @@ export class SessionApp {
       Accept: 'application/json, text/event-stream',
       Authorization: `Bearer ${this.jeton}`,
       'MCP-Protocol-Version': VERSION,
+      ...this.options.entetes,
     };
+    const delai = AbortSignal.timeout(DELAI_MS);
     if (this.session) headers['Mcp-Session-Id'] = this.session;
     try {
-      return await this.fetchImpl(this.url, { method: 'POST', headers, body: JSON.stringify(corps), signal: AbortSignal.timeout(DELAI_MS) });
+      return await this.fetchImpl(this.url, { method: 'POST', headers, body: JSON.stringify(corps), signal: this.options.signal ? AbortSignal.any([delai, this.options.signal]) : delai });
     } catch (err) {
       throw new AppInjoignable(err instanceof Error ? err.message : 'réseau');
     }
@@ -83,10 +113,16 @@ export class SessionApp {
       if (corps.includes('tenant_forbidden')) throw new AppInjoignable('ce compte n\'est pas membre de cet espace dans l\'app (tenant_forbidden)');
       throw new AppInjoignable(`l'app refuse l'identité du Hub (HTTP ${res.status})`);
     }
+    if (res.status === 429) {
+      const s = Number(res.headers.get('retry-after'));
+      throw new AppDebit(Number.isFinite(s) && s > 0 ? Math.min(s * 1000, 60_000) : 2_000);
+    }
     if (!res.ok) throw new AppInjoignable(`HTTP ${res.status}`);
     const sid = res.headers.get('mcp-session-id');
     if (sid) this.session = sid;
-    const msg = await lireReponse(res, id);
+    const msg = await lireReponse(res, id, this.options.maxOctets).catch((err) => {
+      throw err instanceof AppInjoignable ? err : new AppInjoignable(err instanceof Error ? err.message : 'réseau');
+    });
     if (msg.error) throw new AppInjoignable(msg.error.message ?? 'erreur MCP');
     return msg.result;
   }

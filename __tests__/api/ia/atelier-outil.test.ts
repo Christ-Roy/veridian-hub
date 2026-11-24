@@ -43,4 +43,9 @@ describe('POST /api/ia/atelier/outil', () => {
     const params = (m.traiter.mock.calls[0][2] as { params: { arguments: Record<string, unknown> } }).params;
     expect(params.arguments.espace).toBe('t-robert');
   });
+
+  it('executer_programme n\'est pas offert à Mon IA : 400, rien joué (une conversation choisirait un autre espace)', async () => {
+    expect((await POST(req({ ...demande, nom: 'executer_programme', arguments: { code: 'return 1', espace: 't-autre' } }))).status).toBe(400);
+    expect(m.traiter).not.toHaveBeenCalled();
+  });
 });

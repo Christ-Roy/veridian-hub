@@ -32,6 +32,11 @@ export type Deps = {
   maintenant?: () => number;
   /** Création de compte par app (défaut : ceux du Hub, lib/mcp/provisionneurs.ts). */
   provisionneurs?: Record<string, Provisionneur>;
+  /** Options des sessions d'app (mode programme). */
+  session?: ConstructorParameters<typeof SessionApp>[3];
+  /** Moteur des programmes (tests) ; défaut : la passerelle. */
+  ouvrirMoteur?: import('./programme').OuvrirMoteur;
+  delaiProgrammeMs?: number;
 };
 
 /** Apps du registre ouvertes à cet utilisateur. */
@@ -81,7 +86,7 @@ export async function sessionPour(app: AppInscrite, qui: Appelant, deps: Deps = 
     scope: qui.scope,
     tenantId,
   });
-  const s = new SessionApp(app.mcpUrl, jeton, deps.fetchImpl);
+  const s = new SessionApp(app.mcpUrl, jeton, deps.fetchImpl, deps.session);
   await s.ouvrir();
   return s;
 }

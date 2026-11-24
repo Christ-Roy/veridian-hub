@@ -20,8 +20,9 @@ export async function POST(req: NextRequest) {
   const a = await appelantPourAtelier(d);
   if (!a) return NextResponse.json({ error: 'session_refusee' }, { status: 403 });
   const args = { ...(d.arguments ?? {}) };
-  // L'espace est celui de la conversation, quoi que demande le modèle.
-  if (d.nom === 'executer_outil') args.espace = a.t.tenantId;
+  // L'espace est celui de la conversation, quoi que demande le modèle, pour tout outil qui agit. executer_programme n'est
+  // pas offert à Mon IA (lecture et approbation se décident outil par outil) ; s'il l'était, il agirait dans cet espace.
+  if (d.nom !== 'chercher_outils' && d.nom !== 'decrire_outil') args.espace = a.t.tenantId;
   const r = await traiter(prisma, a.qui, { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: d.nom, arguments: args } });
   const res = (r?.result ?? {}) as { content?: { text?: string }[]; isError?: boolean };
   const texte = (res.content ?? []).map((c) => c.text ?? '').join('\n');

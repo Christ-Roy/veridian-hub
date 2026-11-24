@@ -155,6 +155,26 @@ RUN mkdir -p /opt/atelier && \
 RUN /opt/atelier/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64-musl/claude --version
 COPY atelier/regles.mjs atelier/serveur.mjs atelier/proxy.mjs /opt/atelier/
 
+# Mode programme de la porte MCP (programme/, docs/CONTRAT-MCP.md) : la PRISON où tourne le code d'un client. node, ses
+# bibliothèques, QuickJS, rien d'autre : ni shell, ni /proc, ni fichier inscriptible. Le superviseur y entre par le chroot
+# de coreutils sous un uid réservé (celui de busybox ne change pas d'utilisateur). Versions : celles de package.json.
+RUN apk add --no-cache coreutils && \
+    mkdir -p /opt/programme/prison/app && \
+    ln -s "$(readlink -f "$(command -v chroot)")" /opt/programme/chroot && \
+    /opt/programme/chroot --version | grep -q coreutils && \
+    echo '{}' > /opt/programme/prison/app/package.json && cd /opt/programme/prison/app && \
+    npm install --omit=dev --no-package-lock --ignore-scripts \
+      quickjs-emscripten-core@0.32.0 \
+      @jitl/quickjs-wasmfile-release-sync@0.32.0 && \
+    cp /usr/local/bin/node /opt/programme/prison/node && \
+    for l in $(ldd /usr/local/bin/node | grep -o '/[^ ]*' | sort -u); do mkdir -p "/opt/programme/prison$(dirname "$l")" && cp -L "$l" "/opt/programme/prison$l"; done
+COPY programme/executeur.mjs /opt/programme/prison/app/executeur.mjs
+COPY programme/superviseur.mjs programme/passerelle.mjs /opt/programme/
+# Lisible par tous, inscriptible par personne ; et la prison démarre pour de vrai, sous un uid réservé, environnement vide.
+RUN chmod -R a+rX,a-w /opt/programme && \
+    printf '%s\n' '{"t":"programme","code":"return 6*7","reprise":null}' | (cat; sleep 5) | \
+      env -i /opt/programme/chroot --userspec=20001:20001 --groups= /opt/programme/prison /node /app/executeur.mjs | grep -q '"valeur":42'
+
 # npm et corepack ne servent qu'à fabriquer les deux ensembles de dépendances
 # ci-dessus. Le runtime lance directement node et le CLI Prisma. Les retirer de
 # l'image finale réduit la surface d'attaque et supprime leurs dépendances

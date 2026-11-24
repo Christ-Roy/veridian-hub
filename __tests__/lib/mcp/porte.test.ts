@@ -10,6 +10,7 @@ import { SORTIE_MAX_CAR } from '@/lib/mcp/config';
 import { jwksPublic } from '@/lib/mcp/identite';
 import type { Appelant } from '@/lib/mcp/oauth';
 import { borner, traiter } from '@/lib/mcp/porte';
+import { oublierProgrammes, type Moteur } from '@/lib/mcp/programme';
 
 import { fausseBase, type FausseBase } from './fausse-base';
 
@@ -28,7 +29,7 @@ afterAll(() => {
   else process.env.MCP_SIGNING_JWK = ancienneCle;
 });
 
-type Recu = { auth: string; corps: any; session: string | null };
+type Recu = { auth: string; corps: any; session: string | null; entetes: Record<string, string> };
 
 /** App MCP factice : session à l'initialize, tools/list paginé en SSE, tools/call en JSON. */
 function appFactice(opts: { outils?: any[]; sortie?: string; panne?: boolean; inconnu?: () => boolean; refusEspace?: string } = {}) {
@@ -41,7 +42,7 @@ function appFactice(opts: { outils?: any[]; sortie?: string; panne?: boolean; in
     if (opts.panne) throw new Error('ECONNREFUSED');
     const corps = JSON.parse(String(init.body));
     const h = init.headers as Record<string, string>;
-    recus.push({ auth: h.Authorization, corps, session: h['Mcp-Session-Id'] ?? null });
+    recus.push({ auth: h.Authorization, corps, session: h['Mcp-Session-Id'] ?? null, entetes: h });
     if (opts.inconnu?.()) return new Response(JSON.stringify({ error: 'hub_user_unknown' }), { status: 401 });
     if (opts.refusEspace && corps.method === 'initialize' && h.Authorization) {
       const charge = JSON.parse(Buffer.from(h.Authorization.split('.')[1], 'base64url').toString());
@@ -302,5 +303,115 @@ describe('client_name dans le jeton présenté aux apps', () => {
     const f = appFactice();
     await traiter(db as never, { ...QUI, clientName: 'Claude' }, { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'executer_outil', arguments: { nom: 'analytics.visites_du_site' } } }, { fetchImpl: f.fetchImpl });
     expect(await claims(f)).toMatchObject({ client_id: 'mcpc_test', client_name: 'Claude' });
+  });
+});
+
+describe('executer_programme', () => {
+  /** Moteur factice : il demande des appels, attend leurs réponses, puis finit. L'exécuteur réel : programme.test.ts. */
+  const moteur = (appels: { nom: string; args?: unknown }[]) => async (): Promise<Moteur> => {
+    let ligne: (l: string) => void = () => {};
+    let recues = 0;
+    const fin = () => ligne(JSON.stringify({ t: 'fin', ok: true, valeur: { recues } }));
+    return {
+      surLigne: (f) => { ligne = f; },
+      surFin: () => {},
+      fermer: () => {},
+      envoyer: (m) => {
+        if (m.t === 'programme') setTimeout(() => { appels.forEach((a, i) => ligne(JSON.stringify({ t: 'appel', id: i + 1, ...a }))); if (!appels.length) fin(); }, 1);
+        else if (++recues === appels.length) fin();
+      },
+    };
+  };
+  const prog = (args: Record<string, unknown>, appels: { nom: string; args?: unknown }[], f: ReturnType<typeof appFactice>, qui: Appelant = QUI) =>
+    traiter(db as never, qui, { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'executer_programme', arguments: args } }, { fetchImpl: f.fetchImpl, ouvrirMoteur: moteur(appels) });
+  const LIRE = { nom: 'analytics.visites_du_site', args: { jours: 7, secret: 'x' } };
+  beforeEach(() => oublierProgrammes());
+
+  it('offert seulement quand le moteur est configuré ; sinon trois outils et refus', async () => {
+    const r: any = await traiter(db as never, QUI, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, { ouvrirMoteur: moteur([]) });
+    expect(r.result.tools.map((t: any) => t.name)).toEqual(['chercher_outils', 'decrire_outil', 'executer_outil', 'executer_programme']);
+    const n: any = await appel('executer_programme', { code: 'return 1' }, appFactice());
+    expect(n.result).toMatchObject({ isError: true });
+  });
+
+  it('cinquante appels : une seule session chez l\'app, l\'en-tête annoncé, la même identité', async () => {
+    const f = appFactice();
+    const r = json(await prog({ code: 'x' }, Array.from({ length: 50 }, () => LIRE), f));
+    expect(r).toMatchObject({ etat: 'termine', resultat: { recues: 50 }, appels: { faits: 50, reussis: 50 } });
+    const desAppels = f.recus.filter((x) => x.corps.method === 'tools/call');
+    expect(desAppels).toHaveLength(50);
+    expect(new Set(desAppels.map((x) => x.auth)).size).toBe(1);
+    expect(desAppels.every((x) => x.entetes['X-Veridian-MCP-Appel'] === 'programme')).toBe(true);
+    expect(await claims(f)).toMatchObject({ sub: HUB_USER, email: 'client@exemple.fr', client_id: 'mcpc_test' });
+  });
+
+  it('un appel ordinaire n\'annonce pas le mode programme', async () => {
+    const f = appFactice();
+    await appel('executer_outil', { nom: 'analytics.visites_du_site' }, f);
+    expect(f.recus.some((x) => 'X-Veridian-MCP-Appel' in x.entetes)).toBe(false);
+  });
+
+  it('inter-espaces : tous les appels dans l\'espace choisi, quoi que mette le programme dans ses arguments', async () => {
+    await db.tenant.create({ data: { id: 't2', userId: 'autre', name: 'Agence', slug: 'agence', status: 'active', createdAt: new Date() } });
+    await db.tenantMember.create({ data: { tenantId: 't2', userId: HUB_USER, role: 'admin' } });
+    const f = appFactice();
+    await prog({ code: 'x', espace: 'mon-espace' }, [{ ...LIRE, espace: 'agence', tenantId: 't2' } as never, { nom: LIRE.nom, args: { espace: 'agence', tenant_id: 't2' } }], f);
+    const signes = new Set(f.recus.filter((x) => x.corps.method === 'tools/call').map((x) => JSON.parse(Buffer.from(x.auth.split('.')[1], 'base64url').toString()).tenant_id));
+    expect(Array.from(signes)).toEqual(['t1']);
+  });
+
+  it('espace d\'un autre compte : refusé, le moteur n\'est pas ouvert', async () => {
+    await db.tenant.create({ data: { id: 't3', userId: 'autre', name: 'Pas à moi', slug: 'pas-a-moi', status: 'active', createdAt: new Date() } });
+    const f = appFactice();
+    const r: any = await prog({ code: 'x', espace: 'pas-a-moi' }, [LIRE], f);
+    expect(r.result.isError).toBe(true);
+    expect(f.recus.some((x) => x.corps.method === 'tools/call')).toBe(false);
+  });
+
+  it('journal : chaque appel avec l\'identifiant du programme, un bilan, jamais le code ni les arguments', async () => {
+    const r = json(await prog({ code: 'const SECRET_DU_CODE = 1', autoriser: ['analytics.creer_objectif'] }, [LIRE, { nom: 'analytics.creer_objectif', args: { nom: 'CONFIDENTIEL' } }], appFactice()));
+    const l = db.auditLog.lignes as any[];
+    expect(l.filter((x) => x.action === 'mcp.tool.call').map((x) => [x.payload.outil, x.payload.programme])).toEqual(expect.arrayContaining([['analytics.visites_du_site', r.programme], ['analytics.creer_objectif', r.programme]]));
+    expect(l.find((x) => x.action === 'mcp.programme').payload).toMatchObject({ programme: r.programme, etat: 'termine', appels: 2, echecs: 0, autoriser: ['analytics.creer_objectif'] });
+    expect(JSON.stringify(l)).not.toMatch(/SECRET_DU_CODE|CONFIDENTIEL|secret/);
+  });
+
+  it('sans annotation et non nommé : refusé, l\'app n\'est pas appelée', async () => {
+    const f = appFactice();
+    expect(json(await prog({ code: 'x' }, [{ nom: 'analytics.creer_objectif' }], f)).appels).toMatchObject({ faits: 1, echoues: 1 });
+    expect(f.recus.some((x) => x.corps.method === 'tools/call')).toBe(false);
+  });
+
+  it('une app non ouverte à ce compte reste fermée au programme', async () => {
+    db.tenantApp.lignes[0].enabled = false;
+    const f = appFactice();
+    expect(json(await prog({ code: 'x' }, [LIRE], f)).appels.echoues).toBe(1);
+    expect(f.recus).toHaveLength(0);
+  });
+
+  it.each([
+    ['code absent', {}], ['code vide', { code: '  ' }], ['code trop long', { code: 'x'.repeat(100_001) }],
+    ['autoriser mal formé', { code: 'x', autoriser: 'tout' }], ['autoriser trop long', { code: 'x', autoriser: Array(51).fill('a.b') }], ['reprise trop longue', { code: 'x', reprise: 'y'.repeat(3_000) }],
+  ])('%s : refusé avant de lancer', async (_n, args) => {
+    const r: any = await prog(args, [LIRE], appFactice());
+    expect(r.result.isError).toBe(true);
+  });
+
+  it('la place se libère, même après un échec ; deux comptes ne se gênent pas', async () => {
+    const f = appFactice();
+    for (let i = 0; i < 3; i++) expect(json(await prog({ code: 'x' }, [LIRE], f)).etat).toBe('termine');
+    const [a, b] = await Promise.all([prog({ code: 'x' }, [LIRE], f), prog({ code: 'x' }, [LIRE], f)]);
+    expect([a, b].filter((r: any) => r.result.isError)).toHaveLength(1);
+  });
+
+  it('réponse d\'app de plus de 1 Mo : erreur dite au programme, jamais une donnée coupée', async () => {
+    const r = json(await prog({ code: 'x' }, [LIRE], appFactice({ sortie: 'x'.repeat(1_100_000) })));
+    expect(r.appels).toMatchObject({ reussis: 0, echoues: 1 });
+  });
+
+  it('réponse de 500 000 caractères : entière pour le programme (16 000 seulement pour un appel direct)', async () => {
+    expect(json(await prog({ code: 'x' }, [LIRE], appFactice({ sortie: 'x'.repeat(500_000) }))).appels.reussis).toBe(1);
+    const d: any = await appel('executer_outil', { nom: 'analytics.visites_du_site' }, appFactice({ sortie: 'x'.repeat(500_000) }));
+    expect(d.result.content[0].text.length).toBeLessThanOrEqual(SORTIE_MAX_CAR);
   });
 });

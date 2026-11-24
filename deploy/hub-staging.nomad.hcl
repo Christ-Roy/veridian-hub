@@ -201,6 +201,7 @@ NEXT_TELEMETRY_DISABLED=1
 AUTH_TRUST_HOST=true
 DEPLOY_ENV=staging
 CRM_RETRAIT_FUSIBLE=0
+PROGRAMME_FICHIER=/local/programme
 OAUTH_TEST_PROVIDER=true
 ADMIN_EMAILS=brunon5robert@gmail.com,robert.brunon@veridian.site
 
@@ -273,11 +274,145 @@ HUB_INVITATION_SECRET_PROSPECTION={{ .HUB_INVITATION_SECRET_PROSPECTION }}
 {{ end }}
 EOH
       }
+      # Moteur des programmes (porte MCP) : adresse relue à chaque programme, un redéploiement ne relance jamais le Hub.
+      template {
+        destination = "local/programme"
+        change_mode = "noop"
+        data        = "{{ range nomadService \"hub-staging-programme\" }}http://{{ .Address }}:{{ .Port }}\n{{ end }}"
+      }
       resources {
         # Pic 7 j observé : 201 MiB. La réserve garde 27 % de marge.
         cpu        = 300
         memory     = 256
         memory_max = 1024
+      }
+    }
+  }
+
+  # ---- Mode programme de la porte MCP (docs/CONTRAT-MCP.md) : le code d'un client, écrit par un modèle, tourne ici et
+  # nulle part ailleurs. `moteur` n'a PAS de réseau (network_mode none), aucun secret, rootfs en lecture seule ; chaque
+  # programme y est un processus neuf, en chroot, sous un uid réservé. `passerelle` a le réseau et ne fait que transporter :
+  # elle vérifie la signature ES256 du Hub par sa clé publique. Éprouvé par scripts/epreuve-programme.sh (exécuteur
+  # compromis : rien à lire). Loin du nœud du Hub : une boucle infinie ne lui prend rien.
+  group "programme" {
+    count = 1
+
+    update {
+      max_parallel     = 1
+      min_healthy_time = "10s"
+      healthy_deadline = "5m"
+      # Une panne du moteur n'annule pas un déploiement du Hub : l'outil dit « indisponible ».
+      health_check     = "task_states"
+      auto_revert      = false
+    }
+
+    reschedule {
+      delay          = "10s"
+      delay_function = "exponential"
+      max_delay      = "10m"
+      unlimited      = true
+    }
+
+    constraint {
+      attribute = "${node.unique.name}"
+      value     = "veridian-rise-01"
+    }
+
+    network {
+      mode = "bridge"
+      port "programme" {
+        to           = 3200
+        host_network = "tailscale"
+      }
+    }
+
+    service {
+      name     = "hub-staging-programme"
+      provider = "nomad"
+      port     = "programme"
+      tags     = ["traefik.enable=false"]
+      check {
+        type     = "http"
+        path     = "/sante"
+        interval = "15s"
+        timeout  = "5s"
+      }
+    }
+
+    task "hub-staging-programme-moteur" {
+      driver = "docker"
+      # root dans le conteneur, réduit à quatre capacités : entrer en chroot, changer d'uid, tuer. Sans réseau ni secret.
+      user   = "root"
+      lifecycle {
+        hook    = "prestart"
+        sidecar = true
+      }
+      config {
+        image           = "ghcr.io/christ-roy/veridian-hub:${var.image_tag}"
+        init            = true
+        command         = "node"
+        args            = ["/opt/programme/superviseur.mjs"]
+        network_mode    = "none"
+        security_opt    = ["no-new-privileges:true"]
+        readonly_rootfs = true
+        cap_drop        = ["ALL"]
+        cap_add         = ["SETUID", "SETGID", "SYS_CHROOT", "KILL"]
+        pids_limit      = 256
+        ulimit {
+          nproc = "64:64"
+          fsize = "0:0"
+          core  = "0:0"
+        }
+        labels = {
+          "site.veridian.job"   = "${NOMAD_JOB_NAME}"
+          "site.veridian.group" = "${NOMAD_GROUP_NAME}"
+          "site.veridian.task"  = "${NOMAD_TASK_NAME}"
+          "site.veridian.node"  = "${node.unique.name}"
+          "site.veridian.tier"  = "saas-staging"
+          "site.veridian.app"   = "hub-programme"
+        }
+      }
+      resources {
+        cpu        = 200
+        # 4 programmes au plus, ~60 Mio chacun à vide, 64 Mo de tas QuickJS et 1 Mo par réponse.
+        memory     = 128
+        memory_max = 1024
+      }
+    }
+
+    task "hub-staging-programme-passerelle" {
+      driver = "docker"
+      user   = "nextjs"
+      config {
+        image           = "ghcr.io/christ-roy/veridian-hub:${var.image_tag}"
+        init            = true
+        ports           = ["programme"]
+        command         = "node"
+        args            = ["/opt/programme/passerelle.mjs"]
+        security_opt    = ["no-new-privileges:true"]
+        readonly_rootfs = true
+        cap_drop        = ["ALL"]
+        labels = {
+          "site.veridian.job"   = "${NOMAD_JOB_NAME}"
+          "site.veridian.group" = "${NOMAD_GROUP_NAME}"
+          "site.veridian.task"  = "${NOMAD_TASK_NAME}"
+          "site.veridian.node"  = "${node.unique.name}"
+          "site.veridian.tier"  = "saas-staging"
+          "site.veridian.app"   = "hub-programme"
+        }
+      }
+      env {
+        NODE_ENV           = "production"
+        PROGRAMME_EMETTEUR = "https://hub.staging.veridian.site"
+      }
+      template {
+        destination = "local/hub-url"
+        change_mode = "noop"
+        data        = "{{ range nomadService \"hub-staging\" }}http://{{ .Address }}:{{ .Port }}\n{{ end }}"
+      }
+      resources {
+        cpu    = 50
+        memory = 64
       }
     }
   }
