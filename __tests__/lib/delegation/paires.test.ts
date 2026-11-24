@@ -10,8 +10,12 @@ describe('registre des paires', () => {
     expect(PAIRES.map((p) => p.cle)).toEqual(['prospection>crm', 'prospection>notifuse', 'notifuse>crm', 'crm>notifuse', 'crm>prospection']);
     for (const p of PAIRES) for (const x of p.portees) expect(x).toMatch(new RegExp(`^${p.cible}:[a-z]+\\.ecrire$`));
   });
-  it('paire et paireEntre : seulement ce qui est inscrit', () => {
+  it('paire : par sa clé, sinon rien', () => {
+    expect(paire('prospection>crm')?.nature).toBe('action');
     expect(paire('crm>crm')).toBeUndefined();
+  });
+  it('paireEntre : seulement ce qui est inscrit, dans ce sens', () => {
+    expect(paireEntre('crm', 'crm')).toBeUndefined();
     expect(paireEntre('notifuse', 'prospection')).toBeUndefined();
     expect(paireEntre('prospection', 'crm')?.cle).toBe('prospection>crm');
   });

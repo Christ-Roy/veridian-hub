@@ -42,6 +42,11 @@ describe('régler', () => {
     expect((await confirmerDemande(db as never, k, 'prop', ENV)).ok, 'expiré').toBe(false);
     expect(await lireDemande(db as never, 'x', 'prop', ENV)).toBeNull();
   });
+  it('deux clics au même instant : un seul compte', async () => {
+    const j = jetonDe(await regler('adm', 'allumee'));
+    const r = await Promise.all([confirmerDemande(db as never, j, 'prop', ENV), confirmerDemande(db as never, j, 'prop', ENV)]);
+    expect(r.filter((x) => x.ok)).toHaveLength(1);
+  });
   it('un membre, un étranger, un retiré, un tenant suspendu : refus, rien d\'écrit, même pour éteindre', async () => {
     db.tenantMember.lignes.push({ tenantId: 'A', userId: 'parti', role: 'owner', deletedAt: new Date() });
     for (const u of ['mem', 'autre', 'parti']) for (const e of ['allumee', 'eteinte'] as const) expect(await regler(u, e)).toEqual({ refus: 'role_insuffisant' });

@@ -35,6 +35,11 @@ describe('POST /api/integrations/confirmer', () => {
     m.confirmer.mockResolvedValue({ ok: false });
     expect(await vers(jouer())).toEqual([303, '/liaisons/confirmer/refus']);
   });
+  it('un formulaire vide ou illisible ne confirme rien d\'autre qu\'un jeton vide, donc rien', async () => {
+    m.confirmer.mockResolvedValue({ ok: false });
+    const r = await POST(new NextRequest('https://0.0.0.0:3000/api/integrations/confirmer', { method: 'POST', body: 'x', headers: { origin: 'https://app.veridian.site', 'content-type': 'text/plain' } }));
+    expect([r.status, m.confirmer.mock.calls[0][1]]).toEqual([303, '']);
+  });
   it('depuis un autre site, sans origine, session d\'emprunt, pas connecté, connexion ancienne : rien n\'est confirmé', async () => {
     expect((await jouer('https://evil.example')).status).toBe(403);
     expect((await jouer(null)).status).toBe(403);
