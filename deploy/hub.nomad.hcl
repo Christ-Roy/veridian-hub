@@ -286,6 +286,9 @@ ADMIN_SECRET={{ .ADMIN_SECRET }}
 CRON_SECRET={{ .CRON_SECRET }}
 VAULT_ENC_KEY={{ .VAULT_ENC_KEY }}
 {{ with nomadVar "nomad/jobs/hub/stack" }}CRM_HUB_API_SECRET={{ .CRM_HUB_API_SECRET }}{{ end }}
+# Invitations demandées par Mail (POST /api/invitations/create) : perdue à la bascule Nomad, 503 en prod jusqu'au 24/11. Variable de
+# la TÂCHE hub : ni les ateliers ni le moteur des programmes ne peuvent la lire.
+{{ with nomadVar "nomad/jobs/hub/stack/hub" }}HUB_INVITATION_SECRET_NOTIFUSE={{ .HUB_INVITATION_SECRET_NOTIFUSE }}{{ end }}
 {{ with .ACADEMY_HUB_API_SECRET }}ACADEMY_HUB_API_SECRET={{ .Value }}{{ end }}
 {{ with .ATELIER_SECRET }}ATELIER_SECRET={{ .Value }}{{ end }}
 SESSION_HINT_SECRET={{ .SESSION_HINT_SECRET }}

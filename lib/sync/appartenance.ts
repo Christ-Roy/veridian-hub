@@ -49,7 +49,11 @@ export type RapportApp = {
   app: SyncApp;
   etat: 'ok' | 'non_abouti';
   raison?: string;
+  /** Ce que l'app a rendu : toujours `humains` + `exclus`, sinon le relevé n'est pas abouti. */
+  rendus: number;
   humains: number;
+  /** Écartés du relevé, chacun avec son motif : rien ne l'est en silence (24/11, un compte manquait au CRM sans être dit). */
+  exclus: { email: string; motif: string }[];
   /** Humains dont l'app n'a pas rendu les espaces : tout compte de cette app est alors un minimum. */
   nonLus: string[];
   sansEspace: number;
@@ -127,7 +131,7 @@ export function classer(app: SyncApp, lus: Lu[], hub: { users: HubUser[]; tenant
   return { espaces: liste.sort((a, b) => b.membres.length - a.membres.length || a.espace.localeCompare(b.espace)), comptes, absents, sansEspace };
 }
 
-async function humainsDe(app: SyncApp, fetchImpl: typeof fetch): Promise<{ humains: Humain[] } | { raison: string }> {
+async function humainsDe(app: SyncApp, fetchImpl: typeof fetch): Promise<{ humains: Partial<Humain>[] } | { raison: string }> {
   const url = readAppUrl(app);
   const secret = readAppSecret(app);
   if (!url || !secret) return { raison: 'app non configurée au Hub' };
@@ -138,9 +142,9 @@ async function humainsDe(app: SyncApp, fetchImpl: typeof fetch): Promise<{ humai
       signal: AbortSignal.timeout(DELAI_MS),
     });
     if (!res.ok) return { raison: `GET /api/hub/users : HTTP ${res.status}` };
-    const corps = (await res.json().catch(() => null)) as { users?: Humain[] } | null;
+    const corps = (await res.json().catch(() => null)) as { users?: Partial<Humain>[] } | null;
     if (!Array.isArray(corps?.users)) return { raison: 'GET /api/hub/users : liste illisible' };
-    return { humains: corps.users.filter((h) => typeof h?.email === 'string' && h.email) };
+    return { humains: corps.users };
   } catch {
     return { raison: 'GET /api/hub/users : injoignable' };
   }
@@ -148,12 +152,18 @@ async function humainsDe(app: SyncApp, fetchImpl: typeof fetch): Promise<{ humai
 
 export type DbAppartenance = Pick<PrismaClient, 'user' | 'tenant' | 'tenantMember'>;
 
-/** Le relevé d'une app. Les comptes de test n'y sont pas. */
+/** Le relevé d'une app. Les comptes de test en sont écartés, et nommés. */
 export async function releverAppartenance(db: DbAppartenance, app: SyncApp, fetchImpl: typeof fetch = fetch): Promise<RapportApp> {
-  const vide: RapportApp = { app, etat: 'non_abouti', humains: 0, nonLus: [], sansEspace: 0, espaces: [], comptes: { dans_les_deux: 0, jonction: 0, operateur: 0, adresse_non_prouvee: 0, inconnu: 0, espace_non_relie: 0 }, absents: 0 };
+  const vide: RapportApp = { app, etat: 'non_abouti', rendus: 0, humains: 0, exclus: [], nonLus: [], sansEspace: 0, espaces: [], comptes: { dans_les_deux: 0, jonction: 0, operateur: 0, adresse_non_prouvee: 0, inconnu: 0, espace_non_relie: 0 }, absents: 0 };
   const h = await humainsDe(app, fetchImpl);
   if ('raison' in h) return { ...vide, raison: h.raison };
-  const humains = h.humains.filter((x) => !isTestAccount(x.email));
+  const humains: Humain[] = [];
+  const exclus: RapportApp['exclus'] = [];
+  for (const x of h.humains) {
+    if (typeof x?.email !== 'string' || !x.email) exclus.push({ email: '', motif: 'sans adresse' });
+    else if (isTestAccount(x.email)) exclus.push({ email: x.email.toLowerCase(), motif: 'compte de test' });
+    else humains.push({ email: x.email, hub_user_id: x.hub_user_id });
+  }
   const [users, tenants, membres] = await Promise.all([
     db.user.findMany({ select: { supabaseUserId: true, email: true, emailVerified: true } }),
     db.tenant.findMany({ where: { deletedAt: null }, select: { id: true, userId: true, status: true, notifuseWorkspaceSlug: true, metadata: true } }),
@@ -171,6 +181,10 @@ export async function releverAppartenance(db: DbAppartenance, app: SyncApp, fetc
       }
     }),
   );
-  const classe = classer(app, lus, { users, tenants, membres });
-  return { ...vide, ...classe, humains: humains.length, nonLus, etat: nonLus.length ? 'non_abouti' : 'ok', ...(nonLus.length ? { raison: `${nonLus.length} humain(s) dont l'app n'a pas rendu les espaces` } : {}) };
+  const raisons = [
+    ...(nonLus.length ? [`${nonLus.length} humain(s) dont l'app n'a pas rendu les espaces`] : []),
+    // Autocontrôle : tout ce que l'app a rendu est relevé, écarté avec un motif, ou dit non lu.
+    ...(h.humains.length !== humains.length + exclus.length || humains.length !== lus.length + nonLus.length ? [`compte incohérent : ${h.humains.length} rendus, ${lus.length} relevés, ${nonLus.length} non lus, ${exclus.length} écartés`] : []),
+  ];
+  return { ...vide, ...classer(app, lus, { users, tenants, membres }), rendus: h.humains.length, humains: humains.length, exclus, nonLus, etat: raisons.length ? 'non_abouti' : 'ok', ...(raisons.length ? { raison: raisons.join(' ; ') } : {}) };
 }
