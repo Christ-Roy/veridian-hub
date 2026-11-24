@@ -604,6 +604,44 @@ model WebhookDedup {
   @@schema("hub_app")
 }
 
+/// Organisation réglée une fois au Hub, lue par les apps (VER-252, lib/organisations).
+model Organisation {
+  tenantId        String   @id @map("tenant_id")
+  /// individuel | organisation
+  type            String   @default("individuel")
+  nomAffiche      String?  @map("nom_affiche")
+  couleurPrimaire String?  @map("couleur_primaire")
+  couleurAccent   String?  @map("couleur_accent")
+  /// PNG réencodé par le Hub, jamais le fichier reçu.
+  logo            Bytes?
+  logoEmpreinte   String?  @map("logo_empreinte")
+  modules         String[] @default([])
+  reglages        Json     @default("{}")
+  /// Monotone : une app ignore une version plus ancienne que celle appliquée.
+  version         BigInt   @default(0)
+  empreinte       String?
+  majLe           DateTime @default(now()) @map("maj_le")
+  majPar          String?  @map("maj_par")
+
+  @@map("organisations")
+  @@schema("hub_app")
+}
+
+/// Ce que chaque app a fait de la dernière version émise, relu.
+model OrganisationEmission {
+  tenantId String   @map("tenant_id")
+  app      String
+  version  BigInt
+  /// applique | non_relu | ignore | echec
+  etat     String
+  detail   String?
+  le       DateTime @default(now())
+
+  @@id([tenantId, app])
+  @@map("organisation_emissions")
+  @@schema("hub_app")
+}
+
 model TenantMember {
   tenantId         String    @map("tenant_id")
   userId           String    @map("user_id")
