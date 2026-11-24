@@ -39,7 +39,7 @@ export const HORS_PERIMETRE: Partial<Record<SyncApp, { motif: RegExp; raison: st
   analytics: [{ motif: /^audit-ui@veridian\.site$/, raison: 'compte de l\'audit d\'interface (lecture), témoin' }],
 };
 
-function horsPerimetre(app: SyncApp | undefined, email: string): string | null {
+export function horsPerimetre(app: SyncApp | undefined, email: string): string | null {
   if (!app) return null;
   return HORS_PERIMETRE[app]?.find((h) => h.motif.test(email))?.raison ?? null;
 }

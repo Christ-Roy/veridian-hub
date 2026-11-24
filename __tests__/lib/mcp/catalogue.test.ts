@@ -3,7 +3,7 @@
 import { exportJWK, generateKeyPair } from 'jose';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { appsDe, catalogue, espacesDe, sessionPour, viderCache, type Db } from '@/lib/mcp/catalogue';
+import { appsDe, catalogue, espacesDe, sessionPour, tousEspaces, viderCache, type Db } from '@/lib/mcp/catalogue';
 
 beforeAll(async () => {
   const { privateKey } = await generateKeyPair('ES256', { extractable: true });
@@ -23,12 +23,24 @@ describe('appsDe et espacesDe', () => {
   });
 
   it('un propriétaire aussi inscrit comme membre ne voit son espace qu\'une fois, en propriétaire', async () => {
-    const t = { id: 't1', name: 'Un', slug: 'un' };
+    const t = { id: 't1', name: 'Un', slug: 'un', status: 'active' };
     const db = {
       tenant: { findMany: async ({ where }: { where: { userId?: string } }) => (where.userId ? [t] : []) },
       tenantMember: { findMany: async () => [{ tenantId: 't1', role: 'member' }] },
     } as unknown as Db;
     expect(await espacesDe(db, 'u')).toEqual([{ id: 't1', nom: 'Un', slug: 'un', role: 'proprietaire' }]);
+  });
+});
+
+describe('tousEspaces', () => {
+  it('un suspendu se dit à part ; un membre retiré, un tenant supprimé : nulle part', async () => {
+    const tenants = [{ id: 'a', name: 'A', slug: 'a', status: 'active' }, { id: 'p', name: 'P', slug: 'p', status: 'pending' }, { id: 's', name: 'S', slug: 's', status: 'suspended' }, { id: 'd', name: 'D', slug: 'd', status: 'deleted' }];
+    const db = { tenant: { findMany: async ({ where }: { where: { userId?: string } }) => (where.userId ? tenants : []) }, tenantMember: { findMany: async ({ where }: { where: { deletedAt: null } }) => { expect(where.deletedAt).toBeNull(); return []; } } } as unknown as Db;
+    const r = await tousEspaces(db, 'u');
+    expect(r.vivants.map((e) => e.id)).toEqual(['a', 'p']);
+    expect(r.suspendus.map((e) => e.id)).toEqual(['s']);
+    expect(r.vivants[0]).not.toHaveProperty('status');
+    expect((await espacesDe(db, 'u')).map((e) => e.id)).toEqual(['a', 'p']);
   });
 });
 

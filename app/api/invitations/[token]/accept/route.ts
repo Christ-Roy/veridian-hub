@@ -46,6 +46,7 @@ import {
   acceptCrossAppInvitation,
   buildPostAcceptRedirectUrl,
 } from '@/lib/invitations/accept';
+import { joindreParInvitation } from '@/lib/invitations/jonction';
 import { attachMemberDownstream } from '@/lib/invitations/attach-downstream';
 
 export const runtime = 'nodejs';
@@ -172,6 +173,9 @@ export async function POST(
     await prouverParMail(prisma, user.id);
   }
 
+  // Membre au Hub aussi, si l'espace est relié et l'inviteur habilité (VER-245). L'acceptation n'en dépend pas.
+  const jonction = result.downstreamCall === 'error' ? null : await joindreParInvitation(prisma, result.invitation, userRow.supabaseUserId);
+
   await writeAuditLog(prisma, {
     action: 'invitation.cross_app.accept',
     actor: `user:${user.email}`,
@@ -186,6 +190,7 @@ export async function POST(
       downstream_call: result.downstreamCall,
       downstream_http_status: result.downstreamHttpStatus ?? null,
       downstream_error_code: result.downstreamErrorCode ?? null,
+      jonction,
     },
   });
 

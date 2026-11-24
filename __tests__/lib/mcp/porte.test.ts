@@ -306,6 +306,41 @@ describe('client_name dans le jeton présenté aux apps', () => {
   });
 });
 
+describe('espace suspendu ou membre retiré (VER-245)', () => {
+  const jouer = (args: Record<string, unknown>, f = appFactice()) => appel('executer_outil', { nom: 'analytics.visites_du_site', ...args }, f).then((r: any) => ({ r: r.result, appels: f.recus.filter((x) => x.corps.method === 'tools/call').length }));
+  const suspendre = (id: string) => { (db.tenant as any).lignes.find((t: any) => t.id === id).status = 'suspended'; };
+
+  it('seul espace suspendu : aucun outil d\'app, avec ou sans espace ; mon_compte le dit', async () => {
+    suspendre('t1');
+    for (const a of [{}, { espace: 'mon-espace' }, { espace: 't1' }]) {
+      const { r, appels } = await jouer(a);
+      expect([r.isError, appels], JSON.stringify(a)).toEqual([true, 0]);
+      expect(r.content[0].text).toContain('suspendu');
+    }
+    const c = json(await appel('executer_outil', { nom: 'hub.mon_compte' }, appFactice()));
+    expect(c).toMatchObject({ espaces: [], espaces_suspendus: [{ slug: 'mon-espace' }] });
+  });
+
+  it('un suspendu parmi d\'autres : on ne laisse pas l\'app prendre le sien par défaut, l\'autre reste ouvert', async () => {
+    await db.tenant.create({ data: { id: 't9', userId: HUB_USER, name: 'Deux', slug: 'deux', status: 'active', createdAt: new Date() } });
+    suspendre('t1');
+    const sans = await jouer({});
+    expect([sans.r.isError, sans.appels]).toEqual([true, 0]);
+    expect(sans.r.content[0].text).toContain('deux');
+    expect((await jouer({ espace: 'mon-espace' })).appels).toBe(0);
+    expect((await jouer({ espace: 'deux' })).appels).toBe(1);
+  });
+
+  it('membre retiré : l\'espace n\'est plus le sien, au prochain appel', async () => {
+    await db.tenant.create({ data: { id: 't8', userId: 'autre', name: 'Agence', slug: 'agence8', status: 'active', createdAt: new Date() } });
+    await (db as any).tenantMember.create({ data: { tenantId: 't8', userId: HUB_USER, role: 'member', deletedAt: null } });
+    expect((await jouer({ espace: 'agence8' })).appels).toBe(1);
+    (db as any).tenantMember.lignes.find((x: any) => x.tenantId === 't8').deletedAt = new Date();
+    const apres = await jouer({ espace: 'agence8' });
+    expect([apres.r.isError, apres.appels]).toEqual([true, 0]);
+  });
+});
+
 describe('executer_programme', () => {
   /** Moteur factice : il demande des appels, attend leurs réponses, puis finit. L'exécuteur réel : programme.test.ts. */
   const moteur = (appels: { nom: string; args?: unknown }[]) => async (): Promise<Moteur> => {

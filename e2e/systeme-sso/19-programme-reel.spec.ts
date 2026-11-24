@@ -18,7 +18,7 @@ const LIGNES = Number(process.env.SSO_PROGRAMME_LIGNES ?? 240);
 const PAGE = Number(process.env.SSO_PROGRAMME_PAGE ?? 30);
 
 const CODE = (segment: string, liste: string, lignes = LIGNES) => `
-const e = reprise ?? { c: null, lues: 0, importes: 0, crees: 0, ecartes: {}, pages: 0 };
+const e = reprise ?? { c: null, lues: 0, retires: 0, importes: 0, crees: 0, presents: 0, ecartes: {}, pages: 0 };
 while (e.lues < ${lignes}) {
   const p = await outil("prospection.extraire_segment", { segment_id: "${segment}", limite: Math.min(${PAGE}, ${lignes} - e.lues), ...(e.c ? { curseur: e.c } : {}) });
   if (typeof p === "string") throw new Error("page illisible (" + p.length + " caractères) : " + p.slice(-120));
@@ -27,7 +27,7 @@ while (e.lues < ${lignes}) {
     contacts: lot.map((l) => ({ email: l.email, siren: l.siren, phone: l.telephone || undefined, domaine: l.domaine || undefined, raison_sociale: l.raison_sociale, ville: l.commune, naf: l.naf })),
     list_ids: ["${liste}"],
   });
-  e.lues += p.lignes.length + p.retires.length; e.importes += lot.length; e.crees += r.created; e.pages += 1; e.c = p.curseur_suivant;
+  e.lues += p.lignes.length + p.retires.length; e.retires += p.retires.length; e.importes += lot.length; e.crees += r.created; e.presents += (r.existing ?? 0) + (r.updated ?? 0); e.pages += 1; e.c = p.curseur_suivant;
   for (const k in r.skipped ?? {}) e.ecartes[k] = (e.ecartes[k] ?? 0) + r.skipped[k];
   sauver(e);
   if (!e.c) break;
@@ -79,12 +79,12 @@ cas(null, 'porte MCP : un programme verse un segment de Prospection dans une lis
   const apres = await compter();
   expect(apres - avant, 'contacts réellement dans l\'espace').toBe(e.crees);
   const ecartes = Object.values(e.ecartes as Record<string, number>).reduce((a, b) => a + b, 0);
-  expect(e.crees + ecartes, 'chaque ligne lue est créée, ou écartée avec un motif').toBeGreaterThanOrEqual(e.lues * 0.95);
+  expect(e.crees + e.presents + ecartes, `chaque ligne lue est créée, déjà présente, ou écartée avec un motif : ${JSON.stringify(e).slice(0, 300)}`).toBe(e.lues - e.retires);
 
   // Rejouer depuis le début ne crée rien de plus : même liste figée, import dédoublonné.
   const rejeu = await programme({ code: CODE(seg.id, liste, Math.min(LIGNES, PAGE)), autoriser: ['notifuse.contacts_import'] });
   expect(rejeu.etat, JSON.stringify(rejeu).slice(0, 300)).toBe('termine');
   expect(rejeu.resultat.crees, 'rejeu').toBe(0);
   expect(await compter(), 'rejeu').toBe(apres);
-  return `${e.lues} lues, ${e.crees} contacts créés, écartés ${JSON.stringify(e.ecartes)}, ${e.pages} pages, ${tours} programme(s) de ${durees.join(', ')} ms`;
+  return `${e.lues} lues, ${e.crees} contacts créés, ${e.presents} déjà présents, écartés ${JSON.stringify(e.ecartes)}, ${e.retires} retirées par Prospection, ${e.pages} pages, ${tours} programme(s) de ${durees.join(', ')} ms`;
 }, { timeout: 1_200_000 });

@@ -611,6 +611,9 @@ model TenantMember {
   joinedAt         DateTime  @default(now()) @map("joined_at")
   deletedAt        DateTime? @map("deleted_at")
   lastKnownAppRole String?   @map("last_known_app_role")
+  /// invitation | reprise | operateur (lib/tenants/membres.ts, seul écrivain)
+  origine          String?
+  ajoutePar        String?   @map("ajoute_par")
 
   @@id([tenantId, userId])
   @@index([userId])

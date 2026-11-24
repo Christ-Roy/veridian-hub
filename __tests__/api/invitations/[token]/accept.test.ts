@@ -71,6 +71,15 @@ vi.mock('@/lib/invitations/attach-downstream', () => ({
   attachMemberDownstream: vi.fn((...args: any[]) => attachStub(...args)),
 }));
 
+/** La jonction au Hub (VER-245) : ses règles sont dans __tests__/lib/invitations/jonction.test.ts. */
+const jonctions: any[][] = [];
+vi.mock('@/lib/invitations/jonction', () => ({
+  joindreParInvitation: vi.fn(async (...args: any[]) => {
+    jonctions.push(args);
+    return { etat: 'joint', tenantId: 'T' };
+  }),
+}));
+
 vi.mock('@/lib/prisma', () => {
   const prisma = {
     $transaction: vi.fn(async (fn: any) => fn(prisma)),
@@ -398,6 +407,23 @@ describe('POST /api/invitations/[token]/accept', () => {
     expect(json.downstream_call).toBe('error');
     expect(json.error).toBe('workspace_suspended');
     expect(json.downstream_http_status).toBe(423);
+  });
+
+  it('joint au Hub celui qui accepte, par son hub_user_id, et l\'écrit à l\'audit ; jamais quand l\'app a refusé', async () => {
+    jonctions.length = 0;
+    attachStub = async () => ({ status: 'completed', loginUrl: null, httpStatus: 200 });
+    expect((await callRoute(validToken, makeReq())).status).toBe(200);
+    expect(jonctions).toHaveLength(1);
+    expect(jonctions[0][2]).toBe('11111111-1111-4111-8111-111111111111');
+    expect(auditLogs[0].payload.jonction).toEqual({ etat: 'joint', tenantId: 'T' });
+  });
+
+  it('l\'app a refusé : personne n\'est joint au Hub', async () => {
+    jonctions.length = 0;
+    attachStub = async () => ({ status: 'error', errorCode: 'workspace_suspended', httpStatus: 423, reason: 'x' });
+    expect((await callRoute(validToken, makeReq())).status).toBe(502);
+    expect(jonctions).toEqual([]);
+    expect(auditLogs[0].payload.jonction).toBeNull();
   });
 
   it('logs downstream_call=completed + downstream_http_status to audit', async () => {

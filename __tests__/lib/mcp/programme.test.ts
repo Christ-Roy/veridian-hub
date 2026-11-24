@@ -72,9 +72,10 @@ describe('ce que voit un programme', () => {
   });
 
   it.each([
-    ['boucle infinie', 'while(true){}', /interrupted/],
-    ['récursion', 'const f=()=>f()+1; return f()', /stack/],
-    ['trop de mémoire', 'return "x".repeat(2e8).length', /memory/],
+    ['boucle infinie', 'while(true){}', /interrupted : calcul trop long : plus de 10 s.*await.*sauver/],
+    ['récursion', 'const f=()=>f()+1; return f()', /stack.*récursion trop profonde/],
+    ['trop de mémoire', 'return "x".repeat(2e8).length', /out of memory : plus de 64 Mo.*page par page/],
+    ['une erreur du client qui n\'en est pas une', 'throw new Error("interrupted : stop")', /^Error : interrupted : stop$/],
     ['erreur de syntaxe', 'const =', /Syntax/],
     ['valeur circulaire', 'const a={}; a.a=a; return a', /circular/],
   ])('%s : erreur dite', async (_n, code, motif) => {
