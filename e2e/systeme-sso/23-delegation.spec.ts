@@ -95,6 +95,22 @@ cas(null, 'délégation : le propriétaire ouvre une liaison, une app agit 120 s
     expect((await echanger(g)).json, 'éteinte par l\'IA').toEqual({ error: 'integration_off' });
     expect(await regler('allumee'), 'rallumée sans nouveau clic').toEqual({ etat: 'allumee' });
 
+    // Sans IA : la page Liaisons du Hub montre l'état, coupe et rallume ; un événement, pas encore servi, n'y est pas.
+    const ctxP = await browser.newContext({ storageState: P.etat as never });
+    try {
+      const page = await ctxP.newPage();
+      await page.goto(`${HUB_URL}/dashboard/liaisons`, { waitUntil: 'networkidle' });
+      await expect(page.getByText('Prospection vers CRM', { exact: false })).toBeVisible();
+      expect(await page.getByText('Mail vers CRM', { exact: false }).count(), 'un événement ne s\'offre pas').toBe(0);
+      await page.getByRole('button', { name: 'Couper' }).click();
+      await expect(page.getByText('Liaison coupée.')).toBeVisible();
+      expect((await echanger(g)).json, 'coupée à l\'écran').toEqual({ error: 'integration_off' });
+      await page.getByRole('button', { name: 'Allumer' }).click();
+      await expect(page.getByText('Liaison allumée.')).toBeVisible();
+    } finally {
+      await ctxP.close();
+    }
+
     // Membre : sa poignée marche, puis meurt avec son retrait.
     await adminOk('POST', `tenants/${T.id}/members`, { hub_user_id: M.hubUserId });
     const gm = await poignee(M);

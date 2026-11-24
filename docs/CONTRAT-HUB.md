@@ -1826,6 +1826,9 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
   120 s. La cible exige `act`, refuse un `jti` déjà vu, et garde l'idempotence chez elle.
 - **Registre fermé** (`lib/delegation/paires.ts`) : cinq paires, aucune action destructive. Une cible s'ouvre (`DELEGATION_CIBLES`) après
   son « garde servie ».
+- **Événements** (`notifuse>crm`, `crm>prospection`) : pas encore servis ; ni allumables, ni échangeables contre la poignée d'un
+  utilisateur. Leur sujet sera `integration:<hub_tenant_id>`.
+- **Écran** : `/dashboard/liaisons` (adresse stable, les apps y renvoient) : état, allumer, couper, sans IA.
 - **Interrupteur** : `hub.integrations_lister` (tout membre), `hub.integrations_regler` (propriétaire, admin ; hors d'un programme). La
   première ouverture, et tout élargissement, demandent le clic du propriétaire sur une page du Hub. Aucun mail.
 - **Coupure** : retrait, suspension et déconnexion d'un membre tuent ses poignées ; une suspension retire aussi les consentements.

@@ -9,7 +9,7 @@ import type { PrismaClient } from '@prisma/client';
 
 import { writeAuditLog } from '@/lib/admin/audit-log';
 
-import { cibleServie, empreintePortees, paire as trouverPaire, PAIRES } from './paires';
+import { empreintePortees, paire as trouverPaire, paireServie, PAIRES } from './paires';
 import { empreinte } from './poignee';
 
 const DEMANDE_MIN = 15;
@@ -27,7 +27,7 @@ export async function listerIntegrations(db: Pick<Db, 'integrationPaire' | 'user
   };
   return PAIRES.map((p) => {
     const l = lignes.find((x) => x.paire === p.cle);
-    const servie = cibleServie(p.cible, env);
+    const servie = paireServie(p, env);
     const consentie = Boolean(l?.consentiLe && l.portees === empreintePortees(p));
     return {
       paire: p.cle, libelle: p.libelle, source: p.source, cible: p.cible, nature: p.nature,
@@ -42,7 +42,7 @@ export async function listerIntegrations(db: Pick<Db, 'integrationPaire' | 'user
 }
 
 /** Rôle relu au Hub, jamais reçu de l'appelant. */
-async function roleAuHub(db: Pick<Db, 'tenant' | 'tenantMember'>, tenantId: string, hubUserId: string): Promise<'owner' | 'admin' | 'member' | null> {
+export async function roleAuHub(db: Pick<Db, 'tenant' | 'tenantMember'>, tenantId: string, hubUserId: string): Promise<'owner' | 'admin' | 'member' | null> {
   const t = await db.tenant.findFirst({ where: { id: tenantId, deletedAt: null }, select: { userId: true, status: true } });
   if (!t || t.status === 'suspended' || t.status === 'deleted') return null;
   if (t.userId === hubUserId) return 'owner';
@@ -59,7 +59,7 @@ export async function reglerIntegration(db: Db, d: { tenantId: string; paire: st
   const changePar = `${d.hubUserId} via ${d.client}`.slice(0, 200);
   const l = await db.integrationPaire.findUnique({ where: cle });
   if (d.etat === 'allumee') {
-    if (!cibleServie(p.cible, env)) return { refus: 'cible_non_servie' };
+    if (!paireServie(p, env)) return { refus: 'cible_non_servie' };
     if (!l?.consentiLe || l.portees !== empreintePortees(p)) {
       const jeton = randomBytes(32).toString('base64url');
       const expireLe = new Date(Date.now() + DEMANDE_MIN * 60_000);
@@ -81,7 +81,7 @@ export async function lireDemande(db: Pick<Db, 'integrationDemande' | 'tenant' |
   const q = await db.integrationDemande.findUnique({ where: { empreinte: empreinte(jeton) } });
   if (!q || q.confirmeLe || q.expireLe <= new Date()) return null;
   const p = trouverPaire(q.paire);
-  if (!p || !cibleServie(p.cible, env)) return null;
+  if (!p || !paireServie(p, env)) return null;
   if ((await roleAuHub(db, q.tenantId, hubUserId)) !== 'owner') return null;
   const t = await db.tenant.findFirst({ where: { id: q.tenantId, deletedAt: null }, select: { name: true } });
   const u = await db.user.findFirst({ where: { supabaseUserId: q.demandePar }, select: { email: true } });

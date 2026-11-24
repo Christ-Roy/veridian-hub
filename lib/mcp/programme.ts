@@ -41,13 +41,14 @@ export type Bilan = {
 };
 
 /**
- * Un outil se joue sans être nommé dans `autoriser` s'il se déclare en lecture seule, ou non destructif. Sans annotation,
- * ou avec des annotations qui se contredisent : il faut le nommer.
+ * Un outil se joue sans être nommé dans `autoriser` s'il se déclare en lecture seule, et seulement alors. « Non destructif » ne
+ * suffit pas : Twenty le dit de toutes ses écritures, create_webhook et delete_many compris (24/11). Sans annotation, ou avec des
+ * annotations qui se contredisent : il faut le nommer.
  */
 export function exigeAutorisation(o: Pick<Outil, 'annotations'>): boolean {
   const a = (o.annotations ?? {}) as { readOnlyHint?: unknown; destructiveHint?: unknown };
   if (a.destructiveHint === true) return true;
-  return !(a.readOnlyHint === true || a.destructiveHint === false);
+  return a.readOnlyHint !== true;
 }
 
 /** Un texte qui commence comme un objet ou une liste JSON (jamais « [note] » ni « [1] voir »). */

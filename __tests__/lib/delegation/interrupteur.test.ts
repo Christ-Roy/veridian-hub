@@ -37,9 +37,13 @@ describe('régler', () => {
     expect((await etat()).etat).toBe('eteinte');
     expect((await confirmerDemande(db as never, j, 'prop', ENV)).ok).toBe(true);
     expect((await confirmerDemande(db as never, j, 'prop', ENV)).ok, 'rejoué').toBe(false);
-    const k = jetonDe(await regler('adm', 'allumee', { paire: 'notifuse>crm' }));
+    const DEUX = { ...ENV, DELEGATION_CIBLES: 'crm,notifuse' } as NodeJS.ProcessEnv;
+    const demander = () => reglerIntegration(db as never, { tenantId: 'A', paire: 'prospection>notifuse', etat: 'allumee', hubUserId: 'adm', client: 'x', origine: 'https://hub.test' }, DEUX);
+    const k = jetonDe(await demander());
     db.integrationDemande.lignes.at(-1)!.expireLe = new Date(Date.now() - 1);
-    expect((await confirmerDemande(db as never, k, 'prop', ENV)).ok, 'expiré').toBe(false);
+    expect((await confirmerDemande(db as never, k, 'prop', DEUX)).ok, 'expiré').toBe(false);
+    expect((await confirmerDemande(db as never, jetonDe(await demander()), 'prop', DEUX)).ok, 'la même, fraîche, passe').toBe(true);
+    expect(await regler('prop', 'allumee', { paire: 'notifuse>crm' }), 'un événement ne s\'allume pas').toEqual({ refus: 'cible_non_servie' });
     expect(await lireDemande(db as never, 'x', 'prop', ENV)).toBeNull();
   });
   it('deux clics au même instant : un seul compte', async () => {
@@ -70,7 +74,7 @@ describe('lister, lire, couper', () => {
   it('toutes les paires, l\'état vrai, aucune donnée d\'un autre tenant', async () => {
     db.integrationPaire.lignes.push({ tenantId: 'B', paire: P, etat: 'allumee', consentiLe: new Date(), portees: empreintePortees(paire(P)!), changePar: 'autre', changeLe: new Date() });
     const l = await listerIntegrations(db as never, 'A', ENV);
-    expect(l.map((x) => [x.paire, x.etat])).toEqual([[P, 'eteinte'], ['prospection>notifuse', 'indisponible'], ['notifuse>crm', 'eteinte'], ['crm>notifuse', 'indisponible'], ['crm>prospection', 'indisponible']]);
+    expect(l.map((x) => [x.paire, x.etat])).toEqual([[P, 'eteinte'], ['prospection>notifuse', 'indisponible'], ['notifuse>crm', 'indisponible'], ['crm>notifuse', 'indisponible'], ['crm>prospection', 'indisponible']]);
     expect(JSON.stringify(l)).not.toContain('autre@x.fr');
   });
   it('la page montre qui, quoi, où', async () => {
