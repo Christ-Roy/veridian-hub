@@ -88,7 +88,8 @@ cas(null, 'délégation vers Mail : importe sans envoyer, une fois par jeton et 
 
     const cle = () => randomBytes(12).toString('hex');
     expect(bien(await agir('listes.creer', { id: 'testdelegation', name: 'TEST délégation' }, { cle: cle() }), 'liste').id).toBe('testdelegation');
-    const contacts = [1, 2, 3].map((n) => ({ email: `delegation-${n}@exemple.invalid` }));
+    // Trois entreprises : Mail écarte deux contacts du même domaine dans un même lot.
+    const contacts = [1, 2, 3].map((n) => ({ email: `contact@delegation${n}.invalid` }));
     const simule = bien(await agir('contacts.importer', { list_ids: ['testdelegation'], contacts, dry_run: true }), 'simulation');
     expect([simule.dry_run, simule.received], 'simulation').toEqual([true, 3]);
     const k = cle();

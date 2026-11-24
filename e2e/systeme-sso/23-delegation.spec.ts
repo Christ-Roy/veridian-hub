@@ -98,10 +98,11 @@ cas(null, 'délégation : le propriétaire ouvre une liaison, une app agit 120 s
       await page.goto(`${HUB_URL}/dashboard/liaisons`, { waitUntil: 'networkidle' });
       await expect(page.getByText('Prospection vers CRM', { exact: false })).toBeVisible();
       expect(await page.getByText('Mail vers CRM', { exact: false }).count(), 'un événement ne s\'offre pas').toBe(0);
-      await page.getByRole('button', { name: 'Couper' }).click();
+      const reglage = page.locator('form', { has: page.locator(`input[value="${PAIRE}"]`) });
+      await reglage.getByRole('button', { name: 'Couper' }).click();
       await expect(page.getByText('Liaison coupée.')).toBeVisible();
       expect((await echanger(g)).json, 'coupée à l\'écran').toEqual({ error: 'integration_off' });
-      await page.getByRole('button', { name: 'Allumer' }).click();
+      await reglage.getByRole('button', { name: 'Allumer' }).click();
       await expect(page.getByText('Liaison allumée.')).toBeVisible();
     } finally {
       await ctxP.close();
