@@ -61,7 +61,7 @@ function hubAbsent(r: Reponse): boolean {
 
 /** Le plafond de l'API admin et un Hub en déploiement ne sont pas des résultats : on attend. */
 export async function admin<T = any>(
-  methode: 'GET' | 'POST' | 'DELETE',
+  methode: 'GET' | 'POST' | 'PUT' | 'DELETE',
   route: string,
   corps?: unknown,
 ): Promise<Reponse<T>> {
@@ -79,7 +79,7 @@ export async function admin<T = any>(
 }
 
 async function appelAdmin<T>(
-  methode: 'GET' | 'POST' | 'DELETE',
+  methode: 'GET' | 'POST' | 'PUT' | 'DELETE',
   route: string,
   corps?: unknown,
 ): Promise<{ reponse: Reponse<T>; attente: number }> {
@@ -114,7 +114,7 @@ async function appelAdmin<T>(
 
 /** Appel admin qui doit réussir, sinon NON ABOUTI (ce n'est pas l'objet testé). */
 export async function adminOk<T = any>(
-  methode: 'GET' | 'POST' | 'DELETE',
+  methode: 'GET' | 'POST' | 'PUT' | 'DELETE',
   route: string,
   corps?: unknown,
 ): Promise<T> {
