@@ -23,7 +23,8 @@ Ajouter une app : une ligne au registre (`hub mcp-app add <cle> <url_mcp>`), auc
 - Jeton d'accès opaque 1 h, jeton de renouvellement 30 j à rotation (réutilisation = famille révoquée).
   En base : empreintes SHA-256 seulement. « Se déconnecter partout » coupe aussi les IA
   (`users.sessions_valid_after`). Révocation unitaire : Réglages > Sécurité.
-- Seulement 3 outils exposés, pour ne pas payer le catalogue à chaque tour :
+- Trois outils exposés, pour ne pas payer le catalogue à chaque tour, et un quatrième quand le moteur des programmes
+  est configuré (`executer_programme`, section « Mode programme ») :
   `chercher_outils(besoin, app?)` → noms + une ligne ; `decrire_outil(nom)` → schéma ;
   `executer_outil(nom, arguments)`. Les noms sont `<app>.<outil>`. L'app `hub` porte les outils du Hub.
 - Sorties plafonnées (~16 000 caractères) : au-delà, tronquées avec un avis ; les apps paginent.
@@ -77,11 +78,49 @@ Ajouter une app : une ligne au registre (`hub mcp-app add <cle> <url_mcp>`), auc
    (`readOnlyHint`, `destructiveHint`) renseignées : le Hub les relaie au client.
 5. Réponses bornées et paginées (curseur), JSON compact.
 
+## Mode programme (`executer_programme`, 24/11)
+
+Pour traiter des milliers de lignes sans que l'IA les lise : `executer_programme({ code, espace?, autoriser?, reprise? })`.
+`code` est le corps d'une fonction async JavaScript ; il appelle les outils en boucle et seule la valeur de son `return`
+revient (16 000 caractères).
+
+| Dans le code | Rôle |
+|---|---|
+| `await outil("<app>.<outil>", {…})` | la donnée de l'outil (`structuredContent`, sinon son JSON, sinon son texte) ; une erreur d'outil est une exception |
+| `sauver(etat)` | garde où on en est (JSON, 2 000 caractères), rendu sous `reprise` |
+| `reprise` | la valeur passée en paramètre, `null` sinon |
+| `journal(…)`, `await pause(ms)` | trace courte, attente |
+
+**Bornes** : 45 s (catalogue compris), 200 appels, 4 de front, 64 Mo, 1 Mo par réponse d'outil, 100 000 caractères de
+code, un programme à la fois par utilisateur, 600 appels internes par minute (vérifiés avant de lancer, jamais à
+mi-course). Le limiteur de la porte compte un programme pour un appel. Un 429 d'app est attendu (`Retry-After`) et refait.
+
+**Réponse**, toujours un état : `termine`, `interrompu` (échéance : `reprise`, `appels`, et les appels d'`issue_inconnue`,
+peut-être joués par l'app), `erreur`, `non_lance` (moteur plein ou muet). Reprendre : relancer le même code avec
+`reprise`.
+
+**Droits** : chaque appel passe par le même chemin qu'`executer_outil` (identité, espace choisi à l'ouverture et signé,
+apps ouvertes au compte). Un outil qui se déclare destructif, ou qui ne déclare rien (`readOnlyHint: true` ou
+`destructiveHint: false` attendu), est refusé s'il n'est pas nommé dans `autoriser`. Un programme n'appelle aucun outil de
+la porte. Journal : `mcp.tool.call` par appel avec l'identifiant du programme, `mcp.programme` (empreinte du code, noms
+autorisés, comptes) ; jamais le code ni les arguments. Mon IA n'offre pas cet outil.
+
+**Côté app** : l'en-tête `X-Veridian-MCP-Appel: programme` accompagne ces appels. Il autorise une app à rendre une page plus
+grosse (1 Mo au plus) ; il ne donne **aucun droit**. Une app qui ne le connaît pas marche sans rien changer. Le Hub ouvre
+une seule session MCP par app et par programme.
+
+**Enfermement** : le code vient d'un modèle, donc rien n'est à prendre s'il sort de QuickJS. Il tourne dans le groupe Nomad
+`programme`, hors du Hub : conteneur sans réseau ni secret, un processus neuf par programme, en chroot dans une prison en
+lecture seule (`node`, QuickJS, rien d'autre), sous un uid réservé, tué à la fin. La passerelle (seule pièce avec un réseau,
+aucun secret) vérifie la signature ES256 du Hub et transporte. Le Hub ne croit rien de ce qui revient (noms, tailles,
+nombre, durée, droits). Preuve sur ce qui est servi : `scripts/epreuve-programme.sh` (exécuteur compromis, témoin dans le
+Hub) et le cas 18 de la batterie.
+
 ## Accès
 
 Une app inscrite est proposée à un utilisateur si `mcp_apps.acces = 'tous'`, ou si `acces = 'tenant_app'`
 et une ligne `tenant_apps` active existe pour lui (`app_key` = clé du registre). Chaque `executer_outil`
-écrit `audit_log` (`mcp.tool.call` : client, outil, issue, durée ; jamais les arguments).
+écrit `audit_log` (`mcp.tool.call` : client, outil, issue, durée ; jamais les arguments), appel d'un programme compris.
 
 ## Preuve
 

@@ -31,6 +31,24 @@ export async function cleSignature(env: NodeJS.ProcessEnv = process.env): Promis
   return cle;
 }
 
+/** L'audience de la passerelle des programmes (programme/passerelle.mjs). */
+export const AUDIENCE_PROGRAMME = 'hub-programme';
+
+/** Jeton d'ouverture d'un programme : 30 s, usage unique (jti), sans identité d'utilisateur (la passerelle n'en a pas besoin). */
+export async function signerPourProgramme(programme: string, env: NodeJS.ProcessEnv = process.env): Promise<string> {
+  const cle = await cleSignature(env);
+  if (!cle) throw new Error('MCP_SIGNING_JWK absente');
+  return new SignJWT({})
+    .setProtectedHeader({ alg: 'ES256', kid: cle.kid, typ: 'JWT' })
+    .setIssuer(hubIssuer(env))
+    .setAudience(AUDIENCE_PROGRAMME)
+    .setSubject(programme)
+    .setIssuedAt()
+    .setExpirationTime('30s')
+    .setJti(randomUUID())
+    .sign(cle.privee);
+}
+
 export async function jwksPublic(env: NodeJS.ProcessEnv = process.env): Promise<{ keys: JWK[] }> {
   const cle = await cleSignature(env);
   return { keys: cle ? [cle.publique] : [] };

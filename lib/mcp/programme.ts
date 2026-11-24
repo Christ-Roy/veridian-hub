@@ -1,0 +1,279 @@
+/**
+ * Mode programme de la porte MCP (docs/CONTRAT-MCP.md) : le code du client tourne hors du Hub (programme/), et chaque
+ * `outil(...)` revient ici. Rien de ce que dit l'exécuteur n'est cru : les noms, les tailles, le nombre d'appels, la durée
+ * et les droits se décident de ce côté. Le seul effet d'un programme, ce sont ces appels, joués avec l'identité de
+ * l'appelant, dans l'espace choisi à l'ouverture, et journalisés un par un.
+ */
+import { AppDebit, AppInjoignable } from './client-app';
+import type { Outil } from './catalogue';
+
+export const DELAI_MS = 45_000;
+export const APPELS_MAX = 200;
+export const DE_FRONT = 4;
+export const REPONSE_MAX_OCTETS = 1_000_000;
+export const CODE_MAX_CAR = 100_000;
+export const ETAT_MAX_CAR = 2_000;
+export const AUTORISER_MAX = 50;
+const LIGNE_MAX_CAR = 2_000_000;
+const RESULTAT_MAX_CAR = 11_000;
+const JOURNAL_MAX_CAR = 1_500;
+const MESSAGES_MAX = 5_000;
+/** Octets d'arguments en attente d'une place : au-delà, l'appel est refusé (la mémoire du Hub n'est pas une file). */
+const ATTENTE_MAX_CAR = 8_000_000;
+const RELANCES_DEBIT = 5;
+/** Appels internes par minute et par utilisateur : vérifié AVANT de lancer un programme, jamais à mi-course. */
+export const APPELS_MINUTE_MAX = 600;
+
+export type Moteur = { envoyer: (m: Record<string, unknown>) => void; surLigne: (f: (ligne: string) => void) => void; surFin: (f: () => void) => void; fermer: () => void };
+export type OuvrirMoteur = (programme: string, ligneMax: number) => Promise<Moteur | null>;
+
+export type Contenu = { content: { type: 'text'; text: string }[]; isError?: boolean; structuredContent?: unknown };
+
+export type Bilan = {
+  etat: 'termine' | 'interrompu' | 'erreur' | 'non_lance';
+  raison?: string;
+  resultat?: unknown;
+  erreur?: string;
+  reprise?: unknown;
+  appels: { faits: number; reussis: number; echoues: number; issue_inconnue: string[] };
+  duree_ms: number;
+  journal: string[];
+};
+
+/**
+ * Un outil se joue sans être nommé dans `autoriser` s'il se déclare en lecture seule, ou non destructif. Sans annotation,
+ * ou avec des annotations qui se contredisent : il faut le nommer.
+ */
+export function exigeAutorisation(o: Pick<Outil, 'annotations'>): boolean {
+  const a = (o.annotations ?? {}) as { readOnlyHint?: unknown; destructiveHint?: unknown };
+  if (a.destructiveHint === true) return true;
+  return !(a.readOnlyHint === true || a.destructiveHint === false);
+}
+
+/** Ce que le programme reçoit d'un outil : sa donnée structurée, sinon son texte, lu en JSON s'il en est. */
+export function valeurDe(r: Contenu): unknown {
+  const texte = (r.content ?? []).map((c) => (c?.type === 'text' ? c.text : '')).join('\n');
+  if (r.isError) throw new Error(texte.slice(0, 2_000) || "erreur de l'outil");
+  if (r.structuredContent !== undefined) return r.structuredContent;
+  try {
+    return JSON.parse(texte);
+  } catch {
+    return texte;
+  }
+}
+
+// ── Un programme à la fois par utilisateur, et un budget d'appels par minute ─────────────────
+
+const enCours = new Set<string>();
+const appelsRecents = new Map<string, number[]>();
+
+function recents(utilisateur: string, maintenant: number): number[] {
+  const l = (appelsRecents.get(utilisateur) ?? []).filter((t) => t > maintenant - 60_000);
+  if (l.length) appelsRecents.set(utilisateur, l);
+  else appelsRecents.delete(utilisateur);
+  return l;
+}
+
+export function oublierProgrammes() {
+  enCours.clear();
+  appelsRecents.clear();
+}
+
+/** Prend la place de l'utilisateur, ou dit pourquoi pas. */
+export function prendrePlace(utilisateur: string, maintenant = Date.now()): { ok: true; rendre: () => void } | { ok: false; message: string } {
+  if (enCours.has(utilisateur)) return { ok: false, message: 'Un programme de ce compte est déjà en cours : attendre sa fin (45 s au plus).' };
+  const l = recents(utilisateur, maintenant);
+  if (l.length >= APPELS_MINUTE_MAX) {
+    return { ok: false, message: `Trop d'appels par programme en une minute : réessayer dans ${Math.max(1, Math.ceil((l[0] + 60_000 - maintenant) / 1000))} s.` };
+  }
+  enCours.add(utilisateur);
+  return { ok: true, rendre: () => enCours.delete(utilisateur) };
+}
+
+export type DemandeProgramme = {
+  id: string;
+  utilisateur: string;
+  code: string;
+  reprise: unknown;
+  autoriser: ReadonlySet<string>;
+  trouver: (nom: string) => Outil | { injoignable: string } | undefined;
+  /** Joue un outil : mêmes droits et même journal que executer_outil. `signal` : abandon à l'échéance. */
+  jouer: (o: Outil, args: Record<string, unknown>, signal: AbortSignal) => Promise<Contenu>;
+  ouvrirMoteur: OuvrirMoteur;
+  delaiMs?: number;
+};
+
+export async function executerProgramme(d: DemandeProgramme): Promise<Bilan> {
+  const debut = Date.now();
+  const delaiMs = d.delaiMs ?? DELAI_MS;
+  const bilan: Bilan = { etat: 'erreur', appels: { faits: 0, reussis: 0, echoues: 0, issue_inconnue: [] }, duree_ms: 0, journal: [] };
+  const moteur = await d.ouvrirMoteur(d.id, LIGNE_MAX_CAR);
+  if (!moteur) return { ...bilan, etat: 'non_lance', raison: 'moteur_indisponible', duree_ms: Date.now() - debut };
+
+  const abandon = new AbortController();
+  const enVol = new Map<number, string>();
+  const attente: (() => void)[] = [];
+  const connus = new Set<number>();
+  let attenteCar = 0;
+  let clos = false;
+  let actifs = 0;
+  let messages = 0;
+  let journalCar = 0;
+  let termine = false;
+
+  return new Promise<Bilan>((rendre) => {
+    const conclure = (m: Partial<Bilan>) => {
+      if (termine) return;
+      termine = true;
+      clearTimeout(minuteur);
+      Object.assign(bilan, m, { duree_ms: Date.now() - debut });
+      bilan.appels.issue_inconnue = Array.from(enVol.values());
+      abandon.abort();
+      moteur.fermer();
+      rendre(bilan);
+    };
+    const minuteur = setTimeout(() => conclure({ etat: 'interrompu', raison: 'delai' }), Math.max(0, delaiMs - (Date.now() - debut)));
+
+    const suivant = () => {
+      while (!termine && actifs < DE_FRONT && attente.length) {
+        actifs += 1;
+        attente.shift()!();
+      }
+    };
+
+    async function jouerAvecDebit(o: Outil, args: Record<string, unknown>): Promise<Contenu> {
+      for (let essai = 0; ; essai++) {
+        try {
+          return await d.jouer(o, args, abandon.signal);
+        } catch (err) {
+          // 429 : rien n'a été joué chez l'app. On attend ce qu'elle demande plutôt que de faire échouer le programme.
+          if (!(err instanceof AppDebit) || essai >= RELANCES_DEBIT || termine) throw err;
+          await new Promise((r) => setTimeout(r, err.attenteMs));
+          if (termine) throw err;
+        }
+      }
+    }
+
+    function refuser(id: unknown, erreur: string) {
+      bilan.appels.echoues += 1;
+      moteur!.envoyer({ t: 'reponse', id, ok: false, erreur });
+    }
+
+    function appel(m: Record<string, unknown>, taille: number) {
+      const id = m.id;
+      if (typeof id !== 'number' || !Number.isSafeInteger(id) || connus.has(id)) return conclure({ etat: 'erreur', raison: 'executeur_incoherent' });
+      if (bilan.appels.faits >= APPELS_MAX) return refuser(id, `plafond de ${APPELS_MAX} appels par programme atteint : sauver(où on en est) puis relancer avec reprise`);
+      connus.add(id);
+      if (attenteCar + taille > ATTENTE_MAX_CAR) return refuser(id, "trop de données en attente : attendre (await) les appels lancés avant d'en lancer d'autres");
+      bilan.appels.faits += 1;
+      const nom = typeof m.nom === 'string' ? m.nom.slice(0, 200) : '';
+      const args = m.args && typeof m.args === 'object' && !Array.isArray(m.args) ? (m.args as Record<string, unknown>) : {};
+      const o = d.trouver(nom);
+      if (!o) return refuser(id, `Outil inconnu : ${nom}. Un programme appelle les outils rendus par chercher_outils (<app>.<outil>).`);
+      if ('injoignable' in o) return refuser(id, o.injoignable);
+      if (exigeAutorisation(o) && !d.autoriser.has(o.nom)) return refuser(id, `${o.nom} modifie des données (ou ne dit pas qu'il ne le fait pas) : le nommer dans autoriser`);
+      attenteCar += taille;
+      attente.push(() => {
+        enVol.set(id, o.nom);
+        attenteCar -= taille;
+        appelsRecents.set(d.utilisateur, [...recents(d.utilisateur, Date.now()), Date.now()]);
+        jouerAvecDebit(o, args)
+          .then((r) => valeurDe(r))
+          .then(
+            (valeur) => {
+              if (termine) return;
+              bilan.appels.reussis += 1;
+              moteur!.envoyer({ t: 'reponse', id, ok: true, valeur });
+            },
+            (err) => {
+              if (termine) return;
+              const message = err instanceof AppInjoignable ? `Échec de ${o.nom} : ${err.message}.` : err instanceof Error ? err.message : 'erreur';
+              refuser(id, message);
+            },
+          )
+          .finally(() => {
+            if (!termine) enVol.delete(id);
+            actifs -= 1;
+            suivant();
+          });
+      });
+      suivant();
+    }
+
+    moteur.surFin(() => conclure({ etat: 'erreur', raison: 'moteur_arrete', erreur: 'le moteur a arrêté le programme (mémoire, ou fin anormale)' }));
+    moteur.surLigne((ligne) => {
+      if (termine || clos) return;
+      if (++messages > MESSAGES_MAX) return conclure({ etat: 'erreur', raison: 'trop_de_messages' });
+      let m: Record<string, unknown>;
+      try {
+        m = JSON.parse(ligne) as Record<string, unknown>;
+      } catch {
+        return conclure({ etat: 'erreur', raison: 'executeur_incoherent' });
+      }
+      switch (m?.t) {
+        case 'appel':
+          return appel(m, ligne.length);
+        case 'etat': {
+          const t = JSON.stringify(m.valeur ?? null);
+          if (t.length <= ETAT_MAX_CAR) bilan.reprise = m.valeur;
+          else bilan.journal.push(`sauver : état de ${t.length} caractères refusé (${ETAT_MAX_CAR} au plus)`);
+          return;
+        }
+        case 'journal': {
+          const t = String(m.texte ?? '').slice(0, 300);
+          if (journalCar + t.length <= JOURNAL_MAX_CAR) {
+            journalCar += t.length;
+            bilan.journal.push(t);
+          }
+          return;
+        }
+        case 'occupe':
+          return conclure({ etat: 'non_lance', raison: 'occupe' });
+        case 'fin': {
+          clos = true;
+          const fin = (): Partial<Bilan> => (m.ok === true ? { etat: 'termine', resultat: m.valeur } : { etat: 'erreur', erreur: String(m.erreur ?? 'erreur').slice(0, 2_000) });
+          // Appels lancés sans await : on attend leur issue plutôt que de la perdre.
+          const guet = setInterval(() => {
+            if (termine || (enVol.size === 0 && attente.length === 0)) {
+              clearInterval(guet);
+              conclure(fin());
+            }
+          }, 20);
+          moteur.surFin(() => {});
+          return;
+        }
+        default:
+          return conclure({ etat: 'erreur', raison: 'executeur_incoherent' });
+      }
+    });
+    moteur.envoyer({ t: 'programme', code: d.code, reprise: d.reprise ?? null });
+  });
+}
+
+/** Le texte rendu au client : toujours un état, ce qui a été fait, et comment reprendre. Sous SORTIE_MAX_CAR. */
+export function presenter(id: string, b: Bilan): Contenu {
+  const brut = b.resultat === undefined ? undefined : JSON.stringify(b.resultat);
+  const tronque = brut !== undefined && brut.length > RESULTAT_MAX_CAR;
+  const inconnus = b.appels.issue_inconnue;
+  const conseils = [
+    b.etat === 'interrompu' ? `Arrêté à ${Math.round(b.duree_ms / 1000)} s. Pour continuer : relancer le même code avec reprise = la valeur de « reprise » ci-dessus.` : '',
+    b.etat === 'interrompu' && b.reprise === undefined ? "Le programme n'a rien sauvé (sauver(...)) : vérifier ce qui est déjà fait avant de relancer." : '',
+    inconnus.length ? "Les appels d'issue inconnue ont pu être joués par l'app : vérifier avant de les refaire." : '',
+    tronque ? 'Résultat tronqué : rendre moins de données (un compte, un échantillon).' : '',
+    b.raison === 'occupe' ? 'Le moteur est plein : réessayer dans 30 s.' : '',
+    b.raison === 'moteur_indisponible' ? 'Le moteur des programmes ne répond pas : réessayer plus tard, ou appeler les outils un par un.' : '',
+  ].filter(Boolean);
+  const corps = {
+    programme: id,
+    etat: b.etat,
+    ...(b.raison ? { raison: b.raison } : {}),
+    ...(brut === undefined ? {} : tronque ? { resultat: brut.slice(0, RESULTAT_MAX_CAR), resultat_tronque: true } : { resultat: b.resultat }),
+    ...(b.erreur ? { erreur: b.erreur.slice(0, 1_000) } : {}),
+    ...(b.reprise !== undefined ? { reprise: b.reprise } : {}),
+    appels: { ...b.appels, issue_inconnue: inconnus.slice(0, DE_FRONT * 2) },
+    duree_ms: b.duree_ms,
+    ...(b.journal.length ? { journal: b.journal.slice(0, 30) } : {}),
+    ...(conseils.length ? { conseil: conseils.join(' ') } : {}),
+  };
+  return { content: [{ type: 'text', text: JSON.stringify(corps) }], ...(b.etat === 'erreur' || b.etat === 'non_lance' ? { isError: true } : {}) };
+}
