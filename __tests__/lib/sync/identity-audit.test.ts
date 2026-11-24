@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { HORS_PERIMETRE, auditIdentity, compareIdentities, identityCounts } from '@/lib/sync/identity-audit';
+import { HORS_PERIMETRE, auditIdentity, compareIdentities, identityCounts, horsPerimetre } from '@/lib/sync/identity-audit';
 
 const HUB = [{ supabaseUserId: 'id-1', email: 'a@x.fr', name: 'Alice' }];
 
@@ -99,5 +99,13 @@ describe('hors périmètre (témoins et comptes d\'exploitation, tranchés le 09
         expect(raison.length).toBeGreaterThan(10);
       }
     }
+  });
+});
+
+describe('horsPerimetre', () => {
+  it('un compte interne est nommé avec sa raison ; un client, ou la même adresse dans une autre app, jamais', () => {
+    expect(horsPerimetre('notifuse', 'robert@veridian.site')).toContain('opérateur');
+    expect(horsPerimetre('crm', 'robert@veridian.site')).toBeNull();
+    expect(horsPerimetre('notifuse', 'robert@client.fr')).toBeNull();
   });
 });
