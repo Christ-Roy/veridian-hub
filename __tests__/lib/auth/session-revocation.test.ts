@@ -46,9 +46,20 @@ describe('isSessionRevoked', () => {
 describe('revokeAllSessions', () => {
   it('pose la date et demande aux apps de couper leurs sessions', async () => {
     const update = vi.fn(async () => ({}));
-    await revokeAllSessions({ user: { update } } as never, { id: 'u', supabaseUserId: 'uuid' });
+    const poignees = vi.fn(async () => ({ count: 2 }));
+    expect((await revokeAllSessions({ user: { update }, delegationGrant: { updateMany: poignees } } as never, { id: 'u', supabaseUserId: 'uuid' })).appsEnEchec).toEqual([]);
+    expect((poignees.mock.calls[0] as never as [{ where: object }])[0].where, 'plus aucune app n\'agit en son nom').toEqual({ hubUserId: 'uuid', revoqueLe: null });
     expect((update.mock.calls[0] as never as [{ data: { sessionsValidAfter: Date } }])[0].data.sessionsValidAfter).toBeInstanceOf(Date);
     expect(pushUserToApps).toHaveBeenCalledWith({ hubUserId: 'uuid', revokeSessions: true });
+  });
+});
+
+describe('revokeAllSessions, poignées', () => {
+  it('une panne des poignées se dit, et n\'empêche pas de couper les sessions', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const r = await revokeAllSessions({ user: { update: vi.fn(async () => ({})) }, delegationGrant: { updateMany: vi.fn(async () => { throw new Error('base'); }) } } as never, { id: 'u', supabaseUserId: 'uuid2' });
+    expect(r.appsEnEchec).toEqual(['delegation']);
+    expect(pushUserToApps).toHaveBeenCalledWith({ hubUserId: 'uuid2', revokeSessions: true });
   });
 });
 

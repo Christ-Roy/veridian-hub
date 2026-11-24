@@ -4,13 +4,14 @@
  * membre retiré, organisation suspendue. Staging (CRM « garde servie »). La poignée vient de la route admin des comptes de test.
  * Épreuve : `SSO_SABOTAGE=delegation` ne confirme pas la liaison : le cas doit échouer.
  */
+import { execFileSync } from 'node:child_process';
 import { createHmac, randomBytes } from 'node:crypto';
 
 import { expect } from '@playwright/test';
 
 import { HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
-import { activerTwentyAuHub, admin, adminOk, lookup, secretDe } from './lib/hub-admin';
+import { activerTwentyAuHub, admin, adminOk, lookup } from './lib/hub-admin';
 import { obtenirJetonMcp, outil } from './lib/mcp';
 import { creerCompteProuve, noterEspaceTwenty, type Compte } from './lib/parcours';
 
@@ -19,7 +20,10 @@ const PAIRE = 'prospection>crm';
 
 cas(null, 'délégation : le propriétaire ouvre une liaison, une app agit 120 s en son nom, et tout le reste refuse', async ({ browser }) => {
   if (!/staging/.test(HUB_URL)) throw new NonAbouti('la délégation n\'est ouverte qu\'en staging (DELEGATION_CIBLES vide en prod)');
-  const secret = secretDe('PROSPECTION_HUB_API_SECRET_STAGING');
+  // Le secret que SERT le Hub de staging, lu en mémoire, jamais affiché : celui du coffre n'est pas le même (24/11).
+  const { NOMAD_TOKEN: _lecture, ...env } = process.env;
+  const secret = execFileSync('nomad-v', ['raw', 'var', 'get', '-item', 'PROSPECTION_TENANT_API_SECRET', 'nomad/jobs/hub-staging'], { env: env as NodeJS.ProcessEnv, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  if (secret.length < 32) throw new NonAbouti('secret de staging illisible');
   const avant = (await adminOk<{ apps: { appKey: string }[] }>('GET', 'mcp-apps')).apps.find((a) => a.appKey === 'twenty');
   if (!avant) await adminOk('POST', 'mcp-apps', { app_key: 'twenty', label: 'CRM', mcp_url: MCP_CRM, acces: 'tous', enabled: true });
   try {
@@ -85,9 +89,9 @@ cas(null, 'délégation : le propriétaire ouvre une liaison, une app agit 120 s
     expect([c1.status, /delegation_forbidden/.test(t1)], t1.slice(0, 200)).toEqual([403, true]);
 
     expect((await echanger(g, { nonce })).json, 'nonce rejoué').toEqual({ error: 'nonce_replayed' });
-    expect((await echanger(g, { corps: { audience: 'notifuse', scope: 'notifuse:contacts.ecrire' } })).json).toEqual({ error: 'target_not_served' });
-    expect((await echanger(g, { corps: { scope: 'veridian' } })).json).toEqual({ error: 'pair_not_allowed' });
-    expect(await regler('eteinte')).toEqual({ etat: 'eteinte' });
+    expect((await echanger(g, { corps: { audience: 'notifuse', scope: 'notifuse:contacts.importer' } })).json, 'cible fermée').toEqual({ error: 'target_not_served' });
+    expect((await echanger(g, { corps: { scope: 'veridian' } })).json, 'portée hors paire').toEqual({ error: 'pair_not_allowed' });
+    expect(await regler('eteinte'), 'éteinte').toEqual({ etat: 'eteinte' });
     expect((await echanger(g)).json, 'éteinte par l\'IA').toEqual({ error: 'integration_off' });
     expect(await regler('allumee'), 'rallumée sans nouveau clic').toEqual({ etat: 'allumee' });
 

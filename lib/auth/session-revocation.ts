@@ -8,6 +8,8 @@
 
 import type { PrismaClient } from '@prisma/client';
 
+import { revoquerPoignees } from '@/lib/delegation/poignee';
+
 type Jeton = { uid?: unknown; authAt?: unknown; impersonated?: unknown };
 
 export async function isSessionRevoked(
@@ -43,7 +45,7 @@ export async function isSessionRevoked(
  * cet accusé, le Hub répondait « déconnecté » pendant que l'app gardait la session (D9).
  */
 export async function revokeAllSessions(
-  prisma: Pick<PrismaClient, 'user'>,
+  prisma: Pick<PrismaClient, 'user' | 'delegationGrant'>,
   user: { id: string; supabaseUserId: string | null },
 ): Promise<{ appsEnEchec: string[] }> {
   await prisma.user.update({
@@ -51,10 +53,13 @@ export async function revokeAllSessions(
     data: { sessionsValidAfter: new Date() },
   });
   if (!user.supabaseUserId) return { appsEnEchec: [] };
+  // Aucune app n'agit plus en son nom : ses poignées de délégation meurent toutes (VER-245 b.2).
+  // Un échec se dit comme celui d'une app, il n'empêche pas de couper les sessions.
+  const delegation = await revoquerPoignees(prisma, { hubUserId: user.supabaseUserId }).then(() => null, (err) => (console.error('[session-revocation] poignées', err), 'delegation'));
   const { pushUserToApps } = await import('@/lib/identity/push-user');
   const resultat = await pushUserToApps({ hubUserId: user.supabaseUserId, revokeSessions: true });
   const appsEnEchec = Object.entries(resultat)
     .filter(([, issue]) => issue === 'failed' || issue === 'endpoint_missing')
     .map(([app]) => app);
-  return { appsEnEchec };
+  return { appsEnEchec: delegation ? [...appsEnEchec, delegation] : appsEnEchec };
 }

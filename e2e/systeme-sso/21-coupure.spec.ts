@@ -1,13 +1,14 @@
 /**
  * Couper (VER-245) : un membre retiré et une organisation suspendue perdent la porte MCP en moins de 2 minutes, et le Hub dit, app
  * par app, ce qui a suivi. Comptes et espaces de test, retirés par la batterie ; staging ou prod.
+ * Academy en prod seulement (le Hub de staging ne l'a pas) : retirée, relue, et une synchronisation rejouée ne rend pas l'accès.
  * Épreuve : `SSO_SABOTAGE=coupure-retrait` ne retire pas, `SSO_SABOTAGE=coupure-suspension` ne suspend pas : le cas doit échouer.
  */
 import { expect } from '@playwright/test';
 
 import { HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
-import { activerTwentyAuHub, admin, adminOk, appelTwenty, lookup } from './lib/hub-admin';
+import { activerTwentyAuHub, admin, adminOk, appelAcademy, appelTwenty, lookup } from './lib/hub-admin';
 import { obtenirJetonMcp, outil } from './lib/mcp';
 import { creerCompteProuve, noterEspaceTwenty, type Compte } from './lib/parcours';
 
@@ -70,6 +71,17 @@ cas(null, 'coupure : membre retiré et organisation suspendue refusés par la po
   if (!entree.ok) throw new NonAbouti(`entrée au CRM : HTTP ${entree.status}`);
   expect((await dansEspace(jetonM, slugP)).texte, 'membre : la porte ne refuse plus').not.toMatch(/inconnu pour ce compte|suspendu/);
 
+  const academy = !/staging/.test(HUB_URL);
+  const rejoint = new Date();
+  const syncAcademy = async (joined_at?: string) => {
+    const r = await appelAcademy(`/api/tenants/${TENANT}/sync-member`, { hub_user_id: M.hubUserId, email: M.email, role: 'member', email_proven: true, ...(joined_at ? { joined_at } : {}) });
+    return [r.status, ((await r.json().catch(() => null)) as { error?: string } | null)?.error];
+  };
+  if (academy) {
+    await exiger(admin('POST', 'tenants/app-access', { user_email: P.email, app: 'academy', enabled: true }), [200], 'activation Academy');
+    expect(await syncAcademy(rejoint.toISOString()), 'entrée à Academy').toEqual([200, undefined]);
+  }
+
   // Le propriétaire ne se retire pas.
   expect((await admin<any>('POST', `tenants/${TENANT}/remove-member`, { hub_user_id: P.hubUserId })).json.error).toBe('cannot_remove_owner');
 
@@ -81,6 +93,11 @@ cas(null, 'coupure : membre retiré et organisation suspendue refusés par la po
   expect(refus.texte).toContain('inconnu pour ce compte');
   expect(coupe).toBeLessThan(120_000);
   expect((retrait.apps as { app: string; etat: string }[]).find((a) => a.app === 'crm')?.etat, `le CRM a retiré, et a été relu : ${apps(retrait)}`).toBe('retire');
+  if (academy) {
+    expect((retrait.apps as { app: string; etat: string }[]).find((a) => a.app === 'academy')?.etat, `Academy a retiré, et a été relue : ${apps(retrait)}`).toBe('retire');
+    expect([await syncAcademy(), await syncAcademy(rejoint.toISOString())], 'Academy : un rejeu ne rend pas l\'accès').toEqual([[409, 'member_removed'], [409, 'member_removed']]);
+    expect(await syncAcademy(new Date().toISOString()), 'Academy : une adhésion postérieure, si').toEqual([200, undefined]);
+  }
   expect((await vue(jetonM)).espaces.map((e) => e.slug), 'retiré').not.toContain(slugP);
   expect((await vue(jetonM)).espaces.map((e) => e.slug), 'son propre espace reste').toContain(slugM);
 
@@ -91,6 +108,7 @@ cas(null, 'coupure : membre retiré et organisation suspendue refusés par la po
   const rejeu = await exiger<any>(admin('POST', `tenants/${TENANT}/remove-member`, { hub_user_id: M.hubUserId }), [200, 207], 'rejeu du retrait');
   expect(rejeu.deja).toBe(true);
   expect(rejeu.apps.find((a: { app: string }) => a.app === 'crm')?.etat, `rejeu : ${apps(rejeu)}`).toMatch(/^(retire|absent)$/);
+  if (academy) expect(rejeu.apps.find((a: { app: string }) => a.app === 'academy')?.etat, `rejeu : ${apps(rejeu)}`).toBe('retire');
 
   const t1 = Date.now();
   const susp = process.env.SSO_SABOTAGE === 'coupure-suspension' ? { apps: [] } : await exiger<any>(admin('POST', `tenants/${TENANT}/suspension`, { suspendre: true, motif: 'test' }), [200, 207], 'suspension');

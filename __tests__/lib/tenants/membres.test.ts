@@ -107,7 +107,7 @@ describe('un membre retiré ne revient pas tout seul', () => {
 });
 
 /** Des apps qui tiennent leur liste de membres. */
-function apps(etat: Record<string, string[]>, o: { sourd?: string; refuse?: string; muet?: string } = {}) {
+function apps(etat: Record<string, string[]>, o: { sourd?: string; refuse?: string; muet?: string; cles?: Record<string, number> } = {}) {
   const posts: { app: string; chemin: string; corps: L }[] = [];
   const f = vi.fn(async (u: string, init: RequestInit = {}) => {
     const url = new URL(u);
@@ -124,7 +124,7 @@ function apps(etat: Record<string, string[]>, o: { sourd?: string; refuse?: stri
     posts.push({ app, chemin: url.pathname, corps });
     if (o.refuse === app) return new Response('', { status: 500 });
     if (o.sourd !== app && url.pathname.endsWith('/remove-member')) etat[app] = (etat[app] ?? []).filter((e) => e !== corps.email);
-    return Response.json({ removed: true });
+    return Response.json({ removed: true, ...(o.cles?.[app] !== undefined ? { active_api_keys_created_by_member: o.cles[app] } : {}) });
   });
   return { f: f as unknown as typeof fetch, posts };
 }
@@ -144,6 +144,15 @@ describe('retirer', () => {
     expect(audits[0]).toMatchObject({ action: 'membre.retire', targetId: 'T' });
   });
 
+  it('Academy retire, et dit les clés API de la personne restées actives', async () => {
+    const a = apps({ academy: ['m@x.fr'] }, { cles: { academy: 2 } });
+    const r = await retirerM(a.f, ['academy']);
+    expect(r.apps).toEqual([{ app: 'academy', etat: 'retire', cles: 2 }]);
+    expect(r.complet, 'une clé de l\'espace n\'est pas un échec').toBe(true);
+    expect(nonCoupees(r.apps as never)).toMatch(/Clés API créées par cette personne, encore actives : academy : 2/);
+    expect(a.posts[0].chemin).toBe('/api/tenants/T/remove-member');
+  });
+
   it('ses poignées de délégation dans CE tenant meurent', async () => {
     await retirerM(apps({}).f, ['notifuse']).catch(() => undefined);
     expect(revoques).toEqual([{ hubUserId: 'u-m', tenantId: 'T', revoqueLe: null }]);
@@ -158,7 +167,7 @@ describe('retirer', () => {
 
   it('une app en panne, muette, ou sans route : dite, les autres sont coupées', async () => {
     const r = await retirerM(apps({ notifuse: ['m@x.fr'], prospection: ['m@x.fr'], analytics: ['m@x.fr'], academy: ['m@x.fr'] }, { refuse: 'prospection', muet: 'notifuse' }).f, ['notifuse', 'prospection', 'crm', 'analytics', 'academy']);
-    expect(r.apps.map((x) => [x.app, x.etat])).toEqual([['notifuse', 'echec'], ['prospection', 'echec'], ['crm', 'absent'], ['analytics', 'non_gere'], ['academy', 'non_gere']]);
+    expect(r.apps.map((x) => [x.app, x.etat])).toEqual([['notifuse', 'echec'], ['prospection', 'echec'], ['crm', 'absent'], ['analytics', 'non_gere'], ['academy', 'retire']]);
     expect(r.complet).toBe(false);
   });
 

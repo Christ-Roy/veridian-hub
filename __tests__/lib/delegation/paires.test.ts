@@ -1,14 +1,14 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 
-import { CLE_MCP, cibleServie, empreintePortees, paire, paireEntre, PAIRES, pairesServies, porteesAccordees } from '@/lib/delegation/paires';
+import { adresseAction, CLE_MCP, cibleServie, empreintePortees, paire, paireEntre, PAIRES, pairesServies, porteesAccordees } from '@/lib/delegation/paires';
 
 const env = (DELEGATION_CIBLES?: string) => ({ NODE_ENV: 'test', DELEGATION_CIBLES }) as NodeJS.ProcessEnv;
 
 describe('registre des paires', () => {
   it('les cinq paires de départ, et aucune portée destructive ni complète', () => {
     expect(PAIRES.map((p) => p.cle)).toEqual(['prospection>crm', 'prospection>notifuse', 'notifuse>crm', 'crm>notifuse', 'crm>prospection']);
-    for (const p of PAIRES) for (const x of p.portees) expect(x).toMatch(new RegExp(`^${p.cible}:[a-z]+\\.ecrire$`));
+    for (const p of PAIRES) for (const x of p.portees) expect(x).toMatch(new RegExp(`^${p.cible}:[a-z]+\\.(ecrire|importer)$`));
   });
   it('paire : par sa clé, sinon rien', () => {
     expect(paire('prospection>crm')?.nature).toBe('action');
@@ -35,6 +35,10 @@ describe('registre des paires', () => {
     const p = paire('prospection>crm')!;
     expect([porteesAccordees(p, 'crm:tache.ecrire'), porteesAccordees(p, 'crm:societe.ecrire crm:tache.ecrire')]).toEqual(['crm:tache.ecrire', 'crm:societe.ecrire crm:tache.ecrire']);
     for (const x of [undefined, '', '  ', 'veridian', 'crm:societe.ecrire veridian', 'crm:societe.supprimer', 'crm:tache.ecrire crm:tache.ecrire']) expect(porteesAccordees(p, x), String(x)).toBeNull();
+  });
+  it('adresseAction : le MCP du CRM, la route d\'actions des autres, même origine', () => {
+    expect(adresseAction('crm', 'https://crm.test/mcp')).toBe('https://crm.test/mcp');
+    expect(adresseAction('notifuse', 'https://notifuse.app.veridian.site/api/mcp')).toBe('https://notifuse.app.veridian.site/api/veridian/actions');
   });
   it('CLE_MCP : chaque app a son adresse au registre', () => expect(CLE_MCP).toEqual({ crm: 'twenty', notifuse: 'notifuse', prospection: 'prospection' }));
 });
