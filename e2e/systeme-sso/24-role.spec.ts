@@ -85,7 +85,7 @@ cas(null, 'rôle : le Hub promeut, le CRM laisse installer ; il rétrograde, le 
     const rejeu = await appelTwenty('POST', '/api/hub/members/role', { hub_tenant_id: T.id, hub_user_id: M.hubUserId, email: M.email, role: 'admin', version: version - 60_000 });
     expect([rejeu.status, await rejeu.json()], 'version rejouée').toEqual([200, expect.objectContaining({ applied: false, reason: 'stale' })]);
     await refuse('après le rejeu');
-    return `membre refusé ; promu installe en ${effet} ms ; rétrogradé refusé ; espace voisin intact ; version rejouée : stale`;
+    return `membre refusé ; promu ${staging ? 'installe' : 'atteint le catalogue'} en ${effet} ms ; rétrogradé refusé ; espace voisin intact ; version rejouée : stale`;
   } finally {
     if (!avant) await admin('DELETE', 'mcp-apps?app_key=twenty');
   }
