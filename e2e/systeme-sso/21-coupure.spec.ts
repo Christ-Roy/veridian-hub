@@ -38,12 +38,17 @@ cas(null, 'coupure : membre retiré et organisation suspendue refusés par la po
   await avecCrm(M);
   const jetonP = await obtenirJetonMcp(browser, P, 'TEST COUPURE P');
   const jetonM = await obtenirJetonMcp(browser, M, 'TEST COUPURE M');
+  for (const j of [jetonP, jetonM]) {
+    const d = await outil(j, 'chercher_outils', { besoin: 'find many people', app: 'twenty' });
+    if (!d.texte.includes(LIRE.nom)) throw new NonAbouti(`le CRM ne montre pas ${LIRE.nom} : ${d.texte.slice(0, 300)}`);
+  }
   const slugP = (await vue(jetonP)).espaces[0]?.slug;
   const slugM = (await vue(jetonM)).espaces[0]?.slug;
   if (!slugP || !slugM) throw new NonAbouti('espace de test sans slug');
 
   // Avant : M n'y est pas. Membre : il y est. C'est la preuve positive, sans quoi le refus final ne prouverait rien.
-  expect((await dansEspace(jetonM, slugP)).texte, 'étranger').toContain('inconnu pour ce compte');
+  const etranger = await dansEspace(jetonM, slugP);
+  expect(etranger.texte, `étranger : ${etranger.texte.slice(0, 200)}`).toContain('inconnu pour ce compte');
   const ajout = await exiger(admin('POST', `tenants/${TENANT}/members`, { hub_user_id: M.hubUserId }), [200], 'ajout');
   expect(ajout).toEqual({ cree: true, role: 'member' });
   expect((await vue(jetonM)).espaces.map((e) => e.slug), 'membre').toContain(slugP);

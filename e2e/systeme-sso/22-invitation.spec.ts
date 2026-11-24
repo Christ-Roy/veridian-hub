@@ -25,7 +25,7 @@ cas(null, 'invitation : acceptée, elle rend membre au Hub ; un simple membre n\
     const ts = String(Date.now());
     const r = await fetch(`${HUB_URL}/api/invitations/create`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-veridian-app': 'notifuse', 'x-veridian-timestamp': ts, 'x-veridian-hub-signature': createHmac('sha256', secret).update(`${ts}.${corps}`).digest('hex') },
+      headers: { 'content-type': 'application/json', 'x-veridian-app': 'notifuse', 'x-veridian-timestamp': ts, 'x-veridian-invitation-signature': createHmac('sha256', secret).update(`${ts}.${corps}`).digest('hex') },
       body: corps,
     });
     const j = await r.json().catch(() => null);
