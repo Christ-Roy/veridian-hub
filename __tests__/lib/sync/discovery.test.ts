@@ -16,6 +16,7 @@ import { createHmac } from 'node:crypto';
 import {
   discoverAppForEmail,
   discoverUserApps,
+  readAppSecrets,
 } from '@/lib/sync/discovery';
 
 const ORIGINAL_ENV = { ...process.env };
@@ -281,6 +282,20 @@ describe('rôle porté par le Hub (§5.22)', () => {
     expect(await lire({ hub_role: null, native_admin: false })).toEqual([null, false]);
     expect(await lire({})).toEqual([undefined, undefined]);
     expect(await lire({ native_admin: 'oui' })).toEqual([undefined, undefined]);
+    vi.unstubAllEnvs();
+  });
+});
+
+describe('readAppSecrets', () => {
+  it('le courant puis l\'ancien nom, sans doublon ; un vide ne compte jamais', () => {
+    vi.stubEnv('PROSPECTION_HUB_API_SECRET', 'neuf');
+    vi.stubEnv('PROSPECTION_TENANT_API_SECRET', 'ancien');
+    expect(readAppSecrets('prospection')).toEqual(['neuf', 'ancien']);
+    vi.stubEnv('PROSPECTION_TENANT_API_SECRET', 'neuf');
+    expect(readAppSecrets('prospection')).toEqual(['neuf']);
+    for (const vide of ['', '  ']) { vi.stubEnv('PROSPECTION_TENANT_API_SECRET', vide); expect(readAppSecrets('prospection')).toEqual(['neuf']); }
+    vi.stubEnv('PROSPECTION_HUB_API_SECRET', '');
+    expect(readAppSecrets('prospection')).toEqual([]);
     vi.unstubAllEnvs();
   });
 });

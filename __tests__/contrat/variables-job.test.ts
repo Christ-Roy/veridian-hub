@@ -15,7 +15,6 @@ import { code, parcourir } from './source';
 
 /** Lues par le code, volontairement absentes du job de prod : chacune dit pourquoi. */
 const FACULTATIVES: Record<string, string> = {
-  IA_IDENTITE_SECRET: "Variable partagée veridian/ia-identite (secret) ; sans elle, fournisseur fermé (503)",
   // ── Manque réel, à câbler (08/11) ──
   // ── Reste du moteur G2 arrêté ──
   ANALYTICS_ADMIN_KEY: 'client admin du moteur G2 (panneau admin Analytics) : aucune route équivalente dans Rybbit',
@@ -36,7 +35,6 @@ const FACULTATIVES: Record<string, string> = {
   NEXT_PUBLIC_DOMAIN: 'repli DOMAIN',
   NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID: 'repli GOOGLE_OAUTH_CLIENT_ID (app/layout.tsx)',
   NEXT_PUBLIC_VERCEL_URL: 'héritage Vercel, inutilisé',
-  PROSPECTION_HUB_API_SECRET: 'repli PROSPECTION_TENANT_API_SECRET, rendu par le job',
   RECONCILE_ALERT_THRESHOLD: 'défaut 5',
   SMTP_HOST: 'repli si BREVO_API_KEY absente ; Brevo est rendu par le job',
   SMTP_PASSWORD: 'idem SMTP_HOST',
@@ -58,7 +56,8 @@ for (const f of SOURCES) {
   }
 }
 const job = readFileSync('deploy/hub.nomad.hcl', 'utf8');
-const rendues = new Set(Array.from(job.matchAll(/^\s*([A-Z0-9_]+)\s*=/gm)).map((m) => m[1]));
+// Rendue aussi sous condition : `{{ with .X }}X={{ .Value }}{{ end }}`.
+const rendues = new Set(Array.from(job.matchAll(/^\s*(?:\{\{ with [^}]+\}\})*([A-Z0-9_]+)\s*=/gm)).map((m) => m[1]));
 
 /**
  * Noms construits à l'exécution (`env[\`HUB_INVITATION_SECRET_${app}\`]`) : le relevé ci-dessus ne les voit pas. 24/11 : perdu à la
@@ -70,8 +69,8 @@ const DYNAMIQUES: Record<string, string | null> = {
   HUB_INVITATION_SECRET_ANALYTICS: 'Analytics n\'appelle pas /api/invitations/create (24/11)',
   HUB_INVITATION_SECRET_CMS: 'le CMS s\'éteint, hors de l\'identité du Hub',
   NOTIFUSE_HUB_API_SECRET: null,
+  PROSPECTION_HUB_API_SECRET: null,
   ANALYTICS_HUB_API_SECRET: null,
-  PROSPECTION_HUB_API_SECRET: 'repli PROSPECTION_TENANT_API_SECRET, rendu par le job',
   CRM_HUB_API_SECRET: null,
   ACADEMY_HUB_API_SECRET: null,
   CMS_HUB_API_SECRET: 'le CMS s\'éteint, hors de l\'identité du Hub',

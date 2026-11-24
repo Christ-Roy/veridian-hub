@@ -61,7 +61,14 @@ export async function nettoyerCompte(email: string): Promise<void> {
   oublierWorkspaces(email);
   if (u.status !== 404) {
     await supprimerTenantHub(email);
-    if ((await lookup(email)).status !== 404) throw new Error(`${email} encore présent au Hub après suppression`);
+    // Trois états : parti (404), encore là (200), pas relu (429 d'un autre appelant de l'API admin, 24/11) : ce dernier se redemande.
+    let relu = (await lookup(email)).status;
+    for (let i = 0; i < 3 && relu !== 404 && relu !== 200; i++) {
+      await new Promise((r) => setTimeout(r, 20_000));
+      relu = (await lookup(email)).status;
+    }
+    if (relu === 200) throw new Error(`${email} encore présent au Hub après suppression`);
+    if (relu !== 404) throw new Error(`${email} supprimé mais pas relu (HTTP ${relu})`);
   }
   oublierCompte(email);
 }

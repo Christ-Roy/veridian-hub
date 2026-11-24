@@ -7,7 +7,7 @@ import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 
 import { writeAuditLog } from '@/lib/admin/audit-log';
-import { readAppSecret } from '@/lib/sync/discovery';
+import { readAppSecrets } from '@/lib/sync/discovery';
 import { signerAction } from '@/lib/mcp/identite';
 
 import { listerIntegrations } from './interrupteur';
@@ -30,11 +30,13 @@ export async function verifierAppel(db: Pick<PrismaClient, 'delegationNonce'>, h
   const nonce = h.get('x-veridian-nonce') ?? '';
   const sig = h.get('x-veridian-hub-signature') ?? '';
   if (!app || !APPS.includes(app) || !/^\d{13}$/.test(ts) || !/^[A-Za-z0-9_-]{16,128}$/.test(nonce) || !/^[0-9a-f]{64}$/.test(sig)) return { statut: 400, error: 'invalid_headers' };
-  const secret = readAppSecret(app);
-  if (!secret) return { statut: 503, error: 'app_not_configured' };
+  const secrets = readAppSecrets(app);
+  if (secrets.length === 0) return { statut: 503, error: 'app_not_configured' };
   if (Math.abs(now - Number(ts)) > FENETRE_MS) return { statut: 401, error: 'timestamp_expired' };
-  const attendu = createHmac('sha256', secret).update(`${ts}.${nonce}.${corps}`).digest();
-  if (!timingSafeEqual(attendu, Buffer.from(sig, 'hex'))) return { statut: 401, error: 'invalid_signature' };
+  // Tous comparés, sans sortir au premier : le temps ne dit pas lequel a validé.
+  const recu = Buffer.from(sig, 'hex');
+  const valides = secrets.map((s) => timingSafeEqual(createHmac('sha256', s).update(`${ts}.${nonce}.${corps}`).digest(), recu));
+  if (!valides.includes(true)) return { statut: 401, error: 'invalid_signature' };
   try {
     await db.delegationNonce.create({ data: { empreinte: empreinte(`${app}.${nonce}`), expireLe: new Date(now + 2 * FENETRE_MS) } });
   } catch {

@@ -1,7 +1,8 @@
 /**
  * Délégation entre apps (VER-245 b.2) : première ouverture confirmée par le propriétaire dans un vrai navigateur, échange d'une poignée
  * contre un jeton de 120 s, et la cible qui le reconnaît. Puis tout ce qui doit refuser : nonce rejoué, paire absente, liaison éteinte,
- * membre retiré, organisation suspendue. Staging (CRM « garde servie »). La poignée vient de la route admin des comptes de test.
+ * membre retiré, organisation suspendue. Staging, ou prod quand `crm@test` y est ouvert : l'organisation est alors marquée de test au Hub
+ * (24 h), et le cas vérifie d'abord qu'elle reste fermée sans la marque. La poignée vient de la route admin des comptes de test.
  * Épreuve : `SSO_SABOTAGE=delegation` ne confirme pas la liaison : le cas doit échouer.
  */
 import { createHmac, randomBytes } from 'node:crypto';
@@ -10,16 +11,16 @@ import { expect } from '@playwright/test';
 
 import { HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
-import { activerTwentyAuHub, admin, adminOk, lookup, secretServiStaging } from './lib/hub-admin';
+import { activerTwentyAuHub, admin, adminOk, lookup, marquerTest, secretDe, secretServiStaging } from './lib/hub-admin';
 import { obtenirJetonMcp, outil } from './lib/mcp';
 import { creerCompteProuve, noterEspaceTwenty, type Compte } from './lib/parcours';
 
-const MCP_CRM = 'https://crm.staging.veridian.site/mcp';
+const STAGING = /staging/.test(HUB_URL);
+const MCP_CRM = STAGING ? 'https://crm.staging.veridian.site/mcp' : 'https://crm.app.veridian.site/mcp';
 const PAIRE = 'prospection>crm';
 
 cas(null, 'délégation : le propriétaire ouvre une liaison, une app agit 120 s en son nom, et tout le reste refuse', async ({ browser }) => {
-  if (!/staging/.test(HUB_URL)) throw new NonAbouti('la délégation n\'est ouverte qu\'en staging (DELEGATION_CIBLES vide en prod)');
-  const secret = secretServiStaging('PROSPECTION_TENANT_API_SECRET');
+  const secret = STAGING ? secretServiStaging('PROSPECTION_TENANT_API_SECRET') : secretDe('PROSPECTION_TENANT_API_SECRET');
   const avant = (await adminOk<{ apps: { appKey: string }[] }>('GET', 'mcp-apps')).apps.find((a) => a.appKey === 'twenty');
   if (!avant) await adminOk('POST', 'mcp-apps', { app_key: 'twenty', label: 'CRM', mcp_url: MCP_CRM, acces: 'tous', enabled: true });
   try {
@@ -45,6 +46,13 @@ cas(null, 'délégation : le propriétaire ouvre une liaison, une app agit 120 s
       return { status: r.status, json: (await r.json().catch(() => null)) as any };
     };
 
+    if (!STAGING) {
+      // Prod : sans la marque, rien n'existe pour cette organisation, adresse de batterie ou pas.
+      expect((await etat()).etat, 'non marquée').toBe('indisponible');
+      expect(await poignee(P), 'non marquée : aucune poignée').toBeUndefined();
+      await marquerTest(T.id);
+      if ((await etat()).etat === 'indisponible') throw new NonAbouti('crm@test n\'est pas ouvert sur ce Hub (DELEGATION_CIBLES)');
+    }
     const g = await poignee(P);
     if (!g) throw new NonAbouti('aucune poignée émise');
     expect((await echanger(g)).json, 'liaison éteinte').toEqual({ error: 'integration_off' });
@@ -85,7 +93,7 @@ cas(null, 'délégation : le propriétaire ouvre une liaison, une app agit 120 s
     expect([c1.status, /delegation_forbidden/.test(t1)], t1.slice(0, 200)).toEqual([403, true]);
 
     expect((await echanger(g, { nonce })).json, 'nonce rejoué').toEqual({ error: 'nonce_replayed' });
-    expect((await echanger(g, { corps: { audience: 'notifuse', scope: 'notifuse:contacts.ecrire' } })).json, 'autre liaison, éteinte').toEqual({ error: 'integration_off' });
+    expect((await echanger(g, { corps: { audience: 'notifuse', scope: 'notifuse:contacts.ecrire' } })).json, 'autre liaison, éteinte ou fermée').toEqual({ error: expect.stringMatching(/^(integration_off|target_not_served)$/) });
     expect((await echanger(g, { corps: { scope: 'veridian' } })).json, 'portée hors paire').toEqual({ error: 'pair_not_allowed' });
     expect(await regler('eteinte'), 'éteinte').toEqual({ etat: 'eteinte' });
     expect((await echanger(g)).json, 'éteinte par l\'IA').toEqual({ error: 'integration_off' });
@@ -98,16 +106,23 @@ cas(null, 'délégation : le propriétaire ouvre une liaison, une app agit 120 s
       await page.goto(`${HUB_URL}/dashboard/liaisons`, { waitUntil: 'networkidle' });
       await expect(page.getByText('Prospection vers CRM', { exact: false })).toBeVisible();
       expect(await page.getByText('Mail vers CRM', { exact: false }).count(), 'un événement ne s\'offre pas').toBe(0);
-      await page.getByRole('button', { name: 'Couper' }).click();
+      const reglage = page.locator('form', { has: page.locator(`input[value="${PAIRE}"]`) });
+      await reglage.getByRole('button', { name: 'Couper' }).click();
       await expect(page.getByText('Liaison coupée.')).toBeVisible();
       expect((await echanger(g)).json, 'coupée à l\'écran').toEqual({ error: 'integration_off' });
-      await page.getByRole('button', { name: 'Allumer' }).click();
+      await reglage.getByRole('button', { name: 'Allumer' }).click();
       await expect(page.getByText('Liaison allumée.')).toBeVisible();
     } finally {
       await ctxP.close();
     }
 
-    // Membre : sa poignée marche, puis meurt avec son retrait.
+    // Membre : sa poignée marche, puis meurt avec son retrait. En prod le CRM est réservé : sans l'app, la délégation ne l'y fait pas entrer.
+    if (!STAGING) {
+      await adminOk('POST', `tenants/${T.id}/members`, { hub_user_id: M.hubUserId });
+      expect((await echanger((await poignee(M))!)).json, 'app réservée, pas ouverte à ce compte').toEqual({ error: 'app_not_open' });
+      await activerTwentyAuHub(M.email);
+      noterEspaceTwenty(M.email, (await lookup(M.email)).json.tenants[0].id);
+    }
     await adminOk('POST', `tenants/${T.id}/members`, { hub_user_id: M.hubUserId });
     const gm = await poignee(M);
     expect((await echanger(gm!)).status, 'membre').toBe(200);
