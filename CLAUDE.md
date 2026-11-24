@@ -43,9 +43,8 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
 - **Preuve récente** : `lib/auth/recent-auth.ts` (24 h compte et admin, 7 j facturation).
 - **Rebond** : `api/auth/bounce/prepare` et `complete`. Anti-boucle par app, sur 30 s, jamais remis à
   zéro sur `complete`. Aucun lien hors d'une adresse prouvée.
-- **Batterie** : `pnpm test:systeme`, à jouer depuis le bastion, sur ce qui est servi. Twenty :
-  `HUB_URL=https://hub.staging.veridian.site`. Après une modification, rejouer chaque
-  `SSO_SABOTAGE=<scénario>` : il doit échouer. Elle retire ses comptes, et échoue s'il en reste.
+- **Batterie** : `pnpm test:systeme`, depuis le bastion, sur ce qui est servi (staging : `HUB_URL=…`). Après une
+  modification, rejouer chaque `SSO_SABOTAGE=<scénario>` : il doit échouer. Elle échoue s'il reste un compte.
 - **Rebond refusé** : jamais muet (08/11, Robert renvoyé sans un mot). Tout refus va sur `/auth/bounce/error` qui
   l'explique (`user_not_in_app`, `hub_user_conflict` : un compte d'app n'appartient qu'au premier compte Hub relié),
   et laisse `[bounce][refus]` (app, code, hub_user_id, jamais l'adresse). Batterie : `09-adresses` ; `10-creation`
@@ -64,11 +63,14 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   avec le statut d'essai. Les apps stockent, rien n'est limité. **Aucun plan par défaut** (22/11) : créer un espace
   ou activer une app ne pose rien (`plan_unset` dans reconcile) ; offert = `grant_manual` hors `free`
   (`estPlanOffert`, même règle chez Twenty). `--plan none` retire un plan. Preuve : cas 14 (staging, Stripe test).
-- **Porte MCP** (09/11, `docs/CONTRAT-MCP.md`) : `/api/mcp`, 3 outils pour toutes les apps. Le Hub est serveur OAuth
+- **Porte MCP** (09/11, `docs/CONTRAT-MCP.md`) : `/api/mcp`, 4 outils pour toutes les apps. Le Hub est serveur OAuth
   et registre (`hub mcp-app add`), ne code aucun outil d'app, présente à l'app un JWT ES256 (`MCP_SIGNING_JWK`).
   `tenant_id` signé seulement si l'IA choisit un espace ; espace non relié → `hub relier --app <app>`. Boutons
-  « Ajouter à Claude… » : `/dashboard/ia` au Hub, et dans chaque app par `GET /api/mcp/liens-installation?app=<cle>`
-  (public ; une origine de lien nouvelle s'annonce aux apps, Twenty les filtre).
+  « Ajouter à Claude… » : `GET /api/mcp/liens-installation?app=<cle>` (public).
+- **Mode programme** (24/11, VER-241) : le code d'un client tourne dans le groupe `programme` (rise), sans réseau ni secret ;
+  anciens clients par `hub.executer_programme`. Fermé par défaut : seule `app/api/mcp` l'offre, jamais Mon IA. Preuve sur ce
+  qui est servi : `scripts/epreuve-programme.sh hub` (0/1/2), cas 18 à 20. Une app qui coupe ses réponses doit lire
+  `X-Veridian-MCP-Appel`.
 - **Mon IA** (VER-203, `docs/MON-IA.md`) : clé chiffrée, interrupteur allumé d'office, éteignable par app.
   Clé d'un compte : `hub ia brancher <email> --fournisseur <f> --depuis <VARIABLE de ~/credentials>`. CRM : chat natif de
   Twenty, fournisseur « Veridian » (`/api/ia/v1`), sans fenêtre au Hub. Ateliers : un par tenant, rise.
@@ -123,7 +125,7 @@ dossier : la branche extraite ici pilote le démarrage de toutes les sessions. S
 
 ## Déploiement : la prod vient de `main`
 
-`staging` et `main` divergent. La CI pose `deploy/hub.nomad.hcl` depuis `main`. La version servie
+`staging` et `main` divergent ; `scripts/pousser-staging.sh` y porte `main` et refuse un conflit. `auto_revert` sur `stack` seul : CI rouge, lire « Groupe en cause ». La CI pose `deploy/hub.nomad.hcl` depuis `main`. La version servie
 se lit avec `nomad job inspect hub`, jamais dans le miroir `~/nomad-veridian/jobs/saas-prod/`.
 Un audit CVE ou un test rouge saute le déploiement sans bruit : lire `gh run view`, puis l'image.
 
