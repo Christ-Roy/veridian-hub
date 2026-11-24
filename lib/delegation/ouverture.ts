@@ -1,11 +1,10 @@
-/** Une organisation dont le propriétaire est un compte de test : la seule que `<cible>@test` ouvre. */
+/** Une organisation marquée de test au Hub : la seule que `<cible>@test` ouvre. Jamais une forme d'adresse (lib/tenants/marque-test.ts). */
 import type { PrismaClient } from '@prisma/client';
 
-import { isTestAccount } from '@/lib/sync/test-residue';
+import { estDeTest } from '@/lib/tenants/marque-test';
 
-export async function organisationDeTest(db: Pick<PrismaClient, 'tenant' | 'user'>, tenantId: string, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
+export async function organisationDeTest(db: Pick<PrismaClient, 'tenant'>, tenantId: string, env: NodeJS.ProcessEnv = process.env): Promise<boolean> {
   if (!(env.DELEGATION_CIBLES ?? '').includes('@test')) return false;
-  const t = await db.tenant.findFirst({ where: { id: tenantId, deletedAt: null }, select: { userId: true } });
-  const u = t ? await db.user.findFirst({ where: { supabaseUserId: t.userId }, select: { email: true } }) : null;
-  return Boolean(u && isTestAccount(u.email));
+  const t = await db.tenant.findFirst({ where: { id: tenantId, deletedAt: null }, select: { metadata: true } });
+  return estDeTest(t?.metadata);
 }

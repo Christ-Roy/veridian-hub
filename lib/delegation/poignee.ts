@@ -13,7 +13,7 @@ const JOURS = 30;
 /** Poignées vivantes par (utilisateur, app, organisation) : un navigateur de plus ne coupe pas les autres, dix de trop si. */
 const VIVANTES_MAX = 10;
 export type Poignee = { hub_tenant_id: string; grant: string; expire_le: string };
-type Db = Pick<PrismaClient, 'delegationGrant' | 'tenant' | 'tenantMember' | 'user'>;
+type Db = Pick<PrismaClient, 'delegationGrant' | 'tenant' | 'tenantMember'>;
 
 export const empreinte = (secret: string): string => createHash('sha256').update(secret).digest('hex');
 

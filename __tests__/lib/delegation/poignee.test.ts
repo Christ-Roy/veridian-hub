@@ -28,8 +28,8 @@ describe('poignée', () => {
     expect(await emettre('prospection', { NODE_ENV: 'test' })).toEqual([]);
     expect(db.delegationGrant.lignes).toEqual([]);
   });
-  it('crm@test : seulement les organisations d\'un compte de test', async () => {
-    db.user.lignes.push({ supabaseUserId: 'u', email: 'client@x.fr' }, { supabaseUserId: 'p', email: 'e2e-sso-p@veridian.site' });
+  it('crm@test : seulement les organisations marquées de test', async () => {
+    db.tenant.lignes.find((x) => x.id === 'B')!.metadata = { organisation_de_test: { expire_le: new Date(Date.now() + 3_600_000).toISOString() } };
     expect((await emettre('prospection', { NODE_ENV: 'test', DELEGATION_CIBLES: 'crm@test' })).map((x) => x.hub_tenant_id)).toEqual(['B']);
   });
   it('dix vivantes au plus : la onzième révoque la plus ancienne, pas les autres', async () => {

@@ -1,5 +1,5 @@
 // @vitest-environment node
-/** `crm@test` : ouvert aux organisations d'un compte de test, et à elles seules, de bout en bout. */
+/** `crm@test` : ouvert aux organisations MARQUÉES de test au Hub, et à elles seules, de bout en bout. */
 import { exportJWK, generateKeyPair } from 'jose';
 import { beforeEach, describe, expect, it } from 'vitest';
 
@@ -19,7 +19,7 @@ beforeEach(async () => {
   const { privateKey } = await generateKeyPair('ES256', { extractable: true });
   ENV = { NODE_ENV: 'test', DELEGATION_CIBLES: 'crm@test', MCP_SIGNING_JWK: JSON.stringify({ ...(await exportJWK(privateKey)), kid: 'k1' }) };
   db = base();
-  db.tenant.lignes.push({ id: 'T', userId: 't', status: 'active' }, { id: 'C', userId: 'c', status: 'active' });
+  db.tenant.lignes.push({ id: 'T', userId: 't', status: 'active', metadata: { organisation_de_test: { expire_le: new Date(Date.now() + 3_600_000).toISOString() } } }, { id: 'C', userId: 'c', status: 'active', metadata: {} }, { id: 'R', userId: 't', status: 'active', metadata: {} });
   db.user.lignes.push({ supabaseUserId: 't', email: 'e2e-sso-x-prop@veridian.site', emailVerified: new Date() }, { supabaseUserId: 'c', email: 'client@x.fr', emailVerified: new Date() });
   // Le compte de test est aussi membre chez le client : c'est l'organisation qui compte, pas la personne.
   db.tenantMember.lignes.push({ tenantId: 'C', userId: 't', role: 'admin' });
@@ -29,9 +29,9 @@ const etat = async (id: string) => (await listerIntegrations(db as never, id, EN
 const regler = (tenantId: string, hubUserId: string) => reglerIntegration(db as never, { tenantId, paire: P.cle, etat: 'allumee', hubUserId, client: 'x', origine: 'https://hub.test' }, ENV);
 
 describe('organisationDeTest', () => {
-  it('le propriétaire fait foi ; sans @test dans l\'environnement, jamais', async () => {
+  it('la marque fait foi ; R, au même compte de batterie mais non marquée, reste fermée ; sans @test dans l\'environnement, jamais', async () => {
     const o = (id: string, cibles = 'crm@test') => organisationDeTest(db as never, id, { NODE_ENV: 'test', DELEGATION_CIBLES: cibles });
-    expect(await Promise.all([o('T'), o('C'), o('inconnu'), o('T', 'crm'), o('T', '')])).toEqual([true, false, false, false, false]);
+    expect(await Promise.all([o('T'), o('C'), o('R'), o('inconnu'), o('T', 'crm'), o('T', '')])).toEqual([true, false, false, false, false, false]);
   });
   it('un client ne voit, ne règle, ne reçoit et n\'échange rien ; le compte de test, si', async () => {
     expect([await etat('T'), await etat('C')]).toEqual(['eteinte', 'indisponible']);
@@ -40,7 +40,7 @@ describe('organisationDeTest', () => {
     expect((await confirmerDemande(db as never, r.lien.split('/').pop()!, 't', ENV)).ok).toBe(true);
     expect(await emettrePoignees(db as never, { hubUserId: 'c', app: 'prospection' }, ENV)).toEqual([]);
     const g = await emettrePoignees(db as never, { hubUserId: 't', app: 'prospection' }, ENV);
-    expect(g.map((x) => x.hub_tenant_id), 'pas celle du client dont il est membre').toEqual(['T']);
+    expect(g.map((x) => x.hub_tenant_id), 'ni celle du client dont il est membre, ni la sienne non marquée').toEqual(['T']);
     const demander = (grant: string) => echanger(db as never, 'prospection', { subject_grant: grant, audience: 'crm', scope: 'crm:tache.ecrire' }, ENV);
     expect(await demander(g[0].grant)).toMatchObject({ tenantId: 'T', expiresIn: 120 });
 

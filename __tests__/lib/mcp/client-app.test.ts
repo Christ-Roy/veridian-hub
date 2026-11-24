@@ -27,6 +27,32 @@ describe('SessionApp, hors programme', () => {
   });
 });
 
+describe('délais', () => {
+  it('un outil a 60 s, le reste 15 s ; un outil coupé dit que l\'action a peut-être eu lieu', async () => {
+    const delais: number[] = [];
+    const vrai = AbortSignal.timeout.bind(AbortSignal);
+    const espion = vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms) => { delais.push(ms); return vrai(ms === 60_000 ? 20 : ms); });
+    try {
+      const s = new SessionApp('https://app.test/mcp', 'j', (async (_u: string, init: RequestInit) => {
+        const corps = JSON.parse(String(init.body)) as { id: number; method: string };
+        if (corps.method !== 'tools/call') return Response.json({ jsonrpc: '2.0', id: corps.id, result: {} });
+        return new Promise<Response>((_ok, non) => init.signal!.addEventListener('abort', () => non(init.signal!.reason)));
+      }) as typeof fetch);
+      await s.ouvrir();
+      const e = (await erreurDe(s.appeler('install_app', {}))) as Error;
+      expect(e).toBeInstanceOf(AppInjoignable);
+      expect(e.message).toMatch(/60 s : l'action a peut-être eu lieu/);
+      expect([...new Set(delais)]).toEqual([15_000, 60_000]);
+    } finally {
+      espion.mockRestore();
+    }
+  });
+  it('une panne réseau avant le délai reste une panne, sans ce doute', async () => {
+    const s = new SessionApp('https://app.test/mcp', 'j', (async () => { throw new Error('ECONNREFUSED'); }) as unknown as typeof fetch);
+    expect(((await erreurDe(s.appeler('x', {}))) as Error).message).toBe('ECONNREFUSED');
+  });
+});
+
 describe('SessionApp, en programme', () => {
   const options = { entetes: { 'X-Veridian-MCP-Appel': 'programme' }, maxOctets: 1_000 };
 

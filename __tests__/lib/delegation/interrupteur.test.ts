@@ -100,9 +100,9 @@ it('roleAuHub : relu au Hub ; retiré, étranger, rôle inconnu ou espace suspen
   expect(await role('prop')).toBeNull();
 });
 
-it('crm@test : la liaison se voit et se demande chez un compte de test, reste indisponible chez un client', async () => {
+it('crm@test : la liaison se voit et se demande dans une organisation marquée, reste indisponible chez un client', async () => {
   const E = { NODE_ENV: 'test', DELEGATION_CIBLES: 'crm@test' } as NodeJS.ProcessEnv;
-  db.user.lignes.find((u) => u.supabaseUserId === 'prop')!.email = 'e2e-sso-prop@veridian.site';
+  db.tenant.lignes.find((x) => x.id === 'A')!.metadata = { organisation_de_test: { expire_le: new Date(Date.now() + 3_600_000).toISOString() } };
   const de = async (id: string) => (await listerIntegrations(db as never, id, E)).find((x) => x.paire === P)!.etat;
   expect([await de('A'), await de('B')]).toEqual(['eteinte', 'indisponible']);
   expect(await reglerIntegration(db as never, { tenantId: 'A', paire: P, etat: 'allumee', hubUserId: 'prop', client: 'x', origine: 'https://hub.test' }, E)).toMatchObject({ etat: 'a_confirmer' });

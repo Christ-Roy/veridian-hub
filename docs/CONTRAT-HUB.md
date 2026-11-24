@@ -1809,7 +1809,8 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
 - **Relecture** : `by-email` rend `hub_tenant_id`, `hub_role` et `native_admin` (lu en base). « Appliqué » veut dire relu.
 - **Jeton MCP** : `org_role` avec `tenant_id`, information seulement.
 - L'app ne crée jamais d'appartenance, ne touche que l'espace relié, ne retire jamais le dernier admin.
-- **Fermé par défaut** (`ROLE_PORTE`) : personne n'est promu chez un client sans Robert ; les comptes de test sont ouverts.
+- **Fermé par défaut** (`ROLE_PORTE`) : personne n'est promu chez un client sans Robert. Une organisation MARQUÉE de test au Hub est
+  ouverte (`hub test-organisation poser|retirer`, 24 h, audité, refusé chez un vrai compte) : jamais une forme d'adresse.
 
 #### 5.19.5 Délégation entre apps (VER-245 b.2)
 
@@ -1826,7 +1827,7 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
   120 s. La cible exige `act`, refuse un `jti` déjà vu, et garde l'idempotence chez elle.
 - **Registre fermé** (`lib/delegation/paires.ts`) : cinq paires, aucune action destructive. Une cible s'ouvre (`DELEGATION_CIBLES`) après
   son « garde servie ». `crm@test` n'ouvre qu'aux
-  organisations d'un compte de test : la preuve en prod, sans aucun client (`lib/delegation/ouverture.ts`).
+  organisations marquées de test au Hub : la preuve en prod, sans aucun client (`lib/delegation/ouverture.ts`).
 - **Événements** (`notifuse>crm`, `crm>prospection`) : pas encore servis ; ni allumables, ni échangeables contre la poignée d'un
   utilisateur. Leur sujet sera `integration:<hub_tenant_id>`.
 - **Écran** : `/dashboard/liaisons` (adresse stable, les apps y renvoient) : état, allumer, couper, sans IA.

@@ -15,6 +15,14 @@ import { NonAbouti } from './etat';
 
 let secret: string | null = null;
 
+/** Un secret que SERT le Hub de staging, lu en mémoire, jamais affiché : celui du coffre n'est pas toujours le même (24/11). */
+export function secretServiStaging(nom: string): string {
+  const { NOMAD_TOKEN: _lecture, ...env } = process.env;
+  const s = execFileSync('nomad-v', ['raw', 'var', 'get', '-item', nom, 'nomad/jobs/hub-staging'], { env: env as NodeJS.ProcessEnv, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+  if (s.length < 32) throw new NonAbouti(`${nom} de staging illisible`);
+  return s;
+}
+
 function lireSecret(): string {
   if (secret) return secret;
   // Le secret suit le Hub visé : celui de la prod rend 401 au staging (22/11, cas 14 non abouti).
@@ -227,6 +235,12 @@ export async function activerTwentyAuHub(email: string): Promise<string> {
     throw new Error(`activation Twenty au Hub refusée : HTTP ${r.status} ${JSON.stringify(r.json).slice(0, 160)}`);
   }
   return r.json.crm_workspace_id;
+}
+
+/** Marque une organisation de batterie comme « de test » au Hub (24 h) : ce qui est fermé aux clients s'y ouvre. */
+export async function marquerTest(tenantId: string, poser = true): Promise<void> {
+  const r = await admin('POST', `tenants/${tenantId}/test`, { poser });
+  if (r.status !== 200) throw new NonAbouti(`marquage de test : HTTP ${r.status}`);
 }
 
 export async function retirerEspaceTwenty(tenantId: string): Promise<void> {
