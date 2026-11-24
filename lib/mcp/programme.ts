@@ -200,7 +200,7 @@ export async function executerProgramme(d: DemandeProgramme): Promise<Bilan> {
       suivant();
     }
 
-    moteur.surFin(() => conclure({ etat: 'erreur', raison: 'moteur_arrete', erreur: 'le moteur a arrêté le programme (mémoire, ou fin anormale)' }));
+    moteur.surFin(() => conclure({ etat: 'erreur', raison: 'moteur_arrete', erreur: 'le moteur a arrêté le programme (mémoire, fin anormale ou mise à jour) : avec une reprise, relancer une fois' }));
     moteur.surLigne((ligne) => {
       if (termine || clos) return;
       if (++messages > MESSAGES_MAX) return conclure({ etat: 'erreur', raison: 'trop_de_messages' });
