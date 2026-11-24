@@ -366,3 +366,24 @@ describe('BounceError', () => {
     expect(e).toBeInstanceOf(Error);
   });
 });
+
+describe('organisations au rebond (§5.22)', () => {
+  const envoyer = async (organisations?: { hub_tenant_id: string; role: string; version: number }[]) => {
+    let corps = '';
+    let signature = '';
+    await issueMagicLinkForApp({ app: 'crm', hubUserId: 'u', email: 'a@b.fr', organisations }, {
+      env: { NODE_ENV: 'test', CRM_API_URL: 'https://crm.test', CRM_HUB_API_SECRET: 's' } as NodeJS.ProcessEnv,
+      nowMs: () => 1,
+      fetchImpl: (async (_u: string, i: RequestInit) => { corps = String(i.body); signature = (i.headers as Record<string, string>)['X-Veridian-Hub-Signature']; return Response.json({ magic_link_url: 'https://crm.app.veridian.site/x' }); }) as unknown as typeof fetch,
+    });
+    const { createHmac } = await import('node:crypto');
+    expect(signature).toBe(createHmac('sha256', 's').update(`1.${corps}`).digest('hex'));
+    return JSON.parse(corps);
+  };
+  it('dans le corps signé ; absent quand il n\'y en a pas', async () => {
+    const o = [{ hub_tenant_id: 't', role: 'admin', version: 2 }];
+    expect((await envoyer(o)).organisations).toEqual(o);
+    expect(await envoyer([])).not.toHaveProperty('organisations');
+    expect(await envoyer()).not.toHaveProperty('organisations');
+  });
+});

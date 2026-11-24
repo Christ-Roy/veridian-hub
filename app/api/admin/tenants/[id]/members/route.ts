@@ -6,6 +6,7 @@ import { resolveActor } from '@/lib/admin/audit-log';
 import { requireAdmin } from '@/lib/admin/require-admin';
 import { prisma } from '@/lib/prisma';
 import { rejoindre, ROLES } from '@/lib/tenants/membres';
+import { pousserRole } from '@/lib/tenants/roles';
 import { Compte, compteVise, IdTenant, refuser } from '@/lib/tenants/membres-http';
 
 export const runtime = 'nodejs';
@@ -22,7 +23,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const hubUserId = await compteVise(c.data);
   if (!hubUserId) return NextResponse.json({ error: 'compte_introuvable' }, { status: 404 });
   try {
-    return NextResponse.json(await rejoindre(prisma, { tenantId: id.data, hubUserId, role: c.data.role, origine: 'operateur', acteur: resolveActor(request.headers, null) }));
+    const r = await rejoindre(prisma, { tenantId: id.data, hubUserId, role: c.data.role, origine: 'operateur', acteur: resolveActor(request.headers, null) });
+    // Le rôle part aussitôt chez les apps qui le traduisent, relu. 207 : une app n'a pas suivi ; rejouer est sans effet de bord.
+    const apps = await pousserRole(prisma, { tenantId: id.data, hubUserId });
+    return NextResponse.json({ ...r, apps }, { status: apps.some((a) => a.etat === 'echec' || a.etat === 'refuse') ? 207 : 200 });
   } catch (err) {
     return refuser(err);
   }

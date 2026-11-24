@@ -260,6 +260,9 @@ ATELIER_CAPACITE=2
 PROGRAMME_FICHIER=/local/programme
 # Fusible du retrait au CRM (lib/apps/retrait-crm.ts) : levé le 23/11, correctif du CRM en prod (job crm v30, a0965d8). 1 = retenir.
 CRM_RETRAIT_FUSIBLE=0
+# Rôle d'organisation porté aux apps (lib/tenants/roles.ts, §5.22) : vide = fermé, sauf comptes de test. Ids de tenants ou « tous ».
+# Ouvrir un vrai client : accord de Robert d'abord.
+ROLE_PORTE=
 # Adresses à qui le Hub n'écrit jamais (lib/email/send.ts) : la boîte perso de Robert pour le compte « Préprod CRM » (24/11).
 MAILS_BLOQUES_SHA256=ff9b9ff3e94543f4
 {{ with nomadVar "nomad/jobs/hub" }}

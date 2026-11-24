@@ -1788,6 +1788,21 @@ et `hub suspension` passent par lui.
 - **Relevé** : `hub reconcile --appartenance` (lecture seule). Chaque écarté est nommé ; un compte qui ne se referme pas est
   NON ABOUTI.
 
+#### 5.19.4 Rôle d'organisation porté par le Hub (VER-245 b.1) : §5.22 du contrat envoyé aux apps
+
+Rôles du Hub : `owner`, `admin`, `member`, par organisation, seule source (`lib/tenants/roles.ts`). L'app les traduit (CRM : owner
+et admin = Admin de l'espace relié, member = rôle par défaut).
+
+- **Rebond** : `issue-magic-link` porte `organisations: [{ hub_tenant_id, role, version }]` dans le corps signé. Champ ou tenant
+  absent : l'app ne change rien.
+- **Changement** : `POST /api/hub/members/role { hub_tenant_id, hub_user_id, email, role, version }` → `{ applied, native_role }` ou
+  `{ applied: false, reason: unchanged | not_member | stale | native_custom | last_admin }` ; 404 `tenant_not_linked`.
+- **Version** : millisecondes, monotone par (tenant, utilisateur) ; l'app ignore une version déjà vue ou plus ancienne.
+- **Relecture** : `by-email` rend `hub_tenant_id`, `hub_role` et `native_admin` (lu en base). « Appliqué » veut dire relu.
+- **Jeton MCP** : `org_role` avec `tenant_id`, information seulement.
+- L'app ne crée jamais d'appartenance, ne touche que l'espace relié, ne retire jamais le dernier admin.
+- **Fermé par défaut** (`ROLE_PORTE`) : personne n'est promu chez un client sans Robert ; les comptes de test sont ouverts.
+
 ### 5.20 Restauration d'un membre
 
 Si l'admin Hub a retiré un membre par erreur :

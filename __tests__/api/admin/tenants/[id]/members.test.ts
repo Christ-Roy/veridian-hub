@@ -8,6 +8,9 @@ vi.mock('@/lib/prisma', () => ({ prisma: { user: { findFirst: (...a: unknown[]) 
 vi.mock('@/lib/tenants/membres', async (o) => ({ ...(await o<object>()), rejoindre: (...a: unknown[]) => m.rejoindre(...a), retirer: (...a: unknown[]) => m.retirer(...a), basculerSuspension: (...a: unknown[]) => m.basculer(...a) }));
 
 import { POST } from '@/app/api/admin/tenants/[id]/members/route';
+const pousser = vi.hoisted(() => vi.fn(async (..._a: unknown[]): Promise<unknown[]> => [{ app: 'crm', etat: 'applique' }]));
+vi.mock('@/lib/tenants/roles', () => ({ pousserRole: pousser }));
+
 import { RefusMembre } from '@/lib/tenants/membres';
 
 const T = '11111111-1111-4111-8111-111111111111';
@@ -44,5 +47,19 @@ describe('POST members', () => {
     m.rejoindre.mockRejectedValue(new RefusMembre('adresse_non_prouvee'));
     const r = await jouer({ hub_user_id: U });
     expect([r.status, (await r.json()).error]).toEqual([409, 'adresse_non_prouvee']);
+  });
+});
+
+describe('POST members, le rôle part aussitôt', () => {
+  it('poussé pour ce compte et cette organisation ; une app qui n\'a pas suivi : 207', async () => {
+    const r = await jouer({ hub_user_id: U, role: 'admin' });
+    expect([r.status, (await r.json()).apps]).toEqual([200, [{ app: 'crm', etat: 'applique' }]]);
+    expect(pousser.mock.calls.at(-1)![1]).toEqual({ tenantId: T, hubUserId: U });
+    for (const etat of ['echec', 'refuse']) {
+      pousser.mockResolvedValueOnce([{ app: 'crm', etat }]);
+      expect((await jouer({ hub_user_id: U })).status).toBe(207);
+    }
+    pousser.mockResolvedValueOnce([{ app: 'crm', etat: 'ferme' }]);
+    expect((await jouer({ hub_user_id: U })).status, 'fermé n\'est pas une panne').toBe(200);
   });
 });

@@ -614,6 +614,8 @@ model TenantMember {
   /// invitation | reprise | operateur (lib/tenants/membres.ts, seul écrivain)
   origine          String?
   ajoutePar        String?   @map("ajoute_par")
+  /// Dernier changement de rôle : la version que l'app compare (lib/tenants/roles.ts)
+  roleLe           DateTime? @map("role_le")
 
   @@id([tenantId, userId])
   @@index([userId])

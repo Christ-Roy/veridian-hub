@@ -331,6 +331,16 @@ describe('espace suspendu ou membre retiré (VER-245)', () => {
     expect((await jouer({ espace: 'deux' })).appels).toBe(1);
   });
 
+  it('le rôle dans l\'organisation choisie est signé, jamais sans espace', async () => {
+    await db.tenant.create({ data: { id: 't7', userId: 'autre', name: 'Sept', slug: 'sept', status: 'active', createdAt: new Date() } });
+    await (db as any).tenantMember.create({ data: { tenantId: 't7', userId: HUB_USER, role: 'admin', deletedAt: null } });
+    for (const [args, role] of [[{ espace: 'mon-espace' }, 'owner'], [{ espace: 'sept' }, 'admin'], [{}, undefined]] as const) {
+      const f = appFactice();
+      await appel('executer_outil', { nom: 'analytics.visites_du_site', ...args }, f);
+      expect((await claims(f)).org_role, JSON.stringify(args)).toBe(role);
+    }
+  });
+
   it('membre retiré : l\'espace n\'est plus le sien, au prochain appel', async () => {
     await db.tenant.create({ data: { id: 't8', userId: 'autre', name: 'Agence', slug: 'agence8', status: 'active', createdAt: new Date() } });
     await (db as any).tenantMember.create({ data: { tenantId: 't8', userId: HUB_USER, role: 'member', deletedAt: null } });

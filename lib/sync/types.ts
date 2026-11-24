@@ -43,6 +43,10 @@ export interface TenantSnapshot {
    * ne rend pas le champ ; `null` : elle le rend, aucun lien.
    */
   hubTenantLink?: string | null;
+  /** Dernier rôle du Hub appliqué par l'app ; `undefined` : elle ne traduit pas les rôles. */
+  hubRole?: string | null;
+  /** Droit d'administration NATIF, relu dans l'app. */
+  nativeAdmin?: boolean;
   role?: string;
   plan?: string;
   /**

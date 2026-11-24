@@ -65,8 +65,8 @@ export async function rejoindre(db: DbMembres, d: { tenantId: string; hubUserId:
   if (avant?.deletedAt && (d.origine === 'reprise' || (d.origine === 'invitation' && !(d.emiseLe && d.emiseLe > avant.deletedAt)))) throw new RefusMembre('retire');
   await db.tenantMember.upsert({
     where: cle,
-    create: { tenantId: d.tenantId, userId: d.hubUserId, role, origine: d.origine, ajoutePar: d.acteur },
-    update: { role, deletedAt: null, origine: d.origine, ajoutePar: d.acteur },
+    create: { tenantId: d.tenantId, userId: d.hubUserId, role, origine: d.origine, ajoutePar: d.acteur, roleLe: new Date() },
+    update: { role, deletedAt: null, origine: d.origine, ajoutePar: d.acteur, roleLe: new Date() },
   });
   await writeAuditLog(db as PrismaClient, { action: 'membre.ajoute', actor: d.acteur, targetType: 'tenant', targetId: d.tenantId, payload: { hub_user_id: d.hubUserId, role, origine: d.origine } });
   return { cree: true, role };

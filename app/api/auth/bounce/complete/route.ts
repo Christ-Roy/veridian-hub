@@ -43,6 +43,8 @@ import { getEnabledGatedApps } from '@/lib/tenant-apps';
 import { isEmailProvenInDb } from '@/lib/auth/email-proof-provider';
 import { getHubBaseUrl } from '@/lib/mail/oauth-cookies';
 import { prisma } from '@/lib/prisma';
+import type { SyncApp } from '@/lib/sync/types';
+import { APPS_A_ROLE, organisationsPourRebond } from '@/lib/tenants/roles';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -126,6 +128,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       email: user.email,
       emailProven: await isEmailProvenInDb(prisma, userUuid(user)),
       next: parsed.url,
+      // Seulement aux apps qui le traduisent ; une lecture ratée n'empêche jamais d'entrer (l'app ne change alors rien).
+      organisations: APPS_A_ROLE.includes(parsed.app as SyncApp) ? await organisationsPourRebond(prisma, userUuid(user)).catch(() => []) : [],
     };
     // Academy est réservée : sans activation au Hub, aucun lien, même si l'app connaît encore le compte
     // (activation retirée). Le refus passe par la page d'erreur, jamais muet.

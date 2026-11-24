@@ -74,6 +74,8 @@ export interface IssueMagicLinkInput {
   emailProven?: boolean;
   /** Page demandée : l'app y renvoie après connexion, si elle est sur sa propre origine. */
   next?: string;
+  /** Rôle du compte dans ses organisations (CONTRAT-HUB §5.22). Vide ou absent : l'app ne change rien. */
+  organisations?: { hub_tenant_id: string; role: string; version: number }[];
 }
 
 export interface IssueMagicLinkSuccess {
@@ -204,6 +206,7 @@ export async function issueMagicLinkForApp(
     email: input.email,
     ...(input.emailProven ? { email_proven: true } : {}),
     ...(input.next ? { next: input.next } : {}),
+    ...(input.organisations?.length ? { organisations: input.organisations } : {}),
   });
 
   const timestamp = String(nowMs());

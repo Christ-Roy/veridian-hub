@@ -268,3 +268,19 @@ describe('discoverAppForEmail — jointure hub_user_id', () => {
     vi.unstubAllEnvs();
   });
 });
+
+describe('rôle porté par le Hub (§5.22)', () => {
+  it('hub_role et native_admin : lus quand l\'app les rend, jamais devinés', async () => {
+    vi.stubEnv('CRM_API_URL', 'https://crm.test');
+    vi.stubEnv('CRM_HUB_API_SECRET', 's');
+    const lire = async (w: object) => {
+      const r = await discoverAppForEmail('crm', 'a@b.fr', { fetchImpl: (async () => Response.json({ found: true, workspaces: [{ workspace_id: 'w', ...w }] })) as unknown as typeof fetch });
+      return 'found' in r && r.found ? [r.snapshots[0].hubRole, r.snapshots[0].nativeAdmin] : null;
+    };
+    expect(await lire({ hub_role: 'admin', native_admin: true })).toEqual(['admin', true]);
+    expect(await lire({ hub_role: null, native_admin: false })).toEqual([null, false]);
+    expect(await lire({})).toEqual([undefined, undefined]);
+    expect(await lire({ native_admin: 'oui' })).toEqual([undefined, undefined]);
+    vi.unstubAllEnvs();
+  });
+});
