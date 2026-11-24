@@ -116,7 +116,7 @@ describe('sendMail — aucun provider configuré', () => {
 });
 
 describe('adresses bloquées', () => {
-  const empreinte = (a: string) => createHash('sha256').update(a).digest('hex');
+  const empreinte = (a: string) => createHash('sha256').update(a).digest('hex').slice(0, 16);
 
   it('reconnaît l\'adresse quelle que soit la casse, et personne d\'autre', () => {
     const env = { NODE_ENV: 'test', MAILS_BLOQUES_SHA256: ` ${empreinte('autre@example.com')}, ${empreinte('dest@example.com').toUpperCase()} ` } as NodeJS.ProcessEnv;
@@ -124,6 +124,7 @@ describe('adresses bloquées', () => {
     expect(mailBloque('dest2@example.com', env)).toBe(false);
     expect(mailBloque('dest@example.com', { NODE_ENV: 'test' })).toBe(false);
     expect(mailBloque('', { NODE_ENV: 'test', MAILS_BLOQUES_SHA256: 'x,' })).toBe(false);
+    expect(mailBloque('dest@example.com', { NODE_ENV: 'test', MAILS_BLOQUES_SHA256: empreinte('dest@example.com').slice(0, 4) }), 'une empreinte trop courte ne bloque personne').toBe(false);
   });
 
   it('aucun fournisseur n\'est appelé pour elle ; les autres partent', async () => {
