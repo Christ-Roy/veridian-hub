@@ -286,6 +286,14 @@ jobs:
             "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}" \
             "deploy prod ${IMAGE_TAG}"
 
+      # Rouge ou bloqué : dire quel groupe, et si le Hub sert quand même la nouvelle version (groupe à part : atelier, programme).
+      - name: Groupe en cause
+        if: failure() || cancelled()
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
+            "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}" \
+            "status prod" | bash scripts/ci/groupe-en-cause.sh
+
       - name: Cleanup remote HCL (verbe cleanup)
         if: always()
         run: |

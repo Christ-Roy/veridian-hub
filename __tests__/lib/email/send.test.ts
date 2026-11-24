@@ -18,7 +18,9 @@ vi.mock('nodemailer', () => ({
   createTransport: (...args: unknown[]) => createTransportMock(...args),
 }));
 
-import { sendMail } from '@/lib/email/send';
+import { createHash } from 'node:crypto';
+
+import { mailBloque, sendMail } from '@/lib/email/send';
 
 const PAYLOAD = {
   to: 'dest@example.com',
@@ -110,5 +112,32 @@ describe('sendMail — aucun provider configuré', () => {
     );
     expect(fetchMock).not.toHaveBeenCalled();
     expect(createTransportMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('adresses bloquées', () => {
+  const empreinte = (a: string) => createHash('sha256').update(a).digest('hex');
+
+  it('reconnaît l\'adresse quelle que soit la casse, et personne d\'autre', () => {
+    const env = { NODE_ENV: 'test', MAILS_BLOQUES_SHA256: ` ${empreinte('autre@example.com')}, ${empreinte('dest@example.com').toUpperCase()} ` } as NodeJS.ProcessEnv;
+    expect(mailBloque(' Dest@Example.com ', env)).toBe(true);
+    expect(mailBloque('dest2@example.com', env)).toBe(false);
+    expect(mailBloque('dest@example.com', { NODE_ENV: 'test' })).toBe(false);
+    expect(mailBloque('', { NODE_ENV: 'test', MAILS_BLOQUES_SHA256: 'x,' })).toBe(false);
+  });
+
+  it('aucun fournisseur n\'est appelé pour elle ; les autres partent', async () => {
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 201 }));
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubEnv('BREVO_API_KEY', 'k');
+    vi.stubEnv('MAILS_BLOQUES_SHA256', empreinte('dest@example.com'));
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    await sendMail(PAYLOAD);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(String(info.mock.calls[0])).not.toContain('dest@example.com');
+    await sendMail({ ...PAYLOAD, to: 'client@example.com' });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
   });
 });

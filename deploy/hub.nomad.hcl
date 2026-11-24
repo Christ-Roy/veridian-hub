@@ -260,6 +260,8 @@ ATELIER_CAPACITE=2
 PROGRAMME_FICHIER=/local/programme
 # Fusible du retrait au CRM (lib/apps/retrait-crm.ts) : levé le 23/11, correctif du CRM en prod (job crm v30, a0965d8). 1 = retenir.
 CRM_RETRAIT_FUSIBLE=0
+# Adresses à qui le Hub n'écrit jamais (lib/email/send.ts) : la boîte perso de Robert pour le compte « Préprod CRM » (24/11).
+MAILS_BLOQUES_SHA256=ff9b9ff3e94543f4dd3fcb17f487c3dbf9b6faf6fceaca208b08f4cf3c88125c
 {{ with nomadVar "nomad/jobs/hub" }}
 # Base du Hub : pg-saas (grappe Patroni, entree 172.26.64.1:15432, base hub, role hub). Migration du 09/11/2026 (plan §21).
 # DATABASE_URL composee depuis HUB_DATABASE_* (defauts = pg-saas) : une bascule change une cle, pas ce fichier.
