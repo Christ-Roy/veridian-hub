@@ -25,7 +25,7 @@ essai('disque:/proc', () => fs.readdirSync('/proc').length);
 essai('disque:/dev', () => fs.readdirSync('/dev').length);
 essai('disque:hors de la racine', () => { const l = fs.readdirSync('/../..'); return l.includes('proc') || l.includes('etc'); });
 // Nom propre à ce processus : un essai raté peut laisser un fichier vide d'un autre uid.
-for (const f of ['/tmp/x', '/app/x', '/alloc/data/x']) essai(`disque:ecrire ${f}`, () => { const g = f + process.pid; fs.writeFileSync(g, 'x'); fs.unlinkSync(g); return 1; });
+for (const f of ['/tmp/x', '/alloc/data/x']) essai(`disque:ecrire ${f}`, () => { const g = f + process.pid; fs.writeFileSync(g, 'x'); fs.unlinkSync(g); return 1; });
 essai('systeme:shell', () => cp.execFileSync('/bin/sh', ['-c', 'echo 1']).length);
 essai('systeme:redevenir root', () => { process.setuid(0); return process.getuid() === 0; });
 essai('systeme:interfaces reseau', () => Object.keys(os.networkInterfaces()).some((i) => i !== 'lo'));

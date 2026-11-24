@@ -5,6 +5,8 @@
 //
 // Fallback SMTP Lark si Brevo est indispo / clé absente (rare).
 
+import { createHash } from 'node:crypto';
+
 // nodemailer v9 + @types/nodemailer v7 : plus de default export → import nommé.
 import { createTransport } from 'nodemailer';
 
@@ -23,7 +25,20 @@ export type SendMailPayload = {
   sender?: { name: string; email: string };
 };
 
+/**
+ * Adresses à qui le Hub n'écrit jamais : MAILS_BLOQUES_SHA256, 16 premiers caractères du SHA-256 de l'adresse en minuscules,
+ * séparés par des virgules (le dépôt est public, aucune adresse n'y figure). Une empreinte d'une autre longueur est ignorée.
+ */
+export function mailBloque(adresse: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  const liste = (env.MAILS_BLOQUES_SHA256 ?? '').split(',').map((x) => x.trim().toLowerCase()).filter(Boolean);
+  return liste.includes(createHash('sha256').update(adresse.trim().toLowerCase()).digest('hex').slice(0, 16));
+}
+
 export async function sendMail(payload: SendMailPayload): Promise<void> {
+  if (mailBloque(payload.to)) {
+    console.info('[mail] envoi bloqué par configuration (MAILS_BLOQUES_SHA256)');
+    return;
+  }
   const brevoKey = process.env.BREVO_API_KEY;
 
   if (brevoKey) {

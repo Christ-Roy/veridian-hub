@@ -2,7 +2,8 @@
  * Le parcours pour lequel le mode programme existe (VER-241) : un segment de Prospection entre dans une liste de Mail, par la
  * porte, en un programme repris jusqu'au bout, sans geste ni fichier. Compte et espaces de test, retirés par la batterie ;
  * aucune séquence, aucun envoi (ni reservoir_activate, ni allow_triggers).
- * Volume : 240 contacts ; `SSO_PROGRAMME_LIGNES=4000` pour plusieurs milliers (quota de Prospection : 5 000 par jour et espace).
+ * Volume : 240 contacts par pages de 30 ; `SSO_PROGRAMME_LIGNES=4000 SSO_PROGRAMME_PAGE=1000` pour plusieurs milliers (quota
+ * de Prospection : 5 000 par jour et espace ; pages de plus de 30 : Prospection doit lire X-Veridian-MCP-Appel).
  * Épreuve : `SSO_SABOTAGE=programme-reel` n'importe que la moitié de chaque page : le cas doit échouer.
  */
 import { expect } from '@playwright/test';
@@ -14,12 +15,13 @@ import { obtenirJetonMcp, outil } from './lib/mcp';
 import { creerCompteProuve } from './lib/parcours';
 
 const LIGNES = Number(process.env.SSO_PROGRAMME_LIGNES ?? 240);
-const PAGE = Math.min(1000, Math.max(60, Math.floor(LIGNES / 4)));
+const PAGE = Number(process.env.SSO_PROGRAMME_PAGE ?? 30);
 
 const CODE = (segment: string, liste: string, lignes = LIGNES) => `
 const e = reprise ?? { c: null, lues: 0, importes: 0, crees: 0, ecartes: {}, pages: 0 };
 while (e.lues < ${lignes}) {
   const p = await outil("prospection.extraire_segment", { segment_id: "${segment}", limite: Math.min(${PAGE}, ${lignes} - e.lues), ...(e.c ? { curseur: e.c } : {}) });
+  if (typeof p === "string") throw new Error("page illisible (" + p.length + " caractères) : " + p.slice(-120));
   const lot = p.lignes${process.env.SSO_SABOTAGE === 'programme-reel' ? '.filter((_, i) => i % 2)' : ''};
   const r = await outil("notifuse.contacts_import", {
     contacts: lot.map((l) => ({ email: l.email, siren: l.siren, phone: l.telephone || undefined, domaine: l.domaine || undefined, raison_sociale: l.raison_sociale, ville: l.commune, naf: l.naf })),

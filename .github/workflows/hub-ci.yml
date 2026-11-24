@@ -242,8 +242,13 @@ jobs:
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     # Un groupe implaçable (rise éteint) laisse le déploiement « running » sans fin, alors que le Hub est déjà promu
+<<<<<<< refs/remotes/origin/staging
     # (éprouvé le 24/11) : sans borne, ce job attendrait 6 h.
     timeout-minutes: 30
+=======
+    # (éprouvé le 24/11) : sans borne, ce job attendrait 6 h. 45 : la sauvegarde qui précède a pris 10 min ce jour-là.
+    timeout-minutes: 45
+>>>>>>> HEAD
     # GitHub Environment `production` — tracking centralisé des deploys prod.
     environment:
       name: production
@@ -285,6 +290,14 @@ jobs:
           ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
             "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}" \
             "deploy prod ${IMAGE_TAG}"
+
+      # Rouge ou bloqué : dire quel groupe, et si le Hub sert quand même la nouvelle version (groupe à part : atelier, programme).
+      - name: Groupe en cause
+        if: failure() || cancelled()
+        run: |
+          ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
+            "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}" \
+            "status prod" | bash scripts/ci/groupe-en-cause.sh
 
       - name: Cleanup remote HCL (verbe cleanup)
         if: always()

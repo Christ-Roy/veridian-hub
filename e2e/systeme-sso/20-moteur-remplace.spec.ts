@@ -1,0 +1,72 @@
+/**
+ * Le moteur des programmes remplacé PENDANT un programme (mise à jour, nœud perdu) : le client reçoit un état et sa reprise,
+ * jamais un silence ; le Hub répond pareil ; le moteur revient et la reprise va au bout.
+ * Arrête l'allocation `programme` du job hub, donc seulement sur demande : `SSO_MOTEUR_REMPLACE=1`, depuis le bastion.
+ * Épreuve : `SSO_SABOTAGE=moteur-remplace` n'arrête rien : le cas doit échouer (le programme finit normalement).
+ */
+import { execFileSync } from 'node:child_process';
+
+import { expect } from '@playwright/test';
+
+import { HUB_URL } from './lib/cibles';
+import { cas, NonAbouti } from './lib/etat';
+import { obtenirJetonMcp, outil } from './lib/mcp';
+import { creerCompteProuve } from './lib/parcours';
+
+const dormir = (ms: number) => new Promise((r) => setTimeout(r, ms));
+function nomad(...args: string[]): string {
+  // nomad-v relit son propre jeton : celui de la batterie est en lecture seule.
+  const { NOMAD_TOKEN: _lecture, ...env } = process.env;
+  return execFileSync('nomad-v', ['raw', ...args], { env: env as NodeJS.ProcessEnv, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+}
+const allocProgramme = () => nomad('job', 'status', 'hub').split('\n').map((l) => l.trim().split(/\s+/)).find((c) => c[2] === 'programme' && c[4] === 'run' && c[5] === 'running')?.[0];
+
+cas(null, 'porte MCP : le moteur remplacé pendant un programme rend un état et une reprise, puis revient', async ({ browser }) => {
+  if (process.env.SSO_MOTEUR_REMPLACE !== '1' || /staging/.test(HUB_URL)) throw new NonAbouti('arrête le moteur de prod : SSO_MOTEUR_REMPLACE=1 bash scripts/test-systeme-sso.sh 20-');
+  const E = await creerCompteProuve(browser, 'moteur');
+  const jeton = await obtenirJetonMcp(browser, E, 'TEST MOTEUR');
+  const lancer = async (reprise?: unknown) => {
+    const r = await outil(jeton, 'executer_programme', {
+      code: 'for (let i = reprise?.i ?? 0; i < 30; i++) { await outil("hub.mon_compte"); sauver({ i: i + 1 }); await pause(500); } return "fini";',
+      ...(reprise ? { reprise } : {}),
+    });
+    try { return JSON.parse(r.texte); } catch { return { texte: r.texte }; }
+  };
+
+  const avant = allocProgramme();
+  if (!avant) throw new NonAbouti('allocation programme introuvable');
+  const sante: number[] = [];
+  let fini = false;
+  const sonde = (async () => {
+    while (!fini) {
+      sante.push(await fetch(`${HUB_URL}/api/health`, { signal: AbortSignal.timeout(10_000) }).then((r) => r.status, () => 0));
+      await dormir(1_000);
+    }
+  })();
+
+  const debut = Date.now();
+  const vol = lancer();
+  await dormir(6_000);
+  if (process.env.SSO_SABOTAGE !== 'moteur-remplace') nomad('alloc', 'stop', '-detach', avant);
+  const coupe = await vol;
+  const rendu = Date.now() - debut;
+  expect(coupe, 'un état, jamais un silence').toMatchObject({ etat: 'erreur', raison: 'moteur_arrete' });
+  expect(rendu, 'rendu dès la coupure, pas à l\'échéance').toBeLessThan(40_000);
+  expect(coupe.reprise?.i, 'reprise rendue').toBeGreaterThan(3);
+
+  const raisons: string[] = [];
+  let suite: any;
+  const arret = Date.now();
+  do {
+    suite = await lancer(coupe.reprise);
+    if (suite.etat !== 'termine') raisons.push(suite.raison ?? suite.etat ?? suite.texte);
+    if (suite.etat !== 'termine') await dormir(2_000);
+  } while (suite.etat !== 'termine' && Date.now() - arret < 180_000);
+  fini = true;
+  await sonde;
+  expect(suite, `après ${raisons.join(', ')}`).toMatchObject({ etat: 'termine', resultat: 'fini' });
+  expect(suite.appels.faits, 'reprend où il en était, ne refait pas').toBe(30 - coupe.reprise.i);
+  expect(allocProgramme(), 'une autre allocation').not.toBe(avant);
+  expect(sante.filter((s) => s !== 200), `${sante.length} sondes de /api/health`).toEqual([]);
+  return `coupé à ${rendu} ms avec reprise i=${coupe.reprise.i} ; moteur revenu ${Math.round((Date.now() - arret) / 1000)} s après (${raisons.length} refus : ${[...new Set(raisons)].join(', ') || 'aucun'}) ; /api/health 200 sur ${sante.length} sondes`;
+}, { timeout: 420_000 });
