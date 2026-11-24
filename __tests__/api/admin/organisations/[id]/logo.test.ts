@@ -30,6 +30,9 @@ describe('logo', () => {
     m.regler.mockResolvedValue({ emissions: [{ app: 'academy', etat: 'echec' }] });
     expect([(await PUT(req('PUT'), ctx())).status, (await DELETE(req('DELETE'), ctx())).status]).toEqual([207, 207]);
   });
+});
+
+describe('logo, droits', () => {
   it('admin seulement', async () => {
     m.admin.mockResolvedValue(NextResponse.json({}, { status: 401 }));
     expect([(await PUT(req('PUT'), ctx())).status, (await DELETE(req('DELETE'), ctx())).status]).toEqual([401, 401]);
