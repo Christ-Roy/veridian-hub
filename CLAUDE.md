@@ -94,8 +94,8 @@ Outil admin : `hub` (`hub doctor` d'abord : santé, secret, auth admin). Aucune 
   `~/.claude/skills/nomad/reference/cluster-ops.md`, section « Piège CNI orphelin » (`nomad-v raw job restart -reschedule -yes hub`,
   puis purge des DNAT orphelins). Un déploiement coupe 19 à 51 s (07/11) : attendre `/api/health` avant de conclure.
 - **Couper un compte en urgence** : `hub app-access <email> --app twenty|analytics|cms --enabled false`, `hub unlink <email> --app <app>`
-  ou `hub delete-tenant <email> --confirm` (irréversible, propage aux apps). Pas de commande admin « révoquer les sessions
-  seulement » : le client le fait depuis Réglages > Sécurité ; sinon `AUTH_SECRET`.
+  ou `hub delete-tenant <email> --confirm` (irréversible, propage aux apps). Membre : `hub membre retirer` ; organisation :
+  `hub suspension poser` (0 coupé et relu, 1 une app n'a pas suivi ; §5.19.3). Sessions seules : le client, Réglages > Sécurité.
 - **Cookie volé suspecté** : le client « se déconnecte partout » (coupe Hub et apps, la réponse nomme les apps en échec) ;
   changer son mot de passe fait pareil. Un cookie simplement déconnecté reste valable jusqu'à expiration.
 - **`AUTH_SECRET` à changer** : coupe TOUTES les sessions du Hub et les rebonds en cours ; ne coupe pas les sessions
