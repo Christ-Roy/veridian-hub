@@ -80,9 +80,11 @@ cas(null, 'porte MCP : un client IA s\'enregistre, obtient le consentement, appe
   await activerAnalyticsAuHub(E.email);
   noterEspaceTwenty(E.email, E.tenantId);
   await activerTwentyAuHub(E.email);
-  const inscrites = ((await admin<{ apps: { appKey: string; enabled: boolean; mcpUrl: string }[] }>('GET', 'mcp-apps')).json?.apps ?? [])
+  const inscrites = ((await admin<{ apps: { appKey: string; enabled: boolean; mcpUrl: string; acces: string }[] }>('GET', 'mcp-apps')).json?.apps ?? [])
     .filter((a) => a.enabled);
-  const registre = inscrites.map((a) => a.appKey).sort();
+  // Attendues : les apps ouvertes à tous, et celles que ce compte vient d'activer. Une app réservée qu'il n'a pas (Academy,
+  // Robert seul depuis le 22/11) ne doit PAS passer par la porte : l'égalité plus bas échoue si elle apparaît.
+  const registre = inscrites.filter((a) => a.acces === 'tous' || ['analytics', 'twenty'].includes(a.appKey)).map((a) => a.appKey).sort();
   const verifier = randomBytes(32).toString('base64url');
   const state = randomBytes(8).toString('hex');
   const url = `${as.authorization_endpoint}?${new URLSearchParams({
