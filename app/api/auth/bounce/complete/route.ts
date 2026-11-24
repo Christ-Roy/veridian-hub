@@ -36,6 +36,7 @@ import {
   NEXT_COOKIE_NAME_INSECURE,
 } from '@/lib/auth/bounce-next';
 import { issueMagicLinkForApp, BounceError } from '@/lib/auth/bounce-apps';
+import { COOKIE_ACTIF, organisationActive } from '@/lib/tenants/actif';
 import { journaliserRefus, journaliserReussite } from '@/lib/auth/bounce-refus';
 import { ensureAcademyWorkspace } from '@/lib/academy/provision';
 import { ensureCrmWorkspace } from '@/lib/crm/provision';
@@ -131,6 +132,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       next: parsed.url,
       // Seulement aux apps qui le traduisent ; une lecture ratée n'empêche jamais d'entrer (l'app ne change alors rien).
       delegations: await emettrePoignees(prisma, { hubUserId: userUuid(user), app: parsed.app }).catch(() => []),
+      hubTenantId: await organisationActive(prisma, userUuid(user), req.cookies.get(COOKIE_ACTIF)?.value).catch(() => null),
       organisations: APPS_A_ROLE.includes(parsed.app as SyncApp) ? await organisationsPourRebond(prisma, userUuid(user)).catch(() => []) : [],
     };
     // Academy est réservée : sans activation au Hub, aucun lien, même si l'app connaît encore le compte

@@ -78,6 +78,8 @@ export interface IssueMagicLinkInput {
   /** Poignées de délégation de ce compte pour cette app (VER-245 b.2), une par organisation. */
   delegations?: { hub_tenant_id: string; grant: string; expire_le: string }[];
   organisations?: { hub_tenant_id: string; role: string; version: number }[];
+  /** Organisation active choisie au Hub, revérifiée (VER-252) : où arriver. Absente : l'app garde son choix. */
+  hubTenantId?: string | null;
 }
 
 export interface IssueMagicLinkSuccess {
@@ -209,6 +211,7 @@ export async function issueMagicLinkForApp(
     ...(input.emailProven ? { email_proven: true } : {}),
     ...(input.next ? { next: input.next } : {}),
     ...(input.delegations?.length ? { delegations: input.delegations } : {}),
+    ...(input.hubTenantId ? { hub_tenant_id: input.hubTenantId } : {}),
     ...(input.organisations?.length ? { organisations: input.organisations } : {}),
   });
 

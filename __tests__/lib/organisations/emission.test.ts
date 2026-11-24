@@ -40,6 +40,7 @@ describe('emettreOrganisation', () => {
     ['l\'app dit oui et sert une autre version', app({ version: () => 1 }), 'echec'],
     ['pas de route de relecture', app({ version: () => 404 }), 'non_relu'],
     ['déjà à jour, relu', app({ post: () => Response.json({ applied: false, reason: 'unchanged' }) }), 'applique'],
+    ['l\'écriture française du même contrat', app({ post: () => Response.json({ applique: true, version: 1 }) }), 'applique'],
     ['version ancienne', app({ post: () => Response.json({ applied: false, reason: 'stale' }) }), 'ignore'],
     ['route absente', app({ post: () => new Response('', { status: 404 }) }), 'echec'],
     ['200 illisible', app({ post: () => new Response('ok') }), 'echec'],
