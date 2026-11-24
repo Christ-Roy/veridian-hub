@@ -12,7 +12,8 @@ H=$(alloc stack); P=$(alloc programme); P=${P:-$H}
 [ -n "$P" ] && [ -n "$H" ] || { echo "NON ABOUTI : allocation programme ($P) ou stack ($H) absente"; exit 2; }
 B64=$(base64 -w0 "$ICI/programme/epreuve.mjs")
 PRISON='/opt/programme/chroot --userspec=UID:UID --groups= /opt/programme/prison /node'
-jouer() { nomad-v raw alloc exec -task "$1" "$2" sh -c "$3" 2>/dev/null | grep -E '^\{' | tail -1; }
+# `alloc exec` rend parfois du vide (juste après un déploiement, 24/11) : trois essais, puis NON ABOUTI.
+jouer() { local r; for _ in 1 2 3; do r=$(nomad-v raw alloc exec -task "$1" "$2" sh -c "$3" 2>/dev/null | grep -E '^\{' | tail -1); [ -n "$r" ] && break; sleep 5; done; printf '%s' "$r"; }
 EPREUVE=$(jouer "$JOB-programme-moteur" "$P" "${PRISON//UID/20009} -e 'setTimeout(()=>{},20000)' & V=\$!; sleep 1; echo $B64 | base64 -d | env -i ${PRISON//UID/20010} --input-type=module - \$V; kill -9 \$V 2>/dev/null")
 TEMOIN=$(jouer "$JOB" "$H" "sleep 8 & V=\$!; echo $B64 | base64 -d | node --input-type=module - \$V")
 # Second témoin, dans le conteneur du moteur mais HORS de la prison : seul endroit où être root et voir la socket sont possibles.

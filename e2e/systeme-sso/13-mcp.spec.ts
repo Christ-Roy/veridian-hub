@@ -248,5 +248,5 @@ cas(null, 'porte MCP : un client IA s\'enregistre, obtient le consentement, appe
   expect((await form('/api/oauth/token', { grant_type: 'refresh_token', refresh_token: t.refresh_token, client_id: client })).status).toBe(400);
   expect((await rpc(t2.access_token, 'ping')).status, 'connexion coupée après le rejeu').toBe(401);
 
-  return `401 + métadonnées, client ${client.slice(0, 12)}…, consentement, PKCE, 3 outils, hub.mon_compte sur le bon compte, apps : ${preuves.join(', ') || 'aucune'}, rejeu coupé`;
+  return `401 + métadonnées, client ${client.slice(0, 12)}…, consentement, PKCE, 4 outils, hub.mon_compte sur le bon compte, apps : ${preuves.join(', ') || 'aucune'}, rejeu coupé`;
 }, { timeout: 300_000 });
