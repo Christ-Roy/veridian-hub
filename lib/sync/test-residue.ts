@@ -17,6 +17,13 @@ export function isTestAccount(email: string): boolean {
   return PREFIXES.some((p) => e.startsWith(p)) || e.endsWith('@yopmail.com');
 }
 
+/**
+ * Comptes de test PERMANENTS, par hub_user_id : ils servent, ce ne sont pas des restes. Une alarme rouge en permanence ne
+ * dit plus rien (reconcile rouge du 21 au 24/11 pour ce seul compte).
+ * - 9608d959… : « Préprod CRM » de Robert (11/11), espace d'essai de Mon IA (groupe atelier-8fa7e09d du job hub).
+ */
+const PERMANENTS = new Set(['9608d959-6ebb-4ec6-ad10-6d9bbe66e4b0']);
+
 export type TestResidue = {
   hub: string[];
   apps: Record<string, string[]>;
@@ -39,13 +46,15 @@ export async function measureTestResidue(
         { email: { endsWith: '@yopmail.com' } },
       ],
     },
-    select: { email: true },
+    select: { email: true, supabaseUserId: true },
   });
-  const hub = rows.map((r) => r.email).filter((e): e is string => Boolean(e && isTestAccount(e)));
+  const permanents = rows.filter((r) => r.supabaseUserId && PERMANENTS.has(r.supabaseUserId));
+  const adresses = new Set(permanents.map((r) => r.email?.toLowerCase()));
+  const hub = rows.filter((r) => !permanents.includes(r)).map((r) => r.email).filter((e): e is string => Boolean(e && isTestAccount(e)));
   const apps = Object.fromEntries(
     Object.entries(identity ?? {}).map(([app, a]) => [
       app,
-      [...a.withoutHub, ...a.unlinked, ...(a.awaitingProof ?? [])].filter(isTestAccount),
+      [...a.withoutHub, ...a.unlinked, ...(a.awaitingProof ?? [])].filter((e) => isTestAccount(e) && !adresses.has(e.toLowerCase())),
     ]),
   );
   const notifuseWorkspaces = listNotifuseWorkspaces

@@ -241,6 +241,9 @@ jobs:
     needs: [docker, trivy]
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
+    # Un groupe implaçable (rise éteint) laisse le déploiement « running » sans fin, alors que le Hub est déjà promu
+    # (éprouvé le 24/11) : sans borne, ce job attendrait 6 h. 45 : la sauvegarde qui précède a pris 10 min ce jour-là.
+    timeout-minutes: 45
     # GitHub Environment `production` — tracking centralisé des deploys prod.
     environment:
       name: production
