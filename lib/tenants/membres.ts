@@ -22,6 +22,12 @@ export type Origine = 'invitation' | 'reprise' | 'operateur';
 export type DbMembres = Pick<PrismaClient, 'tenant' | 'tenantMember' | 'user' | 'auditLog'>;
 type Deps = { fetchImpl?: typeof fetch; apps?: readonly SyncApp[]; env?: NodeJS.ProcessEnv };
 
+/** Ce que l'auteur du geste doit lire : les apps où l'accès n'est PAS coupé, et pourquoi (Analytics et Academy ne savent pas retirer). */
+export function nonCoupees(apps: IssueApp[]): string | null {
+  const l = apps.filter((a) => a.etat === 'non_gere' || a.etat === 'echec');
+  return l.length ? `PAS coupé : ${l.map((a) => `${a.app} (${a.detail ?? a.etat})`).join(', ')}. Rejouer est sans effet de bord.` : null;
+}
+
 export class RefusMembre extends Error {
   constructor(readonly code: 'tenant_introuvable' | 'tenant_suspendu' | 'compte_introuvable' | 'adresse_non_prouvee' | 'role_refuse' | 'proprietaire' | 'pas_membre') {
     super(code);
@@ -116,7 +122,7 @@ async function retirerChez(app: SyncApp, t: Tenant, email: string, hubUserId: st
 }
 
 /** Retire un membre. Rejouable : déjà retiré au Hub, il est quand même retiré des apps où il resterait. Jamais le propriétaire. */
-export async function retirer(db: DbMembres, d: { tenantId: string; hubUserId: string; acteur: string; motif?: 'admin_action' | 'user_request' }, deps: Deps = {}): Promise<{ deja: boolean; apps: IssueApp[]; complet: boolean }> {
+export async function retirer(db: DbMembres, d: { tenantId: string; hubUserId: string; acteur: string; motif?: 'admin_action' | 'user_request' }, deps: Deps = {}): Promise<{ deja: boolean; apps: IssueApp[]; complet: boolean; avis: string | null }> {
   const t = await tenantVivant(db, d.tenantId);
   if (t.userId === d.hubUserId) throw new RefusMembre('proprietaire');
   const cle = { tenantId_userId: { tenantId: d.tenantId, userId: d.hubUserId } };
@@ -129,7 +135,7 @@ export async function retirer(db: DbMembres, d: { tenantId: string; hubUserId: s
   if (!ligne && apps.every((a) => a.etat === 'absent')) throw new RefusMembre('pas_membre');
   const complet = apps.every((a) => a.etat === 'retire' || a.etat === 'absent');
   await writeAuditLog(db as PrismaClient, { action: 'membre.retire', actor: d.acteur, targetType: 'tenant', targetId: d.tenantId, payload: { hub_user_id: d.hubUserId, deja, complet, apps } });
-  return { deja, apps, complet };
+  return { deja, apps, complet, avis: nonCoupees(apps) };
 }
 
 async function basculerChez(app: SyncApp, t: Tenant, proprietaire: { email: string }, suspendre: boolean, deps: Deps): Promise<IssueApp> {
@@ -149,7 +155,7 @@ async function basculerChez(app: SyncApp, t: Tenant, proprietaire: { email: stri
 }
 
 /** Suspend ou reprend une organisation : au Hub d'abord (la porte MCP refuse aussitôt), puis chez les apps qui savent le faire. */
-export async function basculerSuspension(db: DbMembres, d: { tenantId: string; suspendre: boolean; acteur: string; motif?: string }, deps: Deps = {}): Promise<{ deja: boolean; apps: IssueApp[]; complet: boolean }> {
+export async function basculerSuspension(db: DbMembres, d: { tenantId: string; suspendre: boolean; acteur: string; motif?: string }, deps: Deps = {}): Promise<{ deja: boolean; apps: IssueApp[]; complet: boolean; avis: string | null }> {
   const t = await tenantVivant(db, d.tenantId);
   const proprietaire = await db.user.findFirst({ where: { supabaseUserId: t.userId }, select: { email: true } });
   if (!proprietaire) throw new RefusMembre('compte_introuvable');
@@ -159,5 +165,5 @@ export async function basculerSuspension(db: DbMembres, d: { tenantId: string; s
   const apps = await Promise.all((deps.apps ?? configuredSyncApps()).map((app) => basculerChez(app, t, proprietaire, d.suspendre, deps)));
   const complet = apps.every((a) => a.etat === 'suspendu' || a.etat === 'repris' || a.etat === 'absent');
   await writeAuditLog(db as PrismaClient, { action: d.suspendre ? 'tenant.suspendu' : 'tenant.repris', actor: d.acteur, targetType: 'tenant', targetId: t.id, payload: { deja, complet, apps, motif: d.motif ?? null } });
-  return { deja, apps, complet };
+  return { deja, apps, complet, avis: nonCoupees(apps) };
 }

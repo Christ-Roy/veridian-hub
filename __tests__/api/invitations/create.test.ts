@@ -29,6 +29,7 @@ const invitations: any[] = [];
 const auditLogs: any[] = [];
 let nextInvId = 1;
 
+let quotaDuJour = 0;
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     user: {
@@ -37,6 +38,7 @@ vi.mock('@/lib/prisma', () => ({
       ),
     },
     crossAppInvitation: {
+      count: async () => quotaDuJour,
       findFirst: vi.fn(async ({ where }: any) => {
         return (
           invitations.find(
@@ -163,6 +165,14 @@ describe('POST /api/invitations/create', () => {
     target_workspace_id: 'ws_42',
     target_role: 'member',
   };
+
+  it('plafond du jour atteint pour cet espace : 429, aucun mail', async () => {
+    quotaDuJour = 20;
+    const res = await callRoute(buildReq({ body: validBody }));
+    quotaDuJour = 0;
+    expect(res.status).toBe(429);
+    expect((await res.json()).error).toBe('quota_exceeded');
+  });
 
   it('returns 401 on invalid HMAC signature', async () => {
     const req = buildReq({ body: validBody, badSignature: 'a'.repeat(64) });

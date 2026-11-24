@@ -21,6 +21,7 @@ import {
   buildMagicLinkUrl,
   generateInvitationToken,
   InvitationCreateError,
+  INVITATIONS_PAR_JOUR,
 } from '@/lib/invitations/create';
 
 type InvitationRow = {
@@ -61,6 +62,8 @@ function makeFakePrisma(users: { id: string; email: string }[]) {
           ) ?? null
         );
       },
+      count: async ({ where }: { where: { targetApp: string; targetWorkspaceId: string; createdAt: { gt: Date } } }) =>
+        invitations.filter((i) => i.targetApp === where.targetApp && i.targetWorkspaceId === where.targetWorkspaceId && i.createdAt > where.createdAt.gt).length,
       create: async ({ data }: { data: Omit<InvitationRow, 'id' | 'createdAt'> }) => {
         const row: InvitationRow = {
           ...data,
@@ -177,6 +180,15 @@ describe('createCrossAppInvitation', () => {
     const result = await createCrossAppInvitation(prisma, baseInput);
     expect(result.reused).toBe(false);
     expect(prisma.__invitations).toHaveLength(2);
+  });
+
+  it('plafond par espace et par jour ; un autre espace n\'est pas touché, une invitation en attente se réutilise', async () => {
+    const a = (i: number, o = {}) => createCrossAppInvitation(prisma, { ...baseInput, now: () => new Date(), inviteeEmail: `x${i}@example.com`, ...o });
+    for (let i = 0; i < INVITATIONS_PAR_JOUR; i++) await a(i);
+    await expect(a(99)).rejects.toMatchObject({ code: 'quota_exceeded' });
+    expect((await a(3)).reused).toBe(true);
+    expect((await a(99, { targetWorkspaceId: 'autre-espace' })).reused).toBe(false);
+    expect((await a(99, { now: () => new Date(Date.now() + 25 * 3600 * 1000) })).reused).toBe(false);
   });
 
   it('throws if inviter user does not exist', async () => {

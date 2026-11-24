@@ -90,10 +90,11 @@ describe('releverAppartenance', () => {
     vi.stubEnv('NOTIFUSE_HUB_API_SECRET', 's');
   });
 
-  it('lit chaque humain, sans les comptes de test', async () => {
-    const f = app([{ email: 'col@client.fr' }, { email: 'e2e-x@veridian.site' }], () => espace());
+  it('lit chaque humain, et nomme chaque écarté avec son motif', async () => {
+    const f = app([{ email: 'col@client.fr' }, { email: 'e2e-x@veridian.site' }, { email: 'brunon5robert+p@gmail.com' }, { hub_user_id: 'u' }], () => espace());
     const r = await releverAppartenance(db, 'notifuse', f);
-    expect(r).toMatchObject({ etat: 'ok', humains: 1, nonLus: [], comptes: { jonction: 1 } });
+    expect(r).toMatchObject({ etat: 'ok', rendus: 4, humains: 1, nonLus: [], comptes: { jonction: 1 } });
+    expect(r.exclus, 'écartés, jamais en silence').toEqual([{ email: 'e2e-x@veridian.site', motif: 'compte de test' }, { email: 'brunon5robert+p@gmail.com', motif: 'compte de test' }, { email: '', motif: 'sans adresse' }]);
   });
 
   it('un humain dont l\'app ne rend pas les espaces : NON ABOUTI, nommé, le reste est rendu', async () => {
@@ -116,6 +117,13 @@ describe('releverAppartenance', () => {
     expect((await releverAppartenance(db, 'notifuse', (async () => { throw new Error('réseau'); }) as never)).raison).toContain('injoignable');
     vi.stubEnv('NOTIFUSE_HUB_API_SECRET', '');
     expect((await releverAppartenance(db, 'notifuse')).raison).toContain('non configurée');
+  });
+
+  it('le compte se referme toujours : rendus = relevés + non lus + écartés', async () => {
+    const f = app([{ email: 'col@client.fr' }, { email: 'prop@client.fr' }, { email: 'e2e-x@veridian.site' }], (e) => (e.startsWith('prop') ? new Response('', { status: 500 }) : espace()));
+    const r = await releverAppartenance(db, 'notifuse', f);
+    expect(r.rendus).toBe(r.humains + r.exclus.length);
+    expect(r.espaces.flatMap((e) => e.membres).length + r.nonLus.length).toBe(r.humains);
   });
 
   it('n\'écrit jamais', () => expect(ecriture).not.toHaveBeenCalled());

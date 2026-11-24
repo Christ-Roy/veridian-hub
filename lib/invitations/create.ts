@@ -58,12 +58,16 @@ export class InvitationCreateError extends Error {
       | 'invalid_target_app'
       | 'invalid_target_role'
       | 'inviter_not_found'
-      | 'self_invitation',
+      | 'self_invitation'
+      | 'quota_exceeded',
   ) {
     super(message);
     this.name = 'InvitationCreateError';
   }
 }
+
+/** Invitations créées par espace et par 24 h. */
+export const INVITATIONS_PAR_JOUR = 20;
 
 export function generateInvitationToken(): string {
   return randomBytes(32).toString('hex');
@@ -141,6 +145,12 @@ export async function createCrossAppInvitation(
   if (existing) {
     return { invitation: existing, reused: true };
   }
+
+  // Plafond par espace et par jour (VER-245) : une app compromise n'ouvre pas un espace à cent inconnus en une nuit.
+  const duJour = await prisma.crossAppInvitation.count({
+    where: { targetApp: input.targetApp, targetWorkspaceId: input.targetWorkspaceId, createdAt: { gt: new Date(now.getTime() - 24 * 60 * 60 * 1000) } },
+  });
+  if (duJour >= INVITATIONS_PAR_JOUR) throw new InvitationCreateError(`${INVITATIONS_PAR_JOUR} invitations par jour et par espace au plus`, 'quota_exceeded');
 
   const expiryDays = input.expiryDays ?? DEFAULT_EXPIRY_DAYS;
   const expiresAt = new Date(now.getTime() + expiryDays * 24 * 60 * 60 * 1000);
