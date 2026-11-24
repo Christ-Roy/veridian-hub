@@ -15,15 +15,17 @@ PRISON='/opt/programme/chroot --userspec=UID:UID --groups= /opt/programme/prison
 jouer() { nomad-v raw alloc exec -task "$1" "$2" sh -c "$3" 2>/dev/null | grep -E '^\{' | tail -1; }
 EPREUVE=$(jouer "$JOB-programme-moteur" "$P" "${PRISON//UID/20009} -e 'setTimeout(()=>{},20000)' & V=\$!; sleep 1; echo $B64 | base64 -d | env -i ${PRISON//UID/20010} --input-type=module - \$V; kill -9 \$V 2>/dev/null")
 TEMOIN=$(jouer "$JOB" "$H" "sleep 8 & V=\$!; echo $B64 | base64 -d | node --input-type=module - \$V")
-[ -n "$EPREUVE" ] && [ -n "$TEMOIN" ] || { echo "NON ABOUTI : pas de réponse (prison ${#EPREUVE}, témoin ${#TEMOIN})"; exit 2; }
-EPREUVE="$EPREUVE" TEMOIN="$TEMOIN" python3 - <<'PY'
+# Second témoin, dans le conteneur du moteur mais HORS de la prison : seul endroit où être root et voir la socket sont possibles.
+HORS=$(jouer "$JOB-programme-moteur" "$P" "echo $B64 | base64 -d | env -i node --input-type=module - 0 'systeme:redevenir root,reseau:socket du superviseur'")
+[ -n "$EPREUVE" ] && [ -n "$TEMOIN" ] && [ -n "$HORS" ] || { echo "NON ABOUTI : pas de réponse (prison ${#EPREUVE}, témoin ${#TEMOIN}, hors prison ${#HORS})"; exit 2; }
+EPREUVE="$EPREUVE" TEMOIN="$TEMOIN" HORS="$HORS" python3 - <<'PY'
 import json, os, sys
 e, t = json.loads(os.environ['EPREUVE']), json.loads(os.environ['TEMOIN'])
-# Ce que le témoin DOIT obtenir : sinon l'épreuve ne mesure rien.
-du = ["secret:env AUTH_SECRET", "secret:/proc/self/environ", "disque:/etc/passwd", "disque:/proc", "systeme:shell", "voisins:un processus plus ancien", "voisins:le programme d'un autre compte", "reseau:internet", "reseau:base du Hub", "reseau:Hub en boucle locale"]
+t |= json.loads(os.environ['HORS'])
+# CHAQUE attaque doit réussir chez un témoin : une attaque que personne n'obtient ne prouve rien sur la prison.
 for k in e: print(f"{'ECHEC' if e[k] else 'ok   '} prison={e[k]} temoin={t.get(k)}  {k}")
 print(f"prison {sum(e.values())}/{len(e)} · témoin {sum(t.values())}/{len(t)}")
-manque = [k for k in du if not t.get(k)]
+manque = [k for k in e if not t.get(k)]
 if manque: print("NON ABOUTI : le témoin n'obtient pas", manque); sys.exit(2)
 sys.exit(1 if any(e.values()) else 0)
 PY

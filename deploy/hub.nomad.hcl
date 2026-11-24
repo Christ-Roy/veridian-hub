@@ -367,7 +367,9 @@ EOH
         max_parallel     = 1
         min_healthy_time = "10s"
         healthy_deadline = "5m"
-        auto_revert      = true
+        # Un retour arrière de Nomad porte sur le JOB entier : un atelier en panne défaisait le déploiement du Hub déjà promu
+        # (éprouvé le 24/11). Seul le groupe stack revient en arrière.
+        auto_revert      = false
       }
 
       # Sur rise, à l'écart de la prod du Hub : le volume hub-atelier-<t8> y vit (créé par l'infra,

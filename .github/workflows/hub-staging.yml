@@ -72,6 +72,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Cache « inline » : les couches lourdes d'un push sont reprises telles quelles, le nœud ne retire que le Hub. Staging
+      # SEULEMENT : la prod se reconstruit à neuf, pour que le contrôle des CVE voie les correctifs du jour.
       - name: Build and push staging image
         uses: nick-fields/retry@v4
         with:
@@ -82,8 +84,11 @@ jobs:
           command: |
             docker buildx build \
               --target runner \
+              --cache-from type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging-cache \
+              --cache-to type=inline \
               --push \
               -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.tag.outputs.image-tag }} \
+              -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:staging-cache \
               -f ./Dockerfile \
               .
 

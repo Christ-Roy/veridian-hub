@@ -93,7 +93,9 @@ revient (16 000 caractères).
 
 **Bornes** : 45 s (catalogue compris), 200 appels, 4 de front, 64 Mo, 1 Mo par réponse d'outil, 100 000 caractères de
 code, un programme à la fois par utilisateur, 600 appels internes par minute (vérifiés avant de lancer, jamais à
-mi-course). Le limiteur de la porte compte un programme pour un appel. Un 429 d'app est attendu (`Retry-After`) et refait.
+mi-course). Ces deux derniers comptes vivent en mémoire du Hub : une seule allocation sert la porte, deux pendant les 60 s
+d'un déploiement (au plus deux programmes par utilisateur à ce moment ; le moteur, lui, est unique et tient 4 places).
+Le limiteur de la porte compte un programme pour un appel. Un 429 d'app est attendu (`Retry-After`) et refait.
 
 **Réponse**, toujours un état : `termine`, `interrompu` (échéance : `reprise`, `appels`, et les appels d'`issue_inconnue`,
 peut-être joués par l'app), `erreur`, `non_lance` (moteur plein ou muet). Reprendre : relancer le même code avec

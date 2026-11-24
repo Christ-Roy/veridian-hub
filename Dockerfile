@@ -69,10 +69,9 @@ RUN pnpm run build
 # STAGE 3: Runner (Production)
 # ============================================================================
 FROM node:22-alpine AS runner
-# SHA du commit, lu par /api/health (la CI passe --build-arg GIT_SHA=${{ github.sha }}).
-ARG GIT_SHA=
-ENV HUB_GIT_SHA=$GIT_SHA
-
+# Ordre voulu (24/11) : d'abord ce qui ne change pas d'un push à l'autre (paquets, CLI Prisma, atelier, prison), puis le Hub.
+# Une couche lourde recopiée à chaque push remplissait le disque du nœud de staging. Dans chaque RUN : le cache npm est retiré
+# là où il naît (une couche suivante ne retire rien), et les droits sont posés à la création (un chown ou chmod tardif recopie).
 WORKDIR /app
 
 # Set production environment
@@ -87,35 +86,8 @@ RUN apk upgrade --no-cache
 
 # Create a non-root user
 RUN addgroup --system --gid 1001 nodejs && \
-    adduser --system --uid 1001 nextjs
-
-# Copy built application from builder
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/scripts ./scripts
-
-# Prisma schema + migrations + config → nécessaires pour `prisma migrate deploy`
-# au boot du container (cf. CMD). Le standalone Next.js ne les embarque pas.
-# `prisma.config.ts` (Prisma 7) déclare le schema, le chemin migrations et lit
-# DATABASE_URL depuis l'env — chargé nativement par le CLI prisma (loader TS
-# bundlé, pas besoin de tsx au runtime).
-COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
-
-# Install runtime dependencies for init-stripe script.
-# These are needed because init-stripe.mjs runs before Next.js and isn't in standalone
-# Install in /tmp then merge with standalone's node_modules (overwrites are OK - standalone doesn't need these)
-# Même remarque que pour /opt/prisma-cli plus bas : install hors lockfile pnpm,
-# donc les overrides doivent être rappelés ici.
-RUN echo '{"type":"module","overrides":{"deepmerge-ts":"8.0.1","effect":"3.22.5"}}' > /tmp/package.json && \
-    cd /tmp && \
-    npm install --omit=dev --no-package-lock \
-      stripe@14.25.0 \
-      @supabase/supabase-js@2.43.4 && \
-    mkdir -p /app/node_modules && \
-    cp -r /tmp/node_modules/* /app/node_modules/ && \
-    rm -rf /tmp/node_modules /tmp/package.json
+    adduser --system --uid 1001 nextjs && \
+    chown nextjs:nodejs /app
 
 # Prisma CLI dans un préfixe ISOLÉ (/opt/prisma-cli), PAS mergé avec le node_modules
 # standalone : le CLI prisma 7 embarque @prisma/studio-core qui tire react/react-dom,
@@ -138,7 +110,8 @@ RUN mkdir -p /opt/prisma-cli && \
     cd /opt/prisma-cli && \
     npm install --omit=dev --no-package-lock \
       prisma@7.7.0 \
-      dotenv@17.2.3
+      dotenv@17.2.3 && \
+    rm -rf /root/.npm
 
 # Atelier « Mon IA » (docs/MON-IA.md) : le binaire officiel Claude Code, par le TypeScript Agent SDK (variante
 # musl, compatible Alpine), dans un préfixe ISOLÉ comme le CLI Prisma. Même image que le Hub, autre point
@@ -149,12 +122,11 @@ RUN mkdir -p /opt/atelier && \
     cd /opt/atelier && \
     npm install --omit=dev --no-package-lock \
       @anthropic-ai/claude-agent-sdk@0.3.330 \
-      zod@4.6.7
+      zod@4.6.7 && \
+    rm -rf /root/.npm
 # Le binaire embarqué par le SDK doit exister et démarrer (23/11 : absent du PATH, la connexion par abonnement
 # sortait en ENOENT au premier clic). Image x64 Alpine : variante musl.
 RUN /opt/atelier/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64-musl/claude --version
-COPY atelier/regles.mjs atelier/serveur.mjs atelier/proxy.mjs /opt/atelier/
-
 # Mode programme de la porte MCP (programme/, docs/CONTRAT-MCP.md) : la PRISON où tourne le code d'un client. node, ses
 # bibliothèques, QuickJS, rien d'autre : ni shell, ni /proc, ni fichier inscriptible. Le superviseur y entre par le chroot
 # de coreutils sous un uid réservé (celui de busybox ne change pas d'utilisateur). Versions : celles de package.json.
@@ -167,12 +139,44 @@ RUN apk add --no-cache coreutils && \
       quickjs-emscripten-core@0.32.0 \
       @jitl/quickjs-wasmfile-release-sync@0.32.0 && \
     cp /usr/local/bin/node /opt/programme/prison/node && \
-    for l in $(ldd /usr/local/bin/node | grep -o '/[^ ]*' | sort -u); do mkdir -p "/opt/programme/prison$(dirname "$l")" && cp -L "$l" "/opt/programme/prison$l"; done
-COPY programme/executeur.mjs /opt/programme/prison/app/executeur.mjs
-COPY programme/superviseur.mjs programme/passerelle.mjs /opt/programme/
-# Lisible par tous, inscriptible par personne ; et la prison démarre pour de vrai, sous un uid réservé, environnement vide.
-RUN chmod -R a+rX,a-w /opt/programme && \
-    printf '%s\n' '{"t":"programme","code":"return 6*7","reprise":null}' | (cat; sleep 5) | \
+    for l in $(ldd /usr/local/bin/node | grep -o '/[^ ]*' | sort -u); do mkdir -p "/opt/programme/prison$(dirname "$l")" && cp -L "$l" "/opt/programme/prison$l"; done && \
+    rm -rf /root/.npm && chmod -R a+rX,a-w /opt/programme
+
+# Copy built application from builder
+COPY --chown=nextjs:nodejs --from=builder /app/public ./public
+COPY --chown=nextjs:nodejs --from=builder /app/.next/standalone ./
+COPY --chown=nextjs:nodejs --from=builder /app/.next/static ./.next/static
+COPY --chown=nextjs:nodejs --from=builder /app/scripts ./scripts
+
+# Prisma schema + migrations + config → nécessaires pour `prisma migrate deploy`
+# au boot du container (cf. CMD). Le standalone Next.js ne les embarque pas.
+# `prisma.config.ts` (Prisma 7) déclare le schema, le chemin migrations et lit
+# DATABASE_URL depuis l'env — chargé nativement par le CLI prisma (loader TS
+# bundlé, pas besoin de tsx au runtime).
+COPY --chown=nextjs:nodejs --from=builder /app/prisma ./prisma
+COPY --chown=nextjs:nodejs --from=builder /app/prisma.config.ts ./prisma.config.ts
+
+# Install runtime dependencies for init-stripe script.
+# These are needed because init-stripe.mjs runs before Next.js and isn't in standalone
+# Install in /tmp then merge with standalone's node_modules (overwrites are OK - standalone doesn't need these)
+# Même remarque que pour /opt/prisma-cli plus bas : install hors lockfile pnpm,
+# donc les overrides doivent être rappelés ici.
+RUN echo '{"type":"module","overrides":{"deepmerge-ts":"8.0.1","effect":"3.22.5"}}' > /tmp/package.json && \
+    cd /tmp && \
+    npm install --omit=dev --no-package-lock \
+      stripe@14.25.0 \
+      @supabase/supabase-js@2.43.4 && \
+    chown -R nextjs:nodejs /tmp/node_modules && \
+    cp -rp /tmp/node_modules/* /app/node_modules/ && \
+    rm -rf /tmp/node_modules /tmp/package.json /root/.npm
+
+# Le code de l'atelier et du mode programme : petit, il change souvent.
+COPY atelier/regles.mjs atelier/serveur.mjs atelier/proxy.mjs /opt/atelier/
+
+COPY --chmod=0444 programme/executeur.mjs /opt/programme/prison/app/executeur.mjs
+COPY --chmod=0444 programme/superviseur.mjs programme/passerelle.mjs /opt/programme/
+# La prison démarre pour de vrai, sous un uid réservé, environnement vide.
+RUN printf '%s\n' '{"t":"programme","code":"return 6*7","reprise":null}' | (cat; sleep 5) | \
       env -i /opt/programme/chroot --userspec=20001:20001 --groups= /opt/programme/prison /node /app/executeur.mjs | grep -q '"valeur":42'
 
 # npm et corepack ne servent qu'à fabriquer les deux ensembles de dépendances
@@ -181,8 +185,7 @@ RUN chmod -R a+rX,a-w /opt/programme && \
 # bundlées vulnérables sans altérer l'application.
 RUN rm -rf \
       /usr/local/lib/node_modules/npm \
-      /usr/local/lib/node_modules/corepack \
-      /root/.npm && \
+      /usr/local/lib/node_modules/corepack && \
     rm -f \
       /usr/local/bin/npm \
       /usr/local/bin/npx \
@@ -192,8 +195,9 @@ RUN rm -rf \
     test ! -e /usr/local/lib/node_modules/npm && \
     test ! -e /usr/local/lib/node_modules/corepack
 
-# Set correct permissions
-RUN chown -R nextjs:nodejs /app
+# SHA du commit, lu par /api/health (la CI passe --build-arg GIT_SHA=${{ github.sha }}).
+ARG GIT_SHA=
+ENV HUB_GIT_SHA=$GIT_SHA
 
 # Switch to non-root user
 USER nextjs

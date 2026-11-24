@@ -38,6 +38,14 @@ describe('restes de test', () => {
     expect(panne.notifuseWorkspaces).toBeNull();
   });
 
+  it('un compte de test permanent, reconnu par son hub_user_id, n\'est pas un reste ; la même adresse sous un autre identifiant en est un', async () => {
+    const base = (supabaseUserId: string | null) => ({ user: { findMany: vi.fn(async () => [{ email: 'brunon5robert+p@gmail.com', supabaseUserId }]) } }) as never;
+    const permanent = await measureTestResidue(base('9608d959-6ebb-4ec6-ad10-6d9bbe66e4b0'), audit([], ['brunon5robert+p@gmail.com', 'e2e-a@veridian.site']), 0);
+    expect(permanent.hub).toEqual([]);
+    expect(permanent.apps.notifuse, 'les autres restes comptent toujours').toEqual(['e2e-a@veridian.site']);
+    for (const id of ['autre', null]) expect((await measureTestResidue(base(id), audit([]), 0)).total).toBe(1);
+  });
+
   it('zéro quand tout est propre, et les logs ne portent aucune adresse', async () => {
     const r = await measureTestResidue(avec([]), audit(['vrai@client.fr']), 0);
     expect(r.total).toBe(0);
