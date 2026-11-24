@@ -16,6 +16,8 @@ vi.mock('@/lib/admin/require-admin', () => ({
 }));
 
 const deprovisionMock = vi.fn(async () => [{ app: 'prospection', cible: 'proprietaire', ok: true, detail: 'soft-delete' }]);
+const oubli = vi.hoisted(() => vi.fn(async (..._a: any[]) => ({ membres: 1, invitations: 2 })));
+vi.mock('@/lib/tenants/membres', () => ({ oublierCompte: oubli }));
 vi.mock('@/lib/apps/deprovision', () => ({ deprovisionnerCompte: (...a: any[]) => deprovisionMock(...a) }));
 
 const auditCreateMock = vi.fn(async () => ({}));
@@ -156,6 +158,18 @@ describe('DELETE /api/admin/delete-tenant', () => {
     expect(body.ok).toBe(true);
     expect(tenantUpdateManyMock).not.toHaveBeenCalled();
     expect(JSON.stringify(body.actions)).toContain('No tenant row found');
+  });
+
+  it('oublie ses appartenances et ses invitations AVANT de supprimer le compte (clé étrangère, 24/11)', async () => {
+    const { DELETE } = await import('@/app/api/admin/delete-tenant/route');
+    userStore.set('inv@x.com', { id: 'u-inv', supabaseUserId: 'uuid-inv' });
+    oubli.mockClear();
+    let encoreLa = false;
+    oubli.mockImplementationOnce(async () => { encoreLa = userStore.has('inv@x.com'); return { membres: 1, invitations: 2 }; });
+    const res = await DELETE(new (await import('next/server')).NextRequest('http://x/api/admin/delete-tenant', { method: 'DELETE', body: JSON.stringify({ email: 'inv@x.com', confirm: true }) }));
+    expect(oubli.mock.calls[0][1]).toMatchObject({ id: 'u-inv', hubUserId: 'uuid-inv' });
+    expect(encoreLa).toBe(true);
+    expect((await res.json()).actions.join('\n')).toContain('1 appartenance(s), 2 invitation(s)');
   });
 
   it('déprovisionne les espaces du compte dans les apps avant de le supprimer', async () => {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { oublierCompte } from '@/lib/tenants/membres';
 import { deprovisionnerCompte } from '@/lib/apps/deprovision';
 import { pushUserToApps } from '@/lib/identity/push-user';
 
@@ -101,6 +102,9 @@ export async function DELETE(request: NextRequest) {
   } else {
     actions.push('User has no supabaseUserId bridge — skipped tenant/sub/profile cleanup');
   }
+
+  const oubli = await oublierCompte(prisma, { id: user.id, email, hubUserId: userUuid ?? null });
+  if (oubli.membres || oubli.invitations) actions.push(`Oublié : ${oubli.membres} appartenance(s), ${oubli.invitations} invitation(s)`);
 
   // Finally remove the Auth.js user (cascades to Account, Session, MfaCode)
   try {

@@ -104,6 +104,10 @@ cas(null, 'coupure : membre retiré et organisation suspendue refusés par la po
   expect((await dansEspace(jetonM, slugM)).texte, 'un autre tenant n\'est pas touché').not.toContain('suspendu');
 
   const reprise = await exiger<any>(admin('POST', `tenants/${TENANT}/suspension`, { suspendre: false }), [200, 207], 'reprise');
+  // Tout ce qui a été suspendu est repris, même chez une app qui cache un espace suspendu (Prospection, 24/11).
+  for (const a of (susp.apps as { app: string; etat: string }[]).filter((x) => x.etat === 'suspendu')) {
+    expect((reprise.apps as { app: string; etat: string }[]).find((x) => x.app === a.app)?.etat, `reprise de ${a.app} : ${apps(reprise)}`).toBe('repris');
+  }
   expect((await dansEspace(jetonP, slugP)).texte, 'reprise').not.toContain('suspendu');
   return `retrait coupé en ${coupe} ms [${apps(retrait)}] ; suspension en ${coupeSusp} ms [${apps(susp)}] ; reprise [${apps(reprise)}]`;
 }), { timeout: 420_000 });
