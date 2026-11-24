@@ -1769,6 +1769,25 @@ cas 16 de la batterie.
 > tant qu'un espace vivant reste à la personne (`lib/apps/retrait-crm.ts`, doute = retenu) : sessions coupées, audit
 > `crm.retrait.attente`, alerte. Rejeu : `hub crm-retraits --rejouer <hub_user_id>`, fusible à 0.
 
+#### 5.19.3 Coupure, telle que servie (VER-245, 24/11/2026)
+
+`lib/tenants/membres.ts` est le **seul écrivain** de `tenant_members` et de la suspension (un test le tient). `hub membre`
+et `hub suspension` passent par lui.
+
+- **Retrait** : au Hub d'abord (la porte MCP refuse au prochain appel), puis chaque app par son identifiant, **relue** par
+  `by-email`. 200 : tout est coupé et relu. 207 : `avis` dit où ce n'est PAS coupé. Rejouer est sans effet de bord.
+- **Il tient** : ni une reprise ni une invitation d'avant le retrait ne ramènent la personne ; ses invitations en attente
+  expirent. Le Hub n'appelle jamais `sync-member`. Encore dans l'app : le relevé dit `retire_au_hub`, jamais `jonction`.
+- **Suspension** : la porte MCP refuse tout outil d'app et tout programme, et exige un espace nommé si un autre est suspendu.
+- **Qui ne sait pas** (24/11) : retrait, Academy (après le 29/11) et Analytics ; suspension, CRM et Analytics.
+- **Invitation acceptée** : membre au Hub (rôle `member`, toujours) si l'espace est relié et si l'inviteur est propriétaire ou
+  admin AU HUB ; 20 invitations par espace et par jour ; le propriétaire voit les arrivées dans le Hub. `inviter_user_id` =
+  `hub_user_id`.
+- **Risque restant** : une app compromise, avec son secret d'invitation, peut présenter un vrai propriétaire comme inviteur et
+  faire entrer un compte en `member`. Parade prévue : sans poignée de délégation vivante de ce propriétaire, pas d'invitation.
+- **Relevé** : `hub reconcile --appartenance` (lecture seule). Chaque écarté est nommé ; un compte qui ne se referme pas est
+  NON ABOUTI.
+
 ### 5.20 Restauration d'un membre
 
 Si l'admin Hub a retiré un membre par erreur :
