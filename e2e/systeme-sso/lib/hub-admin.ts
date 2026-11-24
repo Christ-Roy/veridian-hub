@@ -183,6 +183,19 @@ function secretTwenty(): string {
   throw new NonAbouti(`${nom} introuvable dans ~/credentials/.all-creds.env`);
 }
 
+/** Appel signé du Hub vers Academy (prod seulement : le Hub de staging n'a pas Academy). Secret lu au moment du test, jamais affiché. */
+export async function appelAcademy(chemin: string, corps: unknown): Promise<Response> {
+  const body = JSON.stringify(corps);
+  const ts = Date.now().toString();
+  const signature = createHmac('sha256', secretDe('ACADEMY_HUB_API_SECRET')).update(`${ts}.${body}`).digest('hex');
+  return fetch(`https://academy.app.veridian.site${chemin}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'X-Veridian-Timestamp': ts, 'X-Veridian-Hub-Signature': signature },
+    body,
+    signal: AbortSignal.timeout(30_000),
+  });
+}
+
 export async function appelTwenty(methode: 'POST' | 'DELETE', chemin: string, corps?: unknown): Promise<Response> {
   const body = corps === undefined ? '' : JSON.stringify(corps);
   const ts = Date.now().toString();

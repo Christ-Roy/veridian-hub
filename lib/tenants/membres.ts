@@ -24,10 +24,15 @@ export type Origine = 'invitation' | 'reprise' | 'operateur';
 export type DbMembres = Pick<PrismaClient, 'tenant' | 'tenantMember' | 'user' | 'auditLog' | 'crossAppInvitation' | 'delegationGrant' | 'integrationPaire'>;
 type Deps = { fetchImpl?: typeof fetch; apps?: readonly SyncApp[]; env?: NodeJS.ProcessEnv };
 
-/** Ce que l'auteur du geste doit lire : les apps où l'accès n'est PAS coupé, et pourquoi (Analytics et Academy ne savent pas retirer). */
+/** Ce que l'auteur du geste doit lire : les apps où l'accès n'est PAS coupé, et pourquoi (Analytics ne sait pas retirer), puis les clés API restées actives. */
 export function nonCoupees(apps: IssueApp[]): string | null {
   const l = apps.filter((a) => a.etat === 'non_gere' || a.etat === 'echec');
-  return l.length ? `PAS coupé : ${l.map((a) => `${a.app} (${a.detail ?? a.etat})`).join(', ')}. Rejouer est sans effet de bord.` : null;
+  const cles = apps.filter((a) => (a.cles ?? 0) > 0).map((a) => `${a.app} : ${a.cles}`);
+  const phrases = [
+    ...(l.length ? [`PAS coupé : ${l.map((a) => `${a.app} (${a.detail ?? a.etat})`).join(', ')}. Rejouer est sans effet de bord.`] : []),
+    ...(cles.length ? [`Clés API créées par cette personne, encore actives : ${cles.join(', ')}. À révoquer dans l'app.`] : []),
+  ];
+  return phrases.length ? phrases.join(' ') : null;
 }
 
 export class RefusMembre extends Error {
@@ -37,7 +42,7 @@ export class RefusMembre extends Error {
 }
 
 /** Routes par app (lues dans leur code le 24/11). Absent : l'app ne sait pas le faire, et c'est dit. */
-const RETRAIT: Partial<Record<SyncApp, true>> = { notifuse: true, prospection: true, crm: true };
+const RETRAIT: Partial<Record<SyncApp, true>> = { notifuse: true, prospection: true, crm: true, academy: true };
 const SUSPENSION: Partial<Record<SyncApp, true>> = { notifuse: true, prospection: true, academy: true };
 
 async function tenantVivant(db: DbMembres, id: string) {
@@ -74,7 +79,7 @@ export async function rejoindre(db: DbMembres, d: { tenantId: string; hubUserId:
   return { cree: true, role };
 }
 
-export type IssueApp = { app: SyncApp; etat: 'retire' | 'suspendu' | 'repris' | 'absent' | 'non_gere' | 'echec'; detail?: string };
+export type IssueApp = { app: SyncApp; etat: 'retire' | 'suspendu' | 'repris' | 'absent' | 'non_gere' | 'echec'; detail?: string; /** Clés API créées par la personne et restées actives, quand l'app les compte. */ cles?: number };
 
 async function signer(app: SyncApp, methode: string, chemin: string, corps: Record<string, unknown>, deps: Deps): Promise<Response> {
   const config = resolveAppConfig(app, deps.env ?? process.env);
@@ -122,13 +127,16 @@ async function retirerChez(app: SyncApp, t: Tenant, email: string, hubUserId: st
     }
     if (espaces.length === 0) return { app, etat: 'absent' };
     if (!RETRAIT[app]) return { app, etat: 'non_gere', detail: 'aucune route de retrait dans cette app' };
+    let cles: number | undefined;
     for (const s of espaces) {
       const res = await signer(app, 'POST', `/api/tenants/${encodeURIComponent(cible(app, t, s))}/remove-member`, { user_email: email, email, hub_user_id: hubUserId, reason: motif }, deps);
       if (!res.ok && res.status !== 404) return { app, etat: 'echec', detail: `http_${res.status}` };
+      const n = ((await res.json().catch(() => null)) as { active_api_keys_created_by_member?: unknown } | null)?.active_api_keys_created_by_member;
+      if (typeof n === 'number') cles = (cles ?? 0) + n;
     }
     const apres = await espacesChez(app, t, email, hubUserId, deps);
     if (apres === null) return { app, etat: 'echec', detail: 'retiré, mais pas relu' };
-    return apres.length === 0 ? { app, etat: 'retire' } : { app, etat: 'echec', detail: 'l\'app le voit encore après le retrait' };
+    return apres.length === 0 ? { app, etat: 'retire', ...(cles !== undefined ? { cles } : {}) } : { app, etat: 'echec', detail: 'l\'app le voit encore après le retrait' };
   } catch (err) {
     return { app, etat: 'echec', detail: err instanceof Error ? err.message.slice(0, 160) : 'erreur' };
   }

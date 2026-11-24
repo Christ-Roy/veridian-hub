@@ -1700,6 +1700,9 @@ team) passe par le flow P1 §5.22.
    rôle par défaut. Notifuse : `user_workspaces` avec rôle `member`).
 3. Idempotent : si user déjà membre, retourne 200 sans rien changer.
 4. **Ne JAMAIS retirer** un user existant (additif). Pour retrait, voir §5.19.
+5. **Un accès retiré ne revient que par une adhésion neuve** (24/11/2026, servi par Academy) : `joined_at` postérieur au retrait, et
+   pas dans le futur, sinon 409 `member_removed`. Date absente = rejeu, donc refus. Le Hub ne renvoie jamais un vieux `joined_at`
+   (il n'appelle pas `sync-member` à ce jour) ; s'il le fait un jour, il envoie l'instant de l'adhésion en vigueur.
 
 #### 5.18.4 Webhook app → Hub `tenant.member_role_changed`
 
@@ -1779,7 +1782,11 @@ et `hub suspension` passent par lui.
 - **Il tient** : ni une reprise ni une invitation d'avant le retrait ne ramènent la personne ; ses invitations en attente
   expirent. Le Hub n'appelle jamais `sync-member`. Encore dans l'app : le relevé dit `retire_au_hub`, jamais `jonction`.
 - **Suspension** : la porte MCP refuse tout outil d'app et tout programme, et exige un espace nommé si un autre est suspendu.
-- **Qui ne sait pas** (24/11) : retrait, Academy (après le 29/11) et Analytics ; suspension, CRM et Analytics.
+- **Qui ne sait pas** (24/11) : retrait, Analytics ; suspension, CRM et Analytics ; `attach-owner`, Academy.
+- **Clés API d'un retiré** (code des apps lu le 24/11) : aucune n'est coupée. Hub : connexions IA et poignées meurent au retrait.
+  Academy : clés de l'espace, comptées par auteur (`active_api_keys_created_by_member`), citées dans `avis`. Notifuse et CRM : clés de
+  l'espace, sans auteur noté, donc ni coupées ni comptées. Prospection : une clé par espace, tenue par le Hub, rien de personnel.
+  Analytics : clés personnelles ou d'organisation, et pas de retrait. Le propriétaire les change dans l'app.
 - **Invitation acceptée** : membre au Hub (rôle `member`, toujours) si l'espace est relié et si l'inviteur est propriétaire ou
   admin AU HUB ; 20 invitations par espace et par jour ; le propriétaire voit les arrivées dans le Hub. `inviter_user_id` =
   `hub_user_id`.

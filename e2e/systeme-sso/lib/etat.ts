@@ -62,7 +62,7 @@ export function cas(
         }
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        const premiere = msg.split('\n').filter(Boolean).slice(0, 3).join(' ⏎ ');
+        const premiere = msg.split('\n').filter(Boolean).slice(0, 12).join(' ⏎ ');
         if (e instanceof NonAbouti) {
           note(info, 'etat', 'NON_ABOUTI' satisfies Etat);
           note(info, 'detail', msg);

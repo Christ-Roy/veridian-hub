@@ -11,7 +11,7 @@ import { readAppSecret } from '@/lib/sync/discovery';
 import { signerAction } from '@/lib/mcp/identite';
 
 import { listerIntegrations } from './interrupteur';
-import { CLE_MCP, cibleServie, empreintePortees, paireEntre, porteesAccordees, type AppPaire } from './paires';
+import { adresseAction, CLE_MCP, cibleServie, empreintePortees, paireEntre, porteesAccordees, type AppPaire } from './paires';
 import { empreinte } from './poignee';
 
 export const FENETRE_MS = 5 * 60_000;
@@ -86,12 +86,13 @@ export async function echanger(db: Db, app: AppPaire, d: Demande, env: NodeJS.Pr
   if (!cibleMcp?.enabled) return { statut: 503, error: 'target_not_registered' };
   // Une app réservée, que l'utilisateur n'a pas : la délégation ne l'y fait pas entrer.
   if (cibleMcp.acces !== 'tous' && !(await db.tenantApp.findFirst({ where: { userId: g.hubUserId, appKey: CLE_MCP[p.cible], enabled: true }, select: { appKey: true } }))) return refuser('app_not_open');
+  const url = adresseAction(p.cible, cibleMcp.mcpUrl);
   const jti = randomUUID();
-  const jeton = await signerAction({ audience: cibleMcp.mcpUrl, hubUserId: g.hubUserId, email: u.email, tenantId: g.tenantId, app, scope: portees, jti, ttlS: TTL_ACTION_S }, env);
+  const jeton = await signerAction({ audience: url, hubUserId: g.hubUserId, email: u.email, tenantId: g.tenantId, app, scope: portees, jti, ttlS: TTL_ACTION_S }, env);
   await db.integrationPaire.updateMany({ where: { tenantId: g.tenantId, paire: p.cle }, data: { dernierPassage: new Date(), derniereErreur: null } }).catch(() => undefined);
   // Ni données ni poignée : qui, quelle paire, quel jeton, pourquoi.
   await writeAuditLog(db as PrismaClient, { action: 'delegation.jeton', actor: `app:${app}`, targetType: 'tenant', targetId: g.tenantId, payload: { hub_user_id: g.hubUserId, paire: p.cle, scope: portees, jti, motif: (d.motif ?? '').slice(0, 80) } });
-  return { jeton, tenantId: g.tenantId, expiresIn: TTL_ACTION_S, url: cibleMcp.mcpUrl };
+  return { jeton, tenantId: g.tenantId, expiresIn: TTL_ACTION_S, url };
 }
 
 /** L'état des liaisons dont cette app est la source, dans l'organisation de la poignée : de quoi ne pas montrer un bouton qui refusera. */

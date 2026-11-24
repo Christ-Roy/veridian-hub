@@ -27,7 +27,7 @@ beforeEach(async () => {
   db.tenantMember.lignes.push({ tenantId: 'A', userId: 'u', role: 'member' });
   db.user.lignes.push({ supabaseUserId: 'u', email: 'u@x.fr', emailVerified: new Date() });
   db.mcpApp.lignes.push({ appKey: 'twenty', mcpUrl: 'https://crm.test/mcp', enabled: true, acces: 'tous' });
-  db.integrationPaire.lignes.push({ tenantId: 'A', paire: PAIRE.cle, etat: 'allumee', consentiLe: new Date(), portees: empreintePortees(PAIRE) });
+  db.integrationPaire.lignes.push({ tenantId: 'A', paire: PAIRE.cle, etat: 'allumee', consentiLe: new Date(), portees: empreintePortees(PAIRE), changePar: 'p via test', changeLe: new Date() });
   grant = (await emettrePoignees(db as never, { hubUserId: 'u', app: 'prospection' }, ENV))[0].grant;
 });
 const demander = (o: object = {}, app = 'prospection') => echanger(db as never, app as never, { subject_grant: grant, audience: 'crm', scope: 'crm:societe.ecrire crm:tache.ecrire', ...o }, ENV);
@@ -73,6 +73,14 @@ describe('echanger', () => {
     expect(JSON.stringify(a)).not.toContain(grant);
     expect(db.integrationPaire.lignes[0].dernierPassage).toBeInstanceOf(Date);
   });
+  it('vers Mail : aud est sa route d\'actions, jamais son /api/mcp', async () => {
+    const p = paire('prospection>notifuse')!;
+    db.mcpApp.lignes.push({ appKey: 'notifuse', mcpUrl: 'https://mail.test/api/mcp', enabled: true, acces: 'tous' });
+    db.integrationPaire.lignes.push({ tenantId: 'A', paire: p.cle, etat: 'allumee', consentiLe: new Date(), portees: empreintePortees(p), changePar: 'p', changeLe: new Date() });
+    const r = await echanger(db as never, 'prospection', { subject_grant: grant, audience: 'notifuse', scope: 'notifuse:contacts.importer' }, { ...ENV, DELEGATION_CIBLES: 'crm,notifuse' });
+    if ('error' in r) throw new Error(r.error);
+    expect([r.url, JSON.parse(Buffer.from(r.jeton.split('.')[1], 'base64url').toString()).aud]).toEqual(['https://mail.test/api/veridian/actions', 'https://mail.test/api/veridian/actions']);
+  });
   it('deux échanges : deux jti', async () => {
     const [a, b] = [await demander(), await demander()];
     expect('jeton' in a && 'jeton' in b && a.jeton !== b.jeton).toBe(true);
@@ -82,7 +90,7 @@ describe('echanger', () => {
     ['paire absente', 'pair_not_allowed', () => {}, { audience: 'notifuse' }, 'notifuse'],
     ['portée hors paire', 'pair_not_allowed', () => {}, { scope: 'crm:societe.supprimer' }],
     ['portée complète', 'pair_not_allowed', () => {}, { scope: 'veridian' }],
-    ['cible non servie', 'target_not_served', () => {}, { audience: 'notifuse', scope: 'notifuse:contacts.ecrire' }],
+    ['cible non servie', 'target_not_served', () => {}, { audience: 'notifuse', scope: 'notifuse:contacts.importer' }],
     ['poignée d\'une autre app', 'grant_invalid', () => {}, { scope: 'crm:tache.ecrire' }, 'notifuse'],
     ['poignée inventée', 'grant_invalid', () => {}, { subject_grant: 'x'.repeat(43) }],
     ['poignée révoquée', 'grant_invalid', () => { db.delegationGrant.lignes[0].revoqueLe = new Date(); }],
@@ -128,7 +136,7 @@ describe('echanger', () => {
 describe('etatDesPaires', () => {
   const lire = (g = grant, app = 'prospection') => etatDesPaires(db as never, app as never, g, ENV);
   it('les paires de cette app, dans l\'organisation de la poignée seulement', async () => {
-    expect(await lire()).toEqual({ tenantId: 'A', paires: [{ audience: 'crm', etat: 'allumee', portees: PAIRE.portees }, { audience: 'notifuse', etat: 'indisponible', portees: ['notifuse:contacts.ecrire'] }] });
+    expect(await lire()).toEqual({ tenantId: 'A', paires: [{ audience: 'crm', etat: 'allumee', portees: PAIRE.portees }, { audience: 'notifuse', etat: 'indisponible', portees: ['notifuse:contacts.importer'] }] });
   });
   it('poignée d\'une autre app, inventée, révoquée : rien', async () => {
     expect(await lire(grant, 'crm')).toEqual({ statut: 403, error: 'grant_invalid' });

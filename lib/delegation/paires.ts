@@ -12,14 +12,20 @@ const P = (source: AppPaire, cible: AppPaire, portees: readonly string[], libell
 
 export const PAIRES: readonly Paire[] = [
   P('prospection', 'crm', ['crm:societe.ecrire', 'crm:tache.ecrire'], 'Prospection vers CRM : envoyer une fiche au CRM'),
-  P('prospection', 'notifuse', ['notifuse:contacts.ecrire'], 'Prospection vers Mail : verser des contacts dans une liste, sans envoi'),
+  P('prospection', 'notifuse', ['notifuse:contacts.importer'], 'Prospection vers Mail : verser des contacts dans une liste, sans envoi'),
   P('notifuse', 'crm', ['crm:personne.ecrire', 'crm:tache.ecrire'], 'Mail vers CRM : une réponse humaine crée une fiche et une tâche', 'evenement'),
-  P('crm', 'notifuse', ['notifuse:contacts.ecrire'], 'CRM vers Mail : ajouter des contacts à une liste, sans envoi'),
+  P('crm', 'notifuse', ['notifuse:contacts.importer'], 'CRM vers Mail : ajouter des contacts à une liste, sans envoi'),
   P('crm', 'prospection', ['prospection:exclusion.ecrire'], 'CRM vers Prospection : gagné, on ne prospecte plus', 'evenement'),
 ];
 
 /** Clé au registre MCP (mcp_apps), qui porte l'adresse de la cible. */
 export const CLE_MCP: Record<AppPaire, string> = { crm: 'twenty', notifuse: 'notifuse', prospection: 'prospection' };
+
+/**
+ * L'adresse d'action d'une cible, donc l'`aud` de son jeton : le CRM sert ses actions sur son MCP, les autres sur leur route dédiée (un
+ * jeton à `act` y est refusé sur /api/mcp). Même origine que le registre MCP, donc staging ou prod selon l'environnement.
+ */
+export const adresseAction = (cible: AppPaire, mcpUrl: string): string => (cible === 'crm' ? mcpUrl : new URL('/api/veridian/actions', mcpUrl).toString());
 
 export const paire = (cle: string): Paire | undefined => PAIRES.find((p) => p.cle === cle);
 export const paireEntre = (source: string, cible: string): Paire | undefined => PAIRES.find((p) => p.source === source && p.cible === cible);
