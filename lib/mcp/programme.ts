@@ -43,12 +43,26 @@ export type Bilan = {
 /**
  * Un outil se joue sans être nommé dans `autoriser` s'il se déclare en lecture seule, et seulement alors. « Non destructif » ne
  * suffit pas : Twenty le dit de toutes ses écritures, create_webhook et delete_many compris (24/11). Sans annotation, ou avec des
- * annotations qui se contredisent : il faut le nommer.
+ * annotations qui se contredisent : il faut le nommer. Et une app n'est pas crue sur parole : un outil qui se dit lecture et porte un
+ * verbe d'écriture dans son nom se nomme aussi (delete_many_people annoté lecture par erreur).
  */
-export function exigeAutorisation(o: Pick<Outil, 'annotations'>): boolean {
+export function exigeAutorisation(o: Pick<Outil, 'annotations' | 'local'>): boolean {
   const a = (o.annotations ?? {}) as { readOnlyHint?: unknown; destructiveHint?: unknown };
-  if (a.destructiveHint === true) return true;
-  return a.readOnlyHint !== true;
+  return a.readOnlyHint !== true || a.destructiveHint === true || nomDEcriture(o.local);
+}
+
+const VERBES_ECRITURE = new Set(
+  ('add apply approve archive assign attach cancel close complete copy create delete detach destroy disable drop duplicate edit enable execute import insert install invite ' +
+    'merge modify move patch post publish purge put remove rename replace reset restore revoke run save schedule send set start stop submit subscribe sync trigger truncate ' +
+    'unarchive uninstall unsubscribe update upload upsert write ' +
+    'accorder activer ajouter annuler archiver creer definir deplacer desactiver detruire ecrire envoyer epingler executer fusionner importer installer inviter modifier programmer ' +
+    'publier regler relancer remplacer renommer restaurer retirer revoquer supprimer vider').split(' '),
+);
+
+/** Un mot entier du nom est un verbe d'écriture : contacts_import, deleteMany, créer_segment ; pas sent_messages ni settings. */
+export function nomDEcriture(local: string): boolean {
+  const mots = local.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/([a-z0-9])([A-Z])/g, '$1 $2').toLowerCase().split(/[^a-z0-9]+/);
+  return mots.some((m) => VERBES_ECRITURE.has(m));
 }
 
 /** Un texte qui commence comme un objet ou une liste JSON (jamais « [note] » ni « [1] voir »). */

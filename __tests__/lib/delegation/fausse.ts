@@ -20,6 +20,7 @@ export function table(unique: string[] = []) {
     findUnique: async ({ where }: L) => lignes.find((x) => ok(x, where)) ?? null,
     findFirst: async ({ where }: L) => lignes.find((x) => ok(x, where)) ?? null,
     findMany: async ({ where, orderBy }: L = {}) => { const r = lignes.filter((x) => ok(x, where)); return orderBy?.creeLe === 'desc' ? r.sort((a, b) => b.creeLe - a.creeLe) : r; },
+    update: async ({ where, data }: L) => { const l = lignes.find((x) => ok(x, where)); if (!l) throw new Error('absent'); return Object.assign(l, data); },
     updateMany: async ({ where, data }: L) => { const r = lignes.filter((x) => ok(x, where)); r.forEach((x) => Object.assign(x, data)); return { count: r.length }; },
     deleteMany: async ({ where }: L) => { const r = lignes.filter((x) => ok(x, where)); r.forEach((x) => lignes.splice(lignes.indexOf(x), 1)); return { count: r.length }; },
     upsert: async ({ where, create, update }: L) => { const l = lignes.find((x) => ok(x, where)); if (l) return Object.assign(l, update); const c = { changeLe: new Date(), ...create }; lignes.push(c); return c; },

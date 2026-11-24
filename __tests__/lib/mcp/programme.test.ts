@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppDebit, AppInjoignable } from '@/lib/mcp/client-app';
 import type { Outil } from '@/lib/mcp/catalogue';
 import {
-  APPELS_MAX, APPELS_MINUTE_MAX, DE_FRONT, executerProgramme, exigeAutorisation, oublierProgrammes, prendrePlace, presenter, valeurDe,
+  APPELS_MAX, APPELS_MINUTE_MAX, DE_FRONT, executerProgramme, exigeAutorisation, nomDEcriture, oublierProgrammes, prendrePlace, presenter, valeurDe,
   type Contenu, type DemandeProgramme, type Moteur,
 } from '@/lib/mcp/programme';
 import { enMoteur } from '@/lib/mcp/programme-moteur';
@@ -158,7 +158,15 @@ describe('droits', () => {
     ['écriture sans précision', { readOnlyHint: false }, true],
     ['sans annotation', undefined, true],
     ['annotation fantaisiste', { readOnlyHint: 'true' }, true],
-  ])('%s', (_n, annotations, attendu) => expect(exigeAutorisation({ annotations })).toBe(attendu));
+  ])('%s', (_n, annotations, attendu) => expect(exigeAutorisation({ annotations, local: 'fiche' })).toBe(attendu));
+
+  it('une app n\'est pas crue sur parole : un nom qui écrit se nomme, même annoté lecture', () => {
+    const lecture = { readOnlyHint: true, destructiveHint: false };
+    const exige = (n: string) => exigeAutorisation({ annotations: lecture, local: n });
+    for (const n of ['create_webhook', 'delete_many_people', 'contacts_import', 'mergeCompanies', 'restore-version', 'send', 'créer_segment', 'supprimer_dossier', 'update_one_person', 'find_and_update']) expect(exige(n), n).toBe(true);
+    for (const n of ['find_many_people', 'get_sent_messages', 'list_settings', 'group_by_companies', 'contacts_count', 'classer_segment', 'lister_acces_avances', 'restored_items', 'get_updates', 'preparer_export', 'requete_sql']) expect(exige(n), n).toBe(false);
+  });
+  it('nomDEcriture : un mot entier, jamais un bout de mot', () => expect(['post', 'postal_codes', 'imports', 'import', 'reset', 'asset'].map(nomDEcriture)).toEqual([true, false, false, true, true, false]));
 
   it('écriture, destructif ou sans annotation : refusé s\'il n\'est pas nommé, l\'app n\'est pas appelée', async () => {
     const jouer = vi.fn(async () => ok(1));

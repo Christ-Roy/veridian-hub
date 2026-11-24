@@ -6,6 +6,7 @@ import { createHash, randomBytes } from 'node:crypto';
 
 import type { PrismaClient } from '@prisma/client';
 
+import { organisationDeTest } from './ouverture';
 import { pairesServies } from './paires';
 
 const JOURS = 30;
@@ -18,12 +19,14 @@ export const empreinte = (secret: string): string => createHash('sha256').update
 
 /** Les poignées de ce compte pour cette app, une par organisation vivante. Aucune si l'app n'est la source d'aucune paire servie. */
 export async function emettrePoignees(db: Db, d: { hubUserId: string; app: string }, env: NodeJS.ProcessEnv = process.env): Promise<Poignee[]> {
-  if (!pairesServies(env).some((p) => p.source === d.app)) return [];
+  const source = (test: boolean) => pairesServies(env, test).some((p) => p.source === d.app);
+  if (!source(true)) return [];
   const membres = await db.tenantMember.findMany({ where: { userId: d.hubUserId, deletedAt: null }, select: { tenantId: true } });
   const tenants = await db.tenant.findMany({ where: { deletedAt: null, status: { notIn: ['suspended', 'deleted'] }, OR: [{ userId: d.hubUserId }, { id: { in: membres.map((m) => m.tenantId) } }] }, select: { id: true } });
   const expireLe = new Date(Date.now() + JOURS * 86_400_000);
   const res: Poignee[] = [];
   for (const t of tenants) {
+    if (!source(await organisationDeTest(db, t.id, env))) continue;
     const grant = randomBytes(32).toString('base64url');
     const cle = { hubUserId: d.hubUserId, app: d.app, tenantId: t.id };
     await db.delegationGrant.create({ data: { ...cle, empreinte: empreinte(grant), expireLe } });

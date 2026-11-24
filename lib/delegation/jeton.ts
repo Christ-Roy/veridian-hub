@@ -11,6 +11,7 @@ import { readAppSecret } from '@/lib/sync/discovery';
 import { signerAction } from '@/lib/mcp/identite';
 
 import { listerIntegrations } from './interrupteur';
+import { organisationDeTest } from './ouverture';
 import { adresseAction, CLE_MCP, paireServie, empreintePortees, paireEntre, porteesAccordees, type AppPaire } from './paires';
 import { empreinte } from './poignee';
 
@@ -59,7 +60,7 @@ export async function echanger(db: Db, app: AppPaire, d: Demande, env: NodeJS.Pr
   const p = paireEntre(app, d.audience);
   const portees = p ? porteesAccordees(p, d.scope) : null;
   if (!p || !portees) return { statut: 403, error: 'pair_not_allowed' };
-  if (!paireServie(p, env)) return { statut: 403, error: 'target_not_served' };
+  if (!paireServie(p, env, true)) return { statut: 403, error: 'target_not_served' };
 
   const g = await db.delegationGrant.findUnique({ where: { empreinte: empreinte(d.subject_grant) } });
   if (!g || g.app !== app || g.revoqueLe || g.expireLe <= new Date()) return { statut: 403, error: 'grant_invalid' };
@@ -73,6 +74,7 @@ export async function echanger(db: Db, app: AppPaire, d: Demande, env: NodeJS.Pr
   if (!u?.emailVerified) return refuser('user_invalid');
   const t = await db.tenant.findFirst({ where: { id: g.tenantId, deletedAt: null }, select: { userId: true, status: true } });
   if (!t) return refuser('tenant_not_found');
+  if (!paireServie(p, env, await organisationDeTest(db, g.tenantId, env))) return refuser('target_not_served');
   if (t.userId !== g.hubUserId) {
     const m = await db.tenantMember.findUnique({ where: { tenantId_userId: { tenantId: g.tenantId, userId: g.hubUserId } } });
     if (!m || m.deletedAt) return refuser('not_member');

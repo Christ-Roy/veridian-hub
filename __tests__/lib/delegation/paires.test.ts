@@ -28,6 +28,10 @@ describe('registre des paires', () => {
     expect(paireServie(paire('notifuse>crm')!, tout)).toBe(false);
   });
   it('paireServie : une action vers une cible fermée ne sert pas', () => expect([paireServie(paire('prospection>crm')!, env()), paireServie(paire('prospection>crm')!, env('notifuse')), paireServie(paire('prospection>crm')!, env('crm'))]).toEqual([false, false, true]));
+  it('cible@test : fermée sans compte de test, et ne vaut que pour cette cible', () => {
+    const e = env('crm@test');
+    expect([cibleServie('crm', e), cibleServie('crm', e, true), cibleServie('notifuse', e, true), pairesServies(e).length, pairesServies(e, true).map((p) => p.cle).join()]).toEqual([false, true, false, 0, 'prospection>crm']);
+  });
   it('pairesServies : celles dont la cible est servie', () => {
     expect(pairesServies(env())).toEqual([]);
     expect(pairesServies(env('crm')).map((p) => p.cle)).toEqual(['prospection>crm']);

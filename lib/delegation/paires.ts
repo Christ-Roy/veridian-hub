@@ -30,13 +30,17 @@ export const adresseAction = (cible: AppPaire, mcpUrl: string): string => (cible
 export const paire = (cle: string): Paire | undefined => PAIRES.find((p) => p.cle === cle);
 export const paireEntre = (source: string, cible: string): Paire | undefined => PAIRES.find((p) => p.source === source && p.cible === cible);
 
-export const cibleServie = (cible: AppPaire, env: NodeJS.ProcessEnv = process.env): boolean => (env.DELEGATION_CIBLES ?? '').split(',').map((x) => x.trim()).includes(cible);
+/** `DELEGATION_CIBLES` : `crm` ouvre à tous ; `crm@test` n'ouvre qu'aux organisations d'un compte de test (preuve en prod sans client). */
+export const cibleServie = (cible: AppPaire, env: NodeJS.ProcessEnv = process.env, test = false): boolean => {
+  const l = (env.DELEGATION_CIBLES ?? '').split(',').map((x) => x.trim());
+  return l.includes(cible) || (test && l.includes(`${cible}@test`));
+};
 /**
  * Une liaison qui peut servir : cible ouverte, et une ACTION. Un événement n'a pas d'utilisateur (son sujet est l'intégration, ADR-037
  * D1) : tant que son chemin n'existe pas, il ne s'allume pas et ne s'échange pas contre la poignée de quelqu'un.
  */
-export const paireServie = (p: Paire, env: NodeJS.ProcessEnv = process.env): boolean => p.nature === 'action' && cibleServie(p.cible, env);
-export const pairesServies = (env: NodeJS.ProcessEnv = process.env): Paire[] => PAIRES.filter((p) => paireServie(p, env));
+export const paireServie = (p: Paire, env: NodeJS.ProcessEnv = process.env, test = false): boolean => p.nature === 'action' && cibleServie(p.cible, env, test);
+export const pairesServies = (env: NodeJS.ProcessEnv = process.env, test = false): Paire[] => PAIRES.filter((p) => paireServie(p, env, test));
 
 /** Ce que le propriétaire a accepté : élargir une portée change l'empreinte, donc redemande son clic. */
 export const empreintePortees = (p: Paire): string => createHash('sha256').update([...p.portees].sort().join(' ')).digest('hex').slice(0, 16);

@@ -25,6 +25,8 @@ export class CompteAbsent extends AppInjoignable {}
 
 type Fetch = typeof fetch;
 const DELAI_MS = 15_000;
+/** Un outil peut travailler longtemps (install_app du CRM : plus de 15 s à froid, 24/11). Sous les 100 s de Cloudflare. */
+const DELAI_OUTIL_MS = 60_000;
 const VERSION = '2025-06-18';
 
 /** Corps d'une réponse, jamais plus de `max` octets en mémoire. */
@@ -93,11 +95,14 @@ export class SessionApp {
       'MCP-Protocol-Version': VERSION,
       ...this.options.entetes,
     };
-    const delai = AbortSignal.timeout(DELAI_MS);
+    const outil = corps.method === 'tools/call';
+    const delai = AbortSignal.timeout(outil ? DELAI_OUTIL_MS : DELAI_MS);
     if (this.session) headers['Mcp-Session-Id'] = this.session;
     try {
       return await this.fetchImpl(this.url, { method: 'POST', headers, body: JSON.stringify(corps), signal: this.options.signal ? AbortSignal.any([delai, this.options.signal]) : delai });
     } catch (err) {
+      // Coupé de notre côté : l'app a peut-être fini le travail. Le dire, sans quoi l'IA rejoue une écriture déjà faite.
+      if (outil && delai.aborted) throw new AppInjoignable(`pas de réponse en ${DELAI_OUTIL_MS / 1000} s : l'action a peut-être eu lieu, le vérifier avant de rejouer`);
       throw new AppInjoignable(err instanceof Error ? err.message : 'réseau');
     }
   }

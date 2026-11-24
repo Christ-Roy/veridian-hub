@@ -28,6 +28,10 @@ describe('poignée', () => {
     expect(await emettre('prospection', { NODE_ENV: 'test' })).toEqual([]);
     expect(db.delegationGrant.lignes).toEqual([]);
   });
+  it('crm@test : seulement les organisations marquées de test', async () => {
+    db.tenant.lignes.find((x) => x.id === 'B')!.metadata = { organisation_de_test: { expire_le: new Date(Date.now() + 3_600_000).toISOString() } };
+    expect((await emettre('prospection', { NODE_ENV: 'test', DELEGATION_CIBLES: 'crm@test' })).map((x) => x.hub_tenant_id)).toEqual(['B']);
+  });
   it('dix vivantes au plus : la onzième révoque la plus ancienne, pas les autres', async () => {
     for (let i = 0; i < 11; i++) await emettre();
     const a = db.delegationGrant.lignes.filter((x) => x.tenantId === 'A');

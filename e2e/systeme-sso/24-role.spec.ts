@@ -7,7 +7,7 @@ import { expect } from '@playwright/test';
 
 import { HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
-import { activerTwentyAuHub, admin, adminOk, appelTwenty, lookup } from './lib/hub-admin';
+import { activerTwentyAuHub, admin, adminOk, appelTwenty, lookup, marquerTest } from './lib/hub-admin';
 import { obtenirJetonMcp, outil } from './lib/mcp';
 import { creerCompteProuve, noterEspaceTwenty, type Compte } from './lib/parcours';
 
@@ -29,6 +29,7 @@ cas(null, 'rôle : le Hub promeut, le CRM laisse installer ; il rétrograde, le 
     const P: Compte = await creerCompteProuve(browser, 'roleprop');
     const M: Compte = await creerCompteProuve(browser, 'rolemembre');
     const T = await espace(P);
+    await marquerTest(T.id);
     const V = await espace(M);
     await adminOk('POST', `tenants/${T.id}/members`, { hub_user_id: M.hubUserId });
     const entree = await appelTwenty('POST', `/api/veridian/workspaces/${T.crm}/attach-member`, { hub_user_id: M.hubUserId, hub_user_email: M.email, role: 'member' });

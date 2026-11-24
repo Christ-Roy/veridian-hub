@@ -1,5 +1,6 @@
 /**
- * POST /api/admin/delegation/poignee { email, app } : poignées d'un compte de TEST, pour éprouver l'échange sans l'app source.
+ * POST /api/admin/delegation/poignee { email, app } : poignées d'un compte de batterie, pour éprouver l'échange sans l'app source. Elles ne
+ * s'émettent que dans les organisations que l'environnement ouvre (`<cible>@test` : marquées de test au Hub).
  * Jamais pour un vrai client en prod : une poignée y naît d'un rebond, donc d'un utilisateur reconnu.
  */
 import { NextRequest, NextResponse } from 'next/server';

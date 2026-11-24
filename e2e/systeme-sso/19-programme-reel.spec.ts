@@ -68,7 +68,7 @@ cas(null, 'porte MCP : un programme verse un segment de Prospection dans une lis
   let fin: any;
   const durees: number[] = [];
   do {
-    fin = await programme({ code: CODE(seg.id, liste), autoriser: ['notifuse.contacts_import'], ...(reprise ? { reprise } : {}) });
+    fin = await programme({ code: CODE(seg.id, liste), autoriser: ['prospection.extraire_segment', 'notifuse.contacts_import'], ...(reprise ? { reprise } : {}) });
     tours += 1;
     durees.push(fin.duree_ms);
     if (fin.etat === 'interrompu' && fin.reprise) reprise = fin.reprise;
@@ -82,7 +82,7 @@ cas(null, 'porte MCP : un programme verse un segment de Prospection dans une lis
   expect(e.crees + e.presents + ecartes, `chaque ligne lue est créée, déjà présente, ou écartée avec un motif : ${JSON.stringify(e).slice(0, 300)}`).toBe(e.lues - e.retires);
 
   // Rejouer depuis le début ne crée rien de plus : même liste figée, import dédoublonné.
-  const rejeu = await programme({ code: CODE(seg.id, liste, Math.min(LIGNES, PAGE)), autoriser: ['notifuse.contacts_import'] });
+  const rejeu = await programme({ code: CODE(seg.id, liste, Math.min(LIGNES, PAGE)), autoriser: ['prospection.extraire_segment', 'notifuse.contacts_import'] });
   expect(rejeu.etat, JSON.stringify(rejeu).slice(0, 300)).toBe('termine');
   expect(rejeu.resultat.crees, 'rejeu').toBe(0);
   expect(await compter(), 'rejeu').toBe(apres);

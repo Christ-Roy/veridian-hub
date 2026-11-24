@@ -16,6 +16,7 @@ const db = {
   tenantMember: { findMany: async ({ where }: any) => membres.filter((x) => x.userId === where.userId && !x.deletedAt) },
   user: { findMany: async ({ where }: any) => users.filter((x) => where.supabaseUserId.in.includes(x.supabaseUserId)), findFirst: async ({ where }: any) => users.find((x) => x.supabaseUserId === where.supabaseUserId) ?? null },
 } as never;
+const MARQUE = { organisation_de_test: { expire_le: new Date(Date.now() + 3_600_000).toISOString() } };
 const TOUS = { NODE_ENV: 'test', ROLE_PORTE: 'tous', CRM_API_URL: 'https://crm.test', CRM_HUB_API_SECRET: 's' } as NodeJS.ProcessEnv;
 beforeEach(() => {
   tenants = [{ id: 'A', userId: 'u', status: 'active', createdAt: CREE }, { id: 'B', userId: 'p', status: 'active', createdAt: CREE }, { id: 'S', userId: 'u', status: 'suspended', createdAt: CREE }, { id: 'T', userId: 't', status: 'active', createdAt: CREE }];
@@ -29,10 +30,10 @@ describe('roleOrg', () => {
 });
 
 describe('rolePorteOuvert', () => {
-  it('fermé par défaut ; ouvert pour une organisation nommée, toutes, ou un compte de test', () => {
-    const o = (id: string, proprietaire: string | null, ROLE_PORTE?: string) => rolePorteOuvert({ id, proprietaire }, { NODE_ENV: 'test', ROLE_PORTE });
-    expect([o('A', 'client@x.fr'), o('A', null), o('A', 'client@x.fr', ''), o('A', 'client@x.fr', 'B'), o('A', 'client@x.fr', 'AA')]).toEqual([false, false, false, false, false]);
-    expect([o('A', 'client@x.fr', 'B, A'), o('A', 'client@x.fr', 'tous'), o('A', 'e2e-sso-a-b@veridian.site')]).toEqual([true, true, true]);
+  it('fermé par défaut ; ouvert pour une organisation nommée, toutes, ou MARQUÉE de test', () => {
+    const o = (id: string, metadata: unknown, ROLE_PORTE?: string) => rolePorteOuvert({ id, metadata }, { NODE_ENV: 'test', ROLE_PORTE });
+    expect([o('A', {}), o('A', null), o('A', {}, ''), o('A', {}, 'B'), o('A', {}, 'AA')]).toEqual([false, false, false, false, false]);
+    expect([o('A', {}, 'B, A'), o('A', {}, 'tous'), o('A', MARQUE)]).toEqual([true, true, true]);
   });
 });
 
@@ -45,7 +46,9 @@ describe('organisationsPourRebond', () => {
     ]);
     expect(await organisationsPourRebond(db, 'x', TOUS)).toEqual([]);
   });
-  it('fermé : seule l\'organisation d\'un compte de test part', async () => {
+  it('fermé : seule une organisation marquée part ; une adresse ressemblante ne suffit pas', async () => {
+    expect(await organisationsPourRebond(db, 'u', { NODE_ENV: 'test' }), 'T appartient à e2e-sso-…, non marquée').toEqual([]);
+    tenants[3].metadata = MARQUE;
     expect((await organisationsPourRebond(db, 'u', { NODE_ENV: 'test' })).map((x) => x.hub_tenant_id)).toEqual(['T']);
   });
 });
