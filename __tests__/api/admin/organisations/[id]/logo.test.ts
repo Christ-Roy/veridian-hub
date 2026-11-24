@@ -26,6 +26,10 @@ describe('logo', () => {
     expect((await PUT(req('PUT', { 'content-length': '9000000' }), ctx())).status).toBe(413);
     expect((await DELETE(req('DELETE'), ctx('x'))).status).toBe(400);
   });
+  it('une app en retard : 207, sur la pose comme sur le retrait', async () => {
+    m.regler.mockResolvedValue({ emissions: [{ app: 'academy', etat: 'echec' }] });
+    expect([(await PUT(req('PUT'), ctx())).status, (await DELETE(req('DELETE'), ctx())).status]).toEqual([207, 207]);
+  });
   it('admin seulement', async () => {
     m.admin.mockResolvedValue(NextResponse.json({}, { status: 401 }));
     expect([(await PUT(req('PUT'), ctx())).status, (await DELETE(req('DELETE'), ctx())).status]).toEqual([401, 401]);

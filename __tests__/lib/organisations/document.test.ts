@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { documentOrg, MODULES, pourApp, urlLogo } from '@/lib/organisations/document';
+import { contenuOrg, COULEUR, documentOrg, MODULES, pourApp, TYPES, urlLogo } from '@/lib/organisations/document';
 
 import { base } from './fausse';
 
@@ -47,4 +47,20 @@ it('pourApp : une app ne reçoit que ses réglages ; MODULES : Academy seule ; u
   expect(pourApp((await doc())!, 'crm').reglages).toEqual({});
   expect([...MODULES]).toEqual(['academy']);
   expect(urlLogo('https://h', { tenantId: 'A', logoEmpreinte: null })).toBeNull();
+});
+it('COULEUR : six chiffres hexadécimaux, rien d\'autre', () => expect(['#0B5FFF', '#0b5fff', '#FFF', '0B5FFF', '#0B5FFF;', 'url(x)', '#0B5FFG'].map((c) => COULEUR.test(c))).toEqual([true, true, false, false, false, false, false]));
+it('TYPES : deux, et un type inconnu en base vaut individuel', async () => {
+  expect([...TYPES]).toEqual(['individuel', 'organisation']);
+  db.organisation.lignes[0].type = 'bizarre';
+  expect((await doc())!.type).toBe('individuel');
+});
+
+describe('contenuOrg', () => {
+  it('calcule l\'empreinte sans rien écrire : la version stockée ne bouge pas', async () => {
+    const c = (await contenuOrg(db as never, 'A', 'https://hub.test'))!;
+    expect(c.empreinte).not.toBe(c.empreinteStockee);
+    expect(db.organisation.lignes[0].version).toBe(BigInt(0));
+    expect(db.organisation.lignes[0].empreinte).toBeNull();
+    expect(c.contenu).not.toHaveProperty('version');
+  });
 });

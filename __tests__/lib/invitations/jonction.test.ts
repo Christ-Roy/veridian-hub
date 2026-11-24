@@ -2,6 +2,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const m = vi.hoisted(() => ({ rejoindre: vi.fn() }));
+const suivre = vi.hoisted(() => vi.fn(async (..._a: unknown[]): Promise<unknown[]> => []));
+vi.mock('@/lib/organisations/emission', () => ({ suivreOrganisation: suivre }));
 vi.mock('@/lib/tenants/membres', async (o) => ({ ...(await o<object>()), rejoindre: (...a: unknown[]) => m.rejoindre(...a) }));
 
 import { joindreParInvitation, tenantDeLInvitation } from '@/lib/invitations/jonction';
@@ -43,6 +45,14 @@ describe('joindreParInvitation', () => {
     expect(m.rejoindre).not.toHaveBeenCalled();
     membre = { role: 'admin', deletedAt: null };
     expect((await joindreParInvitation(db, inv(), 'u-new')).etat).toBe('joint');
+  });
+
+  it('l\'organisation suit le nouveau membre, et seulement s\'il a rejoint', async () => {
+    suivre.mockClear();
+    await joindreParInvitation(db, inv({ targetWorkspaceId: 'x' }), 'u');
+    expect(suivre).not.toHaveBeenCalled();
+    await joindreParInvitation(db, inv(), 'u-new');
+    expect(suivre.mock.calls[0][1]).toBe('T');
   });
 
   it('espace relié à aucun tenant vivant : rien', async () => {
