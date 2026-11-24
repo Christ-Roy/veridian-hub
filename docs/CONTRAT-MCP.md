@@ -107,6 +107,11 @@ apps ouvertes au compte). Un outil qui se déclare destructif, ou qui ne déclar
 la porte. Journal : `mcp.tool.call` par appel avec l'identifiant du programme, `mcp.programme` (empreinte du code, noms
 autorisés, comptes) ; jamais le code ni les arguments. Mon IA n'offre pas cet outil.
 
+**Clients à l'ancienne liste** : un client garde `tools/list` en cache et la porte sans état ne peut pas l'avertir. Le même outil
+existe donc sous `hub.executer_programme`, trouvé par `chercher_outils`, décrit par `decrire_outil`, joué par `executer_outil`
+(mêmes bornes, même `autoriser`, même journal). Fermé par défaut : seule la porte publique (`app/api/mcp`) l'offre, Mon IA ne
+l'atteint par aucun des deux noms, un programme non plus.
+
 **Côté app** : l'en-tête `X-Veridian-MCP-Appel: programme` accompagne ces appels. Il autorise une app à rendre une page plus
 grosse (1 Mo au plus) ; il ne donne **aucun droit**. Une app qui coupe ses réponses doit le lire
 et rendre la page entière, ou une erreur franche au-delà de 1 Mo : **jamais un JSON coupé**. Le Hub rend un JSON illisible en

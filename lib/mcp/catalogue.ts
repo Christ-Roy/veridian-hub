@@ -34,6 +34,8 @@ export type Deps = {
   provisionneurs?: Record<string, Provisionneur>;
   /** Options des sessions d'app (mode programme). */
   session?: ConstructorParameters<typeof SessionApp>[3];
+  /** Offrir le mode programme : la porte publique seulement. */
+  programme?: boolean;
   /** Moteur des programmes (tests) ; défaut : la passerelle. */
   ouvrirMoteur?: import('./programme').OuvrirMoteur;
   delaiProgrammeMs?: number;

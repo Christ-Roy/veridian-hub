@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
   if (Array.isArray(msg)) {
     return NextResponse.json({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'lots JSON-RPC non pris en charge' } }, { status: 400, headers: CORS });
   }
-  const reponse = await traiter(prisma, qui, msg as Parameters<typeof traiter>[2]);
+  const reponse = await traiter(prisma, qui, msg as Parameters<typeof traiter>[2], { programme: true });
   if (reponse === null) return new NextResponse(null, { status: 202, headers: CORS });
   return NextResponse.json(reponse, { headers: CORS });
 }
