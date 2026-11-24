@@ -5,7 +5,7 @@ import { createHmac } from 'node:crypto';
 import { createLocalJWKSet, exportJWK, generateKeyPair, jwtVerify, type JWK } from 'jose';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { echanger, FENETRE_MS, oublierDebit, TTL_ACTION_S, verifierAppel } from '@/lib/delegation/jeton';
+import { echanger, etatDesPaires, FENETRE_MS, oublierDebit, TTL_ACTION_S, verifierAppel } from '@/lib/delegation/jeton';
 import { empreintePortees, paire } from '@/lib/delegation/paires';
 import { emettrePoignees } from '@/lib/delegation/poignee';
 import { jwksPublic } from '@/lib/mcp/identite';
@@ -26,7 +26,7 @@ beforeEach(async () => {
   db.tenant.lignes.push({ id: 'A', userId: 'p', status: 'active' });
   db.tenantMember.lignes.push({ tenantId: 'A', userId: 'u', role: 'member' });
   db.user.lignes.push({ supabaseUserId: 'u', email: 'u@x.fr', emailVerified: new Date() });
-  db.mcpApp.lignes.push({ appKey: 'twenty', mcpUrl: 'https://crm.test/mcp', enabled: true });
+  db.mcpApp.lignes.push({ appKey: 'twenty', mcpUrl: 'https://crm.test/mcp', enabled: true, acces: 'tous' });
   db.integrationPaire.lignes.push({ tenantId: 'A', paire: PAIRE.cle, etat: 'allumee', consentiLe: new Date(), portees: empreintePortees(PAIRE) });
   grant = (await emettrePoignees(db as never, { hubUserId: 'u', app: 'prospection' }, ENV))[0].grant;
 });
@@ -62,6 +62,7 @@ describe('echanger', () => {
   it('le jeton que lit la cible : qui agit, pour qui, où, 120 s, portées étroites', async () => {
     const r = await demander({ motif: 'bouton' });
     if ('error' in r) throw new Error(r.error);
+    expect([r.url, r.tenantId]).toEqual(['https://crm.test/mcp', 'A']);
     const { payload } = await jwtVerify(r.jeton, createLocalJWKSet((await jwksPublic(ENV)) as { keys: JWK[] }), { audience: 'https://crm.test/mcp' });
     expect(payload).toMatchObject({ sub: 'u', tenant_id: 'A', act: { sub: 'app:prospection' }, scope: 'crm:societe.ecrire crm:tache.ecrire', email: 'u@x.fr' });
     expect(payload.act).toEqual({ sub: 'app:prospection' });
@@ -102,16 +103,37 @@ describe('echanger', () => {
     expect(await demander(o, app)).toMatchObject({ statut: 403, error });
     expect(db.auditLog.lignes.filter((x) => x.action === 'delegation.jeton')).toEqual([]);
   });
+  it('app réservée que l\'utilisateur n\'a pas : 403, la délégation ne l\'y fait pas entrer', async () => {
+    db.mcpApp.lignes[0].acces = 'tenant_app';
+    expect(await demander()).toEqual({ statut: 403, error: 'app_not_open' });
+    db.tenantApp.lignes.push({ userId: 'u', appKey: 'twenty', enabled: false });
+    expect(await demander()).toEqual({ statut: 403, error: 'app_not_open' });
+    db.tenantApp.lignes[0].enabled = true;
+    expect('jeton' in (await demander())).toBe(true);
+  });
   it('cible absente du registre MCP : 503', async () => {
     db.mcpApp.lignes[0].enabled = false;
     expect(await demander()).toEqual({ statut: 503, error: 'target_not_registered' });
   });
   it('débit par app et organisation : 429 au-delà, l\'organisation voisine n\'est pas touchée', async () => {
     for (let i = 0; i < 60; i++) expect('jeton' in (await demander())).toBe(true);
-    expect(await demander()).toEqual({ statut: 429, error: 'rate_limited' });
+    expect(await demander()).toEqual({ statut: 429, error: 'rate_limited', retryAfterS: 60 });
     db.tenant.lignes.push({ id: 'B', userId: 'u', status: 'active' });
     db.integrationPaire.lignes.push({ ...db.integrationPaire.lignes[0], tenantId: 'B' });
     const b = (await emettrePoignees(db as never, { hubUserId: 'u', app: 'prospection' }, ENV)).find((x) => x.hub_tenant_id === 'B')!;
     expect('jeton' in (await demander({ subject_grant: b.grant }))).toBe(true);
+  });
+});
+
+describe('etatDesPaires', () => {
+  const lire = (g = grant, app = 'prospection') => etatDesPaires(db as never, app as never, g, ENV);
+  it('les paires de cette app, dans l\'organisation de la poignée seulement', async () => {
+    expect(await lire()).toEqual({ tenantId: 'A', paires: [{ audience: 'crm', etat: 'allumee', portees: PAIRE.portees }, { audience: 'notifuse', etat: 'indisponible', portees: ['notifuse:contacts.ecrire'] }] });
+  });
+  it('poignée d\'une autre app, inventée, révoquée : rien', async () => {
+    expect(await lire(grant, 'crm')).toEqual({ statut: 403, error: 'grant_invalid' });
+    expect(await lire('x'.repeat(43))).toEqual({ statut: 403, error: 'grant_invalid' });
+    db.delegationGrant.lignes[0].revoqueLe = new Date();
+    expect(await lire()).toEqual({ statut: 403, error: 'grant_invalid' });
   });
 });

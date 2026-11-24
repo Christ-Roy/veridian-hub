@@ -13,14 +13,14 @@ const jouer = (corps: unknown) => POST(new NextRequest('https://app.veridian.sit
 beforeEach(() => {
   vi.clearAllMocks();
   m.appel.mockResolvedValue({ app: 'prospection' });
-  m.echanger.mockResolvedValue({ jeton: 'J', tenantId: 'T', expiresIn: 120 });
+  m.echanger.mockResolvedValue({ jeton: 'J', tenantId: 'T', expiresIn: 120, url: 'https://c/mcp' });
 });
 
 describe('POST /api/delegation/jeton', () => {
   it('rend le jeton, jamais en cache ; le corps signé est celui reçu', async () => {
     const r = await jouer(BON);
     expect([r.status, r.headers.get('cache-control')]).toEqual([200, 'no-store']);
-    expect(await r.json()).toEqual({ access_token: 'J', issued_token_type: 'urn:ietf:params:oauth:token-type:access_token', token_type: 'Bearer', expires_in: 120, tenant_id: 'T' });
+    expect(await r.json()).toEqual({ access_token: 'J', issued_token_type: 'urn:ietf:params:oauth:token-type:access_token', token_type: 'Bearer', expires_in: 120, tenant_id: 'T', url: 'https://c/mcp' });
     expect(m.appel.mock.calls[0][2]).toBe(JSON.stringify(BON));
   });
   it('signature d\'abord : refusée, rien n\'est lu du corps', async () => {
@@ -37,5 +37,7 @@ describe('POST /api/delegation/jeton', () => {
     m.echanger.mockResolvedValue({ statut: 403, error: 'not_member' });
     const r = await jouer(BON);
     expect([r.status, await r.json()]).toEqual([403, { error: 'not_member' }]);
+    m.echanger.mockResolvedValue({ statut: 429, error: 'rate_limited', retryAfterS: 60 });
+    expect((await jouer(BON)).headers.get('retry-after')).toBe('60');
   });
 });

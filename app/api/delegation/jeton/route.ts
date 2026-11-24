@@ -10,7 +10,7 @@ export const dynamic = 'force-dynamic';
 
 const GRANT_TYPE = 'urn:ietf:params:oauth:grant-type:token-exchange';
 const Corps = z.object({ grant_type: z.literal(GRANT_TYPE), subject_grant: z.string().min(40).max(64), audience: z.string().max(40), scope: z.string().max(300), motif: z.string().max(80).optional() }).strict();
-const refus = (error: string, status: number) => NextResponse.json({ error }, { status, headers: { 'Cache-Control': 'no-store' } });
+const refus = (error: string, status: number, retryAfterS?: number) => NextResponse.json({ error }, { status, headers: { 'Cache-Control': 'no-store', ...(retryAfterS ? { 'Retry-After': String(retryAfterS) } : {}) } });
 
 export async function POST(request: NextRequest) {
   const brut = await request.text();
@@ -26,6 +26,6 @@ export async function POST(request: NextRequest) {
   const c = Corps.safeParse(json);
   if (!c.success) return refus('invalid_request', 400);
   const r = await echanger(prisma, a.app, c.data);
-  if ('error' in r) return refus(r.error, r.statut);
-  return NextResponse.json({ access_token: r.jeton, issued_token_type: 'urn:ietf:params:oauth:token-type:access_token', token_type: 'Bearer', expires_in: r.expiresIn, tenant_id: r.tenantId }, { headers: { 'Cache-Control': 'no-store' } });
+  if ('error' in r) return refus(r.error, r.statut, r.retryAfterS);
+  return NextResponse.json({ access_token: r.jeton, issued_token_type: 'urn:ietf:params:oauth:token-type:access_token', token_type: 'Bearer', expires_in: r.expiresIn, tenant_id: r.tenantId, url: r.url }, { headers: { 'Cache-Control': 'no-store' } });
 }

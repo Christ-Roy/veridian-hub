@@ -1809,10 +1809,11 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
   pour une app source d'une paire servie. L'app la garde dans sa session SERVEUR, jamais dans le navigateur ni dans un journal.
 - **Échange** : `POST /api/delegation/jeton` `{ grant_type, subject_grant, audience, scope, motif? }`, en-têtes `X-Veridian-App`,
   `X-Veridian-Timestamp` (ms), `X-Veridian-Nonce` (16 à 128, usage unique), `X-Veridian-Hub-Signature` = HMAC-SHA256 du secret de l'app
-  sur `ts.nonce.corps`. 200 `{ access_token, expires_in: 120, tenant_id }`. Le tenant vient de la poignée, jamais de l'app.
+  sur `ts.nonce.corps`. 200 `{ access_token, expires_in: 120, tenant_id, url }` (`url` = `aud`, l'adresse d'action). Le tenant vient de la poignée, jamais de l'app.
 - **Refus** : 400 `invalid_headers`, `invalid_request` ; 401 `invalid_signature`, `timestamp_expired`, `nonce_replayed` ; 403
   `pair_not_allowed`, `target_not_served`, `grant_invalid`, `user_invalid`, `not_member`, `tenant_not_found`, `tenant_suspended`,
-  `integration_off` ; 429 ; 503. `grant_invalid` : refaire un rebond silencieux.
+  `integration_off`, `app_not_open` ; 429 (`Retry-After`, 60 par minute, app et organisation) ; 503. `grant_invalid` : refaire un rebond silencieux.
+- **État** : `POST /api/delegation/paires { subject_grant }`, même signature → `{ tenant_id, paires: [{ audience, etat, portees }] }`.
 - **Jeton** : `sub`, `tenant_id`, `jti`, `aud` = MCP de la cible, `act = { sub: "app:<source>" }`, portées étroites (jamais `veridian`),
   120 s. La cible exige `act`, refuse un `jti` déjà vu, et garde l'idempotence chez elle.
 - **Registre fermé** (`lib/delegation/paires.ts`) : cinq paires, aucune action destructive. Une cible s'ouvre (`DELEGATION_CIBLES`) après
