@@ -151,7 +151,8 @@ describe('bornes, tenues par le Hub', () => {
 describe('droits', () => {
   it.each([
     ['lecture seule', { readOnlyHint: true }, false],
-    ['non destructif', { readOnlyHint: false, destructiveHint: false }, false],
+    ['écriture non destructive (toutes celles de Twenty)', { readOnlyHint: false, destructiveHint: false }, true],
+    ['non destructif, sans se dire lecture', { destructiveHint: false }, true],
     ['destructif', { destructiveHint: true }, true],
     ['se dit lecture ET destructif', { readOnlyHint: true, destructiveHint: true }, true],
     ['écriture sans précision', { readOnlyHint: false }, true],
@@ -159,12 +160,12 @@ describe('droits', () => {
     ['annotation fantaisiste', { readOnlyHint: 'true' }, true],
   ])('%s', (_n, annotations, attendu) => expect(exigeAutorisation({ annotations })).toBe(attendu));
 
-  it('destructif ou sans annotation : refusé s\'il n\'est pas nommé, l\'app n\'est pas appelée', async () => {
+  it('écriture, destructif ou sans annotation : refusé s\'il n\'est pas nommé, l\'app n\'est pas appelée', async () => {
     const jouer = vi.fn(async () => ok(1));
-    const code = 'const r=[]; for (const n of ["a.supprimer","a.muet","a.ecrire"]) { try { await outil(n); r.push("joue") } catch (e) { r.push(/autoriser/.test(e.message) ? "refuse" : e.message) } } return r';
-    expect((await lancer(code, { jouer })).resultat).toEqual(['refuse', 'refuse', 'joue']);
+    const code = 'const r=[]; for (const n of ["a.supprimer","a.muet","a.ecrire","a.lire"]) { try { await outil(n); r.push("joue") } catch (e) { r.push(/autoriser/.test(e.message) ? "refuse" : e.message) } } return r';
+    expect((await lancer(code, { jouer })).resultat).toEqual(['refuse', 'refuse', 'refuse', 'joue']);
     expect(jouer).toHaveBeenCalledTimes(1);
-    expect((await lancer(code, { jouer, autoriser: new Set(['a.supprimer']) })).resultat).toEqual(['joue', 'refuse', 'joue']);
+    expect((await lancer(code, { jouer, autoriser: new Set(['a.supprimer', 'a.ecrire']) })).resultat).toEqual(['joue', 'refuse', 'joue', 'joue']);
   });
 
   it('les outils de la porte, dont executer_programme, ne s\'appellent pas d\'un programme', async () => {

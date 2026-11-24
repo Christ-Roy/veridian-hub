@@ -13,7 +13,7 @@ const P = (source: AppPaire, cible: AppPaire, portees: readonly string[], libell
 export const PAIRES: readonly Paire[] = [
   P('prospection', 'crm', ['crm:societe.ecrire', 'crm:tache.ecrire'], 'Prospection vers CRM : envoyer une fiche au CRM'),
   P('prospection', 'notifuse', ['notifuse:contacts.importer'], 'Prospection vers Mail : verser des contacts dans une liste, sans envoi'),
-  P('notifuse', 'crm', ['crm:personne.ecrire', 'crm:tache.ecrire'], 'Mail vers CRM : une réponse humaine crée une fiche et une tâche', 'evenement'),
+  P('notifuse', 'crm', ['crm:tache.ecrire'], 'Mail vers CRM : une réponse humaine crée une fiche et une tâche', 'evenement'),
   P('crm', 'notifuse', ['notifuse:contacts.importer'], 'CRM vers Mail : ajouter des contacts à une liste, sans envoi'),
   P('crm', 'prospection', ['prospection:exclusion.ecrire'], 'CRM vers Prospection : gagné, on ne prospecte plus', 'evenement'),
 ];
@@ -31,7 +31,12 @@ export const paire = (cle: string): Paire | undefined => PAIRES.find((p) => p.cl
 export const paireEntre = (source: string, cible: string): Paire | undefined => PAIRES.find((p) => p.source === source && p.cible === cible);
 
 export const cibleServie = (cible: AppPaire, env: NodeJS.ProcessEnv = process.env): boolean => (env.DELEGATION_CIBLES ?? '').split(',').map((x) => x.trim()).includes(cible);
-export const pairesServies = (env: NodeJS.ProcessEnv = process.env): Paire[] => PAIRES.filter((p) => cibleServie(p.cible, env));
+/**
+ * Une liaison qui peut servir : cible ouverte, et une ACTION. Un événement n'a pas d'utilisateur (son sujet est l'intégration, ADR-037
+ * D1) : tant que son chemin n'existe pas, il ne s'allume pas et ne s'échange pas contre la poignée de quelqu'un.
+ */
+export const paireServie = (p: Paire, env: NodeJS.ProcessEnv = process.env): boolean => p.nature === 'action' && cibleServie(p.cible, env);
+export const pairesServies = (env: NodeJS.ProcessEnv = process.env): Paire[] => PAIRES.filter((p) => paireServie(p, env));
 
 /** Ce que le propriétaire a accepté : élargir une portée change l'empreinte, donc redemande son clic. */
 export const empreintePortees = (p: Paire): string => createHash('sha256').update([...p.portees].sort().join(' ')).digest('hex').slice(0, 16);

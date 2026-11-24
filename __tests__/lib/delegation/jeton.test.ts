@@ -21,6 +21,7 @@ beforeAll(async () => {
   ENV = { NODE_ENV: 'test', DELEGATION_CIBLES: 'crm', MCP_SIGNING_JWK: JSON.stringify({ ...(await exportJWK(privateKey)), kid: 'k1' }) };
 });
 beforeEach(async () => {
+  ENV = { ...ENV, DELEGATION_CIBLES: 'crm' };
   oublierDebit();
   db = base();
   db.tenant.lignes.push({ id: 'A', userId: 'p', status: 'active' });
@@ -91,7 +92,8 @@ describe('echanger', () => {
     ['portée hors paire', 'pair_not_allowed', () => {}, { scope: 'crm:societe.supprimer' }],
     ['portée complète', 'pair_not_allowed', () => {}, { scope: 'veridian' }],
     ['cible non servie', 'target_not_served', () => {}, { audience: 'notifuse', scope: 'notifuse:contacts.importer' }],
-    ['poignée d\'une autre app', 'grant_invalid', () => {}, { scope: 'crm:tache.ecrire' }, 'notifuse'],
+    ['un événement n\'a pas de poignée d\'utilisateur', 'target_not_served', () => {}, { scope: 'crm:tache.ecrire' }, 'notifuse'],
+    ['poignée d\'une autre app', 'grant_invalid', () => { ENV = { ...ENV, DELEGATION_CIBLES: 'crm,notifuse' }; }, { audience: 'notifuse', scope: 'notifuse:contacts.importer' }, 'crm'],
     ['poignée inventée', 'grant_invalid', () => {}, { subject_grant: 'x'.repeat(43) }],
     ['poignée révoquée', 'grant_invalid', () => { db.delegationGrant.lignes[0].revoqueLe = new Date(); }],
     ['poignée expirée', 'grant_invalid', () => { db.delegationGrant.lignes[0].expireLe = new Date(Date.now() - 1); }],

@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 
-import { adresseAction, CLE_MCP, cibleServie, empreintePortees, paire, paireEntre, PAIRES, pairesServies, porteesAccordees } from '@/lib/delegation/paires';
+import { adresseAction, CLE_MCP, cibleServie, empreintePortees, paire, paireEntre, PAIRES, paireServie, pairesServies, porteesAccordees } from '@/lib/delegation/paires';
 
 const env = (DELEGATION_CIBLES?: string) => ({ NODE_ENV: 'test', DELEGATION_CIBLES }) as NodeJS.ProcessEnv;
 
@@ -22,9 +22,14 @@ describe('registre des paires', () => {
   it('cibleServie : fermé par défaut, nom exact', () => {
     expect([cibleServie('crm', env()), cibleServie('crm', env('')), cibleServie('crm', env('crm2')), cibleServie('crm', env('tous')), cibleServie('crm', env('notifuse, crm'))]).toEqual([false, false, false, false, true]);
   });
+  it('paireServie : jamais un événement, même vers une cible ouverte', () => {
+    const tout = env('crm,notifuse,prospection');
+    expect(PAIRES.filter((p) => paireServie(p, tout)).map((p) => p.cle)).toEqual(['prospection>crm', 'prospection>notifuse', 'crm>notifuse']);
+    expect(paireServie(paire('notifuse>crm')!, tout)).toBe(false);
+  });
   it('pairesServies : celles dont la cible est servie', () => {
     expect(pairesServies(env())).toEqual([]);
-    expect(pairesServies(env('crm')).map((p) => p.cle)).toEqual(['prospection>crm', 'notifuse>crm']);
+    expect(pairesServies(env('crm')).map((p) => p.cle)).toEqual(['prospection>crm']);
   });
   it('empreintePortees : change si on élargit, pas si on réordonne', () => {
     const p = paire('prospection>crm')!;

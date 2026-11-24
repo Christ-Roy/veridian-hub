@@ -11,7 +11,7 @@ import { readAppSecret } from '@/lib/sync/discovery';
 import { signerAction } from '@/lib/mcp/identite';
 
 import { listerIntegrations } from './interrupteur';
-import { adresseAction, CLE_MCP, cibleServie, empreintePortees, paireEntre, porteesAccordees, type AppPaire } from './paires';
+import { adresseAction, CLE_MCP, paireServie, empreintePortees, paireEntre, porteesAccordees, type AppPaire } from './paires';
 import { empreinte } from './poignee';
 
 export const FENETRE_MS = 5 * 60_000;
@@ -59,7 +59,7 @@ export async function echanger(db: Db, app: AppPaire, d: Demande, env: NodeJS.Pr
   const p = paireEntre(app, d.audience);
   const portees = p ? porteesAccordees(p, d.scope) : null;
   if (!p || !portees) return { statut: 403, error: 'pair_not_allowed' };
-  if (!cibleServie(p.cible, env)) return { statut: 403, error: 'target_not_served' };
+  if (!paireServie(p, env)) return { statut: 403, error: 'target_not_served' };
 
   const g = await db.delegationGrant.findUnique({ where: { empreinte: empreinte(d.subject_grant) } });
   if (!g || g.app !== app || g.revoqueLe || g.expireLe <= new Date()) return { statut: 403, error: 'grant_invalid' };

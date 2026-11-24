@@ -102,8 +102,8 @@ peut-être joués par l'app), `erreur`, `non_lance` (moteur plein ou muet). Repr
 `reprise`.
 
 **Droits** : chaque appel passe par le même chemin qu'`executer_outil` (identité, espace choisi à l'ouverture et signé,
-apps ouvertes au compte). Un outil qui se déclare destructif, ou qui ne déclare rien (`readOnlyHint: true` ou
-`destructiveHint: false` attendu), est refusé s'il n'est pas nommé dans `autoriser`. Un programme n'appelle aucun outil de
+apps ouvertes au compte). Tout outil qui ne déclare pas `readOnlyHint: true`
+(ou qui se dit aussi destructif) est refusé s'il n'est pas nommé dans `autoriser` : une écriture se nomme, toujours. Un programme n'appelle aucun outil de
 la porte. Journal : `mcp.tool.call` par appel avec l'identifiant du programme, `mcp.programme` (empreinte du code, noms
 autorisés, comptes) ; jamais le code ni les arguments. Mon IA n'offre pas cet outil.
 
