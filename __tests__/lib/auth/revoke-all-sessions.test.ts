@@ -9,7 +9,7 @@ vi.mock('@/lib/identity/push-user', () => ({ pushUserToApps: pushMock }));
 
 import { revokeAllSessions } from '@/lib/auth/session-revocation';
 
-const prisma = { user: { update: vi.fn(async () => ({})) } } as never;
+const prisma = { user: { update: vi.fn(async () => ({})) }, delegationGrant: { updateMany: vi.fn(async () => ({ count: 0 })) } } as never;
 
 describe('revokeAllSessions : accusé des apps (D9)', () => {
   it('renvoie les apps qui n ont pas confirmé la coupure', async () => {
