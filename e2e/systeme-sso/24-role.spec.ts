@@ -1,6 +1,7 @@
 /**
  * Rôle d'organisation porté par le Hub (VER-245 b.1, contrat §5.19.4), par la vraie porte MCP : un membre n'installe pas d'app dans le
  * CRM, promu au Hub il installe, rétrogradé il ne peut plus, son propre espace reste intact, et une version rejouée ne rend rien.
+ * En prod aucune app n'est listée : l'épreuve s'y arrête au droit (refus du catalogue pour un Admin, refus de droit pour un membre).
  * Épreuve : `SSO_SABOTAGE=role-promotion` ne promeut pas, `SSO_SABOTAGE=role-retrograde` ne rétrograde pas : le cas doit échouer.
  */
 import { expect } from '@playwright/test';
@@ -29,7 +30,6 @@ cas(null, 'rôle : le Hub promeut, le CRM laisse installer ; il rétrograde, le 
     const P: Compte = await creerCompteProuve(browser, 'roleprop');
     const M: Compte = await creerCompteProuve(browser, 'rolemembre');
     const T = await espace(P);
-    await marquerTest(T.id);
     const V = await espace(M);
     await adminOk('POST', `tenants/${T.id}/members`, { hub_user_id: M.hubUserId });
     const entree = await appelTwenty('POST', `/api/veridian/workspaces/${T.crm}/attach-member`, { hub_user_id: M.hubUserId, hub_user_email: M.email, role: 'member' });
@@ -43,12 +43,28 @@ cas(null, 'rôle : le Hub promeut, le CRM laisse installer ; il rétrograde, le 
       expect(r.texte, `${quand} : un refus de droit, pas une panne`).not.toMatch(/already|déjà install|ne répond pas|injoignable|inconnu pour ce compte/i);
       return r.texte.slice(0, 120);
     };
+    /** L'outil se voit-il ? C'est le droit relu par la porte, valable aussi en prod où aucune app n'est listée. */
+    const visible = async (ou = T.slug) => (await outil(jeton, 'executer_outil', { nom: 'twenty.list_available_apps', espace: ou })).texte;
     const accepte = async (quand: string, ou = T.slug) => {
+      if (!staging) {
+        const r = await installer(ou);
+        expect(r.texte, `${quand} : en prod rien n'est listé, le refus doit être celui du catalogue, pas du droit`).not.toMatch(/outil inconnu|permission|forbidden|not allowed/i);
+        return;
+      }
       const r = await installer(ou);
       expect(r.isError, `${quand} : ${r.texte.slice(0, 300)}`).toBe(false);
+      // « Installée » veut dire version non nulle : le message de retour ne suffit pas (CRM, 24/11).
+      await expect.poll(async () => new RegExp(`${LIAISONS}[^{}]*"installedVersion":\\s*"`).test((await visible(ou)).replace(/\\"/g, '"')), { timeout: 60_000, message: `${quand} : version installée` }).toBe(true);
     };
     const poser = (role: 'admin' | 'member') => admin<{ role: string; apps: { app: string; etat: string; detail?: string }[] }>('POST', `tenants/${T.id}/members`, { hub_user_id: M.hubUserId, role });
 
+    // Une adresse de batterie n'ouvre rien : c'est la marque posée au Hub qui ouvre (le staging, lui, ouvre à tous).
+    if (!staging) {
+      const ferme = await poser('admin');
+      expect(ferme.json.apps, 'adresse ressemblante, non marquée').toEqual([{ app: 'crm', etat: 'ferme', detail: expect.any(String) }]);
+      await poser('member');
+    }
+    await marquerTest(T.id);
     const motif = await refuse('membre');
     if (process.env.SSO_SABOTAGE !== 'role-promotion') {
       const promu = await poser('admin');
