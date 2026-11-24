@@ -42,10 +42,10 @@ describe('documentOrg', () => {
     expect(await doc()).toBeNull();
   });
 });
-it('pourApp : une app ne reçoit que ses réglages ; MODULES : Academy et Mail ; urlLogo : nul sans logo', async () => {
+it('pourApp : une app ne reçoit que ses réglages ; MODULES : Academy, Mail et Prospection ; urlLogo : nul sans logo', async () => {
   expect(pourApp((await doc())!, 'academy').reglages).toEqual({ academy: { mode_rs: true } });
   expect(pourApp((await doc())!, 'crm').reglages).toEqual({});
-  expect([...MODULES]).toEqual(['academy', 'notifuse']);
+  expect([...MODULES]).toEqual(['academy', 'notifuse', 'prospection']);
   expect(urlLogo('https://h', { tenantId: 'A', logoEmpreinte: null })).toBeNull();
 });
 it('COULEUR : six chiffres hexadécimaux, rien d\'autre', () => expect(['#0B5FFF', '#0b5fff', '#FFF', '0B5FFF', '#0B5FFF;', 'url(x)', '#0B5FFG'].map((c) => COULEUR.test(c))).toEqual([true, true, false, false, false, false, false]));
