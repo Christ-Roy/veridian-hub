@@ -206,6 +206,8 @@ export async function POST(request: NextRequest) {
       const status =
         err.code === 'inviter_not_found'
           ? 404
+          : err.code === 'quota_exceeded'
+            ? 429
           : err.code === 'self_invitation'
             ? 422
             : 400;

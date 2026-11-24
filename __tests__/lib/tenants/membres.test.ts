@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { basculerSuspension, rejoindre, retirer, type DbMembres } from '@/lib/tenants/membres';
+import { basculerSuspension, nonCoupees, rejoindre, retirer, type DbMembres } from '@/lib/tenants/membres';
 
 import { parcourir } from '../../contrat/source';
 
@@ -139,6 +139,7 @@ describe('suspension', () => {
     expect(tenant!.status).toBe('suspended');
     expect(r.apps.map((x) => x.etat)).toEqual(['suspendu', 'suspendu', 'suspendu', 'non_gere']);
     expect(r.complet).toBe(false);
+    expect(r.avis, 'celui qui suspend lit ce qui ne l\'est pas').toContain('crm (aucune route de suspension');
     expect(a.posts.map((p) => [p.app, p.chemin, p.corps.tenant_id])).toEqual(expect.arrayContaining([['notifuse', '/api/tenants/suspend', 'esp'], ['prospection', '/api/tenants/suspend', 'tp'], ['academy', '/api/tenants/suspend', 'T']]));
     expect(audits[0]).toMatchObject({ action: 'tenant.suspendu' });
     const b = apps(etat);
@@ -151,6 +152,11 @@ describe('suspension', () => {
     expect(r.apps[0]).toMatchObject({ etat: 'echec', detail: 'http_500' });
     expect(tenant!.status).toBe('suspended');
   });
+});
+
+it('nonCoupees : null quand tout est coupé, sinon chaque app et sa raison', () => {
+  expect(nonCoupees([{ app: 'crm', etat: 'retire' }, { app: 'academy', etat: 'absent' }])).toBeNull();
+  expect(nonCoupees([{ app: 'analytics', etat: 'non_gere', detail: 'aucune route' }, { app: 'crm', etat: 'echec', detail: 'http_500' }])).toMatch(/analytics \(aucune route\), crm \(http_500\)/);
 });
 
 it('un seul écrivain de tenant_members dans tout le code', () => {

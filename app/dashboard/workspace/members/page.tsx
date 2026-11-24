@@ -3,11 +3,13 @@ import { Users } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { DashboardPageHeader } from '@/components/dashboard/PageHeader';
 import { InviteModal } from '@/components/workspace/InviteModal';
+import { MembresDuTenant } from '@/components/workspace/MembresDuTenant';
 import { MembersTable } from '@/components/workspace/MembersTable';
 import type { WorkspaceMember, WorkspaceRole } from '@/types/workspace';
 import { canInviteMembers } from '@/types/workspace';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
+import { membresVus } from '@/lib/tenants/membres-vus';
 import { provisionDefaultWorkspace } from '@/lib/workspace/provision';
 
 export default async function WorkspaceMembersPage() {
@@ -104,6 +106,7 @@ export default async function WorkspaceMembersPage() {
   });
 
   const userCanInvite = canInviteMembers(actorRole);
+  const entres = await membresVus(prisma, user.id);
 
   return (
     <div className="flex flex-col gap-8 p-4 md:p-8 max-w-4xl mx-auto w-full">
@@ -138,6 +141,8 @@ export default async function WorkspaceMembersPage() {
           />
         </CardContent>
       </Card>
+
+      <MembresDuTenant membres={entres} />
     </div>
   );
 }

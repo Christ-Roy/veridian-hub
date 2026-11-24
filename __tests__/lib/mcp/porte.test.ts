@@ -438,6 +438,16 @@ describe('executer_programme', () => {
     });
   });
 
+  it('un programme ne s\'ouvre pas sur un espace suspendu, ni quand l\'app prendrait le suspendu par défaut', async () => {
+    (db.tenant as any).lignes.find((t: any) => t.id === 't1').status = 'suspended';
+    const f = appFactice();
+    for (const a of [{}, { espace: 'mon-espace' }]) {
+      const r = (await prog({ code: 'x', ...a }, [LIRE], f)) as any;
+      expect([r.result.isError, r.result.content[0].text.includes('suspendu')], JSON.stringify(a)).toEqual([true, true]);
+    }
+    expect(f.recus.filter((x) => x.corps.method === 'tools/call')).toHaveLength(0);
+  });
+
   it('cinquante appels : une seule session chez l\'app, l\'en-tête annoncé, la même identité', async () => {
     const f = appFactice();
     const r = json(await prog({ code: 'x' }, Array.from({ length: 50 }, () => LIRE), f));

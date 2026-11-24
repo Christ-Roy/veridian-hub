@@ -60,7 +60,36 @@ for (const f of SOURCES) {
 const job = readFileSync('deploy/hub.nomad.hcl', 'utf8');
 const rendues = new Set(Array.from(job.matchAll(/^\s*([A-Z0-9_]+)\s*=/gm)).map((m) => m[1]));
 
+/**
+ * Noms construits à l'exécution (`env[\`HUB_INVITATION_SECRET_${app}\`]`) : le relevé ci-dessus ne les voit pas. 24/11 : perdu à la
+ * bascule Nomad, celui de Notifuse rendait 503 à toute invitation, en silence. Chaque nom est rendu par le job, ou dit pourquoi non.
+ */
+const DYNAMIQUES: Record<string, string | null> = {
+  HUB_INVITATION_SECRET_NOTIFUSE: null,
+  HUB_INVITATION_SECRET_PROSPECTION: 'Prospection n\'appelle pas /api/invitations/create (24/11)',
+  HUB_INVITATION_SECRET_ANALYTICS: 'Analytics n\'appelle pas /api/invitations/create (24/11)',
+  HUB_INVITATION_SECRET_CMS: 'le CMS s\'éteint, hors de l\'identité du Hub',
+  NOTIFUSE_HUB_API_SECRET: null,
+  ANALYTICS_HUB_API_SECRET: null,
+  PROSPECTION_HUB_API_SECRET: 'repli PROSPECTION_TENANT_API_SECRET, rendu par le job',
+  CRM_HUB_API_SECRET: null,
+  ACADEMY_HUB_API_SECRET: null,
+  CMS_HUB_API_SECRET: 'le CMS s\'éteint, hors de l\'identité du Hub',
+};
+
 describe('variables du job de prod', () => {
+  it('toute variable dont le nom se construit à l\'exécution est rendue, ou absente avec sa raison', () => {
+    const rendu = (v: string) => new RegExp(`(^|[\\s}])${v}=`, 'm').test(job.replace(/^\s*#.*$/gm, ''));
+    expect(rendu('VARIABLE_INEXISTANTE')).toBe(false);
+    for (const [v, raison] of Object.entries(DYNAMIQUES)) {
+      if (raison === null) expect(rendu(v), `${v} absente de deploy/hub.nomad.hcl`).toBe(true);
+      else expect(rendu(v), `${v} est rendue : retirer sa raison`).toBe(false);
+    }
+    const apps = Array.from(readFileSync('lib/invitations/hmac.ts', 'utf8').match(/SUPPORTED_APPS = \[([^\]]+)\]/)![1].matchAll(/'([a-z]+)'/g)).map((m) => m[1].toUpperCase());
+    expect(apps.length).toBeGreaterThan(2);
+    for (const a of apps) expect(Object.keys(DYNAMIQUES), a).toEqual(expect.arrayContaining([`HUB_INVITATION_SECRET_${a}`, `${a}_HUB_API_SECRET`]));
+  });
+
   it('outil : le relevé voit les variables du code et du job', () => {
     expect(lues.has('MICROSOFT_OAUTH_CLIENT_ID')).toBe(true);
     expect(rendues.has('GOOGLE_OAUTH_CLIENT_ID')).toBe(true);
