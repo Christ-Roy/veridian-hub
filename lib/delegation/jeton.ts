@@ -8,6 +8,7 @@ import type { PrismaClient } from '@prisma/client';
 
 import { writeAuditLog } from '@/lib/admin/audit-log';
 import { readAppSecrets } from '@/lib/sync/discovery';
+import type { SyncApp } from '@/lib/sync/types';
 import { signerAction } from '@/lib/mcp/identite';
 
 import { listerIntegrations } from './interrupteur';
@@ -24,12 +25,12 @@ export type Refus = { statut: number; error: string; retryAfterS?: number };
 export type Db = Pick<PrismaClient, 'delegationGrant' | 'delegationNonce' | 'tenant' | 'tenantMember' | 'user' | 'integrationPaire' | 'mcpApp' | 'tenantApp' | 'auditLog'>;
 
 /** Signature de l'app : HMAC-SHA256 du secret de l'app sur `ts.nonce.corps`, fenêtre de 5 min, nonce à usage unique. */
-export async function verifierAppel(db: Pick<PrismaClient, 'delegationNonce'>, h: Headers, corps: string, now = Date.now()): Promise<{ app: AppPaire } | Refus> {
-  const app = h.get('x-veridian-app') as AppPaire | null;
+export async function verifierAppel<A extends SyncApp = AppPaire>(db: Pick<PrismaClient, 'delegationNonce'>, h: Headers, corps: string, now = Date.now(), apps: readonly A[] = APPS as unknown as readonly A[]): Promise<{ app: A } | Refus> {
+  const app = h.get('x-veridian-app') as A | null;
   const ts = h.get('x-veridian-timestamp') ?? '';
   const nonce = h.get('x-veridian-nonce') ?? '';
   const sig = h.get('x-veridian-hub-signature') ?? '';
-  if (!app || !APPS.includes(app) || !/^\d{13}$/.test(ts) || !/^[A-Za-z0-9_-]{16,128}$/.test(nonce) || !/^[0-9a-f]{64}$/.test(sig)) return { statut: 400, error: 'invalid_headers' };
+  if (!app || !apps.includes(app) || !/^\d{13}$/.test(ts) || !/^[A-Za-z0-9_-]{16,128}$/.test(nonce) || !/^[0-9a-f]{64}$/.test(sig)) return { statut: 400, error: 'invalid_headers' };
   const secrets = readAppSecrets(app);
   if (secrets.length === 0) return { statut: 503, error: 'app_not_configured' };
   if (Math.abs(now - Number(ts)) > FENETRE_MS) return { statut: 401, error: 'timestamp_expired' };

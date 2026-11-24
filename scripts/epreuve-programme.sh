@@ -7,7 +7,7 @@
 set -uo pipefail
 JOB=${1:-hub}
 ICI=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-alloc() { nomad-v raw job status "$JOB" 2>/dev/null | awk -v g="$1" '/^Allocations/{f=1} f && $3==g && / run +running/ {print $1; exit}'; }
+alloc() { nomad job status "$JOB" 2>/dev/null | awk -v g="$1" '/^Allocations/{f=1} f && $3==g && / run +running/ {print $1; exit}'; }
 H=$(alloc stack); P=$(alloc programme); P=${P:-$H}
 [ -n "$P" ] && [ -n "$H" ] || { echo "NON ABOUTI : allocation programme ($P) ou stack ($H) absente"; exit 2; }
 B64=$(base64 -w0 "$ICI/programme/epreuve.mjs")

@@ -264,8 +264,9 @@ CRM_RETRAIT_FUSIBLE=0
 # Ouvrir un vrai client : accord de Robert d'abord.
 ROLE_PORTE=
 # Délégation entre apps (§5.23) : cibles qui ont dit « garde servie ». Vide = aucun jeton, aucune poignée.
-# `@test` : seulement les organisations marquées de test au Hub (24 h, auditées). À refermer après la preuve (24/11).
-DELEGATION_CIBLES=crm@test
+# Ouvert à toutes le 24/11 (Robert, relayé par la parente) : chaque liaison reste ÉTEINTE jusqu'au clic de son propriétaire, et se coupe
+# d'un clic. `<cible>@test` = organisations marquées de test. Refermer : vider, puis déployer.
+DELEGATION_CIBLES=crm,notifuse
 # Adresses à qui le Hub n'écrit jamais (lib/email/send.ts) : la boîte perso de Robert pour le compte « Préprod CRM » (24/11).
 MAILS_BLOQUES_SHA256=ff9b9ff3e94543f4
 {{ with nomadVar "nomad/jobs/hub" }}

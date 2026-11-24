@@ -15,11 +15,13 @@ import { NonAbouti } from './etat';
 
 let secret: string | null = null;
 
-/** Un secret que SERT le Hub de staging, lu en mémoire, jamais affiché : celui du coffre n'est pas toujours le même (24/11). */
+/**
+ * Un secret que SERT le Hub de staging, donné par l'environnement (`SSO_STAGING_<NOM>`), jamais affiché. Plus aucune lecture de Variable
+ * Nomad ici : le chemin qui existe prend le jeton de management (24/11, suspendu jusqu'à la réponse de Robert). Sans lui, NON ABOUTI.
+ */
 export function secretServiStaging(nom: string): string {
-  const { NOMAD_TOKEN: _lecture, ...env } = process.env;
-  const s = execFileSync('nomad-v', ['raw', 'var', 'get', '-item', nom, 'nomad/jobs/hub-staging'], { env: env as NodeJS.ProcessEnv, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-  if (s.length < 32) throw new NonAbouti(`${nom} de staging illisible`);
+  const s = process.env[`SSO_STAGING_${nom}`] ?? '';
+  if (s.length < 32) throw new NonAbouti(`SSO_STAGING_${nom} absent : la lecture des Variables Nomad est suspendue (jeton de management)`);
   return s;
 }
 

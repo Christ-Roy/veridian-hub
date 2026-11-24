@@ -44,7 +44,7 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   modification, rejouer chaque `SSO_SABOTAGE=<scénario>` : il doit échouer. Elle échoue s'il reste un compte.
 - **Rebond refusé** : jamais muet (08/11, Robert renvoyé sans un mot). Tout refus va sur `/auth/bounce/error` qui
   l'explique (`user_not_in_app`, `hub_user_conflict` : un compte d'app n'appartient qu'au premier compte Hub relié),
-  et laisse `[bounce][refus]` (app, code, hub_user_id, jamais l'adresse). Batterie : `09-adresses` ; `10-creation`
+  et laisse `[bounce][refus]` (app, code, hub_user_id, jamais l'adresse) ; un succès, `[bounce][reussi]`. Batterie : `09-adresses` ; `10-creation`
   (OAuth jusqu'au fournisseur ; inscription pendant un déploiement : `SSO_PENDANT_DEPLOIEMENT=1 … 10-` après un push).
 - **Variables du job** : toute variable lue par le code est rendue par `deploy/hub.nomad.hcl` (source de la CI) ou
   déclarée facultative avec sa raison (`__tests__/contrat/variables-job.test.ts`). 08/11 : `MICROSOFT_OAUTH_*` manquait,

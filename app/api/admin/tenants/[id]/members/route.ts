@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import { resolveActor } from '@/lib/admin/audit-log';
 import { requireAdmin } from '@/lib/admin/require-admin';
+import { suivreOrganisation } from '@/lib/organisations/emission';
 import { prisma } from '@/lib/prisma';
 import { rejoindre, ROLES } from '@/lib/tenants/membres';
 import { pousserRole } from '@/lib/tenants/roles';
@@ -26,7 +27,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const r = await rejoindre(prisma, { tenantId: id.data, hubUserId, role: c.data.role, origine: 'operateur', acteur: resolveActor(request.headers, null) });
     // Le rôle part aussitôt chez les apps qui le traduisent, relu. 207 : une app n'a pas suivi ; rejouer est sans effet de bord.
     const apps = await pousserRole(prisma, { tenantId: id.data, hubUserId });
-    return NextResponse.json({ ...r, apps }, { status: apps.some((a) => a.etat === 'echec' || a.etat === 'refuse') ? 207 : 200 });
+    // L'organisation réglée au Hub emmène le membre dans les apps cochées (VER-252).
+    const organisation = await suivreOrganisation(prisma, id.data);
+    return NextResponse.json({ ...r, apps, ...(organisation.length ? { organisation } : {}) }, { status: apps.some((a) => a.etat === 'echec' || a.etat === 'refuse') ? 207 : 200 });
   } catch (err) {
     return refuser(err);
   }

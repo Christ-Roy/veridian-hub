@@ -28,3 +28,11 @@ export function journaliserRefus(r: {
   if (identite) console.warn(ligne);
   else console.error(ligne);
 }
+
+/**
+ * Un rebond réussi, pour toutes les apps (VER-251, 24/11) : sans lui, aucun lien émis chez une app ne se recoupe avec une demande du
+ * Hub. Jamais l'adresse, jamais le lien (il ouvre une session).
+ */
+export function journaliserReussite(r: { app: string; code: 'ok' | 'premiere_ouverture'; hubUserId: string }): void {
+  console.info(JSON.stringify({ tag: '[bounce][reussi]', level: 'info', msg: 'complete: bounce done', app: r.app, code: r.code, hub_user_id: r.hubUserId, ts: new Date().toISOString() }));
+}

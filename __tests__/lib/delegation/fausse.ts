@@ -2,7 +2,7 @@
 type L = Record<string, any>;
 const ok = (l: L, w: L = {}): boolean => Object.entries(w).every(([k, v]) => {
   if (k === 'OR') return (v as L[]).some((x) => ok(l, x));
-  if (k === 'tenantId_paire' || k === 'tenantId_userId') return ok(l, v);
+  if (k === 'tenantId_app' || k === 'tenantId_paire' || k === 'tenantId_userId') return ok(l, v);
   if (v && typeof v === 'object' && !(v instanceof Date)) {
     if ('gt' in v) return l[k] > v.gt;
     if ('lt' in v) return l[k] < v.lt;

@@ -17,7 +17,7 @@
  *  4. Gestion erreurs :
  *     - cookie absent / invalide → `/dashboard`
  *     - tout refus → `/auth/bounce/error?app=...&code=...`, qui l'explique, et une ligne
- *       `[bounce][refus]` (app, code, hub_user_id). Plus jamais de retour muet au tableau de bord.
+ *       `[bounce][refus]` (app, code, hub_user_id) ; un succès laisse `[bounce][reussi]`, mêmes champs. Plus jamais de retour muet au tableau de bord.
  *
  * Pourquoi un Route Handler et pas un Server Component : Next.js 15 interdit
  * `cookies().set()`/`.delete()` dans un Server Component. On a besoin de
@@ -36,7 +36,7 @@ import {
   NEXT_COOKIE_NAME_INSECURE,
 } from '@/lib/auth/bounce-next';
 import { issueMagicLinkForApp, BounceError } from '@/lib/auth/bounce-apps';
-import { journaliserRefus } from '@/lib/auth/bounce-refus';
+import { journaliserRefus, journaliserReussite } from '@/lib/auth/bounce-refus';
 import { ensureAcademyWorkspace } from '@/lib/academy/provision';
 import { ensureCrmWorkspace } from '@/lib/crm/provision';
 import { getEnabledGatedApps } from '@/lib/tenant-apps';
@@ -141,6 +141,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       throw new BounceError('user_not_in_app', 'academy: compte non activé au Hub');
     }
     let magicLinkUrl: string;
+    let code: 'ok' | 'premiere_ouverture' = 'ok';
     try {
       ({ magicLinkUrl } = await issueMagicLinkForApp(demande));
     } catch (err) {
@@ -155,7 +156,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
           : await ensureAcademyWorkspace(prisma, qui, { actorEmail: 'premiere-ouverture' });
       if (!espace.ok) throw err;
       ({ magicLinkUrl } = await issueMagicLinkForApp(demande));
+      code = 'premiere_ouverture';
     }
+    journaliserReussite({ app: parsed.app, code, hubUserId: demande.hubUserId });
     return wipeCookies(NextResponse.redirect(magicLinkUrl));
   } catch (err) {
     const code = err instanceof BounceError ? err.code : 'unexpected';

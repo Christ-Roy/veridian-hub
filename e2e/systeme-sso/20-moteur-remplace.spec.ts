@@ -15,9 +15,10 @@ import { creerCompteProuve } from './lib/parcours';
 
 const dormir = (ms: number) => new Promise((r) => setTimeout(r, ms));
 function nomad(...args: string[]): string {
-  // nomad-v relit son propre jeton : celui de la batterie est en lecture seule.
-  const { NOMAD_TOKEN: _lecture, ...env } = process.env;
-  return execFileSync('nomad-v', ['raw', ...args], { env: env as NodeJS.ProcessEnv, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  // Arrêter une allocation demande un jeton étroit, donné par SSO_NOMAD_ALLOC_TOKEN ; jamais celui de management (24/11).
+  const jeton = args[0] === 'alloc' ? process.env.SSO_NOMAD_ALLOC_TOKEN : process.env.NOMAD_TOKEN;
+  if (!jeton) throw new NonAbouti('jeton Nomad étroit absent (SSO_NOMAD_ALLOC_TOKEN pour arrêter le moteur)');
+  return execFileSync('nomad', args, { env: { ...process.env, NOMAD_TOKEN: jeton } as NodeJS.ProcessEnv, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
 }
 const allocProgramme = () => nomad('job', 'status', 'hub').split('\n').map((l) => l.trim().split(/\s+/)).find((c) => c[2] === 'programme' && c[4] === 'run' && c[5] === 'running')?.[0];
 
