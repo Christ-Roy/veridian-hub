@@ -6,7 +6,6 @@
  * `SSO_SABOTAGE=<scenario>` retire le geste que le scénario prouve : il DOIT alors échouer. C'est
  * l'épreuve de la batterie elle-même, à rejouer quand ce fichier change (README).
  */
-import { execFileSync } from 'node:child_process';
 
 import { expect, type Browser, type BrowserContext, type Cookie } from '@playwright/test';
 
@@ -61,22 +60,12 @@ async function dashboardOuvert(ctx: BrowserContext) {
 }
 
 /**
- * Lu dans Nomad au moment du test, jamais affiché : c'est la valeur que le Hub utilise vraiment. La
- * copie de `.all-creds.env` a déjà divergé (mesuré le 07/11), elle ne fait pas foi.
+ * Le secret de session que le Hub utilise vraiment, donné par l'environnement, jamais affiché. La copie de `.all-creds.env` a déjà
+ * divergé (07/11), elle ne fait pas foi ; le lire dans Nomad prenait le jeton de management (suspendu le 24/11).
  */
 function secretAuth(): string {
   if (process.env.SSO_AUTH_SECRET) return process.env.SSO_AUTH_SECRET;
-  const job = SUR_STAGING ? 'hub-staging' : 'hub';
-  try {
-    const v = execFileSync('nomad-v', ['raw', 'var', 'get', '-item', SUR_STAGING ? 'AUTH_SECRET' : 'HUB_AUTH_SECRET', `nomad/jobs/${job}`], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-    if (v) return v;
-  } catch {
-    /* traité ci-dessous */
-  }
-  throw new NonAbouti('HUB_AUTH_SECRET illisible dans Nomad : à jouer depuis le bastion, ou SSO_AUTH_SECRET');
+  throw new NonAbouti('SSO_AUTH_SECRET absent : la lecture des Variables Nomad est suspendue (jeton de management)');
 }
 
 /** Réécrit ce jeton réel avec une autre durée : même compte, seule l'échéance change. */
