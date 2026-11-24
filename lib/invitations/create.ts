@@ -66,6 +66,8 @@ export class InvitationCreateError extends Error {
   }
 }
 
+const UUID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+
 /** Invitations créées par espace et par 24 h. */
 export const INVITATIONS_PAR_JOUR = 20;
 
@@ -119,10 +121,10 @@ export async function createCrossAppInvitation(
 
   // Vérif inviter_user_id existe en DB — sinon FK violation au CREATE,
   // mais on préfère lever une erreur explicite plutôt qu'une 500 SQL.
-  const inviter = await prisma.user.findUnique({
-    where: { id: input.inviterUserId },
-    select: { id: true, email: true },
-  });
+  // Les apps ne connaissent que hub_user_id (= supabaseUserId, un uuid) ; users.id reste admis (24/11 : 404 pour tout propriétaire).
+  const selection = { id: true, email: true } as const;
+  const parHubUserId = UUID.test(input.inviterUserId) ? await prisma.user.findFirst({ where: { supabaseUserId: input.inviterUserId }, select: selection }) : null;
+  const inviter = parHubUserId ?? (await prisma.user.findUnique({ where: { id: input.inviterUserId }, select: selection }));
   if (!inviter) {
     throw new InvitationCreateError(
       `Inviter user ${input.inviterUserId} not found in hub_app.users`,
@@ -159,7 +161,7 @@ export async function createCrossAppInvitation(
   const created = await prisma.crossAppInvitation.create({
     data: {
       token,
-      inviterUserId: input.inviterUserId,
+      inviterUserId: inviter.id,
       inviterEmail: input.inviterEmail,
       inviteeEmail: input.inviteeEmail,
       targetApp: input.targetApp,

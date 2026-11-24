@@ -7,6 +7,7 @@ vi.mock('@/lib/tenants/membres', async (o) => ({ ...(await o<object>()), rejoind
 import { joindreParInvitation } from '@/lib/invitations/jonction';
 import { RefusMembre } from '@/lib/tenants/membres';
 
+const EMISE = new Date('2026-11-24');
 let membre: Record<string, unknown> | null;
 let tenant: Record<string, unknown> | null;
 const db = {
@@ -14,7 +15,7 @@ const db = {
   tenant: { findFirst: async ({ where }: any) => (where.notifuseWorkspaceSlug ? (where.notifuseWorkspaceSlug === 'esp' ? { id: 'T' } : null) : where.id === 'T' ? tenant : null) },
   tenantMember: { findUnique: async () => membre },
 } as never;
-const inv = (o = {}) => ({ id: 'i1', inviterUserId: 'c-inv', targetApp: 'notifuse', targetWorkspaceId: 'esp', ...o });
+const inv = (o = {}) => ({ id: 'i1', inviterUserId: 'c-inv', targetApp: 'notifuse', targetWorkspaceId: 'esp', createdAt: EMISE, ...o });
 const app = (workspaces: unknown[]) => ({ fetchImpl: (async () => Response.json({ found: true, workspaces })) as unknown as typeof fetch });
 
 beforeEach(() => {
@@ -29,7 +30,7 @@ beforeEach(() => {
 describe('joindreParInvitation', () => {
   it('invité par le propriétaire d\'un espace relié : membre, sans rôle choisi par l\'app', async () => {
     expect(await joindreParInvitation(db, inv(), 'u-new')).toEqual({ etat: 'joint', tenantId: 'T' });
-    expect(m.rejoindre.mock.calls[0][1]).toEqual({ tenantId: 'T', hubUserId: 'u-new', origine: 'invitation', acteur: 'invitation:i1' });
+    expect(m.rejoindre.mock.calls[0][1]).toEqual({ tenantId: 'T', hubUserId: 'u-new', origine: 'invitation', acteur: 'invitation:i1', emiseLe: EMISE });
   });
 
   it('un inviteur qui n\'est ni propriétaire ni admin AU HUB ne rend personne membre, quoi que dise l\'app', async () => {

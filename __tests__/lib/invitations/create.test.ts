@@ -40,11 +40,12 @@ type InvitationRow = {
   createdAt: Date;
 };
 
-function makeFakePrisma(users: { id: string; email: string }[]) {
+function makeFakePrisma(users: { id: string; email: string; supabaseUserId?: string }[]) {
   const invitations: InvitationRow[] = [];
   let nextId = 1;
   const fake = {
     user: {
+      findFirst: async ({ where }: { where: { supabaseUserId: string } }) => users.find((u) => u.supabaseUserId === where.supabaseUserId) ?? null,
       findUnique: async ({ where }: { where: { id: string } }) =>
         users.find((u) => u.id === where.id) ?? null,
     },
@@ -180,6 +181,16 @@ describe('createCrossAppInvitation', () => {
     const result = await createCrossAppInvitation(prisma, baseInput);
     expect(result.reused).toBe(false);
     expect(prisma.__invitations).toHaveLength(2);
+  });
+
+  it('l\'inviteur se désigne par son hub_user_id, comme le font les apps, ou par users.id ; stocké en users.id', async () => {
+    const HUB = '33333333-3333-4333-8333-333333333333';
+    const base = makeFakePrisma([{ ...inviter, supabaseUserId: HUB }, { id: '44444444-4444-4444-8444-444444444444', email: 'vieux@example.com' }]);
+    expect((await createCrossAppInvitation(base, { ...baseInput, inviterUserId: HUB })).invitation.inviterUserId).toBe('user_owner');
+    expect((await createCrossAppInvitation(base, { ...baseInput, inviteeEmail: 'b@example.com' })).invitation.inviterUserId).toBe('user_owner');
+    // Un vieux compte dont users.id est un uuid reste trouvé.
+    expect((await createCrossAppInvitation(base, { ...baseInput, inviteeEmail: 'c@example.com', inviterUserId: '44444444-4444-4444-8444-444444444444' })).invitation.inviterUserId).toBe('44444444-4444-4444-8444-444444444444');
+    await expect(createCrossAppInvitation(base, { ...baseInput, inviteeEmail: 'd@example.com', inviterUserId: '55555555-5555-4555-8555-555555555555' })).rejects.toMatchObject({ code: 'inviter_not_found' });
   });
 
   it('plafond par espace et par jour ; un autre espace n\'est pas touché, une invitation en attente se réutilise', async () => {

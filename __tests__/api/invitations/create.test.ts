@@ -33,6 +33,7 @@ let quotaDuJour = 0;
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     user: {
+      findFirst: vi.fn(async ({ where }: any) => users.find((u: any) => u.supabaseUserId === where.supabaseUserId) ?? null),
       findUnique: vi.fn(async ({ where }: any) =>
         users.find((u) => u.id === where.id) ?? null,
       ),

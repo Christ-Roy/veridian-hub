@@ -21,15 +21,16 @@ const DE_FRONT = 6;
  * - `jonction` : connu du Hub et prouvé, pas encore membre : ce que la reprise ajouterait, rôle plafonné à member ;
  * - `operateur` : compte de Veridian : rôle posé explicitement, dans une liste relue par la parente ;
  * - `adresse_non_prouvee` : connu du Hub, rien de prouvé : attend sa connexion ;
+ * - `retire_au_hub` : retiré au Hub, encore dans l'app : à retirer de l'app (rejouer remove-member), JAMAIS à joindre ;
  * - `inconnu` : connu de l'app seulement : pré-inscription sans mail, jamais créé sur la parole de l'app ;
  * - `espace_non_relie` : l'espace n'est relié à aucun tenant vivant du Hub : rien à comparer.
  */
-export type Cas = 'dans_les_deux' | 'jonction' | 'operateur' | 'adresse_non_prouvee' | 'inconnu' | 'espace_non_relie';
+export type Cas = 'dans_les_deux' | 'jonction' | 'operateur' | 'adresse_non_prouvee' | 'retire_au_hub' | 'inconnu' | 'espace_non_relie';
 
 export type Humain = { email: string; hub_user_id?: string | null };
 export type HubUser = { supabaseUserId: string | null; email: string; emailVerified: Date | null };
 export type HubTenant = { id: string; userId: string; status: string; notifuseWorkspaceSlug: string | null; metadata: unknown };
-export type Membre = { tenantId: string; userId: string };
+export type Membre = { tenantId: string; userId: string; deletedAt?: Date | null };
 
 export type Ligne = { email: string; hubUserId: string | null; role: string | null; cas: Cas; raison?: string };
 export type EspaceApp = {
@@ -78,10 +79,11 @@ export function classer(app: SyncApp, lus: Lu[], hub: { users: HubUser[]; tenant
   const parEmail = new Map(hub.users.map((u) => [u.email.toLowerCase(), u] as const));
   const parTenant = new Map(hub.tenants.map((t) => [t.id, t] as const));
   const notes = new Map(hub.tenants.flatMap((t) => { const e = espaceNote(t, app); return e ? [[e, t] as const] : []; }));
-  const appartient = (tenantId: string, userId: string) => parTenant.get(tenantId)?.userId === userId || hub.membres.some((m) => m.tenantId === tenantId && m.userId === userId);
+  const appartient = (tenantId: string, userId: string) => parTenant.get(tenantId)?.userId === userId || hub.membres.some((m) => m.tenantId === tenantId && m.userId === userId && !m.deletedAt);
+  const retire = (tenantId: string, userId: string) => hub.membres.some((m) => m.tenantId === tenantId && m.userId === userId && m.deletedAt);
 
   const espaces = new Map<string, EspaceApp & { vus: Set<string> }>();
-  const comptes: Record<Cas, number> = { dans_les_deux: 0, jonction: 0, operateur: 0, adresse_non_prouvee: 0, inconnu: 0, espace_non_relie: 0 };
+  const comptes: Record<Cas, number> = { dans_les_deux: 0, jonction: 0, operateur: 0, adresse_non_prouvee: 0, retire_au_hub: 0, inconnu: 0, espace_non_relie: 0 };
   let sansEspace = 0;
   for (const { humain, snapshots } of lus) {
     const vivants = snapshots.filter((s) => s.status !== 'deleted');
@@ -107,6 +109,7 @@ export function classer(app: SyncApp, lus: Lu[], hub: { users: HubUser[]; tenant
       let cas: Cas;
       if (!e.hubTenantId) cas = 'espace_non_relie';
       else if (hubUserId && appartient(e.hubTenantId, hubUserId)) cas = 'dans_les_deux';
+      else if ((hubUserId ?? homonyme?.supabaseUserId) && retire(e.hubTenantId, (hubUserId ?? homonyme?.supabaseUserId)!)) cas = 'retire_au_hub';
       else if (raison) cas = 'operateur';
       else if (hubUserId) cas = 'jonction';
       else if (homonyme || relie) cas = 'adresse_non_prouvee';
@@ -121,7 +124,7 @@ export function classer(app: SyncApp, lus: Lu[], hub: { users: HubUser[]; tenant
   let absents = 0;
   const liste = Array.from(espaces.values()).map(({ vus, ...e }) => {
     if (e.hubTenantId) {
-      const attendus = [parTenant.get(e.hubTenantId)!.userId, ...hub.membres.filter((m) => m.tenantId === e.hubTenantId).map((m) => m.userId)];
+      const attendus = [parTenant.get(e.hubTenantId)!.userId, ...hub.membres.filter((m) => m.tenantId === e.hubTenantId && !m.deletedAt).map((m) => m.userId)];
       e.absents = Array.from(new Set(attendus)).filter((id) => !vus.has(id));
       absents += e.absents.length;
     }
@@ -154,7 +157,7 @@ export type DbAppartenance = Pick<PrismaClient, 'user' | 'tenant' | 'tenantMembe
 
 /** Le relevé d'une app. Les comptes de test en sont écartés, et nommés. */
 export async function releverAppartenance(db: DbAppartenance, app: SyncApp, fetchImpl: typeof fetch = fetch): Promise<RapportApp> {
-  const vide: RapportApp = { app, etat: 'non_abouti', rendus: 0, humains: 0, exclus: [], nonLus: [], sansEspace: 0, espaces: [], comptes: { dans_les_deux: 0, jonction: 0, operateur: 0, adresse_non_prouvee: 0, inconnu: 0, espace_non_relie: 0 }, absents: 0 };
+  const vide: RapportApp = { app, etat: 'non_abouti', rendus: 0, humains: 0, exclus: [], nonLus: [], sansEspace: 0, espaces: [], comptes: { dans_les_deux: 0, jonction: 0, operateur: 0, adresse_non_prouvee: 0, retire_au_hub: 0, inconnu: 0, espace_non_relie: 0 }, absents: 0 };
   const h = await humainsDe(app, fetchImpl);
   if ('raison' in h) return { ...vide, raison: h.raison };
   const humains: Humain[] = [];
@@ -167,7 +170,7 @@ export async function releverAppartenance(db: DbAppartenance, app: SyncApp, fetc
   const [users, tenants, membres] = await Promise.all([
     db.user.findMany({ select: { supabaseUserId: true, email: true, emailVerified: true } }),
     db.tenant.findMany({ where: { deletedAt: null }, select: { id: true, userId: true, status: true, notifuseWorkspaceSlug: true, metadata: true } }),
-    db.tenantMember.findMany({ where: { deletedAt: null }, select: { tenantId: true, userId: true } }),
+    db.tenantMember.findMany({ select: { tenantId: true, userId: true, deletedAt: true } }),
   ]);
   const lus: Lu[] = [];
   const nonLus: string[] = [];
