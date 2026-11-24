@@ -28,12 +28,9 @@ async function signer(app: Module, methode: 'GET' | 'POST', chemin: string, corp
 async function versApp(app: Module, d: NonNullable<Awaited<ReturnType<typeof documentOrg>>>, deps: Deps): Promise<Emission> {
   try {
     const res = await signer(app, 'POST', '/api/hub/organisations/sync', JSON.stringify(pourApp(d, app)), deps);
-    // Deux écritures du même contrat : { applied, reason } et { applique, raison } (Notifuse).
-    const j = (await res.json().catch(() => null)) as { applied?: boolean; reason?: string; applique?: boolean; raison?: string; error?: string } | null;
-    const fait = j?.applied ?? j?.applique;
-    const raison = j?.reason ?? j?.raison;
-    if (!res.ok || typeof fait !== 'boolean') return { app, version: d.version, etat: 'echec', detail: j?.error ?? `http_${res.status}` };
-    if (!fait && raison !== 'unchanged') return { app, version: d.version, etat: 'ignore', detail: raison ?? 'raison absente' };
+    const j = (await res.json().catch(() => null)) as { applied?: boolean; reason?: string; error?: string } | null;
+    if (!res.ok || typeof j?.applied !== 'boolean') return { app, version: d.version, etat: 'echec', detail: j?.error ?? `http_${res.status}` };
+    if (!j.applied && j.reason !== 'unchanged') return { app, version: d.version, etat: 'ignore', detail: j.reason ?? 'raison absente' };
     // « Appliqué » veut dire relu : la version que l'app SERT. Sans route de relecture, c'est dit.
     const relu = await signer(app, 'GET', `/api/hub/organisations/sync?hub_tenant_id=${encodeURIComponent(d.hub_tenant_id)}`, '', deps);
     const v = relu.ok ? ((await relu.json().catch(() => null)) as { version?: unknown } | null)?.version : undefined;
