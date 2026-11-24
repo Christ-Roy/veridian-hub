@@ -96,6 +96,16 @@ export function readAppSecret(app: SyncApp): string | null {
   return null;
 }
 
+/**
+ * Les secrets acceptés pour VÉRIFIER un appel d'une app : le courant, et l'ancien nom tant qu'il est posé (rotation sans coupure,
+ * VER-251). Pour signer, `readAppSecret` : le courant seul. Un secret vide ne vérifie jamais rien.
+ */
+export function readAppSecrets(app: SyncApp): string[] {
+  const m = APP_ENV_MAPPING[app];
+  const l = [process.env[m.secretEnv], m.legacySecretEnv ? process.env[m.legacySecretEnv] : undefined];
+  return Array.from(new Set(l.filter((s): s is string => Boolean(s && s.trim()))));
+}
+
 /** Lit l'URL de base d'une app (sans trailing slash). */
 export function readAppUrl(app: SyncApp): string | null {
   const url = process.env[APP_ENV_MAPPING[app].urlEnv];

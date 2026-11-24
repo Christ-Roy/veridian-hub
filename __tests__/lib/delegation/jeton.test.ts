@@ -52,6 +52,18 @@ describe('verifierAppel', () => {
     expect(refus.map((r) => ('statut' in r ? r.statut : 'PASSE'))).toEqual([401, 401, 401, 401, 401, 400, 400, 400]);
     expect(db.delegationNonce.lignes).toEqual([]);
   });
+  it('rotation : le courant et l\'ancien passent, un tiers et le vide jamais ; l\'ancien retiré ne passe plus', async () => {
+    vi.stubEnv('PROSPECTION_TENANT_API_SECRET', 's-ancien');
+    const n = (i: number) => `nonce-rotation-00000000${i}`;
+    expect(await v(entetes('{}', { nonce: n(1) }))).toEqual({ app: 'prospection' });
+    expect(await v(entetes('{}', { secret: 's-ancien', nonce: n(2) }))).toEqual({ app: 'prospection' });
+    for (const secret of ['s-tiers', '', ' ', 's-crm']) expect(await v(entetes('{}', { secret, nonce: n(3) })), `« ${secret} »`).toEqual({ statut: 401, error: 'invalid_signature' });
+    for (const vide of ['', ' ']) {
+      vi.stubEnv('PROSPECTION_TENANT_API_SECRET', vide);
+      expect(await v(entetes('{}', { secret: vide, nonce: n(4) })), 'un secret vide ne signe rien').toEqual({ statut: 401, error: 'invalid_signature' });
+      expect(await v(entetes('{}', { secret: 's-ancien', nonce: n(5) })), 'retiré').toEqual({ statut: 401, error: 'invalid_signature' });
+    }
+  });
   it('app sans secret : 503, jamais ouverte', async () => {
     vi.stubEnv('PROSPECTION_HUB_API_SECRET', '');
     vi.stubEnv('PROSPECTION_TENANT_API_SECRET', '');
