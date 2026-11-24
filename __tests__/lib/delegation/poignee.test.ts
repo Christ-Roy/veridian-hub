@@ -28,6 +28,10 @@ describe('poignée', () => {
     expect(await emettre('prospection', { NODE_ENV: 'test' })).toEqual([]);
     expect(db.delegationGrant.lignes).toEqual([]);
   });
+  it('crm@test : seulement les organisations d\'un compte de test', async () => {
+    db.user.lignes.push({ supabaseUserId: 'u', email: 'client@x.fr' }, { supabaseUserId: 'p', email: 'e2e-sso-p@veridian.site' });
+    expect((await emettre('prospection', { NODE_ENV: 'test', DELEGATION_CIBLES: 'crm@test' })).map((x) => x.hub_tenant_id)).toEqual(['B']);
+  });
   it('dix vivantes au plus : la onzième révoque la plus ancienne, pas les autres', async () => {
     for (let i = 0; i < 11; i++) await emettre();
     const a = db.delegationGrant.lignes.filter((x) => x.tenantId === 'A');
