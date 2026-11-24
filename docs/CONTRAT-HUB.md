@@ -1783,10 +1783,11 @@ et `hub suspension` passent par lui.
   expirent. Le Hub n'appelle jamais `sync-member`. Encore dans l'app : le relevé dit `retire_au_hub`, jamais `jonction`.
 - **Suspension** : la porte MCP refuse tout outil d'app et tout programme, et exige un espace nommé si un autre est suspendu.
 - **Qui ne sait pas** (24/11) : retrait, Analytics ; suspension, CRM et Analytics ; `attach-owner`, Academy.
-- **Clés API d'un retiré** (code des apps lu le 24/11) : aucune n'est coupée. Hub : connexions IA et poignées meurent au retrait.
-  Academy : clés de l'espace, comptées par auteur (`active_api_keys_created_by_member`), citées dans `avis`. Notifuse et CRM : clés de
-  l'espace, sans auteur noté, donc ni coupées ni comptées. Prospection : une clé par espace, tenue par le Hub, rien de personnel.
-  Analytics : clés personnelles ou d'organisation, et pas de retrait. Le propriétaire les change dans l'app.
+- **Clés API d'un retiré** : jamais coupées (des automatisations en vivent), toujours DITES. `remove-member` rend
+  `active_api_keys` (toutes les clés actives de l'espace, hors clé du Hub) et `api_keys_url` (la page où les renouveler, en https sur
+  `veridian.site`) ; `avis` les cite app par app, « non comptées » si l'app se tait. État du 24/11, lu dans le code : Academy rend
+  `active_api_keys_created_by_member` (clés par auteur) ; Notifuse et CRM, clés d'espace sans auteur noté, pas encore rendues ;
+  Prospection, une clé par espace tenue par le Hub ; Analytics, pas de retrait. Au Hub, connexions IA et poignées meurent au retrait.
 - **Invitation acceptée** : membre au Hub (rôle `member`, toujours) si l'espace est relié et si l'inviteur est propriétaire ou
   admin AU HUB ; 20 invitations par espace et par jour ; le propriétaire voit les arrivées dans le Hub. `inviter_user_id` =
   `hub_user_id`.
