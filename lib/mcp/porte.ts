@@ -11,12 +11,14 @@ import { roleOrg } from '@/lib/tenants/roles';
 import { PLANNED_APPS, readAppPlan, tenantHasApp } from '@/lib/plans/app-plan';
 
 import { AppDebit, AppInjoignable, type SessionApp } from './client-app';
-import { PROTOCOLES, SORTIE_MAX_CAR } from './config';
+import { listerIntegrations, reglerIntegration } from '@/lib/delegation/interrupteur';
+
+import { hubIssuer, PROTOCOLES, SORTIE_MAX_CAR } from './config';
 import type { Appelant } from './oauth';
 import { AUTORISER_MAX, CODE_MAX_CAR, DELAI_MS, executerProgramme, ETAT_MAX_CAR, prendrePlace, presenter, REPONSE_MAX_OCTETS, type Contenu } from './programme';
 import { ouvrirMoteur, programmeConfigure } from './programme-moteur';
 
-export type DbPorte = Pick<PrismaClient, 'mcpApp' | 'tenantApp' | 'tenant' | 'tenantTrial' | 'tenantMember' | 'auditLog'>;
+export type DbPorte = Pick<PrismaClient, 'integrationPaire' | 'integrationDemande' | 'user' | 'mcpApp' | 'tenantApp' | 'tenant' | 'tenantTrial' | 'tenantMember' | 'auditLog'>;
 
 type Rpc = { jsonrpc?: string; id?: string | number | null; method?: string; params?: Record<string, unknown> };
 
@@ -100,6 +102,20 @@ const HUB_PROGRAMME: Outil = {
     'Traiter en masse, en une fois et en boucle : extraire, importer, copier ou déplacer des milliers de lignes, contacts, prospects ou fiches d\'une app à l\'autre, par lots, par un petit programme JavaScript. À préférer dès que l\'on répéterait le même outil.',
   inputSchema: OUTIL_PROGRAMME.inputSchema as unknown as Outil['inputSchema'],
   annotations: OUTIL_PROGRAMME.annotations,
+};
+
+/** Les liaisons entre apps (VER-245 b.2) : même code et mêmes droits que l'écran du Hub. */
+const HUB_LISTER: Outil = {
+  nom: 'hub.integrations_lister', app: 'hub', local: 'integrations_lister',
+  description: 'Liaisons entre les apps de mon organisation (Prospection vers CRM, Mail vers CRM…) : sens, allumée ou éteinte, qui l\'a changée et quand, dernier passage, dernière erreur.',
+  inputSchema: { type: 'object', properties: {} },
+  annotations: { readOnlyHint: true },
+};
+const HUB_REGLER: Outil = {
+  nom: 'hub.integrations_regler', app: 'hub', local: 'integrations_regler',
+  description: 'Allumer ou éteindre une liaison entre deux apps de mon organisation. Éteindre et rallumer : direct. La première ouverture rend un lien que le propriétaire confirme dans Veridian. Propriétaire ou admin seulement.',
+  inputSchema: { type: 'object', properties: { paire: { type: 'string', description: 'La paire rendue par hub.integrations_lister, ex. « prospection>crm ».' }, etat: { type: 'string', enum: ['allumee', 'eteinte'] } }, required: ['paire', 'etat'] } as unknown as Outil['inputSchema'],
+  annotations: { destructiveHint: true, idempotentHint: true, openWorldHint: false },
 };
 
 /** Fermé par défaut : seule la porte publique l'offre (app/api/mcp). Mon IA décide et approuve outil par outil. */
@@ -214,6 +230,17 @@ function espaceChoisi({ vivants, suspendus }: Espaces, demande: unknown): { tena
   return { refus: texte(vivants.length ? `Un de vos espaces est suspendu : préciser espace=<slug> parmi ${vivants.map((e) => e.slug).join(', ')}.` : 'Espace suspendu : aucun outil ne s\'exécute. Contacter Veridian.', true) };
 }
 
+/** Les liaisons se disent et se règlent dans UN espace : celui qu'on choisit, ou le seul qu'on a. */
+async function integrations(db: DbPorte, qui: Appelant, o: Outil, params: Record<string, unknown>, espaces: Espaces, tenantId?: string): Promise<Contenu> {
+  const id = tenantId ?? (espaces.vivants.length === 1 && espaces.suspendus.length === 0 ? espaces.vivants[0].id : undefined);
+  if (!id) return texte(`Préciser espace=<slug> parmi ${espaces.vivants.map((e) => e.slug).join(', ') || 'aucun'}.`, true);
+  if (o.nom === HUB_LISTER.nom) return texte({ espace: espaces.vivants.find((e) => e.id === id)?.slug, liaisons: await listerIntegrations(db, id) });
+  if (params.etat !== 'allumee' && params.etat !== 'eteinte') return texte('etat : allumee ou eteinte.', true);
+  const r = await reglerIntegration(db, { tenantId: id, paire: String(params.paire ?? ''), etat: params.etat, hubUserId: qui.hubUserId, client: qui.clientName ?? qui.clientId, origine: hubIssuer() });
+  if ('refus' in r) return texte({ refus: r.refus }, true);
+  return texte(r.etat === 'a_confirmer' ? { ...r, conseil: 'Donner ce lien au propriétaire de l\'espace : il l\'ouvre, connecté à Veridian, et confirme. Ensuite, allumer et éteindre sont directs.' } : r);
+}
+
 /** Joue un outil du catalogue : même identité, même espace et même journal, appelé seul ou par un programme. */
 async function jouer(
   db: DbPorte,
@@ -231,6 +258,8 @@ async function jouer(
     let r: Contenu;
     if (o.nom === 'hub.mon_compte') {
       r = texte(await monCompte(db, qui, cat.apps, espaces));
+    } else if (o.nom === HUB_LISTER.nom || o.nom === HUB_REGLER.nom) {
+      r = await integrations(db, qui, o, params, espaces, tenantId);
     } else if (o.app === 'hub') {
       throw new AppInjoignable(`${o.nom} ne se joue pas ici`);
     } else {
@@ -287,7 +316,8 @@ async function programme(db: DbPorte, qui: Appelant, cat: Catalogue, args: Recor
       autoriser: new Set(noms as string[]),
       trouver: (n) => {
         // Un programme n'en lance pas un autre, par aucun de ses deux noms, même nommé dans autoriser.
-        if (n === HUB_PROGRAMME.nom) return undefined;
+        // Ouvrir un flux entre apps n'est pas un geste de programme (parente, 24/11).
+        if (n === HUB_PROGRAMME.nom || n === HUB_REGLER.nom) return undefined;
         const o = cat.outils.find((x) => x.nom === n);
         if (o) return o;
         const app = n.split('.')[0];
@@ -336,7 +366,9 @@ async function programme(db: DbPorte, qui: Appelant, cat: Catalogue, args: Recor
 
 async function appelerOutil(db: DbPorte, qui: Appelant, nom: string, args: Record<string, unknown>, deps: Deps): Promise<Contenu> {
   const arrivee = Date.now();
-  const cat = await catalogue(db, qui, programmeOffert(deps) ? [...OUTILS_HUB, HUB_PROGRAMME] : OUTILS_HUB, deps);
+  const dirige = async () => (await tousEspaces(db, qui.hubUserId)).vivants.some((e) => roleOrg(e.role) !== 'member');
+  const outilsHub = [...OUTILS_HUB, HUB_LISTER, ...(args.nom === HUB_REGLER.nom || nom === 'chercher_outils' ? ((await dirige()) ? [HUB_REGLER] : []) : []), ...(programmeOffert(deps) ? [HUB_PROGRAMME] : [])];
+  const cat = await catalogue(db, qui, outilsHub, deps);
   if (nom === 'chercher_outils') {
     const besoin = typeof args.besoin === 'string' ? args.besoin : '';
     const app = typeof args.app === 'string' && args.app ? args.app : undefined;
@@ -370,7 +402,7 @@ async function appelerOutil(db: DbPorte, qui: Appelant, nom: string, args: Recor
     }
     const espaces = await tousEspaces(db, qui.hubUserId);
     // hub.mon_compte reste lisible : c'est là qu'on apprend qu'un espace est suspendu.
-    const choisi = o.app === 'hub' ? {} : espaceChoisi(espaces, args.espace);
+    const choisi = o.app === 'hub' && !args.espace ? {} : o.nom === 'hub.mon_compte' ? {} : espaceChoisi(espaces, args.espace);
     if (choisi.refus) return choisi.refus;
     try {
       return borner(await jouer(db, qui, cat, espaces, o, params, choisi.tenantId, { ...deps, orgRole: choisi.orgRole }));

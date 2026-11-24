@@ -12,6 +12,8 @@ import type { PrismaClient } from '@prisma/client';
 import { writeAuditLog } from '@/lib/admin/audit-log';
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
 import { configuredSyncApps, discoverAppForEmail } from '@/lib/sync/discovery';
+import { couperIntegrations } from '@/lib/delegation/interrupteur';
+import { revoquerPoignees } from '@/lib/delegation/poignee';
 import type { SyncApp, TenantSnapshot } from '@/lib/sync/types';
 
 const DELAI_MS = 15_000;
@@ -19,7 +21,7 @@ export const ROLES = ['member', 'admin', 'owner'] as const;
 export type Role = (typeof ROLES)[number];
 export type Origine = 'invitation' | 'reprise' | 'operateur';
 
-export type DbMembres = Pick<PrismaClient, 'tenant' | 'tenantMember' | 'user' | 'auditLog' | 'crossAppInvitation'>;
+export type DbMembres = Pick<PrismaClient, 'tenant' | 'tenantMember' | 'user' | 'auditLog' | 'crossAppInvitation' | 'delegationGrant' | 'integrationPaire'>;
 type Deps = { fetchImpl?: typeof fetch; apps?: readonly SyncApp[]; env?: NodeJS.ProcessEnv };
 
 /** Ce que l'auteur du geste doit lire : les apps où l'accès n'est PAS coupé, et pourquoi (Analytics et Academy ne savent pas retirer). */
@@ -158,6 +160,8 @@ export async function retirer(db: DbMembres, d: { tenantId: string; hubUserId: s
   if (!u) throw new RefusMembre('compte_introuvable');
   const deja = !ligne || ligne.deletedAt !== null;
   if (!deja) await db.tenantMember.update({ where: cle, data: { deletedAt: new Date() } });
+  // Ses poignées dans ce tenant meurent : tout échange suivant est refusé, un jeton déjà émis dure 120 s au plus.
+  await revoquerPoignees(db, { hubUserId: d.hubUserId, tenantId: d.tenantId });
   // Une invitation encore ouverte le ferait revenir chez l'app : elle expire avant tout le reste.
   const invitations = await fermerInvitations(db, t, u.email, deps);
   const apps = await Promise.all((deps.apps ?? configuredSyncApps()).map((app) => retirerChez(app, t, u.email, d.hubUserId, d.motif ?? 'admin_action', deps)));
@@ -204,6 +208,11 @@ export async function basculerSuspension(db: DbMembres, d: { tenantId: string; s
   const voulu = d.suspendre ? 'suspended' : 'active';
   const deja = t.status === voulu;
   if (!deja) await db.tenant.update({ where: { id: t.id }, data: { status: voulu } });
+  // Suspendue : poignées mortes et consentements retirés. La reprise ne rallume aucune liaison toute seule.
+  if (d.suspendre) {
+    await revoquerPoignees(db, { tenantId: t.id });
+    await couperIntegrations(db, t.id);
+  }
   const liste = deps.apps ?? configuredSyncApps();
   const res = await Promise.all(liste.map((app) => basculerChez(app, t, proprietaire, d.suspendre, deps)));
   const cibles = { ...ciblesNotees(t) };

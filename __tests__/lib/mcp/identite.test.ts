@@ -7,7 +7,7 @@ import path from 'node:path';
 import { createLocalJWKSet, exportJWK, generateKeyPair, jwtVerify, type JWK } from 'jose';
 import { beforeAll, describe, expect, it } from 'vitest';
 
-import { AUDIENCE_PROGRAMME, cleSignature, jwksPublic, signerPourApp, signerPourProgramme } from '@/lib/mcp/identite';
+import { AUDIENCE_PROGRAMME, cleSignature, jwksPublic, signerAction, signerPourApp, signerPourProgramme } from '@/lib/mcp/identite';
 
 const dir = mkdtempSync(path.join(tmpdir(), 'identite-'));
 writeFileSync(path.join(dir, 'hub-url'), 'http://hub.test\n');
@@ -56,6 +56,12 @@ describe('signerPourApp et la clé', () => {
   it('org_role n\'est signé qu\'avec un espace choisi', async () => {
     expect(await lire(await signerPourApp({ ...APP, orgRole: 'admin' }, env), APP.audience)).not.toHaveProperty('org_role');
     expect(await lire(await signerPourApp({ ...APP, tenantId: 't-1', orgRole: 'admin' }, env), APP.audience)).toMatchObject({ tenant_id: 't-1', org_role: 'admin' });
+  });
+
+  it('un jeton d\'action porte toujours act, tenant_id et jti, et n\'est jamais complet', async () => {
+    const p = await lire(await signerAction({ audience: APP.audience, hubUserId: 'u', email: 'a@b.fr', tenantId: 't', app: 'prospection', scope: 'crm:tache.ecrire', jti: 'j', ttlS: 120 }, env), APP.audience);
+    expect(p).toMatchObject({ act: { sub: 'app:prospection' }, tenant_id: 't', jti: 'j', scope: 'crm:tache.ecrire', client_id: 'app:prospection' });
+    expect(p.exp! - p.iat!).toBe(120);
   });
 
   it('le JWKS public ne rend jamais la partie privée', async () => {

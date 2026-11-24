@@ -49,6 +49,27 @@ export async function signerPourProgramme(programme: string, env: NodeJS.Process
     .sign(cle.privee);
 }
 
+/**
+ * Jeton d'action d'une app au nom d'un utilisateur (VER-245 b.2) : `act` dit qui agit, `tenant_id` et `jti` toujours présents, portées
+ * étroites, jamais `veridian`. 120 s, usage unique chez la cible.
+ */
+export async function signerAction(
+  c: { audience: string; hubUserId: string; email: string; tenantId: string; app: string; scope: string; jti: string; ttlS: number },
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<string> {
+  const cle = await cleSignature(env);
+  if (!cle) throw new Error('MCP_SIGNING_JWK absente');
+  return new SignJWT({ email: c.email, email_verified: true, scope: c.scope, tenant_id: c.tenantId, client_id: `app:${c.app}`, act: { sub: `app:${c.app}` } })
+    .setProtectedHeader({ alg: 'ES256', kid: cle.kid, typ: 'JWT' })
+    .setIssuer(hubIssuer(env))
+    .setAudience(c.audience)
+    .setSubject(c.hubUserId)
+    .setIssuedAt()
+    .setExpirationTime(`${c.ttlS}s`)
+    .setJti(c.jti)
+    .sign(cle.privee);
+}
+
 export async function jwksPublic(env: NodeJS.ProcessEnv = process.env): Promise<{ keys: JWK[] }> {
   const cle = await cleSignature(env);
   return { keys: cle ? [cle.publique] : [] };
