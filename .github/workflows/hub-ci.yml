@@ -205,14 +205,13 @@ jobs:
 
       # site.veridian.migrations : lu par veridian-ci-deploy. Même liste que l'image servie = contrôle du PITR (4 s) au lieu
       # d'une sauvegarde ; liste différente ou étiquette absente = sauvegarde avant de déployer.
-      # Cache du jour : une couche `apk upgrade` gardée plus longtemps figerait des CVE corrigées. Relance à la main = sans cache.
-      - name: Empreinte des migrations et jour du cache
+      # Pas de cache GitHub : essayé le 24/11, son export prenait 8 min pour une image faite en 3 min 40.
+      - name: Empreinte des migrations
         id: prep
         run: |
           set -euo pipefail
           MIG="$(ls prisma/migrations | grep -E '^[0-9]' | LC_ALL=C sort)"
           echo "migrations=$(wc -l <<<"$MIG")-$(sha256sum <<<"$MIG" | cut -c1-64)" | tee -a "$GITHUB_OUTPUT"
-          echo "jour=$(date -u +%Y%m%d)" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
         id: build1
@@ -224,14 +223,11 @@ jobs:
           target: runner
           push: true
           provenance: false
-          no-cache: ${{ github.event_name == 'workflow_dispatch' }}
           build-args: GIT_SHA=${{ github.sha }}
           labels: site.veridian.migrations=${{ steps.prep.outputs.migrations }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          cache-from: type=gha,scope=hub-${{ steps.prep.outputs.jour }}
-          cache-to: type=gha,mode=max,ignore-error=true,scope=hub-${{ steps.prep.outputs.jour }}
 
       # Échecs passagers du push GHCR (« context deadline exceeded »).
       - name: Build and push (second essai)
@@ -243,14 +239,11 @@ jobs:
           target: runner
           push: true
           provenance: false
-          no-cache: ${{ github.event_name == 'workflow_dispatch' }}
           build-args: GIT_SHA=${{ github.sha }}
           labels: site.veridian.migrations=${{ steps.prep.outputs.migrations }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          cache-from: type=gha,scope=hub-${{ steps.prep.outputs.jour }}
-          cache-to: type=gha,mode=max,ignore-error=true,scope=hub-${{ steps.prep.outputs.jour }}
 
   trivy:
     needs: docker
