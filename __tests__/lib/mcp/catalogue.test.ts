@@ -3,7 +3,7 @@
 import { exportJWK, generateKeyPair } from 'jose';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
-import { appsDe, espacesDe, sessionPour, type Db } from '@/lib/mcp/catalogue';
+import { appsDe, catalogue, espacesDe, sessionPour, viderCache, type Db } from '@/lib/mcp/catalogue';
 
 beforeAll(async () => {
   const { privateKey } = await generateKeyPair('ES256', { extractable: true });
@@ -53,5 +53,17 @@ describe('sessionPour', () => {
     const p = JSON.parse(Buffer.from(h.Authorization.split('.')[1], 'base64url').toString());
     expect(p).toMatchObject({ aud: APP.mcpUrl, sub: 'u', tenant_id: 't1' });
     expect(p).not.toHaveProperty('act');
+  });
+});
+
+describe('catalogue', () => {
+  it('les outils du Hub qu\'on lui passe, et eux seuls ; une app muette est dite injoignable, elle ne vide pas la liste', async () => {
+    viderCache();
+    const db = { mcpApp: { findMany: async () => [{ ...APP, acces: 'tous' }] }, tenantApp: { findMany: async () => [] } } as unknown as Db;
+    const hub = { nom: 'hub.un', app: 'hub', local: 'un', description: '', inputSchema: {} };
+    const muette = (async () => new Response('', { status: 502 })) as unknown as typeof fetch;
+    const c = await catalogue(db, QUI as never, [hub], { fetchImpl: muette, provisionneurs: {}, programme: true });
+    expect(c.outils.map((o) => o.nom)).toEqual(['hub.un']);
+    expect(c.injoignables.map((i) => i.app)).toEqual(['crm']);
   });
 });

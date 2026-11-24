@@ -323,15 +323,84 @@ describe('executer_programme', () => {
     };
   };
   const prog = (args: Record<string, unknown>, appels: { nom: string; args?: unknown }[], f: ReturnType<typeof appFactice>, qui: Appelant = QUI) =>
-    traiter(db as never, qui, { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'executer_programme', arguments: args } }, { fetchImpl: f.fetchImpl, ouvrirMoteur: moteur(appels) });
+    traiter(db as never, qui, { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'executer_programme', arguments: args } }, { fetchImpl: f.fetchImpl, programme: true, ouvrirMoteur: moteur(appels) });
   const LIRE = { nom: 'analytics.visites_du_site', args: { jours: 7, secret: 'x' } };
   beforeEach(() => oublierProgrammes());
 
   it('offert seulement quand le moteur est configuré ; sinon trois outils et refus', async () => {
-    const r: any = await traiter(db as never, QUI, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, { ouvrirMoteur: moteur([]) });
+    const r: any = await traiter(db as never, QUI, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, { programme: true, ouvrirMoteur: moteur([]) });
     expect(r.result.tools.map((t: any) => t.name)).toEqual(['chercher_outils', 'decrire_outil', 'executer_outil', 'executer_programme']);
     const n: any = await appel('executer_programme', { code: 'return 1' }, appFactice());
     expect(n.result).toMatchObject({ isError: true });
+  });
+
+  describe('hub.executer_programme : pour un client qui a gardé l\'ancienne liste', () => {
+    const deps = (f: ReturnType<typeof appFactice>, appels: { nom: string; args?: unknown }[], plus: Record<string, unknown> = {}) => ({ fetchImpl: f.fetchImpl, programme: true, ouvrirMoteur: moteur(appels), ...plus });
+    const outilPorte = (name: string, args: Record<string, unknown>, d: Record<string, unknown>) =>
+      traiter(db as never, QUI, { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name, arguments: args } }, d as never) as Promise<any>;
+
+    it.each(['traiter en masse', 'importer des milliers de prospects', 'boucle', 'déplacer 3000 contacts', 'traitement par lots'])('trouvé par « %s »', async (besoin) => {
+      const r = json(await outilPorte('chercher_outils', { besoin }, deps(appFactice(), [])));
+      expect(r.outils.map((o: any) => o.nom)).toContain('hub.executer_programme');
+    });
+
+    it('décrit en entier, et marqué destructif', async () => {
+      const r = json(await outilPorte('decrire_outil', { nom: 'hub.executer_programme' }, deps(appFactice(), [])));
+      expect(r.description).toContain('sauver(etat)');
+      expect(r.parametres.required).toEqual(['code']);
+      expect(r.annotations.destructiveHint).toBe(true);
+    });
+
+    it('joué par executer_outil : même chemin, même journal que le 4e outil', async () => {
+      const f = appFactice();
+      const r = json(await outilPorte('executer_outil', { nom: 'hub.executer_programme', arguments: { code: 'x' } }, deps(f, [LIRE, LIRE])));
+      expect(r).toMatchObject({ etat: 'termine', resultat: { recues: 2 }, appels: { reussis: 2 } });
+      expect(f.recus.filter((x) => x.corps.method === 'tools/call').every((x) => x.entetes['X-Veridian-MCP-Appel'] === 'programme')).toBe(true);
+      expect(db.auditLog.lignes.filter((l: any) => l.action === 'mcp.programme')).toHaveLength(1);
+    });
+
+    it('l\'espace se dit à côté ou dedans ; un espace étranger, ou deux espaces, sont refusés', async () => {
+      const f = appFactice();
+      for (const a of [{ arguments: { code: 'x', espace: 'pas-a-moi' } }, { arguments: { code: 'x' }, espace: 'pas-a-moi' }, { arguments: { code: 'x', espace: 'un' }, espace: 'deux' }]) {
+        const r = await outilPorte('executer_outil', { nom: 'hub.executer_programme', ...a }, deps(f, [LIRE]));
+        expect(r.result.isError, JSON.stringify(a)).toBe(true);
+      }
+      expect(f.recus.filter((x) => x.corps.method === 'tools/call')).toHaveLength(0);
+      // Deux espaces différents, dont un bon : ne pas deviner.
+      const deux = await outilPorte('executer_outil', { nom: 'hub.executer_programme', arguments: { code: 'x', espace: 'mon-espace' }, espace: 'autre' }, deps(f, [LIRE]));
+      expect(deux.result).toMatchObject({ isError: true });
+      expect(deux.result.content[0].text).toContain('Deux espaces');
+      expect(json(await outilPorte('executer_outil', { nom: 'hub.executer_programme', arguments: { code: 'x', espace: 'mon-espace' }, espace: 'mon-espace' }, deps(f, [LIRE])))).toMatchObject({ etat: 'termine' });
+    });
+
+    it('un programme n\'en lance pas un autre, par aucun nom, même autorisé', async () => {
+      const noms = ['executer_programme', 'hub.executer_programme', 'executer_outil'];
+      const r = json(await prog({ code: 'x', autoriser: noms }, noms.map((nom) => ({ nom, args: { code: 'y', nom: 'hub.executer_programme' } })), appFactice()));
+      expect(r.appels).toMatchObject({ faits: 3, reussis: 0, echoues: 3 });
+      expect(db.auditLog.lignes.filter((l: any) => l.action === 'mcp.programme')).toHaveLength(1);
+      expect(db.auditLog.lignes.filter((l: any) => l.action === 'mcp.tool.call'), 'refusé avant d\'être joué').toHaveLength(0);
+    });
+
+    it('un résultat long n\'est pas recoupé par la borne des outils : la réponse reste un JSON entier', async () => {
+      const long = async (): Promise<Moteur> => {
+        let ligne: (l: string) => void = () => {};
+        return { surLigne: (f) => { ligne = f; }, surFin: () => {}, fermer: () => {}, envoyer: (m) => { if (m.t === 'programme') setTimeout(() => ligne(JSON.stringify({ t: 'fin', ok: true, valeur: 'x'.repeat(40_000) })), 1); } };
+      };
+      const r = json(await outilPorte('executer_outil', { nom: 'hub.executer_programme', arguments: { code: 'x' } }, deps(appFactice(), [], { ouvrirMoteur: long })));
+      expect(r).toMatchObject({ etat: 'termine', resultat_tronque: true });
+    });
+
+    it('fermé par défaut (Mon IA) : ni trouvé, ni décrit, ni joué, par aucun nom, même moteur présent', async () => {
+      const f = appFactice();
+      const ouvrir = vi.fn(moteur([LIRE]));
+      const d = { fetchImpl: f.fetchImpl, ouvrirMoteur: ouvrir };
+      expect(JSON.stringify(json(await outilPorte('chercher_outils', { besoin: 'traiter en masse boucle programme' }, d)))).not.toContain('executer_programme');
+      for (const [n, a] of [['decrire_outil', { nom: 'hub.executer_programme' }], ['executer_outil', { nom: 'hub.executer_programme', arguments: { code: 'x' } }], ['executer_programme', { code: 'x' }]] as const) {
+        expect((await outilPorte(n, a, d)).result.isError, n).toBe(true);
+      }
+      expect(((await traiter(db as never, QUI, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, d as never)) as any).result.tools).toHaveLength(3);
+      expect(ouvrir).not.toHaveBeenCalled();
+    });
   });
 
   it('cinquante appels : une seule session chez l\'app, l\'en-tête annoncé, la même identité', async () => {

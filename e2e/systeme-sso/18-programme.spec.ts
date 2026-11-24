@@ -46,8 +46,14 @@ cas(null, 'porte MCP : un programme tourne, se borne, se reprend, et ne ralentit
   if (un.raison === 'moteur_indisponible') throw new NonAbouti('moteur des programmes indisponible');
   expect(un).toMatchObject({ etat: 'termine', resultat: { n: 20, f: 'undefinedundefinedundefined' }, appels: { faits: 20, reussis: 20 } });
 
-  const interdit = await lancer('const r=[]; for (const n of ["executer_programme","executer_outil","hub.inconnu"]) { try { await outil(n,{}); r.push("joue") } catch(e) { r.push("refuse") } } return r', { autoriser: ['executer_programme'] });
-  expect(interdit.resultat).toEqual(['refuse', 'refuse', 'refuse']);
+  // Un client qui a gardé l'ancienne liste de trois : trouvé par la recherche, joué par executer_outil.
+  const cherche = JSON.parse((await rpc(jeton, 'tools/call', { name: 'chercher_outils', arguments: { besoin: 'importer des milliers de prospects en masse' } })).json.result.content[0].text);
+  expect(cherche.outils.map((o: { nom: string }) => o.nom)).toContain('hub.executer_programme');
+  const ancien = JSON.parse((await rpc(jeton, 'tools/call', { name: 'executer_outil', arguments: { nom: 'hub.executer_programme', arguments: { code: 'const c = await outil("hub.mon_compte"); return c.email' } } })).json.result.content[0].text);
+  expect(ancien).toMatchObject({ etat: 'termine', resultat: E.email });
+
+  const interdit = await lancer('const r=[]; for (const n of ["executer_programme","hub.executer_programme","executer_outil","hub.inconnu"]) { try { await outil(n,{}); r.push("joue") } catch(e) { r.push("refuse") } } return r', { autoriser: ['executer_programme', 'hub.executer_programme'] });
+  expect(interdit.resultat).toEqual(['refuse', 'refuse', 'refuse', 'refuse']);
 
   // Échéance : un état, une reprise ; et un second programme du même compte est refusé pendant ce temps.
   const sauver = process.env.SSO_SABOTAGE === 'programme' ? '' : 'sauver({i});';
