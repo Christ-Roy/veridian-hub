@@ -8,7 +8,7 @@ const env = (DELEGATION_CIBLES?: string) => ({ NODE_ENV: 'test', DELEGATION_CIBL
 describe('registre des paires', () => {
   it('les cinq paires de départ, et aucune portée destructive ni complète', () => {
     expect(PAIRES.map((p) => p.cle)).toEqual(['prospection>crm', 'prospection>notifuse', 'notifuse>crm', 'crm>notifuse', 'crm>prospection']);
-    for (const p of PAIRES) for (const x of p.portees) expect(x).toMatch(new RegExp(`^${p.cible}:[a-z]+\\.(ecrire|importer)$`));
+    for (const p of PAIRES) for (const x of p.portees) expect(x).toMatch(new RegExp(`^${p.cible}:[a-z]+\\.ecrire$`));
   });
   it('paire : par sa clé, sinon rien', () => {
     expect(paire('prospection>crm')?.nature).toBe('action');
@@ -27,6 +27,7 @@ describe('registre des paires', () => {
     expect(PAIRES.filter((p) => paireServie(p, tout)).map((p) => p.cle)).toEqual(['prospection>crm', 'prospection>notifuse', 'crm>notifuse']);
     expect(paireServie(paire('notifuse>crm')!, tout)).toBe(false);
   });
+  it('paireServie : une action vers une cible fermée ne sert pas', () => expect([paireServie(paire('prospection>crm')!, env()), paireServie(paire('prospection>crm')!, env('notifuse')), paireServie(paire('prospection>crm')!, env('crm'))]).toEqual([false, false, true]));
   it('pairesServies : celles dont la cible est servie', () => {
     expect(pairesServies(env())).toEqual([]);
     expect(pairesServies(env('crm')).map((p) => p.cle)).toEqual(['prospection>crm']);

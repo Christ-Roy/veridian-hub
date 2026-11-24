@@ -78,7 +78,7 @@ describe('echanger', () => {
     const p = paire('prospection>notifuse')!;
     db.mcpApp.lignes.push({ appKey: 'notifuse', mcpUrl: 'https://mail.test/api/mcp', enabled: true, acces: 'tous' });
     db.integrationPaire.lignes.push({ tenantId: 'A', paire: p.cle, etat: 'allumee', consentiLe: new Date(), portees: empreintePortees(p), changePar: 'p', changeLe: new Date() });
-    const r = await echanger(db as never, 'prospection', { subject_grant: grant, audience: 'notifuse', scope: 'notifuse:contacts.importer' }, { ...ENV, DELEGATION_CIBLES: 'crm,notifuse' });
+    const r = await echanger(db as never, 'prospection', { subject_grant: grant, audience: 'notifuse', scope: 'notifuse:contacts.ecrire' }, { ...ENV, DELEGATION_CIBLES: 'crm,notifuse' });
     if ('error' in r) throw new Error(r.error);
     expect([r.url, JSON.parse(Buffer.from(r.jeton.split('.')[1], 'base64url').toString()).aud]).toEqual(['https://mail.test/api/veridian/actions', 'https://mail.test/api/veridian/actions']);
   });
@@ -91,9 +91,9 @@ describe('echanger', () => {
     ['paire absente', 'pair_not_allowed', () => {}, { audience: 'notifuse' }, 'notifuse'],
     ['portée hors paire', 'pair_not_allowed', () => {}, { scope: 'crm:societe.supprimer' }],
     ['portée complète', 'pair_not_allowed', () => {}, { scope: 'veridian' }],
-    ['cible non servie', 'target_not_served', () => {}, { audience: 'notifuse', scope: 'notifuse:contacts.importer' }],
+    ['cible non servie', 'target_not_served', () => {}, { audience: 'notifuse', scope: 'notifuse:contacts.ecrire' }],
     ['un événement n\'a pas de poignée d\'utilisateur', 'target_not_served', () => {}, { scope: 'crm:tache.ecrire' }, 'notifuse'],
-    ['poignée d\'une autre app', 'grant_invalid', () => { ENV = { ...ENV, DELEGATION_CIBLES: 'crm,notifuse' }; }, { audience: 'notifuse', scope: 'notifuse:contacts.importer' }, 'crm'],
+    ['poignée d\'une autre app', 'grant_invalid', () => { ENV = { ...ENV, DELEGATION_CIBLES: 'crm,notifuse' }; }, { audience: 'notifuse', scope: 'notifuse:contacts.ecrire' }, 'crm'],
     ['poignée inventée', 'grant_invalid', () => {}, { subject_grant: 'x'.repeat(43) }],
     ['poignée révoquée', 'grant_invalid', () => { db.delegationGrant.lignes[0].revoqueLe = new Date(); }],
     ['poignée expirée', 'grant_invalid', () => { db.delegationGrant.lignes[0].expireLe = new Date(Date.now() - 1); }],
@@ -138,7 +138,7 @@ describe('echanger', () => {
 describe('etatDesPaires', () => {
   const lire = (g = grant, app = 'prospection') => etatDesPaires(db as never, app as never, g, ENV);
   it('les paires de cette app, dans l\'organisation de la poignée seulement', async () => {
-    expect(await lire()).toEqual({ tenantId: 'A', paires: [{ audience: 'crm', etat: 'allumee', portees: PAIRE.portees }, { audience: 'notifuse', etat: 'indisponible', portees: ['notifuse:contacts.importer'] }] });
+    expect(await lire()).toEqual({ tenantId: 'A', paires: [{ audience: 'crm', etat: 'allumee', portees: PAIRE.portees }, { audience: 'notifuse', etat: 'indisponible', portees: ['notifuse:contacts.ecrire'] }] });
   });
   it('poignée d\'une autre app, inventée, révoquée : rien', async () => {
     expect(await lire(grant, 'crm')).toEqual({ statut: 403, error: 'grant_invalid' });

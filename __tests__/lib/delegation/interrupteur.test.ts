@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { confirmerDemande, couperIntegrations, lireDemande, listerIntegrations, reglerIntegration } from '@/lib/delegation/interrupteur';
+import { confirmerDemande, couperIntegrations, lireDemande, listerIntegrations, reglerIntegration, roleAuHub } from '@/lib/delegation/interrupteur';
 import { empreintePortees, paire } from '@/lib/delegation/paires';
 
 import { base } from './fausse';
@@ -88,4 +88,14 @@ describe('lister, lire, couper', () => {
     expect((await regler('prop', 'allumee') as any).etat, 'la reprise redemande le clic').toBe('a_confirmer');
     expect(db.integrationPaire.lignes.find((x) => x.tenantId === 'B')!.consentiLe).toBeTruthy();
   });
+});
+
+it('roleAuHub : relu au Hub ; retiré, étranger, rôle inconnu ou espace suspendu ne donnent jamais un droit', async () => {
+  const role = (u: string) => roleAuHub(db as never, 'A', u);
+  expect(await Promise.all(['prop', 'adm', 'mem', 'autre'].map(role))).toEqual(['owner', 'admin', 'member', null]);
+  db.tenantMember.lignes[0].deletedAt = new Date();
+  db.tenantMember.lignes[1].role = 'superadmin';
+  expect(await Promise.all(['adm', 'mem'].map(role))).toEqual([null, 'member']);
+  db.tenant.lignes[0].status = 'suspended';
+  expect(await role('prop')).toBeNull();
 });

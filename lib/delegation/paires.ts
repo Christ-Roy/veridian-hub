@@ -12,9 +12,9 @@ const P = (source: AppPaire, cible: AppPaire, portees: readonly string[], libell
 
 export const PAIRES: readonly Paire[] = [
   P('prospection', 'crm', ['crm:societe.ecrire', 'crm:tache.ecrire'], 'Prospection vers CRM : envoyer une fiche au CRM'),
-  P('prospection', 'notifuse', ['notifuse:contacts.importer'], 'Prospection vers Mail : verser des contacts dans une liste, sans envoi'),
+  P('prospection', 'notifuse', ['notifuse:contacts.ecrire'], 'Prospection vers Mail : verser des contacts dans une liste, sans envoi'),
   P('notifuse', 'crm', ['crm:tache.ecrire'], 'Mail vers CRM : une réponse humaine crée une fiche et une tâche', 'evenement'),
-  P('crm', 'notifuse', ['notifuse:contacts.importer'], 'CRM vers Mail : ajouter des contacts à une liste, sans envoi'),
+  P('crm', 'notifuse', ['notifuse:contacts.ecrire'], 'CRM vers Mail : ajouter des contacts à une liste, sans envoi'),
   P('crm', 'prospection', ['prospection:exclusion.ecrire'], 'CRM vers Prospection : gagné, on ne prospecte plus', 'evenement'),
 ];
 

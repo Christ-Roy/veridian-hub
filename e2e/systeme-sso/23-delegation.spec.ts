@@ -89,7 +89,7 @@ cas(null, 'délégation : le propriétaire ouvre une liaison, une app agit 120 s
     expect([c1.status, /delegation_forbidden/.test(t1)], t1.slice(0, 200)).toEqual([403, true]);
 
     expect((await echanger(g, { nonce })).json, 'nonce rejoué').toEqual({ error: 'nonce_replayed' });
-    expect((await echanger(g, { corps: { audience: 'notifuse', scope: 'notifuse:contacts.importer' } })).json, 'cible fermée').toEqual({ error: 'target_not_served' });
+    expect((await echanger(g, { corps: { audience: 'notifuse', scope: 'notifuse:contacts.ecrire' } })).json, 'cible fermée').toEqual({ error: 'target_not_served' });
     expect((await echanger(g, { corps: { scope: 'veridian' } })).json, 'portée hors paire').toEqual({ error: 'pair_not_allowed' });
     expect(await regler('eteinte'), 'éteinte').toEqual({ etat: 'eteinte' });
     expect((await echanger(g)).json, 'éteinte par l\'IA').toEqual({ error: 'integration_off' });
