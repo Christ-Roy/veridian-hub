@@ -208,6 +208,12 @@ export async function POST(request: NextRequest) {
           ? 404
           : err.code === 'quota_exceeded'
             ? 429
+          : err.code === 'espace_non_relie'
+            ? 409
+          : err.code === 'inviteur_non_habilite'
+            ? 403
+          : err.code === 'echec'
+            ? 503
           : err.code === 'self_invitation'
             ? 422
             : 400;

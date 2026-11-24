@@ -20,8 +20,8 @@ cas(null, 'invitation : acceptée, elle rend membre au Hub ; un simple membre n\
   const secret = process.env.SSO_SABOTAGE === 'invitation' ? 'x'.repeat(64) : secretDe('HUB_INVITATION_SECRET_NOTIFUSE_PROD');
   const [P, M, X] = [await creerCompteProuve(browser, 'invprop'), await creerCompteProuve(browser, 'invmembre'), await creerCompteProuve(browser, 'invtiers')];
   const t = (await lookup(P.email)).json.tenants[0];
-  const inviter = async (de: Compte, a: Compte) => {
-    const corps = JSON.stringify({ inviter_user_id: de.hubUserId, inviter_email: de.email, invitee_email: a.email, target_app: 'notifuse', target_workspace_id: t.notifuseWorkspaceSlug, target_role: 'member' });
+  const creer = async (de: Compte, a: Compte, espace = t.notifuseWorkspaceSlug as string) => {
+    const corps = JSON.stringify({ inviter_user_id: de.hubUserId, inviter_email: de.email, invitee_email: a.email, target_app: 'notifuse', target_workspace_id: espace, target_role: 'member' });
     const ts = String(Date.now());
     const r = await fetch(`${HUB_URL}/api/invitations/create`, {
       method: 'POST',
@@ -29,8 +29,12 @@ cas(null, 'invitation : acceptée, elle rend membre au Hub ; un simple membre n\
       body: corps,
     });
     const j = await r.json().catch(() => null);
-    if (r.status !== 201) throw new Error(`création : HTTP ${r.status} ${JSON.stringify(j).slice(0, 200)}`);
-    return String(j.magic_link_url ?? j.magicLinkUrl).split('/').pop()!;
+    return { status: r.status, json: j };
+  };
+  const inviter = async (de: Compte, a: Compte) => {
+    const { status, json } = await creer(de, a);
+    if (status !== 201) throw new Error(`création : HTTP ${status} ${JSON.stringify(json).slice(0, 200)}`);
+    return String(json.token);
   };
   const accepter = async (qui: Compte, token: string) => {
     const ctx = await browser.newContext({ storageState: qui.etat as never });
@@ -42,17 +46,17 @@ cas(null, 'invitation : acceptée, elle rend membre au Hub ; un simple membre n\
     }
   };
   const jetonM = await obtenirJetonMcp(browser, M, 'TEST INVITATION M');
-  const jetonX = await obtenirJetonMcp(browser, X, 'TEST INVITATION X');
   expect(await espaces(jetonM), 'avant').not.toContain(t.slug);
 
   const m = await accepter(M, await inviter(P, M));
   expect([m.status, m.json?.downstream_call], JSON.stringify(m.json).slice(0, 200)).toEqual([200, 'completed']);
   expect(await espaces(jetonM), 'membre au Hub').toContain(t.slug);
 
-  // M est simple membre au Hub : son invitation donne l'accès que l'app veut bien donner, jamais l'appartenance.
-  const x = await accepter(X, await inviter(M, X));
-  expect(x.status, JSON.stringify(x.json).slice(0, 200)).toBeLessThan(300);
-  expect(await espaces(jetonX), 'invité par un simple membre').not.toContain(t.slug);
+  // M est simple membre au Hub : il n'invite personne. Et un espace non relié n'accueille personne : le Hub ne pourrait pas le couper.
+  const parMembre = await creer(M, X);
+  expect([parMembre.status, parMembre.json?.error], JSON.stringify(parMembre.json)).toEqual([403, 'inviteur_non_habilite']);
+  const ailleurs = await creer(P, X, 'espace-inexistant');
+  expect([ailleurs.status, ailleurs.json?.error], JSON.stringify(ailleurs.json)).toEqual([409, 'espace_non_relie']);
 
   // Retrait : une invitation en attente ne le ramène pas.
   const enAttente = await inviter(P, M);
@@ -61,5 +65,5 @@ cas(null, 'invitation : acceptée, elle rend membre au Hub ; un simple membre n\
   expect(retrait.json.apps.find((a: { app: string }) => a.app === 'notifuse')?.etat, JSON.stringify(retrait.json.apps)).toBe('retire');
   expect((await accepter(M, enAttente)).status, 'invitation expirée par le retrait').toBe(410);
   expect(await espaces(jetonM), 'retiré').not.toContain(t.slug);
-  return `membre par invitation, tiers non joint, retrait ${retrait.json.apps.map((a: { app: string; etat: string }) => `${a.app}=${a.etat}`).join(' ')}, invitation en attente expirée`;
+  return `membre par invitation, invitation d'un simple membre 403, espace non relié 409, retrait ${retrait.json.apps.map((a: { app: string; etat: string }) => `${a.app}=${a.etat}`).join(' ')}, invitation en attente expirée`;
 }, { timeout: 420_000 });
