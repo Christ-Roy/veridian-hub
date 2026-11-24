@@ -26,7 +26,10 @@ for (const f of ['/x', '/tmp/x', '/app/x', '/alloc/data/x']) essai(`disque:ecrir
 essai('systeme:shell', () => cp.execFileSync('/bin/sh', ['-c', 'echo 1']).length);
 essai('systeme:redevenir root', () => { process.setuid(0); return process.getuid() === 0; });
 essai('systeme:interfaces reseau', () => Object.keys(os.networkInterfaces()).some((i) => i !== 'lo'));
-essai('voisins:un processus signalable', () => { for (let p = 1; p < 30_000; p++) if (p !== process.pid && p !== process.ppid) try { process.kill(p, 0); return 1; } catch { /* refus */ } return 0; });
+// Tout ce qui a démarré avant lui (superviseur, programme voisin et leurs fils) : kill() accepte aussi ses PROPRES fils
+// d'exécution, numérotés après lui, qui ne prouvent rien.
+essai('voisins:un processus plus ancien', () => { for (let p = 1; p < process.pid; p++) if (p !== process.ppid) try { process.kill(p, 0); return 1; } catch { /* refus */ } return 0; });
+essai('voisins:le programme d\'un autre compte', () => { process.kill(Number(process.argv[2]), 0); return 1; });
 await connecte('reseau:internet', { host: '1.1.1.1', port: 443 });
 await connecte('reseau:base du Hub', { host: base?.hostname || '172.26.64.1', port: Number(base?.port || 5432) });
 await connecte('reseau:Hub en boucle locale', { host: '127.0.0.1', port: 3000 });

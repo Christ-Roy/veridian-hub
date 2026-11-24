@@ -30,11 +30,16 @@ describe.each([['deploy/hub.nomad.hcl', 'hub'], ['deploy/hub-staging.nomad.hcl',
     expect(passerelle).not.toMatch(/nomadVar|cap_add|volume|identity|root"/);
   });
 
-  it('une panne du moteur n\'annule pas un déploiement du Hub', () => {
+  it.skipIf(p === 'hub-staging')('prod : un groupe à part, hors du nœud du Hub, dont la panne n\'annule pas un déploiement du Hub', () => {
     const g = hcl.slice(hcl.indexOf('group "programme"'));
     expect(g).toMatch(/auto_revert\s+= false/);
     expect(g).toMatch(/health_check\s+= "task_states"/);
+    expect(g).not.toMatch(/ovh-prod/);
   });
+});
+
+it('staging : un seul groupe (Sablier refuse le job sinon, 24/11)', () => {
+  expect(lire('deploy/hub-staging.nomad.hcl').match(/^  group "/gm)).toHaveLength(1);
 });
 
 describe('image', () => {

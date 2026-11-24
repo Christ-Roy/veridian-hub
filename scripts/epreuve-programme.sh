@@ -8,19 +8,19 @@ set -uo pipefail
 JOB=${1:-hub}
 ICI=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 alloc() { nomad-v raw job status "$JOB" 2>/dev/null | awk -v g="$1" '/^Allocations/{f=1} f && $3==g && / run +running/ {print $1; exit}'; }
-P=$(alloc programme); H=$(alloc stack)
+H=$(alloc stack); P=$(alloc programme); P=${P:-$H}
 [ -n "$P" ] && [ -n "$H" ] || { echo "NON ABOUTI : allocation programme ($P) ou stack ($H) absente"; exit 2; }
 B64=$(base64 -w0 "$ICI/programme/epreuve.mjs")
 PRISON='/opt/programme/chroot --userspec=UID:UID --groups= /opt/programme/prison /node'
 jouer() { nomad-v raw alloc exec -task "$1" "$2" sh -c "$3" 2>/dev/null | grep -E '^\{' | tail -1; }
-EPREUVE=$(jouer "$JOB-programme-moteur" "$P" "${PRISON//UID/20009} -e 'setTimeout(()=>{},20000)' & V=\$!; sleep 1; echo $B64 | base64 -d | env -i ${PRISON//UID/20010} --input-type=module -; kill -9 \$V 2>/dev/null")
-TEMOIN=$(jouer "$JOB" "$H" "echo $B64 | base64 -d | node --input-type=module -")
+EPREUVE=$(jouer "$JOB-programme-moteur" "$P" "${PRISON//UID/20009} -e 'setTimeout(()=>{},20000)' & V=\$!; sleep 1; echo $B64 | base64 -d | env -i ${PRISON//UID/20010} --input-type=module - \$V; kill -9 \$V 2>/dev/null")
+TEMOIN=$(jouer "$JOB" "$H" "sleep 8 & V=\$!; echo $B64 | base64 -d | node --input-type=module - \$V")
 [ -n "$EPREUVE" ] && [ -n "$TEMOIN" ] || { echo "NON ABOUTI : pas de réponse (prison ${#EPREUVE}, témoin ${#TEMOIN})"; exit 2; }
 EPREUVE="$EPREUVE" TEMOIN="$TEMOIN" python3 - <<'PY'
 import json, os, sys
 e, t = json.loads(os.environ['EPREUVE']), json.loads(os.environ['TEMOIN'])
 # Ce que le témoin DOIT obtenir : sinon l'épreuve ne mesure rien.
-du = ["secret:env AUTH_SECRET", "secret:/proc/self/environ", "disque:/etc/passwd", "disque:/proc", "systeme:shell", "reseau:internet", "reseau:base du Hub", "reseau:Hub en boucle locale"]
+du = ["secret:env AUTH_SECRET", "secret:/proc/self/environ", "disque:/etc/passwd", "disque:/proc", "systeme:shell", "voisins:un processus plus ancien", "voisins:le programme d'un autre compte", "reseau:internet", "reseau:base du Hub", "reseau:Hub en boucle locale"]
 for k in e: print(f"{'ECHEC' if e[k] else 'ok   '} prison={e[k]} temoin={t.get(k)}  {k}")
 print(f"prison {sum(e.values())}/{len(e)} · témoin {sum(t.values())}/{len(t)}")
 manque = [k for k in du if not t.get(k)]
