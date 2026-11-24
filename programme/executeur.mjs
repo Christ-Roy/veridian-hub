@@ -18,7 +18,17 @@ const CALCUL_MAX_MS = 10_000;
 const JOURNAL_LIGNES = 100;
 
 const ecrire = (m) => process.stdout.write(`${JSON.stringify(m)}\n`);
-const texteErreur = (e) => (e && typeof e === 'object' ? `${e.name ?? 'Erreur'} : ${e.message ?? ''}` : String(e)).slice(0, 2000);
+/** Les arrêts de la machine, dits avec leur cause et quoi faire : le client est une IA qui va corriger son code. */
+const CONSEILS = [
+  [/^InternalError : interrupted/, `calcul trop long : plus de ${CALCUL_MAX_MS / 1000} s d'affilée sans await (boucle infinie, ou trop de lignes d'un coup). Découper le travail, mettre un await dans la boucle (await pause(1), ou un appel d'outil), et sauver(...) pour reprendre.`],
+  [/^InternalError : out of memory/, `plus de ${MEMOIRE_OCTETS / 1024 / 1024} Mo. Traiter page par page et ne garder que des comptes ou les champs utiles.`],
+  [/^(InternalError : stack overflow|RangeError : Maximum call stack)/, 'récursion trop profonde. Remplacer par une boucle.'],
+];
+function texteErreur(e) {
+  const t = (e && typeof e === 'object' ? `${e.name ?? 'Erreur'} : ${e.message ?? ''}` : String(e)).slice(0, 1500);
+  const conseil = CONSEILS.find(([motif]) => motif.test(t))?.[1];
+  return conseil ? `${t} : ${conseil}` : t;
+}
 
 const QuickJS = await newQuickJSWASMModuleFromVariant(variante.default ?? variante);
 const runtime = QuickJS.newRuntime();
