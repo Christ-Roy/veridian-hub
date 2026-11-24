@@ -21,7 +21,7 @@ type Db = Pick<PrismaClient, 'tenant' | 'tenantMember' | 'user'>;
 type Deps = { env?: NodeJS.ProcessEnv; fetchImpl?: typeof fetch };
 
 /** Apps qui traduisent le rôle (leur « servi » fait foi). */
-export const APPS_A_ROLE: readonly SyncApp[] = ['crm'];
+export const APPS_A_ROLE: readonly SyncApp[] = ['crm', 'academy'];
 
 /** Un rôle illisible vaut `member` : jamais une promotion par erreur. */
 export const roleOrg = (r: string | null | undefined): RoleOrg => (r === 'owner' || r === 'proprietaire' ? 'owner' : r === 'admin' ? 'admin' : 'member');
@@ -46,7 +46,8 @@ export async function organisationsPourRebond(db: Db, hubUserId: string, env: No
 async function pousserChez(app: SyncApp, o: Organisation, qui: { email: string; hubUserId: string }, deps: Deps): Promise<IssueRole> {
   try {
     const config = resolveAppConfig(app, deps.env ?? process.env);
-    if (!config) return { app, etat: 'echec', detail: `${app}_not_configured` };
+    // Academy n'existe qu'en prod : son absence se dit, sans faire échouer le rôle ailleurs. Celle du CRM est une panne.
+    if (!config) return app === 'academy' ? { app, etat: 'sans_effet', detail: 'Academy absente de cet environnement' } : { app, etat: 'echec', detail: `${app}_not_configured` };
     const body = JSON.stringify({ hub_tenant_id: o.hub_tenant_id, hub_user_id: qui.hubUserId, email: qui.email, role: o.role, version: o.version });
     const ts = String(Date.now());
     const res = await (deps.fetchImpl ?? fetch)(`${config.apiUrl}/api/hub/members/role`, {

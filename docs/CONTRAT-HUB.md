@@ -1808,6 +1808,7 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
 - **Version** : millisecondes, monotone par (tenant, utilisateur) ; l'app ignore une version déjà vue ou plus ancienne.
 - **Relecture** : `by-email` rend `hub_tenant_id`, `hub_role` et `native_admin` (lu en base). « Appliqué » veut dire relu.
 - **Jeton MCP** : `org_role` avec `tenant_id`, information seulement.
+- **Apps** : CRM et Academy (propriétaire non modifiable chez elle : `native_custom`).
 - L'app ne crée jamais d'appartenance, ne touche que l'espace relié, ne retire jamais le dernier admin.
 - **Fermé par défaut** (`ROLE_PORTE`) : personne n'est promu chez un client sans Robert. Une organisation MARQUÉE de test au Hub est
   ouverte (`hub test-organisation poser|retirer`, 24 h, audité, refusé chez un vrai compte) : jamais une forme d'adresse.
@@ -1848,6 +1849,10 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
 - **Logo** : réencodé par le Hub (PNG, 512 px), servi à `/api/public/org/<tenant>/logo?v=<empreinte>` ; SVG refusé.
 - **Réglage** : `/dashboard/organisation` (propriétaire, admin ; sans modules ni réglages d'app), `hub org regler|etat|importer`.
 - **Organisation active** : `hub_tenant_id` facultatif dans `issue-magic-link`, choisie au Hub, revérifiée au rebond.
+- **Activité** : `POST /api/organisations/activite { hub_tenant_id, hub_user_id, prefixe, depuis }` (signé avec nonce, Academy seule) →
+  `{ fait, premier, dernier, nombre }`. `prefixe` nomme l'app (`twenty.create_`), `depuis` ISO, 400 jours au plus. Compte les appels RÉUSSIS par la
+  porte MCP, attribués à cette organisation : `espace` choisi, ou le seul espace du compte ; sinon attribué à aucun. Rien avant le 25/11/2026.
+  404 `organisation_introuvable` (fermée, inconnue ou non cochée) ou `membre_introuvable`. Ouvert par organisation (`ACTIVITE_ORGANISATIONS`).
 
 ### 5.20 Restauration d'un membre
 

@@ -247,6 +247,13 @@ describe('espace (tenant_id signé)', () => {
     const r = json(await appel('executer_outil', { nom: 'hub.mon_compte' }, f));
     expect(r.espaces.map((e: any) => [e.slug, e.role])).toEqual([['mon-espace', 'proprietaire'], ['agence', 'admin']]);
   });
+  it('journal : l\'espace choisi, ou le seul du compte ; plusieurs sans choix : aucun (jamais deviné)', async () => {
+    const note = async (args: object) => { await appel('executer_outil', { nom: 'analytics.visites_du_site', ...args }, appFactice()); return (db.auditLog.lignes.at(-1)!.payload as any).espace; };
+    expect(await note({})).toBe('t1');
+    await db.tenant.create({ data: { id: 't2', userId: 'autre', name: 'Agence', slug: 'agence', status: 'active', createdAt: new Date() } });
+    await db.tenantMember.create({ data: { tenantId: 't2', userId: HUB_USER, role: 'admin' } });
+    expect([await note({}), await note({ espace: 'agence' }), await note({ espace: 'mon-espace' })]).toEqual([undefined, 't2', 't1']);
+  });
   it('espace d\'un autre compte : refusé, rien n\'est signé', async () => {
     await db.tenant.create({ data: { id: 't3', userId: 'autre', name: 'Pas à moi', slug: 'pas-a-moi', status: 'active', createdAt: new Date() } });
     const f = appFactice();

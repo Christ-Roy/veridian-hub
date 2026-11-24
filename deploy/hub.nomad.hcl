@@ -263,6 +263,8 @@ CRM_RETRAIT_FUSIBLE=0
 # Rôle d'organisation porté aux apps (lib/tenants/roles.ts, §5.22) : vide = fermé, sauf organisations marquées de test. Ids de tenants ou « tous ».
 # Ouvrir un vrai client : accord de Robert d'abord.
 ROLE_PORTE=
+# Lecture d'activité par Academy (§5.19.6) : organisations nommées, jamais « toutes ». Celle de Robert, qui l'a demandée (24/11).
+ACTIVITE_ORGANISATIONS=359b76d5-bab7-4773-a889-cf4cf0248869
 # Délégation entre apps (§5.23) : cibles qui ont dit « garde servie ». Vide = aucun jeton, aucune poignée.
 # Ouvert à toutes le 24/11 (Robert, relayé par la parente) : chaque liaison reste ÉTEINTE jusqu'au clic de son propriétaire, et se coupe
 # d'un clic. `<cible>@test` = organisations marquées de test. Refermer : vider, puis déployer.

@@ -8,7 +8,7 @@ import { expect } from '@playwright/test';
 
 import { HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
-import { activerTwentyAuHub, admin, adminOk, appelTwenty, lookup, marquerTest } from './lib/hub-admin';
+import { activerTwentyAuHub, admin, adminOk, appelAcademy, appelTwenty, lookup, marquerTest } from './lib/hub-admin';
 import { obtenirJetonMcp, outil } from './lib/mcp';
 import { creerCompteProuve, noterEspaceTwenty, type Compte } from './lib/parcours';
 
@@ -37,6 +37,12 @@ cas(null, 'rôle : le Hub promeut, le CRM laisse installer ; il rétrograde, le 
     const entree = await appelTwenty('POST', `/api/veridian/workspaces/${T.crm}/attach-member`, { hub_user_id: M.hubUserId, hub_user_email: M.email, role: 'member' });
     if (!entree.ok) throw new NonAbouti(`entrée au CRM : HTTP ${entree.status}`);
 
+    if (!staging) {
+      await adminOk('POST', 'tenants/app-access', { user_email: P.email, app: 'academy', enabled: true });
+      const r = await appelAcademy(`/api/tenants/${T.id}/sync-member`, { hub_user_id: M.hubUserId, email: M.email, role: 'member', email_proven: true });
+      if (!r.ok) throw new NonAbouti(`entrée à Academy : HTTP ${r.status}`);
+    }
+
     const jeton = await obtenirJetonMcp(browser, M, 'TEST ROLE');
     const APP = staging ? LIAISONS : TELEPHONIE;
     const listees = async (ou: string) => (await outil(jeton, 'executer_outil', { nom: 'twenty.list_available_apps', espace: ou })).texte.replace(/\\"/g, '"');
@@ -56,17 +62,19 @@ cas(null, 'rôle : le Hub promeut, le CRM laisse installer ; il rétrograde, le 
     };
     const poser = (role: 'admin' | 'member') => admin<{ role: string; apps: { app: string; etat: string; detail?: string }[] }>('POST', `tenants/${T.id}/members`, { hub_user_id: M.hubUserId, role });
 
+    // En prod, Academy est entrée dans l'organisation plus haut : le même rôle doit y tomber, relu chez elle. Le staging n'a pas d'Academy.
+    const attendu = [{ app: 'crm', etat: 'applique' }, staging ? { app: 'academy', etat: 'sans_effet', detail: expect.any(String) } : { app: 'academy', etat: 'applique' }];
     // Une adresse de batterie n'ouvre rien : c'est la marque posée au Hub qui ouvre (le staging, lui, ouvre à tous).
     if (!staging) {
       const ferme = await poser('admin');
-      expect(ferme.json.apps, 'adresse ressemblante, non marquée').toEqual([{ app: 'crm', etat: 'ferme', detail: expect.any(String) }]);
+      expect(ferme.json.apps, 'adresse ressemblante, non marquée').toEqual(['crm', 'academy'].map((app) => ({ app, etat: 'ferme', detail: expect.any(String) })));
       await poser('member');
     }
     await marquerTest(T.id);
     await refuse('membre');
     if (process.env.SSO_SABOTAGE !== 'role-promotion') {
       const promu = await poser('admin');
-      expect([promu.status, promu.json.apps], JSON.stringify(promu.json).slice(0, 300)).toEqual([200, [{ app: 'crm', etat: 'applique' }]]);
+      expect([promu.status, promu.json.apps], JSON.stringify(promu.json).slice(0, 300)).toEqual([200, attendu]);
     }
     // Si Téléphonie venait à être ouverte à tous, l'essai installerait pour de vrai : on regarde juste avant.
     if (!staging && (await listees(T.slug)).includes(TELEPHONIE)) throw new NonAbouti('Téléphonie est listée en prod : l\'essai l\'installerait');
@@ -76,7 +84,7 @@ cas(null, 'rôle : le Hub promeut, le CRM laisse installer ; il rétrograde, le 
     const version = Date.now();
     if (process.env.SSO_SABOTAGE !== 'role-retrograde') {
       const rendu = await poser('member');
-      expect([rendu.status, rendu.json.apps], JSON.stringify(rendu.json).slice(0, 300)).toEqual([200, [{ app: 'crm', etat: 'applique' }]]);
+      expect([rendu.status, rendu.json.apps], JSON.stringify(rendu.json).slice(0, 300)).toEqual([200, attendu]);
     }
     await refuse('rétrogradé');
     await accepte('son propre espace est intact', V.slug);

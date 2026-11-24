@@ -204,6 +204,8 @@ CRM_RETRAIT_FUSIBLE=0
 PROGRAMME_FICHIER=/local/programme
 # Rôle d'organisation porté aux apps (§5.22) : staging ouvert.
 ROLE_PORTE=tous
+# Lecture d'activité (§5.19.6) : fermée.
+ACTIVITE_ORGANISATIONS=
 # Cibles de la délégation qui ont dit « garde servie » (lib/delegation/paires.ts) : crm-staging, 24/11.
 DELEGATION_CIBLES=crm,notifuse
 OAUTH_TEST_PROVIDER=true

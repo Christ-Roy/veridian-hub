@@ -207,10 +207,10 @@ export function borner(r: Contenu): Contenu {
   return { ...base, content, ...(coupe ? {} : structuredContent !== undefined ? { structuredContent } : {}) };
 }
 
-async function journal(db: DbPorte, qui: Appelant, outil: string, ok: boolean, ms: number, programme?: string) {
+async function journal(db: DbPorte, qui: Appelant, outil: string, ok: boolean, ms: number, programme?: string, espace?: string) {
   await db.auditLog
     .create({
-      data: { action: 'mcp.tool.call', actor: `oauth:${qui.clientId}`, targetType: 'user', targetId: qui.hubUserId, payload: { outil, ok, ms, ...(programme ? { programme } : {}) } },
+      data: { action: 'mcp.tool.call', actor: `oauth:${qui.clientId}`, targetType: 'user', targetId: qui.hubUserId, payload: { outil, ok, ms, ...(espace ? { espace } : {}), ...(programme ? { programme } : {}) } },
     })
     .catch((err) => console.error('[mcp] journal impossible', err));
 }
@@ -235,9 +235,12 @@ function espaceChoisi({ vivants, suspendus }: Espaces, demande: unknown): { tena
   return { refus: texte(vivants.length ? `Un de vos espaces est suspendu : préciser espace=<slug> parmi ${vivants.map((e) => e.slug).join(', ')}.` : 'Espace suspendu : aucun outil ne s\'exécute. Contacter Veridian.', true) };
 }
 
+/** Sans choix, un appel n'est attribué à un espace que si le compte n'en a qu'un. Plusieurs : attribué à aucun, jamais deviné. */
+const seulEspace = ({ vivants, suspendus }: Espaces): string | undefined => (vivants.length === 1 && suspendus.length === 0 ? vivants[0].id : undefined);
+
 /** Les liaisons se disent et se règlent dans UN espace : celui qu'on choisit, ou le seul qu'on a. */
 async function integrations(db: DbPorte, qui: Appelant, o: Outil, params: Record<string, unknown>, espaces: Espaces, tenantId?: string): Promise<Contenu> {
-  const id = tenantId ?? (espaces.vivants.length === 1 && espaces.suspendus.length === 0 ? espaces.vivants[0].id : undefined);
+  const id = tenantId ?? seulEspace(espaces);
   if (!id) return texte(`Préciser espace=<slug> parmi ${espaces.vivants.map((e) => e.slug).join(', ') || 'aucun'}.`, true);
   if (o.nom === HUB_LISTER.nom) return texte({ espace: espaces.vivants.find((e) => e.id === id)?.slug, liaisons: await listerIntegrations(db, id) });
   if (params.etat !== 'allumee' && params.etat !== 'eteinte') return texte('etat : allumee ou eteinte.', true);
@@ -259,6 +262,7 @@ async function jouer(
   p: { programme?: string; session?: (appKey: string) => Promise<SessionApp> } = {},
 ): Promise<Contenu> {
   const debut = Date.now();
+  const espace = tenantId ?? seulEspace(espaces);
   try {
     let r: Contenu;
     if (o.nom === 'hub.mon_compte') {
@@ -272,11 +276,11 @@ async function jouer(
       const s = p.session ? await p.session(o.app) : await sessionOuCreation(app, qui, deps, tenantId);
       r = (await s.appeler(o.local, params)) as Contenu;
     }
-    await journal(db, qui, o.nom, !r.isError, Date.now() - debut, p.programme);
+    await journal(db, qui, o.nom, !r.isError, Date.now() - debut, p.programme, espace);
     return r;
   } catch (err) {
     // Un 429 d'app dans un programme n'est pas un appel joué : il sera refait, et journalisé alors.
-    if (!(p.programme && err instanceof AppDebit)) await journal(db, qui, o.nom, false, Date.now() - debut, p.programme);
+    if (!(p.programme && err instanceof AppDebit)) await journal(db, qui, o.nom, false, Date.now() - debut, p.programme, espace);
     if (!(err instanceof AppInjoignable)) console.error('[mcp] appel', o.nom, err);
     throw err;
   }
