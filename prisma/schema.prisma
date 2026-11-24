@@ -1119,3 +1119,65 @@ model IntegrationDemande {
   @@map("integration_demandes")
   @@schema("hub_app")
 }
+
+/// Abonnement d'une source d'événements (Notifuse `message.received`) : le secret Standard Webhooks y est CHIFFRÉ (lib/ia/coffre), jamais clair.
+model EvenementAbonnement {
+  id            String   @id @default(cuid())
+  tenantId      String   @map("tenant_id")
+  source        String
+  cleExterne    String   @map("cle_externe")
+  secretChiffre String   @map("secret_chiffre")
+  creeLe        DateTime @default(now()) @map("cree_le")
+
+  @@unique([source, cleExterne])
+  @@index([tenantId])
+  @@map("evenement_abonnements")
+  @@schema("hub_app")
+}
+
+/// Événement reçu : dédoublonné par (source, id), par message_id et par Message-ID RFC. Ni corps ni objet du mail.
+model EvenementRecu {
+  id          String    @id @default(cuid())
+  source      String
+  evenementId String    @map("evenement_id")
+  messageId   String    @map("message_id")
+  cleRfc      String?   @map("cle_rfc")
+  tenantId    String    @map("tenant_id")
+  etat        String    @default("pris")
+  raison      String?
+  prisLe      DateTime  @default(now()) @map("pris_le")
+  termineLe   DateTime? @map("termine_le")
+
+  @@unique([source, evenementId])
+  @@unique([source, messageId])
+  @@unique([source, cleRfc])
+  @@index([prisLe])
+  @@map("evenements_recus")
+  @@schema("hub_app")
+}
+
+/// Une écriture faite par un flux d'événement, pour le disjoncteur (§2.4 point 5). `objetSource` = empreinte du contact, jamais son adresse.
+model IntegrationLien {
+  id          String   @id @default(cuid())
+  tenantId    String   @map("tenant_id")
+  paire       String
+  objetSource String   @map("objet_source")
+  evenementId String   @map("evenement_id")
+  ecritLe     DateTime @default(now()) @map("ecrit_le")
+
+  @@index([tenantId, paire, objetSource, ecritLe])
+  @@map("integration_liens")
+  @@schema("hub_app")
+}
+
+/// Paire mise en pause par le disjoncteur pour une organisation, jusqu'à un geste humain (la ligne disparaît à la levée).
+model IntegrationPause {
+  tenantId String   @map("tenant_id")
+  paire    String
+  depuisLe DateTime @default(now()) @map("depuis_le")
+  motif    String
+
+  @@id([tenantId, paire])
+  @@map("integration_pauses")
+  @@schema("hub_app")
+}

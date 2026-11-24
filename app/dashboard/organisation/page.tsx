@@ -29,7 +29,7 @@ const AVIS: Record<string, string> = {
   format_refuse: 'Logo refusé : PNG, JPEG ou WebP.',
   refus: 'Réglage refusé : vérifiez les couleurs (#RRGGBB) et le nom.',
 };
-const APPS: Record<string, string> = { academy: 'Academy' };
+const APPS: Record<string, string> = { academy: 'Academy', notifuse: 'Mail' };
 
 export default async function Organisation({ searchParams }: { searchParams: Promise<{ avis?: string }> }) {
   const session = await auth();

@@ -1,0 +1,84 @@
+/**
+ * F3 : une réponse humaine reçue par Notifuse crée une tâche dans le CRM (INTEGRATIONS-NATIVES §6, D5 : traité PENDANT l'appel de la source).
+ * Ordre : signature (secret de l'abonnement) → filtre → organisation et paire → chaîne → disjoncteur → dédoublonnage → CRM. Un 2xx ne part que si
+ * le CRM a répondu, ou si rien n'est à faire (et alors le corps dit pourquoi) ; un échec rend 5xx et libère la ligne : la source réessaie.
+ * Fermé par défaut : `DELEGATION_EVENEMENTS` (clés de paires, `<paire>@test` pour les organisations de test), indépendant de `DELEGATION_CIBLES`.
+ */
+import type { PrismaClient } from '@prisma/client';
+
+import { writeAuditLog } from '@/lib/admin/audit-log';
+import { AppDebit } from '@/lib/mcp/client-app';
+import { empreintePortees, evenementOuvert, paireEntre, porteesAccordees } from '@/lib/delegation/paires';
+import { estDeTest } from '@/lib/tenants/marque-test';
+
+import { lireAbonnement } from './abonnement';
+import { chaineAcceptable, disjoncteur, noterEcriture, objetDuLien } from './anti-boucle';
+import { ecrireReponseHumaine, PORTEE_CRM } from './crm';
+import { liberer, reserver, terminer, type CleEvenement } from './dedoublonnage';
+import { analyserMessageRecu } from './filtre';
+import { verifierStandardWebhooks } from './signature';
+
+const SOURCE = 'notifuse';
+type Db = Pick<PrismaClient, 'evenementAbonnement' | 'evenementRecu' | 'integrationLien' | 'integrationPause' | 'integrationPaire' | 'tenant' | 'tenantMember' | 'mcpApp' | 'auditLog'>;
+export type Reception = { statut: number; corps: Record<string, unknown>; retryAfterS?: number };
+const ack = (raison: string): Reception => ({ statut: 200, corps: { ok: true, effet: 'aucun', raison } });
+const refus = (statut: number, error: string, retryAfterS?: number): Reception => ({ statut, corps: { error }, retryAfterS });
+
+export async function recevoirNotifuse(db: Db, h: Headers, brut: string, env: NodeJS.ProcessEnv = process.env, now = Date.now(), fetchImpl: typeof fetch = fetch): Promise<Reception> {
+  let json: unknown = null;
+  try {
+    json = JSON.parse(brut);
+  } catch {
+    return refus(400, 'invalid_request');
+  }
+  const ws = (json as { workspace_id?: unknown } | null)?.workspace_id;
+  if (typeof ws !== 'string' || !ws || ws.length > 512) return refus(400, 'invalid_request');
+  let abo;
+  try {
+    abo = await lireAbonnement(db, SOURCE, ws, env);
+  } catch {
+    return refus(503, 'secret_unavailable');
+  }
+  // Inconnu ou mal signé : même réponse, on ne dit pas quels espaces existent.
+  if (!abo) return refus(401, 'invalid_signature');
+  const v = verifierStandardWebhooks(abo.secret, h, brut, now);
+  if (v !== 'ok') return refus(v === 'invalid_headers' ? 400 : 401, v);
+
+  const a = analyserMessageRecu(json);
+  if (a.statut === 'invalide') return refus(400, 'invalid_request');
+  if (a.statut === 'ignore') return ack(a.raison);
+  const { reponse } = a;
+
+  const p = paireEntre('notifuse', 'crm');
+  const t = await db.tenant.findFirst({ where: { id: abo.tenantId, deletedAt: null }, select: { status: true, metadata: true } });
+  if (!p || !t || t.status === 'suspended' || t.status === 'deleted') return ack('organisation_inactive');
+  if (!evenementOuvert(p.cle, abo.tenantId, env, estDeTest(t.metadata, new Date(now)))) return ack('evenements_fermes');
+  const i = await db.integrationPaire.findUnique({ where: { tenantId_paire: { tenantId: abo.tenantId, paire: p.cle } } });
+  if (!i || i.etat !== 'allumee' || !i.consentiLe || i.portees !== empreintePortees(p) || !porteesAccordees(p, PORTEE_CRM)) return ack('paire_eteinte');
+
+  const chaine: string[] = [];
+  if (!chaineAcceptable(chaine, p.cle)) return ack('chaine_refusee');
+  const lien = { tenantId: abo.tenantId, paire: p.cle, objetSource: objetDuLien(reponse.email) };
+  if ((await disjoncteur(db, lien, now)) === 'pause') return ack('pause_disjoncteur');
+
+  const cle: CleEvenement = { source: SOURCE, evenementId: reponse.evenementId, messageId: reponse.messageId, cleRfc: reponse.rfcMessageId ? `${ws}:${reponse.rfcMessageId}` : null, tenantId: abo.tenantId };
+  const r = await reserver(db, cle, now);
+  if (r === 'deja') return ack('deja_traite');
+  if (r === 'en_cours') return refus(503, 'en_cours', 30);
+
+  let jti: string;
+  try {
+    ({ jti } = await ecrireReponseHumaine(db, { tenantId: abo.tenantId, reponse, chaine }, env, fetchImpl));
+  } catch (err) {
+    await liberer(db, cle).catch(() => undefined);
+    await db.integrationPaire.updateMany({ where: { tenantId: abo.tenantId, paire: p.cle }, data: { derniereErreur: 'crm_injoignable' } }).catch(() => undefined);
+    return err instanceof AppDebit ? refus(503, 'crm_rate_limited', Math.ceil(err.attenteMs / 1000)) : refus(502, 'crm_unreachable');
+  }
+  // Le CRM a répondu : plus rien ci-dessous ne doit rendre un 5xx (la source rejouerait une écriture faite).
+  await noterEcriture(db, { ...lien, evenementId: reponse.evenementId }, now).catch(() => undefined);
+  await terminer(db, cle, 'fait', undefined, now).catch(() => undefined);
+  await db.integrationPaire.updateMany({ where: { tenantId: abo.tenantId, paire: p.cle }, data: { dernierPassage: new Date(now), derniereErreur: null } }).catch(() => undefined);
+  // Ni adresse ni contenu : l'événement, la paire, le jeton.
+  await writeAuditLog(db as PrismaClient, { action: 'evenement.recu', actor: `app:${SOURCE}`, targetType: 'tenant', targetId: abo.tenantId, payload: { paire: p.cle, evenement_id: reponse.evenementId, jti } }).catch(() => undefined);
+  return { statut: 200, corps: { ok: true, effet: 'cree' } };
+}

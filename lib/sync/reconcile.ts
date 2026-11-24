@@ -34,6 +34,7 @@ import { configuredSyncApps, discoverUserApps } from '@/lib/sync/discovery';
 import { buildNotifuseClient } from '@/lib/notifuse/admin-helpers';
 import { NotifuseClient } from '@/lib/notifuse/client';
 import { auditIdentity, identityCounts } from '@/lib/sync/identity-audit';
+import { organisationsEnRetard, type OrgEnRetard } from '@/lib/sync/organisations';
 import { measureTestResidue, residueCounts, type TestResidue } from '@/lib/sync/test-residue';
 import { PLANNED_APPS } from '@/lib/plans/app-plan';
 import { trialStatusesForTenants } from '@/lib/plans/trial-status';
@@ -443,6 +444,14 @@ export async function runReconcile(
     errors.push({ message: `test residue: ${err instanceof Error ? err.message : String(err)}` });
   }
 
+  // Organisations réglées au Hub dont une app cochée n'est pas à jour (VER-252) : lecture seule, sans adresse.
+  let organisations: OrgEnRetard[] = [];
+  try {
+    organisations = await organisationsEnRetard(p);
+  } catch (err) {
+    errors.push({ message: `organisations: ${err instanceof Error ? err.message : String(err)}` });
+  }
+
   const notWired = await measureNotWired(p, vu).catch((err: unknown) => [
     `non câblé : mesure impossible (${err instanceof Error ? err.message : String(err)})`,
   ]);
@@ -452,6 +461,7 @@ export async function runReconcile(
     tenantsWithoutUser: withoutUser,
     identity,
     testResidue,
+    organisations,
     appsQueried,
     driftsDetected: drifts.length,
     drifts: drifts.slice(0, 200),
@@ -475,6 +485,7 @@ export async function runReconcile(
       testResidue: residueCounts(testResidue),
       appsQueried: summary.appsQueried,
       driftsDetected: summary.driftsDetected,
+      organisationsEnRetard: organisations.length,
       notWired: notWired.length,
       appsUnreachable: summary.appsUnreachable,
       duration_ms: summary.durationMs,

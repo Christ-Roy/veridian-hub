@@ -25,6 +25,7 @@ function Cadre({ titre, children }: { titre: string; children: React.ReactNode }
 export default async function Confirmer({ params }: { params: Promise<{ jeton: string }> }) {
   const { jeton } = await params;
   if (jeton === 'fait') return <Cadre titre="Liaison allumée"><CardDescription>Vous pouvez la couper à tout moment, depuis Veridian ou depuis votre IA.</CardDescription></Cadre>;
+  if (jeton === 'source') return <Cadre titre="L'app source n'a pas répondu"><CardDescription>La liaison est restée éteinte. Réessayez dans quelques minutes.</CardDescription></Cadre>;
   if (jeton === 'ancienne') return <Cadre titre="Reconnectez-vous"><CardDescription>Pour allumer une liaison, votre connexion doit dater de moins de 24 heures. Déconnectez-vous, reconnectez-vous, puis rouvrez le lien.</CardDescription></Cadre>;
   const user = await getCurrentUser();
   if (!user && jeton !== 'refus') redirect(`/login?callbackUrl=${encodeURIComponent(`/liaisons/confirmer/${jeton}`)}`);

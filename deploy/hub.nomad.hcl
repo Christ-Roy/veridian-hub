@@ -267,6 +267,9 @@ ROLE_PORTE=
 # Ouvert à toutes le 24/11 (Robert, relayé par la parente) : chaque liaison reste ÉTEINTE jusqu'au clic de son propriétaire, et se coupe
 # d'un clic. `<cible>@test` = organisations marquées de test. Refermer : vider, puis déployer.
 DELEGATION_CIBLES=crm,notifuse
+# Événements entre apps (F3) : `notifuse>crm` = tous, `notifuse>crm@<tenant>` = une organisation, `@test` = marquées de test. Vide = fermé. Ouvert ne
+# veut pas dire allumé : clic du propriétaire. Première : celle de Robert (demandé le 24/11).
+DELEGATION_EVENEMENTS=notifuse>crm@359b76d5-bab7-4773-a889-cf4cf0248869
 # Adresses à qui le Hub n'écrit jamais (lib/email/send.ts) : la boîte perso de Robert pour le compte « Préprod CRM » (24/11).
 MAILS_BLOQUES_SHA256=ff9b9ff3e94543f4
 {{ with nomadVar "nomad/jobs/hub" }}

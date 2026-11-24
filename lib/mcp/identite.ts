@@ -54,12 +54,13 @@ export async function signerPourProgramme(programme: string, env: NodeJS.Process
  * étroites, jamais `veridian`. 120 s, usage unique chez la cible.
  */
 export async function signerAction(
-  c: { audience: string; hubUserId: string; email: string; tenantId: string; app: string; scope: string; jti: string; ttlS: number },
+  c: { audience: string; hubUserId: string; email?: string; tenantId: string; app: string; scope: string; jti: string; ttlS: number },
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<string> {
   const cle = await cleSignature(env);
   if (!cle) throw new Error('MCP_SIGNING_JWK absente');
-  return new SignJWT({ email: c.email, email_verified: true, scope: c.scope, tenant_id: c.tenantId, client_id: `app:${c.app}`, act: { sub: `app:${c.app}` } })
+  // Sans `email` (événement : le sujet est `integration:<tenant>`, pas une personne) : ni adresse ni preuve d'adresse dans le jeton.
+  return new SignJWT({ ...(c.email ? { email: c.email, email_verified: true } : {}), scope: c.scope, tenant_id: c.tenantId, client_id: `app:${c.app}`, act: { sub: `app:${c.app}` } })
     .setProtectedHeader({ alg: 'ES256', kid: cle.kid, typ: 'JWT' })
     .setIssuer(hubIssuer(env))
     .setAudience(c.audience)

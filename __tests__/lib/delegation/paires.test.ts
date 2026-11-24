@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 
-import { adresseAction, CLE_MCP, cibleServie, empreintePortees, paire, paireEntre, PAIRES, paireServie, pairesServies, porteesAccordees } from '@/lib/delegation/paires';
+import { adresseAction, CLE_MCP, cibleServie, empreintePortees, evenementOuvert, paireReglable, paire, paireEntre, PAIRES, paireServie, pairesServies, porteesAccordees } from '@/lib/delegation/paires';
 
 const env = (DELEGATION_CIBLES?: string) => ({ NODE_ENV: 'test', DELEGATION_CIBLES }) as NodeJS.ProcessEnv;
 
@@ -28,6 +28,17 @@ describe('registre des paires', () => {
     expect(paireServie(paire('notifuse>crm')!, tout)).toBe(false);
   });
   it('paireServie : une action vers une cible fermée ne sert pas', () => expect([paireServie(paire('prospection>crm')!, env()), paireServie(paire('prospection>crm')!, env('notifuse')), paireServie(paire('prospection>crm')!, env('crm'))]).toEqual([false, false, true]));
+  it('evenementOuvert : vide = fermé ; tous, une organisation, ou marquées ; jamais par préfixe', () => {
+    const e = (v?: string) => ({ NODE_ENV: 'test', DELEGATION_EVENEMENTS: v }) as NodeJS.ProcessEnv;
+    const o = (v?: string, test = false, id = 'T') => evenementOuvert('notifuse>crm', id, e(v), test);
+    expect([o(), o(''), o('notifuse>crm'), o('notifuse>crm@T'), o('notifuse>crm@T', false, 'T2'), o('notifuse>crm@test'), o('notifuse>crm@test', true), o('notifuse>crm2')]).toEqual([false, false, true, true, false, false, true, false]);
+  });
+  it('paireReglable : un événement ouvert se règle, sans jamais devenir une paire qui s\'échange', () => {
+    const e = { NODE_ENV: 'test', DELEGATION_CIBLES: 'crm', DELEGATION_EVENEMENTS: 'notifuse>crm@T' } as NodeJS.ProcessEnv;
+    const p = paire('notifuse>crm')!;
+    expect([paireReglable(p, 'T', e), paireReglable(p, 'T2', e), paireServie(p, e), pairesServies(e).some((x) => x.cle === p.cle)]).toEqual([true, false, false, false]);
+    expect(paireReglable(paire('prospection>crm')!, 'T2', e)).toBe(true);
+  });
   it('cible@test : fermée sans compte de test, et ne vaut que pour cette cible', () => {
     const e = env('crm@test');
     expect([cibleServie('crm', e), cibleServie('crm', e, true), cibleServie('notifuse', e, true), pairesServies(e).length, pairesServies(e, true).map((p) => p.cle).join()]).toEqual([false, true, false, 0, 'prospection>crm']);

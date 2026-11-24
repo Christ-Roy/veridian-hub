@@ -1,3 +1,4 @@
+import type { OrgEnRetard } from '@/lib/sync/organisations';
 import type { TestResidue } from '@/lib/sync/test-residue';
 /**
  * Types partagés pour la stratégie de synchronisation tenants Hub ↔ apps.
@@ -140,6 +141,8 @@ export interface ReconcileSummary {
   identity?: IdentityAudit;
   /** Comptes de test et tenants orphelins encore en base (mesure seule). */
   testResidue?: TestResidue;
+  /** Organisations réglées au Hub dont une app cochée n'est pas à jour (VER-252). Lecture seule, sans adresse. */
+  organisations: OrgEnRetard[];
   /** Nombre d'apps interrogées (≤ usersScanned × 3). */
   appsQueried: number;
   /** Nombre de drifts détectés (1 drift = 1 (tenant, app) divergent). */

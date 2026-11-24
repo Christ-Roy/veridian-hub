@@ -1828,12 +1828,26 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
 - **Registre fermé** (`lib/delegation/paires.ts`) : cinq paires, aucune action destructive. Une cible s'ouvre (`DELEGATION_CIBLES`) après
   son « garde servie ». `crm@test` n'ouvre qu'aux
   organisations marquées de test au Hub : la preuve en prod, sans aucun client (`lib/delegation/ouverture.ts`).
-- **Événements** (`notifuse>crm`, `crm>prospection`) : pas encore servis ; ni allumables, ni échangeables contre la poignée d'un
-  utilisateur. Leur sujet sera `integration:<hub_tenant_id>`.
+- **Événements** : `notifuse>crm` (F3) se règle comme une liaison quand `DELEGATION_EVENEMENTS` l'ouvre (tous, une organisation, ou `@test`) ;
+  allumer pose l'abonnement `message.received` chez Notifuse (`/api/hub/evenements/abonnement`), couper le retire. Le Hub reçoit sur
+  `POST /api/evenements/notifuse` (Standard Webhooks, dédoublonné), ne garde ni objet ni corps, et appelle `app_reponse_humaine` avec
+  `sub = integration:<hub_tenant_id>`, `act.sub = app:notifuse`, `crm:tache.ecrire`, 120 s. **Reçu liaison éteinte, un événement est acquitté donc
+  PERDU, c'est voulu.** Disjoncteur : 5 écritures en 10 min par contact. Jamais échangeable contre la poignée d'un utilisateur.
 - **Écran** : `/dashboard/liaisons` (adresse stable, les apps y renvoient) : état, allumer, couper, sans IA.
 - **Interrupteur** : `hub.integrations_lister` (tout membre), `hub.integrations_regler` (propriétaire, admin ; hors d'un programme). La
   première ouverture, et tout élargissement, demandent le clic du propriétaire sur une page du Hub. Aucun mail.
 - **Coupure** : retrait, suspension et déconnexion d'un membre tuent ses poignées ; une suspension retire aussi les consentements.
+
+#### 5.19.6 Organisation réglée une fois au Hub (VER-252)
+
+- **Émission** : `POST <app>/api/hub/organisations/sync` (HMAC `ts.corps`) `{ hub_tenant_id, version, nom, type, marque, modules, membres, reglages }`,
+  à chaque changement, vers les apps cochées seulement. `version` monotone, ne bouge que si le contenu bouge. `membres` ADDITIF : une absence
+  ne retire personne ; `joined_at` = adhésion en vigueur. Réponse `{ applied, reason: unchanged | stale }`.
+- **Relecture** : `GET <app>/api/hub/organisations/sync?hub_tenant_id=` → `{ version }`. « Appliqué » veut dire relu.
+- **Rattrapage** : `POST /api/organisations/lire`, signé comme la délégation (nonce) : le même document, pour une app cochée.
+- **Logo** : réencodé par le Hub (PNG, 512 px), servi à `/api/public/org/<tenant>/logo?v=<empreinte>` ; SVG refusé.
+- **Réglage** : `/dashboard/organisation` (propriétaire, admin ; sans modules ni réglages d'app), `hub org regler|etat|importer`.
+- **Organisation active** : `hub_tenant_id` facultatif dans `issue-magic-link`, choisie au Hub, revérifiée au rebond.
 
 ### 5.20 Restauration d'un membre
 

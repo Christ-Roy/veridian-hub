@@ -40,6 +40,16 @@ export const cibleServie = (cible: AppPaire, env: NodeJS.ProcessEnv = process.en
  * D1) : tant que son chemin n'existe pas, il ne s'allume pas et ne s'échange pas contre la poignée de quelqu'un.
  */
 export const paireServie = (p: Paire, env: NodeJS.ProcessEnv = process.env, test = false): boolean => p.nature === 'action' && cibleServie(p.cible, env, test);
+/**
+ * Un événement se règle à part (`DELEGATION_EVENEMENTS`, vide par défaut) : `notifuse>crm` pour tous, `notifuse>crm@<tenant>` pour une seule
+ * organisation, `notifuse>crm@test` pour celles marquées de test. Ouvert ne veut pas dire allumé : le clic du propriétaire reste dû.
+ */
+export const evenementOuvert = (cle: string, tenantId: string, env: NodeJS.ProcessEnv = process.env, test = false): boolean => {
+  const l = (env.DELEGATION_EVENEMENTS ?? '').split(',').map((x) => x.trim());
+  return l.includes(cle) || l.includes(`${cle}@${tenantId}`) || (test && l.includes(`${cle}@test`));
+};
+/** Ce qu'une organisation peut régler : une action servie, ou un événement ouvert pour elle. L'ÉCHANGE d'un jeton, lui, reste aux actions. */
+export const paireReglable = (p: Paire, tenantId: string, env: NodeJS.ProcessEnv = process.env, test = false): boolean => paireServie(p, env, test) || (p.nature === 'evenement' && evenementOuvert(p.cle, tenantId, env, test));
 export const pairesServies = (env: NodeJS.ProcessEnv = process.env, test = false): Paire[] => PAIRES.filter((p) => paireServie(p, env, test));
 
 /** Ce que le propriétaire a accepté : élargir une portée change l'empreinte, donc redemande son clic. */

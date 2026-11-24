@@ -10,7 +10,7 @@ import type { PrismaClient } from '@prisma/client';
 import { writeAuditLog } from '@/lib/admin/audit-log';
 
 import { organisationDeTest } from './ouverture';
-import { empreintePortees, paire as trouverPaire, paireServie, PAIRES } from './paires';
+import { empreintePortees, paire as trouverPaire, paireReglable, PAIRES } from './paires';
 import { empreinte } from './poignee';
 
 const DEMANDE_MIN = 15;
@@ -29,7 +29,7 @@ export async function listerIntegrations(db: Pick<Db, 'integrationPaire' | 'user
   };
   return PAIRES.map((p) => {
     const l = lignes.find((x) => x.paire === p.cle);
-    const servie = paireServie(p, env, test);
+    const servie = paireReglable(p, tenantId, env, test);
     const consentie = Boolean(l?.consentiLe && l.portees === empreintePortees(p));
     return {
       paire: p.cle, libelle: p.libelle, source: p.source, cible: p.cible, nature: p.nature,
@@ -61,7 +61,7 @@ export async function reglerIntegration(db: Db, d: { tenantId: string; paire: st
   const changePar = `${d.hubUserId} via ${d.client}`.slice(0, 200);
   const l = await db.integrationPaire.findUnique({ where: cle });
   if (d.etat === 'allumee') {
-    if (!paireServie(p, env, await organisationDeTest(db, d.tenantId, env))) return { refus: 'cible_non_servie' };
+    if (!paireReglable(p, d.tenantId, env, await organisationDeTest(db, d.tenantId, env))) return { refus: 'cible_non_servie' };
     if (!l?.consentiLe || l.portees !== empreintePortees(p)) {
       const jeton = randomBytes(32).toString('base64url');
       const expireLe = new Date(Date.now() + DEMANDE_MIN * 60_000);
@@ -83,7 +83,7 @@ export async function lireDemande(db: Pick<Db, 'integrationDemande' | 'tenant' |
   const q = await db.integrationDemande.findUnique({ where: { empreinte: empreinte(jeton) } });
   if (!q || q.confirmeLe || q.expireLe <= new Date()) return null;
   const p = trouverPaire(q.paire);
-  if (!p || !paireServie(p, env, await organisationDeTest(db, q.tenantId, env))) return null;
+  if (!p || !paireReglable(p, q.tenantId, env, await organisationDeTest(db, q.tenantId, env))) return null;
   if ((await roleAuHub(db, q.tenantId, hubUserId)) !== 'owner') return null;
   const t = await db.tenant.findFirst({ where: { id: q.tenantId, deletedAt: null }, select: { name: true } });
   const u = await db.user.findFirst({ where: { supabaseUserId: q.demandePar }, select: { email: true } });
