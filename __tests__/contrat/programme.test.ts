@@ -38,6 +38,14 @@ describe.each([['deploy/hub.nomad.hcl', 'hub'], ['deploy/hub-staging.nomad.hcl',
   });
 });
 
+it('prod : seul le groupe stack peut défaire un déploiement (un retour arrière de Nomad porte sur le job entier)', () => {
+  const hcl = lire('deploy/hub.nomad.hcl').replace(/^\s*#.*$/gm, '');
+  const apresStack = hcl.slice(hcl.search(/^  (dynamic "group"|group "(?!stack))/m));
+  expect(hcl.match(/auto_revert\s+= true/g)).toHaveLength(1);
+  expect(apresStack).not.toMatch(/auto_revert\s+= true/);
+  expect(apresStack.match(/auto_revert\s+= false/g)?.length).toBeGreaterThanOrEqual(2);
+});
+
 it('staging : un seul groupe (Sablier refuse le job sinon, 24/11)', () => {
   expect(lire('deploy/hub-staging.nomad.hcl').match(/^  group "/gm)).toHaveLength(1);
 });
@@ -49,8 +57,28 @@ describe('image', () => {
     expect(docker).toContain(`${n}@${pkg.devDependencies[n]}`);
   });
   it('la prison n\'emporte ni l\'épreuve, ni le superviseur, ni une dépendance de plus', () => {
-    expect(docker.match(/COPY programme\/.*prison.*/g)).toEqual(['COPY programme/executeur.mjs /opt/programme/prison/app/executeur.mjs']);
+    expect(docker.match(/^COPY .*prison.*/gm)).toEqual(['COPY --chmod=0444 programme/executeur.mjs /opt/programme/prison/app/executeur.mjs']);
     expect(docker).not.toMatch(/epreuve\.mjs/);
+  });
+  it('ce que le code d\'un client peut lire n\'est inscriptible par personne', () => {
+    const copies = docker.match(/^COPY .*programme\/.*/gm) ?? [];
+    expect(copies).toHaveLength(2);
+    for (const c of copies) expect(c).toContain('--chmod=0444');
+    expect(docker).toMatch(/rm -rf \/root\/\.npm && chmod -R a\+rX,a-w \/opt\/programme\n/);
+  });
+  it('image légère : chaque npm install retire son cache dans sa couche, les couches lourdes précèdent le Hub', () => {
+    const runner = docker.slice(docker.indexOf('AS runner'), docker.indexOf('AS dev'));
+    const couches = runner.split('\n').filter((l) => !l.startsWith('#')).join('\n').split(/\n(?=[A-Z]+ )/);
+    const installs = couches.filter((c) => c.includes('npm install'));
+    expect(installs).toHaveLength(4);
+    for (const c of installs) expect(c).toMatch(/rm -rf[^\n]*\/root\/\.npm/);
+    const hub = couches.findIndex((c) => c.includes('.next/standalone'));
+    for (const x of ['mkdir -p /opt/prisma-cli', 'mkdir -p /opt/atelier', 'mkdir -p /opt/programme/prison']) {
+      expect(couches.findIndex((c) => c.includes(x)), x).toBeGreaterThan(0);
+      expect(couches.findIndex((c) => c.includes(x)), x).toBeLessThan(hub);
+    }
+    expect(couches.findIndex((c) => c.startsWith('ARG GIT_SHA')), 'le SHA change à chaque push').toBeGreaterThan(hub);
+    expect(runner).not.toMatch(/chown -R nextjs:nodejs \/app/);
   });
   it('l\'exécuteur ne lit que son entrée : ni fichier, ni réseau, ni environnement', () => {
     const src = lire('programme/executeur.mjs').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, '');
