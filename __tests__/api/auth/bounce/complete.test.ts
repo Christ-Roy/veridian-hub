@@ -224,6 +224,31 @@ describe('GET /api/auth/bounce/complete', () => {
     expect(lignes.join('\n')).not.toContain('secret@client.fr');
   });
 
+  it('réussi : une ligne [bounce][reussi], la première ouverture se distingue, un refus n\'en laisse pas ; ni adresse ni lien', async () => {
+    getCurrentUserMock.mockResolvedValue({ id: 'user-1', email: 'secret@client.fr', name: null, image: null, supabaseUserId: 'uuid-1' });
+    const lignes: string[] = [];
+    const espions = (['info', 'warn', 'error'] as const).map((m) => vi.spyOn(console, m).mockImplementation((l) => void lignes.push(String(l))));
+    const lien = () => new Response(JSON.stringify({ magic_link_url: 'https://crm.app.veridian.site/auth/token?t=SECRET' }), { status: 200 });
+    const non = () => new Response(JSON.stringify({ error: 'user_not_in_app' }), { status: 400 });
+    const reussis = () => lignes.map((l) => { try { return JSON.parse(l); } catch { return null; } }).filter((j) => j?.tag === '[bounce][reussi]').map((j) => [j.app, j.code, j.hub_user_id]);
+    try {
+      const { GET } = await import('@/app/api/auth/bounce/complete/route');
+      const jouer = () => GET(makeReq({ cookie: signNextCookie('https://crm.app.veridian.site/', TEST_SECRET) }));
+      fetchMock.mockResolvedValueOnce(lien());
+      await jouer();
+      ensureCrmMock.mockResolvedValueOnce({ ok: true, workspaceId: 'w', created: true });
+      fetchMock.mockResolvedValueOnce(non()).mockResolvedValueOnce(lien());
+      await jouer();
+      ensureCrmMock.mockResolvedValueOnce({ ok: false, error: 'x' });
+      fetchMock.mockResolvedValueOnce(non());
+      await jouer();
+    } finally {
+      espions.forEach((e) => e.mockRestore());
+    }
+    expect(reussis()).toEqual([['crm', 'ok', 'uuid-1'], ['crm', 'premiere_ouverture', 'uuid-1']]);
+    expect(lignes.join('\n')).not.toMatch(/secret@client\.fr|t=SECRET/);
+  });
+
   it('downstream 500 → /auth/bounce/error?app=notifuse&code=unreachable', async () => {
     getCurrentUserMock.mockResolvedValue({
       id: 'user-1',
