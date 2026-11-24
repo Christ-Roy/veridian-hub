@@ -15,12 +15,16 @@ import { listerIntegrations, reglerIntegration } from '@/lib/delegation/interrup
 
 import { hubIssuer, PROTOCOLES, SORTIE_MAX_CAR } from './config';
 import type { Appelant } from './oauth';
-import { AUTORISER_MAX, CODE_MAX_CAR, DELAI_MS, executerProgramme, ETAT_MAX_CAR, prendrePlace, presenter, REPONSE_MAX_OCTETS, type Contenu } from './programme';
+import { signatureOutil } from './signature';
+import { AUTORISER_MAX, CODE_MAX_CAR, DELAI_MS, executerProgramme, exigeAutorisation, ETAT_MAX_CAR, prendrePlace, presenter, REPONSE_MAX_OCTETS, type Contenu } from './programme';
 import { ouvrirMoteur, programmeConfigure } from './programme-moteur';
 
 export type DbPorte = Pick<PrismaClient, 'integrationPaire' | 'integrationDemande' | 'user' | 'mcpApp' | 'tenantApp' | 'tenant' | 'tenantTrial' | 'tenantMember' | 'auditLog'>;
 
 type Rpc = { jsonrpc?: string; id?: string | number | null; method?: string; params?: Record<string, unknown> };
+
+/** Les meilleurs résultats de chercher_outils portent leur signature ; les autres s'obtiennent par decrire_outil. */
+const SIGNATURES_RECHERCHE = 3;
 
 const INSTRUCTIONS =
   "Veridian relie toutes les apps du compte (mail, prospection, CRM, analytics, et les suivantes). " +
@@ -75,7 +79,7 @@ export const OUTIL_PROGRAMME = {
     'Pour traiter beaucoup de lignes (extraire, filtrer, déplacer d\'une app à l\'autre) sans les lire une à une : exécute du JavaScript qui appelle les outils Veridian en boucle, et ne rend que la valeur de son return (16 000 caractères). ' +
     'Le code est le corps d\'une fonction async. Il dispose de : await outil("<app>.<outil>", {arguments}) qui rend la donnée de l\'outil ou lève une erreur ; sauver(etat) pour garder où on en est (petit, JSON) ; reprise, la valeur passée en paramètre ; journal(texte) ; await pause(ms). Ni réseau, ni fichiers, ni modules. ' +
     'Bornes : 45 s, 200 appels, 4 de front, 64 Mo, 1 Mo par réponse d\'outil (paginer). Au-delà de 45 s, le programme est arrêté et la réponse rend la dernière valeur sauvée : relancer le même code avec reprise. ' +
-    'Lire d\'abord les paramètres des outils avec decrire_outil. Un outil qui modifie des données doit être nommé dans autoriser. ' +
+    'Lire d\'abord les outils avec decrire_outil, qui rend aussi leur signature TypeScript (outil("<app>.<outil>", {…}), avec la mention « à nommer dans autoriser » quand il le faut). Un outil qui modifie des données doit être nommé dans autoriser. ' +
     'Exemple : let i = reprise?.page ?? 0, n = reprise?.n ?? 0; for (;;) { const p = await outil("prospection.lister_epingles", {page: i}); if (!p.lignes?.length) return {n}; n += p.lignes.length; i++; sauver({page: i, n}); }',
   inputSchema: {
     type: 'object',
@@ -374,7 +378,7 @@ async function appelerOutil(db: DbPorte, qui: Appelant, nom: string, args: Recor
     const app = typeof args.app === 'string' && args.app ? args.app : undefined;
     const trouves = chercher(cat.outils, besoin, app);
     return texte({
-      outils: trouves.map((o) => ({ nom: o.nom, description: o.description })),
+      outils: trouves.map((o, i) => ({ nom: o.nom, description: o.description, ...(i < SIGNATURES_RECHERCHE ? { signature: signatureOutil(o.nom, o.inputSchema, exigeAutorisation(o)) } : {}) })),
       apps: ['hub', ...cat.apps.map((a) => a.appKey)],
       ...(cat.injoignables.length ? { injoignables: cat.injoignables } : {}),
       ...(trouves.length === 0 ? { conseil: 'Aucun outil ne correspond : reformuler, ou chercher avec app=<cle>.' } : {}),
@@ -384,7 +388,7 @@ async function appelerOutil(db: DbPorte, qui: Appelant, nom: string, args: Recor
     const o = cat.outils.find((x) => x.nom === args.nom);
     if (!o) return texte(`Outil inconnu : ${String(args.nom)}. Utiliser chercher_outils.`, true);
     const description = o.nom === HUB_PROGRAMME.nom ? OUTIL_PROGRAMME.description : o.description;
-    return texte({ nom: o.nom, description, parametres: o.inputSchema, ...(o.annotations ? { annotations: o.annotations } : {}) });
+    return texte({ nom: o.nom, description, parametres: o.inputSchema, signature: signatureOutil(o.nom, o.inputSchema, exigeAutorisation(o)), ...(o.annotations ? { annotations: o.annotations } : {}) });
   }
   if (nom === 'executer_outil') {
     const cible = typeof args.nom === 'string' ? args.nom : '';

@@ -140,6 +140,13 @@ describe('catalogue fédéré', () => {
     const r = json(await appel('decrire_outil', { nom: 'analytics.visites_du_site' }, appFactice()));
     expect(r.parametres.properties.jours.type).toBe('number');
     expect(r.annotations).toEqual({ readOnlyHint: true });
+    expect(r.signature).toMatch(/^outil\("analytics\.visites_du_site", \{ .*jours\??: number.* \}\): Promise<unknown>$/);
+    expect(r.signature).not.toContain('autoriser'); // lecture seule déclarée
+  });
+  it('chercher_outils porte la signature des meilleurs résultats seulement', async () => {
+    const r = json(await appel('chercher_outils', { besoin: 'visites' }, appFactice()));
+    expect(r.outils[0].signature).toContain('outil("analytics.visites_du_site"');
+    expect(r.outils.filter((o: any) => o.signature).length).toBeLessThanOrEqual(3);
   });
   it('app en panne : signalée, sans casser les outils du Hub', async () => {
     const f = appFactice({ panne: true });
@@ -440,6 +447,8 @@ describe('executer_programme', () => {
       const r = json(await outilPorte('decrire_outil', { nom: 'hub.executer_programme' }, deps(appFactice(), [])));
       expect(r.description).toContain('sauver(etat)');
       expect(r.parametres.required).toEqual(['code']);
+      expect(r.signature).toContain('code: string');
+      expect(r.signature).toContain('// à nommer dans autoriser');
       expect(r.annotations.destructiveHint).toBe(true);
     });
 

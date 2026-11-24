@@ -91,6 +91,8 @@ revient (16 000 caractères).
 | `reprise` | la valeur passée en paramètre, `null` sinon |
 | `journal(…)`, `await pause(ms)` | trace courte, attente |
 
+**Signatures** (`lib/mcp/signature.ts`) : `decrire_outil` rend, en plus du schéma, `signature` (TypeScript compact tiré de l'`inputSchema`, 1 500 caractères au plus, `unknown` si le schéma est illisible, texte du schéma neutralisé), avec « // à nommer dans autoriser » si `exigeAutorisation` ; `chercher_outils` la porte pour ses 3 premiers résultats.
+
 **Bornes** : 45 s (catalogue compris), 200 appels, 4 de front, 64 Mo, 1 Mo par réponse d'outil, 100 000 caractères de
 code, un programme à la fois par utilisateur, 600 appels internes par minute (vérifiés avant de lancer, jamais à
 mi-course). Ces deux derniers comptes vivent en mémoire du Hub : une seule allocation sert la porte, deux pendant les 60 s
