@@ -232,7 +232,7 @@ for f in $CHANGED; do
       # Au moins un des covered_by doit exister et être modifié
       while IFS= read -r cov; do
         [ -z "$cov" ] && continue
-        if [ -f "$cov" ] && echo "$CHANGED" | grep -Fxq "$cov"; then
+        if [ -f "$cov" ] && grep -Fxq "$cov" <<<"$CHANGED"; then
           test_file="$cov"
           break
         fi
@@ -260,7 +260,7 @@ for f in $CHANGED; do
   fi
 
   # ─── 2. Test modifié dans la même PR ───
-  if ! echo "$CHANGED" | grep -Fxq "$test_file"; then
+  if ! grep -Fxq "$test_file" <<<"$CHANGED"; then
     echo "${RED}✗ $f modifié, mais $test_file non touché${NC}"
     echo "  Tu as changé la source sans rien adapter dans le test."
     FAILED=$((FAILED + 1))

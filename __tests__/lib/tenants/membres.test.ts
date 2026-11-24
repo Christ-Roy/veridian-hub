@@ -57,6 +57,18 @@ describe('rejoindre', () => {
     expect(await joindre({ origine: 'invitation' }), 'une invitation ne rétrograde pas').toEqual({ cree: false, role: 'owner' });
     expect(await joindre({ origine: 'operateur', role: 'admin' })).toEqual({ cree: true, role: 'admin' });
   });
+  it('chaque entrée et chaque changement de rôle date le rôle : la version que l\'app compare avance', async () => {
+    await joindre();
+    const un = membres[0].roleLe as Date;
+    expect(un).toBeInstanceOf(Date);
+    await new Promise((r) => setTimeout(r, 3));
+    await joindre({ origine: 'operateur', role: 'admin' });
+    expect(membres[0].roleLe.getTime()).toBeGreaterThan(un.getTime());
+    const deux = membres[0].roleLe;
+    await joindre({ origine: 'operateur', role: 'admin' });
+    expect(membres[0].roleLe, 'rien ne change : la version non plus').toBe(deux);
+  });
+
   it('tenant suspendu ou absent, compte inconnu, adresse non prouvée : rien n\'est écrit', async () => {
     await expect(joindre({ hubUserId: 'u-flou' })).rejects.toMatchObject({ code: 'adresse_non_prouvee' });
     await expect(joindre({ hubUserId: 'u-x' })).rejects.toMatchObject({ code: 'compte_introuvable' });
