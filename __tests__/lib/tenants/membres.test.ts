@@ -14,6 +14,8 @@ let users: L[];
 let membres: L[];
 let audits: L[];
 let invitations: L[];
+let revoques: L[];
+let coupees: L[];
 const trouve = (w: L) => membres.find((m) => m.tenantId === w.tenantId_userId.tenantId && m.userId === w.tenantId_userId.userId) ?? null;
 const db = {
   tenant: { findFirst: async ({ where }: L) => (tenant && tenant.id === where.id ? tenant : null), update: async ({ data }: L) => Object.assign(tenant!, data) },
@@ -23,6 +25,8 @@ const db = {
     upsert: async ({ where, create, update }: L) => { const l = trouve(where); if (l) Object.assign(l, update); else membres.push({ deletedAt: null, ...create }); },
     update: async ({ where, data }: L) => Object.assign(trouve(where)!, data),
   },
+  delegationGrant: { updateMany: async ({ where }: L) => { revoques.push(where); return { count: 1 }; } },
+  integrationPaire: { updateMany: async ({ where, data }: L) => { coupees.push([where, data]); return { count: 1 }; } },
   crossAppInvitation: {
     findMany: async ({ where }: L) => invitations.filter((i) => i.inviteeEmail.toLowerCase() === where.inviteeEmail.equals.toLowerCase() && !i.acceptedAt && i.expiresAt > where.expiresAt.gt),
     updateMany: async ({ where, data }: L) => { for (const i of invitations) if (where.id.in.includes(i.id)) Object.assign(i, data); },
@@ -36,6 +40,8 @@ beforeEach(() => {
   membres = [];
   audits = [];
   invitations = [];
+  revoques = [];
+  coupees = [];
   for (const a of ['NOTIFUSE', 'PROSPECTION', 'CRM', 'ACADEMY', 'ANALYTICS']) {
     vi.stubEnv(`${a}_API_URL`, `https://${a.toLowerCase()}.test`);
     vi.stubEnv(`${a}_HUB_API_SECRET`, 's');
@@ -138,6 +144,11 @@ describe('retirer', () => {
     expect(audits[0]).toMatchObject({ action: 'membre.retire', targetId: 'T' });
   });
 
+  it('ses poignées de délégation dans CE tenant meurent', async () => {
+    await retirerM(apps({}).f, ['notifuse']).catch(() => undefined);
+    expect(revoques).toEqual([{ hubUserId: 'u-m', tenantId: 'T', revoqueLe: null }]);
+  });
+
   it('une app qui dit oui et garde le membre : échec dit, jamais « retiré »', async () => {
     const r = await retirerM(apps({ crm: ['m@x.fr'] }, { sourd: 'crm' }).f);
     expect(r.complet).toBe(false);
@@ -185,6 +196,8 @@ describe('suspension', () => {
     expect(r.avis, 'celui qui suspend lit ce qui ne l\'est pas').toContain('crm (aucune route de suspension');
     expect(a.posts.map((p) => [p.app, p.chemin, p.corps.tenant_id])).toEqual(expect.arrayContaining([['notifuse', '/api/tenants/suspend', 'esp'], ['prospection', '/api/tenants/suspend', 'tp'], ['academy', '/api/tenants/suspend', 'T']]));
     expect(audits[0]).toMatchObject({ action: 'tenant.suspendu' });
+    expect(revoques, 'poignées du tenant').toEqual([{ tenantId: 'T', revoqueLe: null }]);
+    expect(coupees[0][1], 'consentements retirés').toMatchObject({ etat: 'eteinte', consentiLe: null });
     const b = apps(etat);
     expect((await basculer(false, b.f)).apps[0].etat).toBe('repris');
     expect(tenant!.status).toBe('active');

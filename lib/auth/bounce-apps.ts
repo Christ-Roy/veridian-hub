@@ -75,6 +75,8 @@ export interface IssueMagicLinkInput {
   /** Page demandée : l'app y renvoie après connexion, si elle est sur sa propre origine. */
   next?: string;
   /** Rôle du compte dans ses organisations (CONTRAT-HUB §5.22). Vide ou absent : l'app ne change rien. */
+  /** Poignées de délégation de ce compte pour cette app (VER-245 b.2), une par organisation. */
+  delegations?: { hub_tenant_id: string; grant: string; expire_le: string }[];
   organisations?: { hub_tenant_id: string; role: string; version: number }[];
 }
 
@@ -206,6 +208,7 @@ export async function issueMagicLinkForApp(
     email: input.email,
     ...(input.emailProven ? { email_proven: true } : {}),
     ...(input.next ? { next: input.next } : {}),
+    ...(input.delegations?.length ? { delegations: input.delegations } : {}),
     ...(input.organisations?.length ? { organisations: input.organisations } : {}),
   });
 

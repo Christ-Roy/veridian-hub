@@ -351,6 +351,53 @@ describe('espace suspendu ou membre retiré (VER-245)', () => {
   });
 });
 
+describe('liaisons entre apps (VER-245 b.2)', () => {
+  const inter = vi.hoisted(() => ({ lister: vi.fn(), regler: vi.fn() }));
+  vi.mock('@/lib/delegation/interrupteur', () => ({ listerIntegrations: (...a: unknown[]) => inter.lister(...a), reglerIntegration: (...a: unknown[]) => inter.regler(...a) }));
+  beforeEach(() => { inter.lister.mockReset().mockResolvedValue([{ paire: 'prospection>crm', etat: 'eteinte' }]); inter.regler.mockReset().mockResolvedValue({ etat: 'eteinte' }); });
+  const regler = (args: Record<string, unknown> = {}) => appel('executer_outil', { nom: 'hub.integrations_regler', arguments: { paire: 'prospection>crm', etat: 'eteinte' }, ...args }, appFactice()) as Promise<any>;
+  const autre = async (role: string) => {
+    await db.tenant.create({ data: { id: 't6', userId: 'autre', name: 'Six', slug: 'six', status: 'active', createdAt: new Date() } });
+    await (db as any).tenantMember.create({ data: { tenantId: 't6', userId: HUB_USER, role, deletedAt: null } });
+  };
+
+  it('lister : le seul espace qu\'on a, ou celui qu\'on nomme ; jamais un espace étranger', async () => {
+    expect(json(await appel('executer_outil', { nom: 'hub.integrations_lister' }, appFactice())).espace).toBe('mon-espace');
+    await autre('member');
+    expect(((await appel('executer_outil', { nom: 'hub.integrations_lister' }, appFactice())) as any).result.isError, 'deux espaces : préciser').toBe(true);
+    expect(json(await appel('executer_outil', { nom: 'hub.integrations_lister', espace: 'six' }, appFactice())).espace).toBe('six');
+    expect(((await appel('executer_outil', { nom: 'hub.integrations_lister', espace: 'pas-a-moi' }, appFactice())) as any).result.isError).toBe(true);
+    expect(inter.lister.mock.calls.map((c) => c[1])).toEqual(['t1', 't6']);
+  });
+  it('régler : l\'espace, le compte et le client viennent de la porte, jamais des paramètres', async () => {
+    await regler({ arguments: { paire: 'prospection>crm', etat: 'eteinte', tenantId: 'x', hubUserId: 'y', client: 'z' } });
+    expect(inter.regler.mock.calls[0][1]).toMatchObject({ tenantId: 't1', hubUserId: HUB_USER, paire: 'prospection>crm', etat: 'eteinte' });
+    expect(inter.regler.mock.calls[0][1].client).not.toBe('z');
+    inter.regler.mockResolvedValue({ etat: 'a_confirmer', lien: 'https://l', expire_le: 'e' });
+    expect(json(await regler({ arguments: { paire: 'prospection>crm', etat: 'allumee' } }))).toMatchObject({ etat: 'a_confirmer', lien: 'https://l' });
+    inter.regler.mockResolvedValue({ refus: 'role_insuffisant' });
+    expect((await regler()).result.isError).toBe(true);
+    inter.regler.mockClear();
+    expect((await regler({ arguments: { paire: 'p', etat: 'peut-être' } })).result.isError).toBe(true);
+    expect(inter.regler).not.toHaveBeenCalled();
+  });
+  it('régler n\'est proposé qu\'à qui dirige un espace ; destructif, donc confirmé par le client', async () => {
+    const trouve = async () => json(await appel('chercher_outils', { besoin: 'allumer une liaison entre deux apps' }, appFactice())).outils.map((o: any) => o.nom);
+    expect(await trouve()).toEqual(expect.arrayContaining(['hub.integrations_regler', 'hub.integrations_lister']));
+    expect(json(await appel('decrire_outil', { nom: 'hub.integrations_regler' }, appFactice())).annotations.destructiveHint).toBe(true);
+    (db.tenant as any).lignes.find((x: any) => x.id === 't1').userId = 'autre';
+    await autre('member');
+    expect(await trouve()).not.toContain('hub.integrations_regler');
+    expect((await regler()).result.isError).toBe(true);
+    expect(inter.regler).not.toHaveBeenCalled();
+  });
+  it('un espace suspendu : ni lister ni régler', async () => {
+    (db.tenant as any).lignes.find((x: any) => x.id === 't1').status = 'suspended';
+    for (const nom of ['hub.integrations_lister', 'hub.integrations_regler']) expect(((await appel('executer_outil', { nom, arguments: { paire: 'p', etat: 'allumee' }, espace: 'mon-espace' }, appFactice())) as any).result.isError).toBe(true);
+    expect([inter.lister.mock.calls, inter.regler.mock.calls]).toEqual([[], []]);
+  });
+});
+
 describe('executer_programme', () => {
   /** Moteur factice : il demande des appels, attend leurs réponses, puis finit. L'exécuteur réel : programme.test.ts. */
   const moteur = (appels: { nom: string; args?: unknown }[]) => async (): Promise<Moteur> => {
@@ -419,9 +466,9 @@ describe('executer_programme', () => {
     });
 
     it('un programme n\'en lance pas un autre, par aucun nom, même autorisé', async () => {
-      const noms = ['executer_programme', 'hub.executer_programme', 'executer_outil'];
+      const noms = ['executer_programme', 'hub.executer_programme', 'executer_outil', 'hub.integrations_regler'];
       const r = json(await prog({ code: 'x', autoriser: noms }, noms.map((nom) => ({ nom, args: { code: 'y', nom: 'hub.executer_programme' } })), appFactice()));
-      expect(r.appels).toMatchObject({ faits: 3, reussis: 0, echoues: 3 });
+      expect(r.appels).toMatchObject({ faits: 4, reussis: 0, echoues: 4 });
       expect(db.auditLog.lignes.filter((l: any) => l.action === 'mcp.programme')).toHaveLength(1);
       expect(db.auditLog.lignes.filter((l: any) => l.action === 'mcp.tool.call'), 'refusé avant d\'être joué').toHaveLength(0);
     });

@@ -1023,3 +1023,61 @@ model IaSession {
   @@map("ia_sessions")
   @@schema("hub_app")
 }
+
+/// Poignée de délégation (VER-245 b.2) : seule l'empreinte est gardée. Liée à (utilisateur, app, tenant).
+model DelegationGrant {
+  id        String    @id @default(cuid())
+  empreinte String    @unique
+  hubUserId String    @map("hub_user_id")
+  app       String
+  tenantId  String    @map("tenant_id")
+  creeLe    DateTime  @default(now()) @map("cree_le")
+  expireLe  DateTime  @map("expire_le")
+  revoqueLe DateTime? @map("revoque_le")
+
+  @@index([hubUserId, tenantId])
+  @@map("delegation_grants")
+  @@schema("hub_app")
+}
+
+model DelegationNonce {
+  empreinte String   @id
+  expireLe  DateTime @map("expire_le")
+
+  @@index([expireLe])
+  @@map("delegation_nonces")
+  @@schema("hub_app")
+}
+
+/// Interrupteur d'une paire d'apps dans une organisation (lib/delegation/paires.ts).
+model IntegrationPaire {
+  tenantId       String    @map("tenant_id")
+  paire          String
+  etat           String    @default("eteinte")
+  changePar      String    @map("change_par")
+  changeLe       DateTime  @default(now()) @map("change_le")
+  consentiPar    String?   @map("consenti_par")
+  consentiLe     DateTime? @map("consenti_le")
+  portees        String?
+  dernierPassage DateTime? @map("dernier_passage")
+  derniereErreur String?   @map("derniere_erreur")
+
+  @@id([tenantId, paire])
+  @@map("integration_paires")
+  @@schema("hub_app")
+}
+
+/// Première ouverture d'une paire, demandée par une IA : le propriétaire la confirme sur une page du Hub.
+model IntegrationDemande {
+  empreinte  String    @id
+  tenantId   String    @map("tenant_id")
+  paire      String
+  demandePar String    @map("demande_par")
+  clientNom  String    @map("client_nom")
+  creeLe     DateTime  @default(now()) @map("cree_le")
+  expireLe   DateTime  @map("expire_le")
+  confirmeLe DateTime? @map("confirme_le")
+
+  @@map("integration_demandes")
+  @@schema("hub_app")
+}

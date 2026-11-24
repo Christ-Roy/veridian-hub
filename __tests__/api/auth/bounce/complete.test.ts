@@ -21,6 +21,8 @@ const userFindUniqueMock = vi.hoisted(() => vi.fn(async (): Promise<unknown> => 
 vi.mock('@/lib/prisma', () => ({ prisma: { user: { findUnique: userFindUniqueMock } } }));
 const ensureCrmMock = vi.hoisted(() => vi.fn());
 const orgs = vi.hoisted(() => vi.fn(async (..._a: unknown[]): Promise<unknown[]> => []));
+const poignees = vi.hoisted(() => vi.fn(async (..._a: unknown[]): Promise<unknown[]> => []));
+vi.mock('@/lib/delegation/poignee', () => ({ emettrePoignees: poignees }));
 vi.mock('@/lib/tenants/roles', () => ({ APPS_A_ROLE: ['crm'], organisationsPourRebond: orgs }));
 vi.mock('@/lib/crm/provision', () => ({ ensureCrmWorkspace: (...a: unknown[]) => ensureCrmMock(...a) }));
 const ensureAcademyMock = vi.hoisted(() => vi.fn());
@@ -429,6 +431,20 @@ describe('GET /api/auth/bounce/complete', () => {
         expect(res.headers.get('location')).toBe('https://crm.app.veridian.site/auth/token?t=Z');
         expect(JSON.parse(fetchMock.mock.calls[0][1].body).organisations).toEqual(attendu);
       }
+    });
+
+    it('les poignées de CE compte pour CETTE app partent dans le corps signé ; une panne n\'empêche pas d\'entrer', async () => {
+      const p = [{ hub_tenant_id: 't', grant: 'g', expire_le: 'e' }];
+      poignees.mockReset();
+      poignees.mockResolvedValueOnce(p).mockRejectedValueOnce(new Error('base'));
+      for (const attendu of [p, undefined]) {
+        fetchMock.mockReset();
+        fetchMock.mockResolvedValueOnce(lien());
+        const { GET } = await import('@/app/api/auth/bounce/complete/route');
+        await GET(makeReq({ cookie: signNextCookie('https://crm.app.veridian.site/', TEST_SECRET) }));
+        expect(JSON.parse(fetchMock.mock.calls[0][1].body).delegations).toEqual(attendu);
+      }
+      expect(poignees.mock.calls[0][1]).toMatchObject({ app: 'crm' });
     });
 
     it('création impossible → page d\'erreur, une seule nouvelle tentative au plus', async () => {

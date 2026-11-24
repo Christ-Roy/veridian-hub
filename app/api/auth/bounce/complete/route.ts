@@ -42,6 +42,7 @@ import { ensureCrmWorkspace } from '@/lib/crm/provision';
 import { getEnabledGatedApps } from '@/lib/tenant-apps';
 import { isEmailProvenInDb } from '@/lib/auth/email-proof-provider';
 import { getHubBaseUrl } from '@/lib/mail/oauth-cookies';
+import { emettrePoignees } from '@/lib/delegation/poignee';
 import { prisma } from '@/lib/prisma';
 import type { SyncApp } from '@/lib/sync/types';
 import { APPS_A_ROLE, organisationsPourRebond } from '@/lib/tenants/roles';
@@ -129,6 +130,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       emailProven: await isEmailProvenInDb(prisma, userUuid(user)),
       next: parsed.url,
       // Seulement aux apps qui le traduisent ; une lecture ratée n'empêche jamais d'entrer (l'app ne change alors rien).
+      delegations: await emettrePoignees(prisma, { hubUserId: userUuid(user), app: parsed.app }).catch(() => []),
       organisations: APPS_A_ROLE.includes(parsed.app as SyncApp) ? await organisationsPourRebond(prisma, userUuid(user)).catch(() => []) : [],
     };
     // Academy est réservée : sans activation au Hub, aucun lien, même si l'app connaît encore le compte
