@@ -68,6 +68,13 @@ describe('classer', () => {
   });
 });
 
+it('un propriétaire non prouvé, présent dans l\'app, est non prouvé et pas « absent »', () => {
+  const hub = { ...HUB, tenants: [t('T3', 'u-flou', { notifuseWorkspaceSlug: 'e3' })] };
+  const r = classer('notifuse', [lu('flou@client.fr', [s('e3', { role: 'owner' })])], hub);
+  expect(r).toMatchObject({ absents: 0, comptes: { adresse_non_prouvee: 1 } });
+  expect(r.espaces[0]).toMatchObject({ absents: [], partielle: true });
+});
+
 describe('releverAppartenance', () => {
   const ecriture = vi.fn();
   const interdit = new Proxy({}, { get: (_c, k) => (k === 'findMany' ? undefined : ecriture) });

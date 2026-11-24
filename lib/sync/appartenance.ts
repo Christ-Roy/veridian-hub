@@ -108,7 +108,9 @@ export function classer(app: SyncApp, lus: Lu[], hub: { users: HubUser[]; tenant
       else if (homonyme || relie) cas = 'adresse_non_prouvee';
       else cas = 'inconnu';
       comptes[cas] += 1;
-      if (hubUserId) e.vus.add(hubUserId);
+      // Vu dans l'app : même non prouvé, il n'est pas « absent » (24/11, deux propriétaires non prouvés comptés deux fois).
+      const vu = hubUserId ?? homonyme?.supabaseUserId;
+      if (vu) e.vus.add(vu);
       e.membres.push({ email, hubUserId, role: s.role ?? null, cas, ...(raison ? { raison } : {}) });
     }
   }
