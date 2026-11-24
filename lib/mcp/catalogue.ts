@@ -62,20 +62,31 @@ export async function appsDe(db: Db, hubUserId: string): Promise<AppInscrite[]> 
 
 export type Espace = { id: string; nom: string; slug: string; role: string };
 
-/** Espaces où l'utilisateur agit : les siens, et ceux dont il est membre. */
+/** Espaces où l'utilisateur agit : les siens, et ceux dont il est membre. Un espace suspendu n'en est pas (VER-245). */
 export async function espacesDe(db: Db, hubUserId: string): Promise<Espace[]> {
+  return (await tousEspaces(db, hubUserId)).vivants;
+}
+
+/** Les mêmes, avec ceux qui sont suspendus, à part : ils se disent, ils ne s'ouvrent pas. */
+export async function tousEspaces(db: Db, hubUserId: string): Promise<{ vivants: Espace[]; suspendus: Espace[] }> {
+  const champs = { id: true, name: true, slug: true, status: true } as const;
   const [siens, membre] = await Promise.all([
-    db.tenant.findMany({ where: { userId: hubUserId, deletedAt: null }, select: { id: true, name: true, slug: true }, orderBy: { createdAt: 'asc' } }),
+    db.tenant.findMany({ where: { userId: hubUserId, deletedAt: null }, select: champs, orderBy: { createdAt: 'asc' } }),
     db.tenantMember.findMany({ where: { userId: hubUserId, deletedAt: null }, select: { tenantId: true, role: true } }),
   ]);
   const autres = membre.filter((m) => !siens.some((t) => t.id === m.tenantId));
   const lus = autres.length
-    ? await db.tenant.findMany({ where: { id: { in: autres.map((m) => m.tenantId) }, deletedAt: null }, select: { id: true, name: true, slug: true } })
+    ? await db.tenant.findMany({ where: { id: { in: autres.map((m) => m.tenantId) }, deletedAt: null }, select: champs })
     : [];
-  return [
-    ...siens.map((t) => ({ id: t.id, nom: t.name, slug: t.slug, role: 'proprietaire' })),
-    ...lus.map((t) => ({ id: t.id, nom: t.name, slug: t.slug, role: autres.find((m) => m.tenantId === t.id)?.role ?? 'membre' })),
+  const tous = [
+    ...siens.map((t) => ({ id: t.id, nom: t.name, slug: t.slug, role: 'proprietaire', status: t.status })),
+    ...lus.map((t) => ({ id: t.id, nom: t.name, slug: t.slug, role: autres.find((m) => m.tenantId === t.id)?.role ?? 'membre', status: t.status })),
   ];
+  const sans = ({ status: _s, ...e }: (typeof tous)[number]): Espace => e;
+  return {
+    vivants: tous.filter((t) => t.status !== 'suspended' && t.status !== 'deleted').map(sans),
+    suspendus: tous.filter((t) => t.status === 'suspended').map(sans),
+  };
 }
 
 export async function sessionPour(app: AppInscrite, qui: Appelant, deps: Deps = {}, tenantId?: string): Promise<SessionApp> {

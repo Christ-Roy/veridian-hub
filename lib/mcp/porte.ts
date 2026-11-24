@@ -6,7 +6,7 @@ import { createHash, randomUUID } from 'node:crypto';
 
 import type { PrismaClient } from '@prisma/client';
 
-import { catalogue, chercher, espacesDe, sessionOuCreation, type Catalogue, type Deps, type Espace, type Outil } from './catalogue';
+import { catalogue, chercher, sessionOuCreation, tousEspaces, type Catalogue, type Deps, type Espace, type Outil } from './catalogue';
 import { PLANNED_APPS, readAppPlan, tenantHasApp } from '@/lib/plans/app-plan';
 
 import { AppDebit, AppInjoignable, type SessionApp } from './client-app';
@@ -117,7 +117,7 @@ const OUTILS_HUB: Outil[] = [
   },
 ];
 
-async function monCompte(db: DbPorte, qui: Appelant, apps: { appKey: string; label: string }[], espaces: Espace[]) {
+async function monCompte(db: DbPorte, qui: Appelant, apps: { appKey: string; label: string }[], { vivants: espaces, suspendus }: Espaces) {
   const ids = espaces.map((e) => e.id);
   const [tenants, essais] = ids.length
     ? await Promise.all([
@@ -140,6 +140,7 @@ async function monCompte(db: DbPorte, qui: Appelant, apps: { appKey: string; lab
         essais: essais.filter((x) => x.tenantId === e.id).map((x) => ({ app: x.app, etat: x.state, fin: x.trialEndsAt })),
       };
     }),
+    ...(suspendus.length ? { espaces_suspendus: suspendus.map((e) => ({ nom: e.nom, slug: e.slug })) } : {}),
     apps_connectees: apps.map((a) => ({ cle: a.appKey, nom: a.label })),
   };
 }
@@ -199,10 +200,17 @@ async function journal(db: DbPorte, qui: Appelant, outil: string, ok: boolean, m
  * prend l'espace par défaut du compte, et une app qui ne relie pas encore les tenants Hub refusait tout (mesuré le 09/11 :
  * Rybbit 401, Notifuse 403, avec l'unique espace signé).
  */
-function espaceChoisi(espaces: Espace[], demande: unknown): { tenantId?: string; refus?: Contenu } {
-  if (typeof demande !== 'string' || !demande) return {};
-  const e = espaces.find((x) => x.slug === demande || x.id === demande);
-  return e ? { tenantId: e.id } : { refus: texte(`Espace inconnu pour ce compte : ${demande}. Voir hub.mon_compte.`, true) };
+type Espaces = Awaited<ReturnType<typeof tousEspaces>>;
+function espaceChoisi({ vivants, suspendus }: Espaces, demande: unknown): { tenantId?: string; refus?: Contenu } {
+  const est = (d: unknown) => (x: Espace) => x.slug === d || x.id === d;
+  if (typeof demande === 'string' && demande) {
+    const e = vivants.find(est(demande));
+    if (e) return { tenantId: e.id };
+    return { refus: texte(suspendus.some(est(demande)) ? `Espace suspendu : ${demande}. Rien ne s'y exécute.` : `Espace inconnu pour ce compte : ${demande}. Voir hub.mon_compte.`, true) };
+  }
+  // Sans espace choisi, l'app prend celui par défaut du compte : ce pourrait être le suspendu. On ne le laisse pas deviner.
+  if (suspendus.length === 0) return {};
+  return { refus: texte(vivants.length ? `Un de vos espaces est suspendu : préciser espace=<slug> parmi ${vivants.map((e) => e.slug).join(', ')}.` : 'Espace suspendu : aucun outil ne s\'exécute. Contacter Veridian.', true) };
 }
 
 /** Joue un outil du catalogue : même identité, même espace et même journal, appelé seul ou par un programme. */
@@ -210,7 +218,7 @@ async function jouer(
   db: DbPorte,
   qui: Appelant,
   cat: Catalogue,
-  espaces: Espace[],
+  espaces: Espaces,
   o: Outil,
   params: Record<string, unknown>,
   tenantId: string | undefined,
@@ -250,7 +258,7 @@ async function programme(db: DbPorte, qui: Appelant, cat: Catalogue, args: Recor
   if (!Array.isArray(noms) || noms.length > AUTORISER_MAX || noms.some((n) => typeof n !== 'string')) return texte(`autoriser : une liste de ${AUTORISER_MAX} noms d'outils au plus.`, true);
   const reprise = args.reprise ?? null;
   if (JSON.stringify(reprise).length > ETAT_MAX_CAR) return texte(`reprise trop longue : ${ETAT_MAX_CAR} caractères au plus.`, true);
-  const espaces = await espacesDe(db, qui.hubUserId);
+  const espaces = await tousEspaces(db, qui.hubUserId);
   const choisi = espaceChoisi(espaces, args.espace);
   if (choisi.refus) return choisi.refus;
   const place = prendrePlace(qui.hubUserId);
@@ -359,8 +367,9 @@ async function appelerOutil(db: DbPorte, qui: Appelant, nom: string, args: Recor
       if (args.espace && params.espace && args.espace !== params.espace) return texte('Deux espaces différents : en choisir un seul.', true);
       return programme(db, qui, cat, { ...params, espace: params.espace ?? args.espace }, deps, arrivee);
     }
-    const espaces = await espacesDe(db, qui.hubUserId);
-    const choisi = espaceChoisi(espaces, args.espace);
+    const espaces = await tousEspaces(db, qui.hubUserId);
+    // hub.mon_compte reste lisible : c'est là qu'on apprend qu'un espace est suspendu.
+    const choisi = o.app === 'hub' ? {} : espaceChoisi(espaces, args.espace);
     if (choisi.refus) return choisi.refus;
     try {
       return borner(await jouer(db, qui, cat, espaces, o, params, choisi.tenantId, deps));
