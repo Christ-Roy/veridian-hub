@@ -5,8 +5,9 @@
  */
 import { expect } from '@playwright/test';
 
+import { HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
-import { activerTwentyAuHub, admin, appelTwenty, lookup } from './lib/hub-admin';
+import { activerTwentyAuHub, admin, adminOk, appelTwenty, lookup } from './lib/hub-admin';
 import { obtenirJetonMcp, outil } from './lib/mcp';
 import { creerCompteProuve, noterEspaceTwenty, type Compte } from './lib/parcours';
 
@@ -30,7 +31,20 @@ async function exiger<T>(promesse: Promise<{ status: number; json: T }>, statuts
 }
 const apps = (j: any) => (j.apps as { app: string; etat: string; detail?: string }[]).map((a) => `${a.app}=${a.etat}${a.detail ? ` (${a.detail})` : ''}`).join(', ');
 
-cas(null, 'coupure : membre retiré et organisation suspendue refusés par la porte MCP en moins de 2 min', async ({ browser }) => {
+/** Le registre MCP du staging n'a pas le CRM : posé pour ce cas, rendu tel quel. En prod, rien n'est touché. */
+async function avecCrmAuRegistre<T>(jouer: () => Promise<T>): Promise<T> {
+  if (!/staging/.test(HUB_URL)) return jouer();
+  const avant = (await adminOk<{ apps: { appKey: string }[] }>('GET', 'mcp-apps')).apps.find((a) => a.appKey === 'twenty');
+  if (avant) return jouer();
+  await adminOk('POST', 'mcp-apps', { app_key: 'twenty', label: 'CRM', mcp_url: 'https://crm.staging.veridian.site/mcp', acces: 'tous', enabled: true });
+  try {
+    return await jouer();
+  } finally {
+    await admin('DELETE', 'mcp-apps?app_key=twenty');
+  }
+}
+
+cas(null, 'coupure : membre retiré et organisation suspendue refusés par la porte MCP en moins de 2 min', ({ browser }) => avecCrmAuRegistre(async () => {
   const P: Compte = await creerCompteProuve(browser, 'coupprop');
   const M: Compte = await creerCompteProuve(browser, 'coupmembre');
   if (!P.hubUserId || !M.hubUserId) throw new NonAbouti('comptes de test incomplets');
@@ -38,12 +52,17 @@ cas(null, 'coupure : membre retiré et organisation suspendue refusés par la po
   await avecCrm(M);
   const jetonP = await obtenirJetonMcp(browser, P, 'TEST COUPURE P');
   const jetonM = await obtenirJetonMcp(browser, M, 'TEST COUPURE M');
+  for (const j of [jetonP, jetonM]) {
+    const d = await outil(j, 'chercher_outils', { besoin: 'find many people', app: 'twenty' });
+    if (!d.texte.includes(LIRE.nom)) throw new NonAbouti(`le CRM ne montre pas ${LIRE.nom} : ${d.texte.slice(0, 300)}`);
+  }
   const slugP = (await vue(jetonP)).espaces[0]?.slug;
   const slugM = (await vue(jetonM)).espaces[0]?.slug;
   if (!slugP || !slugM) throw new NonAbouti('espace de test sans slug');
 
   // Avant : M n'y est pas. Membre : il y est. C'est la preuve positive, sans quoi le refus final ne prouverait rien.
-  expect((await dansEspace(jetonM, slugP)).texte, 'étranger').toContain('inconnu pour ce compte');
+  const etranger = await dansEspace(jetonM, slugP);
+  expect(etranger.texte, `étranger : ${etranger.texte.slice(0, 200)}`).toContain('inconnu pour ce compte');
   const ajout = await exiger(admin('POST', `tenants/${TENANT}/members`, { hub_user_id: M.hubUserId }), [200], 'ajout');
   expect(ajout).toEqual({ cree: true, role: 'member' });
   expect((await vue(jetonM)).espaces.map((e) => e.slug), 'membre').toContain(slugP);
@@ -85,6 +104,10 @@ cas(null, 'coupure : membre retiré et organisation suspendue refusés par la po
   expect((await dansEspace(jetonM, slugM)).texte, 'un autre tenant n\'est pas touché').not.toContain('suspendu');
 
   const reprise = await exiger<any>(admin('POST', `tenants/${TENANT}/suspension`, { suspendre: false }), [200, 207], 'reprise');
+  // Tout ce qui a été suspendu est repris, même chez une app qui cache un espace suspendu (Prospection, 24/11).
+  for (const a of (susp.apps as { app: string; etat: string }[]).filter((x) => x.etat === 'suspendu')) {
+    expect((reprise.apps as { app: string; etat: string }[]).find((x) => x.app === a.app)?.etat, `reprise de ${a.app} : ${apps(reprise)}`).toBe('repris');
+  }
   expect((await dansEspace(jetonP, slugP)).texte, 'reprise').not.toContain('suspendu');
   return `retrait coupé en ${coupe} ms [${apps(retrait)}] ; suspension en ${coupeSusp} ms [${apps(susp)}] ; reprise [${apps(reprise)}]`;
-}, { timeout: 420_000 });
+}), { timeout: 420_000 });

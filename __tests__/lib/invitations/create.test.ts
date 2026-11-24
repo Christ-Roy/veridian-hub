@@ -14,7 +14,10 @@
  *   - buildMagicLinkUrl throw si pas configuré
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { vi, describe, it, expect, beforeEach } from 'vitest';
+
+const verdict = vi.hoisted(() => ({ v: { tenantId: 'T' } as { tenantId?: string; refus?: string } }));
+vi.mock('@/lib/invitations/jonction', () => ({ tenantDeLInvitation: async () => verdict.v }));
 import type { PrismaClient } from '@prisma/client';
 import {
   createCrossAppInvitation,
@@ -191,6 +194,13 @@ describe('createCrossAppInvitation', () => {
     // Un vieux compte dont users.id est un uuid reste trouvé.
     expect((await createCrossAppInvitation(base, { ...baseInput, inviteeEmail: 'c@example.com', inviterUserId: '44444444-4444-4444-8444-444444444444' })).invitation.inviterUserId).toBe('44444444-4444-4444-8444-444444444444');
     await expect(createCrossAppInvitation(base, { ...baseInput, inviteeEmail: 'd@example.com', inviterUserId: '55555555-5555-4555-8555-555555555555' })).rejects.toMatchObject({ code: 'inviter_not_found' });
+  });
+
+  it.each(['espace_non_relie', 'inviteur_non_habilite', 'echec'])('%s : rien n\'est créé, même pour réutiliser une invitation en attente', async (refus) => {
+    await createCrossAppInvitation(prisma, baseInput);
+    verdict.v = { refus };
+    await expect(createCrossAppInvitation(prisma, baseInput)).rejects.toMatchObject({ code: refus });
+    verdict.v = { tenantId: 'T' };
   });
 
   it('plafond par espace et par jour ; un autre espace n\'est pas touché, une invitation en attente se réutilise', async () => {

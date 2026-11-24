@@ -202,6 +202,8 @@ AUTH_TRUST_HOST=true
 DEPLOY_ENV=staging
 CRM_RETRAIT_FUSIBLE=0
 PROGRAMME_FICHIER=/local/programme
+# Rôle d'organisation porté aux apps (§5.22) : staging ouvert.
+ROLE_PORTE=tous
 OAUTH_TEST_PROVIDER=true
 ADMIN_EMAILS=brunon5robert@gmail.com,robert.brunon@veridian.site
 

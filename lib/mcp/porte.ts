@@ -7,6 +7,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 
 import { catalogue, chercher, sessionOuCreation, tousEspaces, type Catalogue, type Deps, type Espace, type Outil } from './catalogue';
+import { roleOrg } from '@/lib/tenants/roles';
 import { PLANNED_APPS, readAppPlan, tenantHasApp } from '@/lib/plans/app-plan';
 
 import { AppDebit, AppInjoignable, type SessionApp } from './client-app';
@@ -201,11 +202,11 @@ async function journal(db: DbPorte, qui: Appelant, outil: string, ok: boolean, m
  * Rybbit 401, Notifuse 403, avec l'unique espace signé).
  */
 type Espaces = Awaited<ReturnType<typeof tousEspaces>>;
-function espaceChoisi({ vivants, suspendus }: Espaces, demande: unknown): { tenantId?: string; refus?: Contenu } {
+function espaceChoisi({ vivants, suspendus }: Espaces, demande: unknown): { tenantId?: string; orgRole?: string; refus?: Contenu } {
   const est = (d: unknown) => (x: Espace) => x.slug === d || x.id === d;
   if (typeof demande === 'string' && demande) {
     const e = vivants.find(est(demande));
-    if (e) return { tenantId: e.id };
+    if (e) return { tenantId: e.id, orgRole: roleOrg(e.role) };
     return { refus: texte(suspendus.some(est(demande)) ? `Espace suspendu : ${demande}. Rien ne s'y exécute.` : `Espace inconnu pour ce compte : ${demande}. Voir hub.mon_compte.`, true) };
   }
   // Sans espace choisi, l'app prend celui par défaut du compte : ce pourrait être le suspendu. On ne le laisse pas deviner.
@@ -268,7 +269,7 @@ async function programme(db: DbPorte, qui: Appelant, cat: Catalogue, args: Recor
   const abandon = new AbortController();
   // Une session par app pour tout le programme : sans cela, trois requêtes par appel useraient le débit de l'app.
   const sessions = new Map<string, Promise<SessionApp>>();
-  const depsProgramme: Deps = { ...deps, session: { entetes: { 'X-Veridian-MCP-Appel': 'programme' }, maxOctets: REPONSE_MAX_OCTETS, signal: abandon.signal } };
+  const depsProgramme: Deps = { ...deps, orgRole: choisi.orgRole, session: { entetes: { 'X-Veridian-MCP-Appel': 'programme' }, maxOctets: REPONSE_MAX_OCTETS, signal: abandon.signal } };
   const session = (appKey: string): Promise<SessionApp> => {
     const ouverte = sessions.get(appKey);
     if (ouverte) return ouverte;
@@ -372,7 +373,7 @@ async function appelerOutil(db: DbPorte, qui: Appelant, nom: string, args: Recor
     const choisi = o.app === 'hub' ? {} : espaceChoisi(espaces, args.espace);
     if (choisi.refus) return choisi.refus;
     try {
-      return borner(await jouer(db, qui, cat, espaces, o, params, choisi.tenantId, deps));
+      return borner(await jouer(db, qui, cat, espaces, o, params, choisi.tenantId, { ...deps, orgRole: choisi.orgRole }));
     } catch (err) {
       return texte(`Échec de ${o.nom} : ${err instanceof AppInjoignable ? err.message : 'erreur interne'}.`, true);
     }

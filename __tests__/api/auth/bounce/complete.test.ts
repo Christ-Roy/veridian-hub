@@ -20,6 +20,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const userFindUniqueMock = vi.hoisted(() => vi.fn(async (): Promise<unknown> => null));
 vi.mock('@/lib/prisma', () => ({ prisma: { user: { findUnique: userFindUniqueMock } } }));
 const ensureCrmMock = vi.hoisted(() => vi.fn());
+const orgs = vi.hoisted(() => vi.fn(async (..._a: unknown[]): Promise<unknown[]> => []));
+vi.mock('@/lib/tenants/roles', () => ({ APPS_A_ROLE: ['crm'], organisationsPourRebond: orgs }));
 vi.mock('@/lib/crm/provision', () => ({ ensureCrmWorkspace: (...a: unknown[]) => ensureCrmMock(...a) }));
 const ensureAcademyMock = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/academy/provision', () => ({ ensureAcademyWorkspace: (...a: unknown[]) => ensureAcademyMock(...a) }));
@@ -414,6 +416,19 @@ describe('GET /api/auth/bounce/complete', () => {
       expect(res.headers.get('location')).toBe('https://crm.app.veridian.site/auth/token?t=Z');
       expect(ensureCrmMock).toHaveBeenCalledWith(expect.anything(), { hubUserId: 'uuid-1', email: 'a@b.c', name: 'Alice' }, expect.anything());
       expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('le rôle d\'organisation part au CRM, dans le corps signé ; une lecture ratée n\'empêche jamais d\'entrer', async () => {
+      const o = [{ hub_tenant_id: 't', role: 'admin', version: 2 }];
+      orgs.mockResolvedValueOnce(o).mockRejectedValueOnce(new Error('base'));
+      for (const attendu of [o, undefined]) {
+        fetchMock.mockReset();
+        fetchMock.mockResolvedValueOnce(lien());
+        const { GET } = await import('@/app/api/auth/bounce/complete/route');
+        const res = await GET(makeReq({ cookie: signNextCookie('https://crm.app.veridian.site/', TEST_SECRET) }));
+        expect(res.headers.get('location')).toBe('https://crm.app.veridian.site/auth/token?t=Z');
+        expect(JSON.parse(fetchMock.mock.calls[0][1].body).organisations).toEqual(attendu);
+      }
     });
 
     it('création impossible → page d\'erreur, une seule nouvelle tentative au plus', async () => {

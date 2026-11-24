@@ -1769,6 +1769,40 @@ cas 16 de la batterie.
 > tant qu'un espace vivant reste à la personne (`lib/apps/retrait-crm.ts`, doute = retenu) : sessions coupées, audit
 > `crm.retrait.attente`, alerte. Rejeu : `hub crm-retraits --rejouer <hub_user_id>`, fusible à 0.
 
+#### 5.19.3 Coupure, telle que servie (VER-245, 24/11/2026)
+
+`lib/tenants/membres.ts` est le **seul écrivain** de `tenant_members` et de la suspension (un test le tient). `hub membre`
+et `hub suspension` passent par lui.
+
+- **Retrait** : au Hub d'abord (la porte MCP refuse au prochain appel), puis chaque app par son identifiant, **relue** par
+  `by-email`. 200 : tout est coupé et relu. 207 : `avis` dit où ce n'est PAS coupé. Rejouer est sans effet de bord.
+- **Il tient** : ni une reprise ni une invitation d'avant le retrait ne ramènent la personne ; ses invitations en attente
+  expirent. Le Hub n'appelle jamais `sync-member`. Encore dans l'app : le relevé dit `retire_au_hub`, jamais `jonction`.
+- **Suspension** : la porte MCP refuse tout outil d'app et tout programme, et exige un espace nommé si un autre est suspendu.
+- **Qui ne sait pas** (24/11) : retrait, Academy (après le 29/11) et Analytics ; suspension, CRM et Analytics.
+- **Invitation acceptée** : membre au Hub (rôle `member`, toujours) si l'espace est relié et si l'inviteur est propriétaire ou
+  admin AU HUB ; 20 invitations par espace et par jour ; le propriétaire voit les arrivées dans le Hub. `inviter_user_id` =
+  `hub_user_id`.
+- **Risque restant** : une app compromise, avec son secret d'invitation, peut présenter un vrai propriétaire comme inviteur et
+  faire entrer un compte en `member`. Parade prévue : sans poignée de délégation vivante de ce propriétaire, pas d'invitation.
+- **Relevé** : `hub reconcile --appartenance` (lecture seule). Chaque écarté est nommé ; un compte qui ne se referme pas est
+  NON ABOUTI.
+
+#### 5.19.4 Rôle d'organisation porté par le Hub (VER-245 b.1) : §5.22 du contrat envoyé aux apps
+
+Rôles du Hub : `owner`, `admin`, `member`, par organisation, seule source (`lib/tenants/roles.ts`). L'app les traduit (CRM : owner
+et admin = Admin de l'espace relié, member = rôle par défaut).
+
+- **Rebond** : `issue-magic-link` porte `organisations: [{ hub_tenant_id, role, version }]` dans le corps signé. Champ ou tenant
+  absent : l'app ne change rien.
+- **Changement** : `POST /api/hub/members/role { hub_tenant_id, hub_user_id, email, role, version }` → `{ applied, native_role }` ou
+  `{ applied: false, reason: unchanged | not_member | stale | native_custom | last_admin }` ; 404 `tenant_not_linked`.
+- **Version** : millisecondes, monotone par (tenant, utilisateur) ; l'app ignore une version déjà vue ou plus ancienne.
+- **Relecture** : `by-email` rend `hub_tenant_id`, `hub_role` et `native_admin` (lu en base). « Appliqué » veut dire relu.
+- **Jeton MCP** : `org_role` avec `tenant_id`, information seulement.
+- L'app ne crée jamais d'appartenance, ne touche que l'espace relié, ne retire jamais le dernier admin.
+- **Fermé par défaut** (`ROLE_PORTE`) : personne n'est promu chez un client sans Robert ; les comptes de test sont ouverts.
+
 ### 5.20 Restauration d'un membre
 
 Si l'admin Hub a retiré un membre par erreur :

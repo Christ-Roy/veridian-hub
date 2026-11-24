@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({ rejoindre: vi.fn() }));
 vi.mock('@/lib/tenants/membres', async (o) => ({ ...(await o<object>()), rejoindre: (...a: unknown[]) => m.rejoindre(...a) }));
 
-import { joindreParInvitation } from '@/lib/invitations/jonction';
+import { joindreParInvitation, tenantDeLInvitation } from '@/lib/invitations/jonction';
 import { RefusMembre } from '@/lib/tenants/membres';
 
 const EMISE = new Date('2026-11-24');
@@ -60,5 +60,16 @@ describe('joindreParInvitation', () => {
     m.rejoindre.mockRejectedValue(new Error('base'));
     expect(await joindreParInvitation(db, inv(), 'u')).toEqual({ etat: 'echec' });
     expect((await joindreParInvitation(db, inv({ targetApp: 'prospection' }), 'u', { fetchImpl: (async () => new Response('', { status: 500 })) as never })).etat).toBe('echec');
+  });
+});
+
+describe('tenantDeLInvitation, avant de créer', () => {
+  it('dit le tenant, ou pourquoi l\'invitation ne doit pas exister', async () => {
+    expect(await tenantDeLInvitation(db, inv())).toEqual({ tenantId: 'T' });
+    expect((await tenantDeLInvitation(db, inv({ targetWorkspaceId: 'x' }))).refus).toBe('espace_non_relie');
+    expect((await tenantDeLInvitation(db, inv({ targetApp: 'cms' }))).refus).toBe('espace_non_relie');
+    tenant = { userId: 'u-autre' };
+    expect((await tenantDeLInvitation(db, inv())).refus).toBe('inviteur_non_habilite');
+    expect((await tenantDeLInvitation(db, inv({ targetApp: 'prospection' }), { fetchImpl: (async () => new Response('', { status: 500 })) as never })).refus).toBe('echec');
   });
 });

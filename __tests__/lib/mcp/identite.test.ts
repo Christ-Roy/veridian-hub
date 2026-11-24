@@ -53,6 +53,11 @@ describe('signerPourApp et la clé', () => {
     expect(await lire(await signerPourApp({ ...APP, tenantId: 't-1' }, env), APP.audience)).toMatchObject({ sub: 'u-1', tenant_id: 't-1', client_id: 'c-1' });
   });
 
+  it('org_role n\'est signé qu\'avec un espace choisi', async () => {
+    expect(await lire(await signerPourApp({ ...APP, orgRole: 'admin' }, env), APP.audience)).not.toHaveProperty('org_role');
+    expect(await lire(await signerPourApp({ ...APP, tenantId: 't-1', orgRole: 'admin' }, env), APP.audience)).toMatchObject({ tenant_id: 't-1', org_role: 'admin' });
+  });
+
   it('le JWKS public ne rend jamais la partie privée', async () => {
     const { keys } = await jwksPublic(env);
     expect(keys).toHaveLength(1);

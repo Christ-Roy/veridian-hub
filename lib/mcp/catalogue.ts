@@ -34,6 +34,8 @@ export type Deps = {
   provisionneurs?: Record<string, Provisionneur>;
   /** Options des sessions d'app (mode programme). */
   session?: ConstructorParameters<typeof SessionApp>[3];
+  /** Rôle dans l'organisation choisie, signé avec tenant_id. */
+  orgRole?: string;
   /** Offrir le mode programme : la porte publique seulement. */
   programme?: boolean;
   /** Moteur des programmes (tests) ; défaut : la passerelle. */
@@ -98,6 +100,7 @@ export async function sessionPour(app: AppInscrite, qui: Appelant, deps: Deps = 
     clientName: qui.clientName,
     scope: qui.scope,
     tenantId,
+    orgRole: deps.orgRole,
   });
   const s = new SessionApp(app.mcpUrl, jeton, deps.fetchImpl, deps.session);
   await s.ouvrir();

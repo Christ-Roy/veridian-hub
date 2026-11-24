@@ -15,6 +15,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+const verdict = vi.hoisted(() => ({ v: { tenantId: 'T' } as { tenantId?: string; refus?: string } }));
+vi.mock('@/lib/invitations/jonction', () => ({ tenantDeLInvitation: async () => verdict.v }));
 import { createHmac } from 'node:crypto';
 
 const SECRET = 'test-secret-prospection-hmac';
@@ -166,6 +169,15 @@ describe('POST /api/invitations/create', () => {
     target_workspace_id: 'ws_42',
     target_role: 'member',
   };
+
+  it.each([['espace_non_relie', 409], ['inviteur_non_habilite', 403], ['echec', 503]])('%s : %i, avec un message clair', async (refus, statut) => {
+    verdict.v = { refus };
+    const res = await callRoute(buildReq({ body: validBody }));
+    verdict.v = { tenantId: 'T' };
+    expect(res.status).toBe(statut);
+    const j = await res.json();
+    expect([j.error, j.reason.length > 20]).toEqual([refus, true]);
+  });
 
   it('plafond du jour atteint pour cet espace : 429, aucun mail', async () => {
     quotaDuJour = 20;

@@ -55,7 +55,7 @@ export async function jwksPublic(env: NodeJS.ProcessEnv = process.env): Promise<
 }
 
 export async function signerPourApp(
-  c: { audience: string; hubUserId: string; email: string; clientId: string; clientName?: string; scope: string; tenantId?: string },
+  c: { audience: string; hubUserId: string; email: string; clientId: string; clientName?: string; scope: string; tenantId?: string; orgRole?: string },
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<string> {
   const cle = await cleSignature(env);
@@ -69,6 +69,8 @@ export async function signerPourApp(
     client_id: c.clientId,
     ...(c.clientName ? { client_name: c.clientName } : {}),
     ...(c.tenantId ? { tenant_id: c.tenantId } : {}),
+    // Information : le rôle dans l'organisation choisie (CONTRAT-HUB §5.22). Les droits restent ceux du rôle natif de l'app.
+    ...(c.tenantId && c.orgRole ? { org_role: c.orgRole } : {}),
   };
   return new SignJWT(claims)
     .setProtectedHeader({ alg: 'ES256', kid: cle.kid, typ: 'JWT' })

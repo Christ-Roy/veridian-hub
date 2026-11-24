@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { basculerSuspension, nonCoupees, rejoindre, retirer, type DbMembres } from '@/lib/tenants/membres';
+import { basculerSuspension, nonCoupees, oublierCompte, rejoindre, retirer, type DbMembres } from '@/lib/tenants/membres';
 
 import { parcourir } from '../../contrat/source';
 
@@ -178,11 +178,48 @@ describe('suspension', () => {
     expect(tenant!.status).toBe('active');
     expect(b.posts.every((p) => p.chemin === '/api/tenants/resume')).toBe(true);
   });
+  it('une app qui cache l\'espace suspendu est quand même reprise, par la cible notée ; rien ne reste noté ensuite', async () => {
+    const etat: Record<string, string[]> = { notifuse: ['prop@x.fr'], prospection: ['prop@x.fr'] };
+    await basculer(true, apps(etat).f);
+    expect(tenant!.metadata).toMatchObject({ crm: { workspace_id: 'w-crm' }, hub_suspension: { cibles: { notifuse: ['esp'], prospection: ['tp'] } } });
+    etat.prospection = []; // Prospection ne montre plus un tenant suspendu.
+    const b = apps(etat);
+    expect((await basculer(false, b.f)).apps.slice(0, 2).map((x) => x.etat)).toEqual(['repris', 'repris']);
+    expect(b.posts.map((p) => p.corps.tenant_id).sort()).toEqual(['esp', 'tp']);
+    expect(tenant!.metadata).toEqual({ crm: { workspace_id: 'w-crm' } });
+  });
+
+  it('reprise ratée chez une app : sa cible reste notée, un rejeu la vise encore', async () => {
+    const etat: Record<string, string[]> = { prospection: ['prop@x.fr'] };
+    await basculer(true, apps(etat).f);
+    etat.prospection = [];
+    expect((await basculer(false, apps(etat, { refuse: 'prospection' }).f)).apps[1].etat).toBe('echec');
+    expect((await basculer(false, apps(etat).f)).apps[1].etat).toBe('repris');
+  });
+
+  it('retirer un membre d\'un espace suspendu que l\'app cache : envoyé, mais jamais dit « retiré » ni « absent »', async () => {
+    await joindre();
+    const etat: Record<string, string[]> = { prospection: ['prop@x.fr', 'm@x.fr'] };
+    await basculer(true, apps(etat).f);
+    const a = apps({});
+    const r = await retirerM(a.f, ['prospection']);
+    expect(r.apps[0]).toMatchObject({ etat: 'echec', detail: expect.stringContaining('pas relu') });
+    expect(a.posts.map((p) => p.chemin)).toEqual(['/api/tenants/tp/remove-member']);
+  });
+
   it('une app qui refuse : échec dit, le Hub reste suspendu', async () => {
     const r = await basculer(true, apps({ notifuse: ['prop@x.fr'] }, { refuse: 'notifuse' }).f);
     expect(r.apps[0]).toMatchObject({ etat: 'echec', detail: 'http_500' });
     expect(tenant!.status).toBe('suspended');
   });
+});
+
+it('oublierCompte : appartenances, invitations envoyées et reçues ; celles des autres restent', async () => {
+  const jeu: L[] = [];
+  const d = { tenantMember: { deleteMany: async (x: L) => { jeu.push(['membres', x.where]); return { count: 1 }; } }, crossAppInvitation: { updateMany: async (x: L) => { jeu.push(['acceptees', x]); return { count: 0 }; }, deleteMany: async (x: L) => { jeu.push(['invitations', x.where]); return { count: 2 }; } } } as never;
+  expect(await oublierCompte(d, { id: 'c', email: 'a@b.fr', hubUserId: 'u' })).toEqual({ membres: 1, invitations: 2 });
+  expect(jeu).toEqual([['membres', { userId: 'u' }], ['acceptees', { where: { acceptedByUserId: 'c' }, data: { acceptedByUserId: null } }], ['invitations', { OR: [{ inviterUserId: 'c' }, { inviteeEmail: { equals: 'a@b.fr', mode: 'insensitive' } }] }]]);
+  expect(await oublierCompte(d, { id: 'c', email: 'a@b.fr', hubUserId: null })).toEqual({ membres: 0, invitations: 2 });
 });
 
 it('nonCoupees : null quand tout est coupé, sinon chaque app et sa raison', () => {

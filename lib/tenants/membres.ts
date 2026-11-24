@@ -65,8 +65,8 @@ export async function rejoindre(db: DbMembres, d: { tenantId: string; hubUserId:
   if (avant?.deletedAt && (d.origine === 'reprise' || (d.origine === 'invitation' && !(d.emiseLe && d.emiseLe > avant.deletedAt)))) throw new RefusMembre('retire');
   await db.tenantMember.upsert({
     where: cle,
-    create: { tenantId: d.tenantId, userId: d.hubUserId, role, origine: d.origine, ajoutePar: d.acteur },
-    update: { role, deletedAt: null, origine: d.origine, ajoutePar: d.acteur },
+    create: { tenantId: d.tenantId, userId: d.hubUserId, role, origine: d.origine, ajoutePar: d.acteur, roleLe: new Date() },
+    update: { role, deletedAt: null, origine: d.origine, ajoutePar: d.acteur, roleLe: new Date() },
   });
   await writeAuditLog(db as PrismaClient, { action: 'membre.ajoute', actor: d.acteur, targetType: 'tenant', targetId: d.tenantId, payload: { hub_user_id: d.hubUserId, role, origine: d.origine } });
   return { cree: true, role };
@@ -109,6 +109,15 @@ async function retirerChez(app: SyncApp, t: Tenant, email: string, hubUserId: st
   try {
     const espaces = await espacesChez(app, t, email, hubUserId, deps);
     if (espaces === null) return { app, etat: 'echec', detail: 'l\'app ne dit pas où est ce compte' };
+    const notees = t.status === 'suspended' ? (ciblesNotees(t)[app] ?? []) : [];
+    if (espaces.length === 0 && notees.length && RETRAIT[app]) {
+      // Espace suspendu, que l'app cache : on retire quand même, et on dit que rien n'a pu être relu.
+      for (const c of notees) {
+        const res = await signer(app, 'POST', `/api/tenants/${encodeURIComponent(c)}/remove-member`, { user_email: email, email, hub_user_id: hubUserId, reason: motif }, deps);
+        if (!res.ok && res.status !== 404) return { app, etat: 'echec', detail: `http_${res.status}` };
+      }
+      return { app, etat: 'echec', detail: 'retrait envoyé, pas relu : espace suspendu, rejouer après la reprise' };
+    }
     if (espaces.length === 0) return { app, etat: 'absent' };
     if (!RETRAIT[app]) return { app, etat: 'non_gere', detail: 'aucune route de retrait dans cette app' };
     for (const s of espaces) {
@@ -158,23 +167,36 @@ export async function retirer(db: DbMembres, d: { tenantId: string; hubUserId: s
   return { deja, apps, complet, avis: nonCoupees(apps) };
 }
 
-async function basculerChez(app: SyncApp, t: Tenant, proprietaire: { email: string }, suspendre: boolean, deps: Deps): Promise<IssueApp> {
+/** Les cibles suspendues, notées sur le tenant : une app peut cacher l'espace qu'on vient de suspendre (Prospection, 24/11). */
+function ciblesNotees(t: Tenant): Partial<Record<SyncApp, string[]>> {
+  const n = ((t.metadata ?? {}) as { hub_suspension?: { cibles?: Partial<Record<SyncApp, string[]>> } }).hub_suspension?.cibles;
+  return n && typeof n === 'object' ? n : {};
+}
+
+async function basculerChez(app: SyncApp, t: Tenant, proprietaire: { email: string }, suspendre: boolean, deps: Deps): Promise<{ issue: IssueApp; cibles: string[] }> {
+  const notees = ciblesNotees(t)[app] ?? [];
   try {
     const espaces = await espacesChez(app, t, proprietaire.email, t.userId, deps);
-    if (espaces === null) return { app, etat: 'echec', detail: 'l\'app ne dit pas quel espace est relié' };
-    if (espaces.length === 0) return { app, etat: 'absent' };
-    if (!SUSPENSION[app]) return { app, etat: 'non_gere', detail: 'aucune route de suspension dans cette app' };
-    for (const s of espaces) {
-      const res = await signer(app, 'POST', `/api/tenants/${suspendre ? 'suspend' : 'resume'}`, { tenant_id: cible(app, t, s), ...(suspendre ? { reason: 'admin_action' } : {}) }, deps);
-      if (!res.ok) return { app, etat: 'echec', detail: `http_${res.status}` };
+    if (espaces === null && notees.length === 0) return { issue: { app, etat: 'echec', detail: 'l\'app ne dit pas quel espace est relié' }, cibles: notees };
+    const cibles = Array.from(new Set([...notees, ...(espaces ?? []).map((s) => cible(app, t, s))]));
+    if (cibles.length === 0) return { issue: { app, etat: 'absent' }, cibles: [] };
+    if (!SUSPENSION[app]) return { issue: { app, etat: 'non_gere', detail: 'aucune route de suspension dans cette app' }, cibles: [] };
+    const rate: string[] = [];
+    for (const c of cibles) {
+      const res = await signer(app, 'POST', `/api/tenants/${suspendre ? 'suspend' : 'resume'}`, { tenant_id: c, ...(suspendre ? { reason: 'admin_action' } : {}) }, deps);
+      if (!res.ok) rate.push(`http_${res.status}`);
     }
-    return { app, etat: suspendre ? 'suspendu' : 'repris' };
+    if (rate.length) return { issue: { app, etat: 'echec', detail: rate.join(', ') }, cibles };
+    return { issue: { app, etat: suspendre ? 'suspendu' : 'repris' }, cibles: suspendre ? cibles : [] };
   } catch (err) {
-    return { app, etat: 'echec', detail: err instanceof Error ? err.message.slice(0, 160) : 'erreur' };
+    return { issue: { app, etat: 'echec', detail: err instanceof Error ? err.message.slice(0, 160) : 'erreur' }, cibles: notees };
   }
 }
 
-/** Suspend ou reprend une organisation : au Hub d'abord (la porte MCP refuse aussitôt), puis chez les apps qui savent le faire. */
+/**
+ * Suspend ou reprend une organisation : au Hub d'abord (la porte MCP refuse aussitôt), puis chez les apps qui savent le faire.
+ * La reprise vise ce que la suspension a noté, jamais seulement ce que l'app veut bien montrer.
+ */
 export async function basculerSuspension(db: DbMembres, d: { tenantId: string; suspendre: boolean; acteur: string; motif?: string }, deps: Deps = {}): Promise<{ deja: boolean; apps: IssueApp[]; complet: boolean; avis: string | null }> {
   const t = await tenantVivant(db, d.tenantId);
   const proprietaire = await db.user.findFirst({ where: { supabaseUserId: t.userId }, select: { email: true } });
@@ -182,8 +204,26 @@ export async function basculerSuspension(db: DbMembres, d: { tenantId: string; s
   const voulu = d.suspendre ? 'suspended' : 'active';
   const deja = t.status === voulu;
   if (!deja) await db.tenant.update({ where: { id: t.id }, data: { status: voulu } });
-  const apps = await Promise.all((deps.apps ?? configuredSyncApps()).map((app) => basculerChez(app, t, proprietaire, d.suspendre, deps)));
+  const liste = deps.apps ?? configuredSyncApps();
+  const res = await Promise.all(liste.map((app) => basculerChez(app, t, proprietaire, d.suspendre, deps)));
+  const cibles = { ...ciblesNotees(t) };
+  res.forEach((r, i) => { if (r.cibles.length) cibles[liste[i]] = r.cibles; else delete cibles[liste[i]]; });
+  const { hub_suspension: _avant, ...reste } = (t.metadata ?? {}) as Record<string, unknown>;
+  const metadata = Object.keys(cibles).length ? { ...reste, hub_suspension: { cibles } } : reste;
+  await db.tenant.update({ where: { id: t.id }, data: { metadata: metadata as never } });
+  const apps = res.map((r) => r.issue);
   const complet = apps.every((a) => a.etat === 'suspendu' || a.etat === 'repris' || a.etat === 'absent');
   await writeAuditLog(db as PrismaClient, { action: d.suspendre ? 'tenant.suspendu' : 'tenant.repris', actor: d.acteur, targetType: 'tenant', targetId: t.id, payload: { deja, complet, apps, motif: d.motif ?? null } });
   return { deja, apps, complet, avis: nonCoupees(apps) };
+}
+
+/**
+ * À la suppression d'un compte : ses appartenances, et ses invitations. Celles qu'il a envoyées bloquaient la suppression (clé
+ * étrangère, 24/11), celles qu'il a reçues gardaient son adresse.
+ */
+export async function oublierCompte(db: Pick<PrismaClient, 'tenantMember' | 'crossAppInvitation'>, u: { id: string; email: string; hubUserId: string | null }): Promise<{ membres: number; invitations: number }> {
+  const m = u.hubUserId ? await db.tenantMember.deleteMany({ where: { userId: u.hubUserId } }) : { count: 0 };
+  await db.crossAppInvitation.updateMany({ where: { acceptedByUserId: u.id }, data: { acceptedByUserId: null } });
+  const i = await db.crossAppInvitation.deleteMany({ where: { OR: [{ inviterUserId: u.id }, { inviteeEmail: { equals: u.email, mode: 'insensitive' } }] } });
+  return { membres: m.count, invitations: i.count };
 }

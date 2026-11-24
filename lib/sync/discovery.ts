@@ -192,6 +192,8 @@ export async function discoverAppForEmail(
             plan?: string;
             trial_status?: string | null;
             hub_tenant_id?: string | null;
+            hub_role?: string | null;
+            native_admin?: boolean;
             status?: string;
             magic_link_capable?: boolean;
             fallback_url?: string;
@@ -216,6 +218,8 @@ export async function discoverAppForEmail(
         role: w.role,
         plan: w.plan,
         trialStatus: 'trial_status' in w ? (w.trial_status ?? null) : undefined,
+        hubRole: 'hub_role' in w ? (w.hub_role ?? null) : undefined,
+        nativeAdmin: typeof w.native_admin === 'boolean' ? w.native_admin : undefined,
         hubTenantLink: 'hub_tenant_id' in w ? (w.hub_tenant_id ?? null) : undefined,
         status:
           w.status === 'active' || w.status === 'suspended' || w.status === 'deleted'

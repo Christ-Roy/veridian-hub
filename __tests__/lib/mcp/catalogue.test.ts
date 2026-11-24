@@ -65,6 +65,9 @@ describe('sessionPour', () => {
     const p = JSON.parse(Buffer.from(h.Authorization.split('.')[1], 'base64url').toString());
     expect(p).toMatchObject({ aud: APP.mcpUrl, sub: 'u', tenant_id: 't1' });
     expect(p).not.toHaveProperty('act');
+    expect(p).not.toHaveProperty('org_role');
+    const [r] = await envois({ orgRole: 'owner' });
+    expect(JSON.parse(Buffer.from(r.Authorization.split('.')[1], 'base64url').toString()).org_role).toBe('owner');
   });
 });
 

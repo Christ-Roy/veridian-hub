@@ -19,6 +19,7 @@
  */
 
 import { randomBytes } from 'node:crypto';
+import { tenantDeLInvitation } from '@/lib/invitations/jonction';
 import type { PrismaClient, CrossAppInvitation } from '@prisma/client';
 
 const DEFAULT_EXPIRY_DAYS = 7;
@@ -59,12 +60,21 @@ export class InvitationCreateError extends Error {
       | 'invalid_target_role'
       | 'inviter_not_found'
       | 'self_invitation'
-      | 'quota_exceeded',
+      | 'quota_exceeded'
+      | 'espace_non_relie'
+      | 'inviteur_non_habilite'
+      | 'echec',
   ) {
     super(message);
     this.name = 'InvitationCreateError';
   }
 }
+
+const MESSAGES = {
+  espace_non_relie: "Cet espace n'est relié à aucune organisation Veridian : personne ne peut y être invité. Le relier depuis le Hub, puis réessayer.",
+  inviteur_non_habilite: "Seul un propriétaire ou un admin de l'organisation, au Hub, peut inviter.",
+  echec: "Le Hub n'a pas pu vérifier cet espace : réessayer dans un instant.",
+} as const;
 
 const UUID = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
@@ -131,6 +141,10 @@ export async function createCrossAppInvitation(
       'inviter_not_found',
     );
   }
+
+  // Un espace que le Hub ne relie pas donnerait un membre qu'il ne pourrait pas couper : refusé dès la création (VER-245).
+  const v = await tenantDeLInvitation(prisma, { inviterUserId: inviter.id, targetApp: input.targetApp, targetWorkspaceId: input.targetWorkspaceId });
+  if (v.refus) throw new InvitationCreateError(MESSAGES[v.refus], v.refus);
 
   const now = (input.now ?? (() => new Date()))();
 
