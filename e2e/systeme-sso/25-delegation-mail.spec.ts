@@ -1,6 +1,7 @@
 /**
  * Prospection vers Mail (VER-245 b.2, F2) : un VRAI jeton de la porte, joué sur la route d'actions de Mail. Importe sans envoyer, une fois
  * par jeton, une fois par clé, et plus rien après le retrait. Staging seulement : l'espace Mail naît pour ce cas et meurt avec lui.
+ * `SSO_GARDER_MAIL=1` garde l'espace.
  * Épreuve : `SSO_SABOTAGE=delegation-mail` rejoue le premier jeton au lieu d'en demander un neuf : le cas doit échouer.
  */
 import { createHmac, randomBytes } from 'node:crypto';
@@ -113,10 +114,11 @@ cas(null, 'délégation vers Mail : importe sans envoyer, une fois par jeton et 
     expect(etranger.status, `non-membre de Mail : ${JSON.stringify(etranger.json).slice(0, 160)}`).toBe(403);
     await admin('POST', `tenants/${T.id}/remove-member`, { hub_user_id: M.hubUserId });
     expect((await echanger(gm)).json, 'retiré').toEqual({ error: 'grant_invalid' });
-    return `vrai jeton accepté par Mail ; 3 contacts importés, rejeu 0, jeton usé 401, MCP ${mcp.status}, non-membre ${etranger.json?.error ?? etranger.status}, retiré refusé`;
+    return `espace ${slug}${process.env.SSO_GARDER_MAIL === '1' ? ' (gardé)' : ''} : vrai jeton accepté par Mail ; 3 contacts importés, rejeu 0, jeton usé 401, MCP ${mcp.status}, non-membre ${etranger.json?.error ?? etranger.status}, retiré refusé`;
   } finally {
     if (pose) await admin('DELETE', 'mcp-apps?app_key=notifuse');
-    if (cree) {
+    // SSO_GARDER_MAIL=1 : l'espace reste pour que la session Notifuse relise chez elle ; à retirer ensuite.
+    if (cree && process.env.SSO_GARDER_MAIL !== '1') {
       const d = await versMail('DELETE', `/api/tenants/${slug}`);
       if (d.status >= 300 && d.status !== 404) console.error(`espace Mail ${slug} non retiré : HTTP ${d.status}`);
     }
