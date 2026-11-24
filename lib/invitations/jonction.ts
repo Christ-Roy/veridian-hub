@@ -14,7 +14,7 @@ type Db = Pick<PrismaClient, 'user' | 'tenant' | 'tenantMember' | 'auditLog'>;
 
 export async function joindreParInvitation(
   db: Db,
-  inv: { id: string; inviterUserId: string; targetApp: string; targetWorkspaceId: string },
+  inv: { id: string; inviterUserId: string; targetApp: string; targetWorkspaceId: string; createdAt: Date },
   hubUserId: string,
   deps: { fetchImpl?: typeof fetch } = {},
 ): Promise<Jonction> {
@@ -36,7 +36,7 @@ export async function joindreParInvitation(
       const m = await db.tenantMember.findUnique({ where: { tenantId_userId: { tenantId, userId: inviteur.supabaseUserId } } });
       if (!m || m.deletedAt || (m.role !== 'admin' && m.role !== 'owner')) return { etat: 'inviteur_non_habilite', tenantId };
     }
-    const r = await rejoindre(db as never, { tenantId, hubUserId, origine: 'invitation', acteur: `invitation:${inv.id}` });
+    const r = await rejoindre(db as never, { tenantId, hubUserId, origine: 'invitation', acteur: `invitation:${inv.id}`, emiseLe: inv.createdAt });
     return { etat: r.cree ? 'joint' : 'deja', tenantId };
   } catch (err) {
     if (err instanceof RefusMembre) return { etat: 'refus', detail: err.code };

@@ -19,7 +19,7 @@ export const ROLES = ['member', 'admin', 'owner'] as const;
 export type Role = (typeof ROLES)[number];
 export type Origine = 'invitation' | 'reprise' | 'operateur';
 
-export type DbMembres = Pick<PrismaClient, 'tenant' | 'tenantMember' | 'user' | 'auditLog'>;
+export type DbMembres = Pick<PrismaClient, 'tenant' | 'tenantMember' | 'user' | 'auditLog' | 'crossAppInvitation'>;
 type Deps = { fetchImpl?: typeof fetch; apps?: readonly SyncApp[]; env?: NodeJS.ProcessEnv };
 
 /** Ce que l'auteur du geste doit lire : les apps où l'accès n'est PAS coupé, et pourquoi (Analytics et Academy ne savent pas retirer). */
@@ -29,7 +29,7 @@ export function nonCoupees(apps: IssueApp[]): string | null {
 }
 
 export class RefusMembre extends Error {
-  constructor(readonly code: 'tenant_introuvable' | 'tenant_suspendu' | 'compte_introuvable' | 'adresse_non_prouvee' | 'role_refuse' | 'proprietaire' | 'pas_membre') {
+  constructor(readonly code: 'tenant_introuvable' | 'tenant_suspendu' | 'compte_introuvable' | 'adresse_non_prouvee' | 'role_refuse' | 'proprietaire' | 'pas_membre' | 'retire') {
     super(code);
   }
 }
@@ -49,7 +49,7 @@ type Tenant = Awaited<ReturnType<typeof tenantVivant>>;
  * Ajoute (ou rétablit) un membre. Une invitation ou une reprise donne `member`, jamais plus : seul un opérateur pose un autre
  * rôle. Un membre déjà là garde le sien. L'adresse est prouvée, ou rien n'est écrit.
  */
-export async function rejoindre(db: DbMembres, d: { tenantId: string; hubUserId: string; role?: Role; origine: Origine; acteur: string }): Promise<{ cree: boolean; role: string }> {
+export async function rejoindre(db: DbMembres, d: { tenantId: string; hubUserId: string; role?: Role; origine: Origine; acteur: string; emiseLe?: Date }): Promise<{ cree: boolean; role: string }> {
   const t = await tenantVivant(db, d.tenantId);
   if (t.status === 'suspended') throw new RefusMembre('tenant_suspendu');
   const u = await db.user.findFirst({ where: { supabaseUserId: d.hubUserId }, select: { emailVerified: true } });
@@ -61,6 +61,8 @@ export async function rejoindre(db: DbMembres, d: { tenantId: string; hubUserId:
   const cle = { tenantId_userId: { tenantId: d.tenantId, userId: d.hubUserId } };
   const avant = await db.tenantMember.findUnique({ where: cle });
   if (avant && !avant.deletedAt && (d.origine !== 'operateur' || avant.role === role)) return { cree: false, role: avant.role };
+  // Un membre retiré ne revient ni par une reprise, ni par une invitation d'avant son retrait : seulement par un geste neuf.
+  if (avant?.deletedAt && (d.origine === 'reprise' || (d.origine === 'invitation' && !(d.emiseLe && d.emiseLe > avant.deletedAt)))) throw new RefusMembre('retire');
   await db.tenantMember.upsert({
     where: cle,
     create: { tenantId: d.tenantId, userId: d.hubUserId, role, origine: d.origine, ajoutePar: d.acteur },
@@ -121,6 +123,22 @@ async function retirerChez(app: SyncApp, t: Tenant, email: string, hubUserId: st
   }
 }
 
+/** Fait expirer les invitations en attente de cette adresse vers les espaces de ce tenant. Rend combien. */
+async function fermerInvitations(db: DbMembres, t: Tenant, email: string, deps: Deps): Promise<number> {
+  const attente = await db.crossAppInvitation.findMany({ where: { inviteeEmail: { equals: email, mode: 'insensitive' }, acceptedAt: null, expiresAt: { gt: new Date() } }, select: { id: true, targetApp: true, targetWorkspaceId: true } });
+  if (attente.length === 0) return 0;
+  const proprietaire = await db.user.findFirst({ where: { supabaseUserId: t.userId }, select: { email: true } });
+  const ids: string[] = [];
+  for (const i of attente) {
+    const app = i.targetApp as SyncApp;
+    const espaces = espaceNote(t, app) === i.targetWorkspaceId ? null : proprietaire ? await espacesChez(app, t, proprietaire.email, t.userId, deps).catch(() => null) : [];
+    // Dans le doute (espace noté, ou app muette), l'invitation se ferme : une nouvelle coûte un clic.
+    if (espaces === null || espaces.some((s) => s.workspaceId === i.targetWorkspaceId)) ids.push(i.id);
+  }
+  if (ids.length) await db.crossAppInvitation.updateMany({ where: { id: { in: ids }, acceptedAt: null }, data: { expiresAt: new Date() } });
+  return ids.length;
+}
+
 /** Retire un membre. Rejouable : déjà retiré au Hub, il est quand même retiré des apps où il resterait. Jamais le propriétaire. */
 export async function retirer(db: DbMembres, d: { tenantId: string; hubUserId: string; acteur: string; motif?: 'admin_action' | 'user_request' }, deps: Deps = {}): Promise<{ deja: boolean; apps: IssueApp[]; complet: boolean; avis: string | null }> {
   const t = await tenantVivant(db, d.tenantId);
@@ -131,10 +149,12 @@ export async function retirer(db: DbMembres, d: { tenantId: string; hubUserId: s
   if (!u) throw new RefusMembre('compte_introuvable');
   const deja = !ligne || ligne.deletedAt !== null;
   if (!deja) await db.tenantMember.update({ where: cle, data: { deletedAt: new Date() } });
+  // Une invitation encore ouverte le ferait revenir chez l'app : elle expire avant tout le reste.
+  const invitations = await fermerInvitations(db, t, u.email, deps);
   const apps = await Promise.all((deps.apps ?? configuredSyncApps()).map((app) => retirerChez(app, t, u.email, d.hubUserId, d.motif ?? 'admin_action', deps)));
   if (!ligne && apps.every((a) => a.etat === 'absent')) throw new RefusMembre('pas_membre');
   const complet = apps.every((a) => a.etat === 'retire' || a.etat === 'absent');
-  await writeAuditLog(db as PrismaClient, { action: 'membre.retire', actor: d.acteur, targetType: 'tenant', targetId: d.tenantId, payload: { hub_user_id: d.hubUserId, deja, complet, apps } });
+  await writeAuditLog(db as PrismaClient, { action: 'membre.retire', actor: d.acteur, targetType: 'tenant', targetId: d.tenantId, payload: { hub_user_id: d.hubUserId, deja, complet, apps, invitations } });
   return { deja, apps, complet, avis: nonCoupees(apps) };
 }
 

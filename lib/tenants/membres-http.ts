@@ -16,7 +16,7 @@ export async function compteVise(d: { email?: string; hub_user_id?: string }): P
   return u?.supabaseUserId ?? null;
 }
 
-const STATUTS: Record<RefusMembre['code'], number> = { tenant_introuvable: 404, compte_introuvable: 404, pas_membre: 404, tenant_suspendu: 409, adresse_non_prouvee: 409, proprietaire: 409, role_refuse: 400 };
+const STATUTS: Record<RefusMembre['code'], number> = { tenant_introuvable: 404, compte_introuvable: 404, pas_membre: 404, tenant_suspendu: 409, adresse_non_prouvee: 409, proprietaire: 409, retire: 409, role_refuse: 400 };
 
 export function refuser(err: unknown): NextResponse {
   if (err instanceof RefusMembre) return NextResponse.json({ error: err.code === 'proprietaire' ? 'cannot_remove_owner' : err.code }, { status: STATUTS[err.code] });

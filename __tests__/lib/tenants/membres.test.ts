@@ -13,6 +13,7 @@ let tenant: L | null;
 let users: L[];
 let membres: L[];
 let audits: L[];
+let invitations: L[];
 const trouve = (w: L) => membres.find((m) => m.tenantId === w.tenantId_userId.tenantId && m.userId === w.tenantId_userId.userId) ?? null;
 const db = {
   tenant: { findFirst: async ({ where }: L) => (tenant && tenant.id === where.id ? tenant : null), update: async ({ data }: L) => Object.assign(tenant!, data) },
@@ -22,6 +23,10 @@ const db = {
     upsert: async ({ where, create, update }: L) => { const l = trouve(where); if (l) Object.assign(l, update); else membres.push({ deletedAt: null, ...create }); },
     update: async ({ where, data }: L) => Object.assign(trouve(where)!, data),
   },
+  crossAppInvitation: {
+    findMany: async ({ where }: L) => invitations.filter((i) => i.inviteeEmail.toLowerCase() === where.inviteeEmail.equals.toLowerCase() && !i.acceptedAt && i.expiresAt > where.expiresAt.gt),
+    updateMany: async ({ where, data }: L) => { for (const i of invitations) if (where.id.in.includes(i.id)) Object.assign(i, data); },
+  },
   auditLog: { create: async ({ data }: L) => { audits.push(data); } },
 } as unknown as DbMembres;
 
@@ -30,6 +35,7 @@ beforeEach(() => {
   users = [{ supabaseUserId: 'u-prop', email: 'prop@x.fr', emailVerified: new Date() }, { supabaseUserId: 'u-m', email: 'm@x.fr', emailVerified: new Date() }, { supabaseUserId: 'u-flou', email: 'f@x.fr', emailVerified: null }];
   membres = [];
   audits = [];
+  invitations = [];
   for (const a of ['NOTIFUSE', 'PROSPECTION', 'CRM', 'ACADEMY', 'ANALYTICS']) {
     vi.stubEnv(`${a}_API_URL`, `https://${a.toLowerCase()}.test`);
     vi.stubEnv(`${a}_HUB_API_SECRET`, 's');
@@ -63,6 +69,22 @@ describe('rejoindre', () => {
   it('le propriétaire n\'a pas besoin de ligne', async () => {
     expect(await joindre({ hubUserId: 'u-prop' })).toEqual({ cree: false, role: 'owner' });
     expect(membres).toEqual([]);
+  });
+});
+
+describe('un membre retiré ne revient pas tout seul', () => {
+  const RETRAIT = new Date('2026-11-20');
+  beforeEach(async () => { await joindre(); membres[0].deletedAt = RETRAIT; });
+  it('ni par une reprise, ni par une invitation d\'avant son retrait ou sans date', async () => {
+    await expect(joindre({ origine: 'reprise' })).rejects.toMatchObject({ code: 'retire' });
+    for (const emiseLe of [undefined, new Date('2026-11-19'), RETRAIT]) await expect(joindre({ emiseLe })).rejects.toMatchObject({ code: 'retire' });
+    expect(membres[0].deletedAt).toBe(RETRAIT);
+  });
+  it('par une invitation neuve ou un opérateur, oui', async () => {
+    expect((await joindre({ emiseLe: new Date('2026-11-21') })).cree).toBe(true);
+    membres[0].deletedAt = RETRAIT;
+    expect((await joindre({ origine: 'operateur' })).cree).toBe(true);
+    expect(membres[0].deletedAt).toBeNull();
   });
 });
 
@@ -123,6 +145,15 @@ describe('retirer', () => {
     expect(await retirerM(apps(etat).f)).toMatchObject({ deja: true, complet: true });
   });
 
+  it('ses invitations en attente vers ce tenant expirent, celles d\'un autre tenant non', async () => {
+    const plusTard = new Date(Date.now() + 1e9);
+    const i = (id: string, targetApp: string, targetWorkspaceId: string, o: L = {}) => ({ id, targetApp, targetWorkspaceId, inviteeEmail: 'M@x.fr', acceptedAt: null, expiresAt: plusTard, ...o });
+    invitations = [i('note', 'notifuse', 'esp'), i('relu', 'prospection', 'wp'), i('autre', 'prospection', 'ailleurs'), i('autrui', 'notifuse', 'esp', { inviteeEmail: 'z@x.fr' }), i('faite', 'notifuse', 'esp', { acceptedAt: new Date() })];
+    await retirerM(apps({ prospection: ['m@x.fr', 'prop@x.fr'] }).f);
+    expect(invitations.filter((x) => x.expiresAt !== plusTard).map((x) => x.id)).toEqual(['note', 'relu']);
+    expect(audits[0].payload.invitations).toBe(2);
+  });
+
   it('jamais le propriétaire ; un inconnu de partout : pas membre', async () => {
     await expect(retirer(db, { tenantId: 'T', hubUserId: 'u-prop', acteur: 'x' })).rejects.toMatchObject({ code: 'proprietaire' });
     membres = [];
@@ -157,6 +188,14 @@ describe('suspension', () => {
 it('nonCoupees : null quand tout est coupé, sinon chaque app et sa raison', () => {
   expect(nonCoupees([{ app: 'crm', etat: 'retire' }, { app: 'academy', etat: 'absent' }])).toBeNull();
   expect(nonCoupees([{ app: 'analytics', etat: 'non_gere', detail: 'aucune route' }, { app: 'crm', etat: 'echec', detail: 'http_500' }])).toMatch(/analytics \(aucune route\), crm \(http_500\)/);
+});
+
+it('le Hub ne resynchronise jamais un membre : aucun appel à sync-member, attach-member seulement pour une invitation acceptée', () => {
+  const sources = ['app', 'lib', 'utils'].flatMap((d) => parcourir(d)).filter((f) => /\.tsx?$/.test(f));
+  const appelle = (motif: RegExp) => sources.filter((f) => motif.test(readFileSync(f, 'utf8').replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, ''))).map((f) => f.replace(/^.*\/(lib|app|utils)\//, '$1/'));
+  expect(appelle(/remove-member/), 'contrôle : le relevé voit un appel').toContain('lib/tenants/membres.ts');
+  expect(appelle(/sync-member/)).toEqual([]);
+  expect(appelle(/attach-member/)).toEqual(['lib/invitations/attach-downstream.ts']);
 });
 
 it('un seul écrivain de tenant_members dans tout le code', () => {

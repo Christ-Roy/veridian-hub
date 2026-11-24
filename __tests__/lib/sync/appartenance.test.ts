@@ -32,7 +32,7 @@ describe('classer', () => {
     ], HUB);
     expect([casDe(r, 'prop@client.fr'), casDe(r, 'membre@client.fr'), casDe(r, 'col@client.fr'), casDe(r, 'flou@client.fr'), casDe(r, 'patron@veridian.example'), casDe(r, 'robert@veridian.site'), casDe(r, 'etranger@ailleurs.fr')])
       .toEqual(['dans_les_deux', 'dans_les_deux', 'jonction', 'adresse_non_prouvee', 'operateur', 'operateur', 'inconnu']);
-    expect(r.comptes).toEqual({ dans_les_deux: 2, jonction: 1, operateur: 2, adresse_non_prouvee: 1, inconnu: 1, espace_non_relie: 0 });
+    expect(r.comptes).toEqual({ dans_les_deux: 2, jonction: 1, operateur: 2, adresse_non_prouvee: 1, retire_au_hub: 0, inconnu: 1, espace_non_relie: 0 });
     expect(r).toMatchObject({ sansEspace: 1, absents: 0 });
     expect(r.espaces[0]).toMatchObject({ espace: 'esp', hubTenantId: 'T1', lien: 'hub', partielle: true, tenantSuspendu: false });
   });
@@ -66,6 +66,14 @@ describe('classer', () => {
     expect(r.espaces[0]).toMatchObject({ hubTenantId: 'T2', tenantSuspendu: true, absents: ['u-col'], partielle: false });
     expect(r.absents).toBe(1);
   });
+});
+
+it('retiré au Hub et encore dans l\'app : jamais une jonction, même opérateur, et pas un absent', () => {
+  const hub = { ...HUB, membres: [{ tenantId: 'T1', userId: 'u-col', deletedAt: new Date() }, { tenantId: 'T1', userId: 'u-patron', deletedAt: new Date() }] };
+  const r = classer('notifuse', [lu('col@client.fr', [s('esp')]), lu('patron@veridian.example', [s('esp')], 'u-patron'), lu('prop@client.fr', [s('esp')], 'u-prop')], hub);
+  expect([casDe(r, 'col@client.fr'), casDe(r, 'patron@veridian.example')]).toEqual(['retire_au_hub', 'retire_au_hub']);
+  expect(r).toMatchObject({ absents: 0, comptes: { jonction: 0, retire_au_hub: 2 } });
+  expect(classer('notifuse', [lu('prop@client.fr', [s('esp')], 'u-prop')], hub).absents, 'un retiré n\'est pas attendu dans l\'app').toBe(0);
 });
 
 it('un propriétaire non prouvé, présent dans l\'app, est non prouvé et pas « absent »', () => {

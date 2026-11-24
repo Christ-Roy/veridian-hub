@@ -65,6 +65,14 @@ cas(null, 'coupure : membre retiré et organisation suspendue refusés par la po
   expect((await vue(jetonM)).espaces.map((e) => e.slug), 'retiré').not.toContain(slugP);
   expect((await vue(jetonM)).espaces.map((e) => e.slug), 'son propre espace reste').toContain(slugM);
 
+  // Le retrait tient : une réconciliation ne rend rien, et même une app qui le remettrait (sync-member) ne rouvre pas la porte.
+  await admin('POST', 'reconcile-trigger');
+  await appelTwenty('POST', `/api/tenants/${TENANT}/sync-member`, { hub_user_id: M.hubUserId, email: M.email, user_email: M.email, role: 'member' });
+  expect((await dansEspace(jetonM, slugP)).texte, 'retrait tenu').toContain('inconnu pour ce compte');
+  const rejeu = await exiger<any>(admin('POST', `tenants/${TENANT}/remove-member`, { hub_user_id: M.hubUserId }), [200, 207], 'rejeu du retrait');
+  expect(rejeu.deja).toBe(true);
+  expect(rejeu.apps.find((a: { app: string }) => a.app === 'crm')?.etat, `rejeu : ${apps(rejeu)}`).toMatch(/^(retire|absent)$/);
+
   const t1 = Date.now();
   const susp = process.env.SSO_SABOTAGE === 'coupure-suspension' ? { apps: [] } : await exiger<any>(admin('POST', `tenants/${TENANT}/suspension`, { suspendre: true, motif: 'test' }), [200, 207], 'suspension');
   for (const r of [await dansEspace(jetonP, slugP), await outil(jetonP, 'executer_outil', LIRE), await outil(jetonP, 'executer_programme', { code: 'return 1' })]) {
