@@ -57,6 +57,13 @@ cas(null, 'coupure : membre retiré et organisation suspendue refusés par la po
     const d = await outil(j, 'chercher_outils', { besoin: 'find many people', app: 'twenty' });
     if (!d.texte.includes(LIRE.nom)) throw new NonAbouti(`le CRM ne montre pas ${LIRE.nom} : ${d.texte.slice(0, 300)}`);
   }
+  // Un programme n'écrit pas au CRM sans nommer l'outil : Twenty dit « non destructif » de toutes ses écritures (24/11). La lecture passe.
+  if (!/staging/.test(HUB_URL)) {
+    const code = 'const r={}; for (const n of ["twenty.find_many_people","twenty.create_one_person","twenty.create_webhook"]) { try { await outil(n,{limit:1,select:["id"]}); r[n]="joue" } catch(e) { r[n]=/autoriser/.test(e.message) ? "a_nommer" : e.message.slice(0,120) } } return r';
+    const prog = JSON.parse((await outil(jetonP, 'executer_programme', { code })).texte);
+    if (prog.etat !== 'termine') throw new NonAbouti(`programme : ${JSON.stringify(prog).slice(0, 200)}`);
+    expect(prog.resultat).toEqual({ 'twenty.find_many_people': 'joue', 'twenty.create_one_person': 'a_nommer', 'twenty.create_webhook': 'a_nommer' });
+  }
   const slugP = (await vue(jetonP)).espaces[0]?.slug;
   const slugM = (await vue(jetonM)).espaces[0]?.slug;
   if (!slugP || !slugM) throw new NonAbouti('espace de test sans slug');
