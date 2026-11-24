@@ -1,0 +1,110 @@
+/**
+ * Délégation entre apps (VER-245 b.2) : première ouverture confirmée par le propriétaire dans un vrai navigateur, échange d'une poignée
+ * contre un jeton de 120 s, et la cible qui le reconnaît. Puis tout ce qui doit refuser : nonce rejoué, paire absente, liaison éteinte,
+ * membre retiré, organisation suspendue. Staging (CRM « garde servie »). La poignée vient de la route admin des comptes de test.
+ * Épreuve : `SSO_SABOTAGE=delegation` ne confirme pas la liaison : le cas doit échouer.
+ */
+import { createHmac, randomBytes } from 'node:crypto';
+
+import { expect } from '@playwright/test';
+
+import { HUB_URL } from './lib/cibles';
+import { cas, NonAbouti } from './lib/etat';
+import { activerTwentyAuHub, admin, adminOk, lookup, secretDe } from './lib/hub-admin';
+import { obtenirJetonMcp, outil } from './lib/mcp';
+import { creerCompteProuve, noterEspaceTwenty, type Compte } from './lib/parcours';
+
+const MCP_CRM = 'https://crm.staging.veridian.site/mcp';
+const PAIRE = 'prospection>crm';
+
+cas(null, 'délégation : le propriétaire ouvre une liaison, une app agit 120 s en son nom, et tout le reste refuse', async ({ browser }) => {
+  if (!/staging/.test(HUB_URL)) throw new NonAbouti('la délégation n\'est ouverte qu\'en staging (DELEGATION_CIBLES vide en prod)');
+  const secret = secretDe('PROSPECTION_HUB_API_SECRET_STAGING');
+  const avant = (await adminOk<{ apps: { appKey: string }[] }>('GET', 'mcp-apps')).apps.find((a) => a.appKey === 'twenty');
+  if (!avant) await adminOk('POST', 'mcp-apps', { app_key: 'twenty', label: 'CRM', mcp_url: MCP_CRM, acces: 'tous', enabled: true });
+  try {
+    const P: Compte = await creerCompteProuve(browser, 'delprop');
+    const M: Compte = await creerCompteProuve(browser, 'delmembre');
+    await activerTwentyAuHub(P.email);
+    const T = (await lookup(P.email)).json?.tenants?.[0];
+    if (!T) throw new NonAbouti('compte de test sans tenant');
+    noterEspaceTwenty(P.email, T.id);
+    const jetonP = await obtenirJetonMcp(browser, P, 'TEST DELEGATION');
+    const regler = async (etat: string) => JSON.parse((await outil(jetonP, 'executer_outil', { nom: 'hub.integrations_regler', arguments: { paire: PAIRE, etat }, espace: T.slug })).texte);
+    const etat = async () => JSON.parse((await outil(jetonP, 'executer_outil', { nom: 'hub.integrations_lister', espace: T.slug })).texte).liaisons.find((l: { paire: string }) => l.paire === PAIRE);
+
+    const poignee = async (c: Compte) => {
+      const r = await adminOk<{ delegations: { hub_tenant_id: string; grant: string }[] }>('POST', 'delegation/poignee', { email: c.email, app: 'prospection' });
+      return r.delegations.find((d) => d.hub_tenant_id === T.id)?.grant;
+    };
+    const echanger = async (grant: string, o: { nonce?: string; corps?: object } = {}) => {
+      const corps = JSON.stringify({ grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange', subject_grant: grant, audience: 'crm', scope: 'crm:societe.ecrire crm:tache.ecrire', ...o.corps });
+      const ts = String(Date.now());
+      const nonce = o.nonce ?? randomBytes(18).toString('base64url');
+      const r = await fetch(`${HUB_URL}/api/delegation/jeton`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-veridian-app': 'prospection', 'x-veridian-timestamp': ts, 'x-veridian-nonce': nonce, 'x-veridian-hub-signature': createHmac('sha256', secret).update(`${ts}.${nonce}.${corps}`).digest('hex') }, body: corps });
+      return { status: r.status, json: (await r.json().catch(() => null)) as any };
+    };
+
+    const g = await poignee(P);
+    if (!g) throw new NonAbouti('aucune poignée émise');
+    expect((await echanger(g)).json, 'liaison éteinte').toEqual({ error: 'integration_off' });
+    const demande = await regler('allumee');
+    expect(demande.etat).toBe('a_confirmer');
+    expect((await etat()).etat, 'un lien n\'allume rien').toBe('eteinte');
+
+    // Un autre compte n'y peut rien ; le propriétaire clique, dans un vrai navigateur.
+    for (const [c, confirme] of [[M, false], [P, process.env.SSO_SABOTAGE !== 'delegation']] as const) {
+      const ctx = await browser.newContext({ storageState: c.etat as never });
+      try {
+        const page = await ctx.newPage();
+        await page.goto(demande.lien, { waitUntil: 'networkidle' });
+        const bouton = page.getByRole('button', { name: 'Allumer' });
+        if (c === M) expect(await bouton.count(), 'un étranger ne voit pas le bouton').toBe(0);
+        else if (confirme) {
+          await expect(page.getByText('TEST DELEGATION', { exact: false }).first()).toBeVisible();
+          await bouton.click();
+          await expect(page.getByText('Liaison allumée')).toBeVisible();
+        }
+      } finally {
+        await ctx.close();
+      }
+    }
+    expect((await etat()).etat, 'confirmée').toBe('allumee');
+
+    const nonce = randomBytes(18).toString('base64url');
+    const r = await echanger(g, { nonce });
+    expect([r.status, r.json?.expires_in, r.json?.tenant_id], JSON.stringify(r.json).slice(0, 200)).toEqual([200, 120, T.id]);
+    const p = JSON.parse(Buffer.from(r.json.access_token.split('.')[1], 'base64url').toString());
+    expect(p).toMatchObject({ sub: P.hubUserId, tenant_id: T.id, aud: MCP_CRM, act: { sub: 'app:prospection' }, scope: 'crm:societe.ecrire crm:tache.ecrire' });
+    expect(p.exp - p.iat).toBe(120);
+
+    // La cible lit un VRAI jeton émis par la porte : hors de ses portées, elle refuse comme une délégation, pas comme un inconnu.
+    const crm = (jeton: string) => fetch(MCP_CRM, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${jeton}` }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }) });
+    const c1 = await crm(r.json.access_token);
+    const t1 = await c1.text();
+    expect([c1.status, /delegation_forbidden/.test(t1)], t1.slice(0, 200)).toEqual([403, true]);
+
+    expect((await echanger(g, { nonce })).json, 'nonce rejoué').toEqual({ error: 'nonce_replayed' });
+    expect((await echanger(g, { corps: { audience: 'notifuse', scope: 'notifuse:contacts.ecrire' } })).json).toEqual({ error: 'target_not_served' });
+    expect((await echanger(g, { corps: { scope: 'veridian' } })).json).toEqual({ error: 'pair_not_allowed' });
+    expect(await regler('eteinte')).toEqual({ etat: 'eteinte' });
+    expect((await echanger(g)).json, 'éteinte par l\'IA').toEqual({ error: 'integration_off' });
+    expect(await regler('allumee'), 'rallumée sans nouveau clic').toEqual({ etat: 'allumee' });
+
+    // Membre : sa poignée marche, puis meurt avec son retrait.
+    await adminOk('POST', `tenants/${T.id}/members`, { hub_user_id: M.hubUserId });
+    const gm = await poignee(M);
+    expect((await echanger(gm!)).status, 'membre').toBe(200);
+    await admin('POST', `tenants/${T.id}/remove-member`, { hub_user_id: M.hubUserId });
+    const t0 = Date.now();
+    expect((await echanger(gm!)).json, 'retiré').toEqual({ error: 'grant_invalid' });
+    const coupe = Date.now() - t0;
+    await admin('POST', `tenants/${T.id}/suspension`, { suspendre: true });
+    expect((await echanger(g)).json, 'suspendue').toEqual({ error: 'grant_invalid' });
+    await admin('POST', `tenants/${T.id}/suspension`, { suspendre: false });
+    expect((await regler('allumee')).etat, 'la reprise redemande le clic').toBe('a_confirmer');
+    return `jeton de 120 s reconnu par le CRM (403 delegation_forbidden hors portée), retiré refusé en ${coupe} ms, suspension, nonce, paire, éteinte : refusés`;
+  } finally {
+    if (!avant) await admin('DELETE', 'mcp-apps?app_key=twenty');
+  }
+}, { timeout: 480_000 });

@@ -1803,6 +1803,24 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
 - L'app ne crée jamais d'appartenance, ne touche que l'espace relié, ne retire jamais le dernier admin.
 - **Fermé par défaut** (`ROLE_PORTE`) : personne n'est promu chez un client sans Robert ; les comptes de test sont ouverts.
 
+#### 5.19.5 Délégation entre apps (VER-245 b.2)
+
+- **Poignée** : au rebond, `issue-magic-link` porte `delegations: [{ hub_tenant_id, grant, expire_le }]` (30 jours, une par organisation)
+  pour une app source d'une paire servie. L'app la garde dans sa session SERVEUR, jamais dans le navigateur ni dans un journal.
+- **Échange** : `POST /api/delegation/jeton` `{ grant_type, subject_grant, audience, scope, motif? }`, en-têtes `X-Veridian-App`,
+  `X-Veridian-Timestamp` (ms), `X-Veridian-Nonce` (16 à 128, usage unique), `X-Veridian-Hub-Signature` = HMAC-SHA256 du secret de l'app
+  sur `ts.nonce.corps`. 200 `{ access_token, expires_in: 120, tenant_id }`. Le tenant vient de la poignée, jamais de l'app.
+- **Refus** : 400 `invalid_headers`, `invalid_request` ; 401 `invalid_signature`, `timestamp_expired`, `nonce_replayed` ; 403
+  `pair_not_allowed`, `target_not_served`, `grant_invalid`, `user_invalid`, `not_member`, `tenant_not_found`, `tenant_suspended`,
+  `integration_off` ; 429 ; 503. `grant_invalid` : refaire un rebond silencieux.
+- **Jeton** : `sub`, `tenant_id`, `jti`, `aud` = MCP de la cible, `act = { sub: "app:<source>" }`, portées étroites (jamais `veridian`),
+  120 s. La cible exige `act`, refuse un `jti` déjà vu, et garde l'idempotence chez elle.
+- **Registre fermé** (`lib/delegation/paires.ts`) : cinq paires, aucune action destructive. Une cible s'ouvre (`DELEGATION_CIBLES`) après
+  son « garde servie ».
+- **Interrupteur** : `hub.integrations_lister` (tout membre), `hub.integrations_regler` (propriétaire, admin ; hors d'un programme). La
+  première ouverture, et tout élargissement, demandent le clic du propriétaire sur une page du Hub. Aucun mail.
+- **Coupure** : retrait, suspension et déconnexion d'un membre tuent ses poignées ; une suspension retire aussi les consentements.
+
 ### 5.20 Restauration d'un membre
 
 Si l'admin Hub a retiré un membre par erreur :
