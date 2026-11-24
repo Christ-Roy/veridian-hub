@@ -31,6 +31,11 @@ describe('POST /api/admin/delegation/poignee', () => {
     vi.stubEnv('DEPLOY_ENV', 'staging');
     expect((await jouer({ ...TEST, email: 'client@x.fr' })).status).toBe(200);
   });
+  it('une adresse de batterie sans organisation ouverte : rien n\'est émis, et c\'est dit par une liste vide', async () => {
+    m.emettre.mockResolvedValue([]);
+    const r = await jouer(TEST);
+    expect([r.status, (await r.json()).delegations, r.headers.get('cache-control')]).toEqual([200, [], 'no-store']);
+  });
   it('sans admin, corps invalide, compte absent : refusé', async () => {
     expect((await jouer({ ...TEST, app: 'cms' })).status).toBe(400);
     m.user.mockResolvedValue(null);
