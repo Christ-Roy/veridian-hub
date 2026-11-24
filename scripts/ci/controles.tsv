@@ -17,3 +17,4 @@ rapide	pas-de-cle-stripe-live	.	scripts/ci/check-no-stripe-live-key.sh	-	Aucune 
 rapide	contrat-nomad	.	scripts/ci/check-nomad-contract.sh	-	Le contrat GitOps Nomad co-localisé reste cohérent avec le dépôt.
 rapide	volumes-ci	.	scripts/ci/check-volumes-ci.sh	-	Chaque volume hôte des jobspecs est autorisé par la politique ACL de la CI. Le 22/11 (VER-203), le volume hub-atelier sans règle : plan vert, soumission refusée en 403 en prod.
 rapide	typecheck	.	scripts/ci/check-typecheck.sh	-	Aucune erreur de type hors e2e/. Le build de la CI vérifie les types, scripts/ compris : le 22/11 (VER-203), une erreur dans scripts/ a coupé le déploiement 20 minutes après le push.
+rapide	pas-de-secret	.	DEPUIS="${BASE_REF:-origin/main}" scripts/ci/check-no-secrets.sh	-	Le contrôle de la CI joué avant le push : le 25/11, une image en base64 dans une épreuve a arrêté la CI (faux positif) six minutes après le push.

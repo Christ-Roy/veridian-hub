@@ -71,8 +71,8 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   Clé d'un compte : `hub ia brancher <email> --fournisseur <f> --depuis <VARIABLE de ~/credentials>`. CRM : chat natif de
   Twenty, fournisseur « Veridian » (`/api/ia/v1`), sans fenêtre au Hub. Ateliers : un par tenant, rise.
 - **Appartenance, rôle, délégation** (VER-245, contrat §5.19.3 à §5.19.5) : `lib/tenants/membres.ts` seul écrivain de
-  `tenant_members`. Rôle porté aux apps (`ROLE_PORTE`) et paires entre apps (`DELEGATION_CIBLES`) : fermés en prod tant que Robert
-  ne les ouvre pas ; jamais de jeton à `act` vers une app sans sa « garde servie ». Cas 21 à 23.
+  `tenant_members`. Rôle porté aux apps (`ROLE_PORTE`) : fermé sans Robert. Liaisons (`DELEGATION_CIBLES`) : ouvertes, éteintes jusqu'au
+  clic du propriétaire ; jamais de jeton à `act` sans « garde servie ». Organisation unique (§5.19.6, `hub org`). Cas 21 à 26.
 - **Garde rapide** : `__tests__/contrat/` (révocation sans `iat`, `authAt`, cibles du rebond, origines) ; tout nouvel
   `encode(` de JWT de session s'y ajoute. Détail : `docs/PARCOURS-IDENTITE.md`.
 - **Sonde de prod** : « Sonde identité » de `hub-ci.yml` (lecture seule) ; le cron de reconcile alerte au-dessus de
@@ -99,9 +99,8 @@ Outil admin : `hub` (`hub doctor` d'abord : santé, secret, auth admin). Aucune 
 - **Cookie volé suspecté** : le client « se déconnecte partout » (coupe Hub et apps, la réponse nomme les apps en échec) ;
   changer son mot de passe fait pareil. Un cookie simplement déconnecté reste valable jusqu'à expiration.
 - **`AUTH_SECRET` à changer** : coupe TOUTES les sessions du Hub et les rebonds en cours ; ne coupe pas les sessions
-  déjà ouvertes dans les apps. Secret dans la Nomad Variable `nomad/jobs/hub` : lire une clé avec
-  `nomad-v raw var get -item AUTH_SECRET nomad/jobs/hub`, écrire avec `nomad var put -out none -in json nomad/jobs/hub -`
-  (remplace le bloc entier : repartir du JSON complet), puis `nomad-v run hub`. Compter une reconnexion générale.
+  déjà ouvertes dans les apps. Secret dans la Nomad Variable `nomad/jobs/hub` (une écriture remplace le bloc entier). Y toucher en
+  prod par `nomad-v raw` (jeton de management) est SUSPENDU (24/11) sans l'accord de Robert. Puis `nomad-v run hub`.
 - **Restes de test** : `hub reconcile` (`testResidue.total`) et, par app, `scripts/orphelins-e2e.sh` (skill hub-admin).
   `delete-tenant` déprovisionne les espaces des apps (`lib/apps/deprovision.ts`) et laisse une trace d'audit.
   Le cron alerte au-dessus de `RESIDUE_SEUIL`. La batterie les retire elle-même et échoue s'il en reste.

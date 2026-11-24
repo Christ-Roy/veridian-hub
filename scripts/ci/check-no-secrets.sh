@@ -80,6 +80,9 @@ BENIGN='CHANGE_ME|x0{6}|1x0{6}|dummy|example|placeholder|localhost|fake|not-real
 # instantanés forensiques déjà archivés.
 EXCLUDE='^scripts/ci/check-no-secrets(\.selftest)?\.sh$|\.example|\.md$|package-lock\.json|pnpm-lock\.yaml|^runbooks/services/hub/forensique-'
 
+# Au push (DEPUIS=<ref>) : seulement les fichiers qui partent (1 min 45 sinon). La CI lit tout. Une ref illisible arrête le contrôle.
+if [ -n "${DEPUIS:-}" ]; then fichiers=$(git diff --name-only --diff-filter=ACMR "$DEPUIS...HEAD"); else fichiers=$(git ls-files); fi
+
 hits=""
 while IFS= read -r f; do
   echo "$f" | grep -qE "$EXCLUDE" && continue
@@ -122,7 +125,7 @@ while IFS= read -r f; do
     uniq_lines=$(echo "$lines" | tr ' ' '\n' | grep -E '^[0-9]+$' | sort -un | tr '\n' ',' | sed 's/,$//')
     hits="$hits\n  $f (lignes $uniq_lines)"
   fi
-done < <(git ls-files)
+done <<< "$fichiers"
 
 if [ -n "$hits" ]; then
   echo "✗ SECRET en clair détecté dans un fichier tracké :"
