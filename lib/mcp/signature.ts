@@ -32,7 +32,7 @@ function litteral(v: unknown): string | null {
 }
 
 function union(parts: string[]): string {
-  const u = [...new Set(parts)];
+  const u = Array.from(new Set(parts));
   if (u.includes('unknown')) return 'unknown';
   return u.slice(0, UNION_MAX).join(' | ') + (u.length > UNION_MAX ? ' | unknown' : '');
 }
