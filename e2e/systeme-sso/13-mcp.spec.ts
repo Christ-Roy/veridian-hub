@@ -149,7 +149,7 @@ cas(null, 'porte MCP : un client IA s\'enregistre, obtient le consentement, appe
   const init = await rpc(t.access_token, 'initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '1' } });
   expect(init.json?.result?.serverInfo?.name).toBe('veridian');
   const liste = await rpc(t.access_token, 'tools/list');
-  expect(liste.json.result.tools.map((x: { name: string }) => x.name)).toEqual(['chercher_outils', 'decrire_outil', 'executer_outil']);
+  expect(liste.json.result.tools.map((x: { name: string }) => x.name)).toEqual(['chercher_outils', 'decrire_outil', 'executer_outil', 'executer_programme']);
   const trouve = JSON.parse((await rpc(t.access_token, 'tools/call', { name: 'chercher_outils', arguments: { besoin: 'mon compte' } })).json.result.content[0].text);
   expect(trouve.outils.map((o: { nom: string }) => o.nom)).toContain('hub.mon_compte');
   const compte = JSON.parse((await rpc(t.access_token, 'tools/call', { name: 'executer_outil', arguments: { nom: 'hub.mon_compte' } })).json.result.content[0].text);
