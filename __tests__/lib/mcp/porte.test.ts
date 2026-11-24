@@ -426,6 +426,22 @@ describe('executer_programme', () => {
   const LIRE = { nom: 'analytics.visites_du_site', args: { jours: 7, secret: 'x' } };
   beforeEach(() => oublierProgrammes());
 
+  it('outils qui administrent : jamais depuis un programme, même nommés ; un utilisateur ne se change pas non plus en direct', async () => {
+    const f = appFactice({ outils: [
+      { name: 'update_site_config', description: 'config', inputSchema: { type: 'object' }, annotations: { readOnlyHint: false } },
+      { name: 'add_member', description: 'membre', inputSchema: { type: 'object' }, annotations: { readOnlyHint: false } },
+      { name: 'creer_objectif', description: 'objectif', inputSchema: { type: 'object' }, annotations: { readOnlyHint: false } },
+    ] });
+    const noms = ['analytics.update_site_config', 'analytics.add_member', 'analytics.creer_objectif'];
+    await prog({ code: 'x', autoriser: noms }, noms.map((nom) => ({ nom })), f);
+    const joues = () => f.recus.filter((x) => x.corps.method === 'tools/call').map((x) => x.corps.params.name);
+    expect(joues(), 'le travail sur les données passe, nommé').toEqual(['creer_objectif']);
+    const direct = (nom: string) => appel('executer_outil', { nom, arguments: {} }, f) as Promise<any>;
+    const refus = await direct('analytics.add_member');
+    expect([refus.result.isError, /qu'au Hub/.test(refus.result.content[0].text)]).toEqual([true, true]);
+    expect((await direct('analytics.update_site_config')).result.isError ?? false, 'les réglages restent possibles en direct').toBe(false);
+    expect(joues()).toEqual(['creer_objectif', 'update_site_config']);
+  });
   it('offert seulement quand le moteur est configuré ; sinon trois outils et refus', async () => {
     const r: any = await traiter(db as never, QUI, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, { programme: true, ouvrirMoteur: moteur([]) });
     expect(r.result.tools.map((t: any) => t.name)).toEqual(['chercher_outils', 'decrire_outil', 'executer_outil', 'executer_programme']);

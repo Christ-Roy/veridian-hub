@@ -15,6 +15,7 @@ import { listerIntegrations, reglerIntegration } from '@/lib/delegation/interrup
 
 import { hubIssuer, PROTOCOLES, SORTIE_MAX_CAR } from './config';
 import type { Appelant } from './oauth';
+import { familleReservee, reserveAuHub } from './reserves';
 import { signatureOutil } from './signature';
 import { AUTORISER_MAX, CODE_MAX_CAR, DELAI_MS, executerProgramme, exigeAutorisation, ETAT_MAX_CAR, prendrePlace, presenter, REPONSE_MAX_OCTETS, type Contenu } from './programme';
 import { ouvrirMoteur, programmeConfigure } from './programme-moteur';
@@ -323,6 +324,7 @@ async function programme(db: DbPorte, qui: Appelant, cat: Catalogue, args: Recor
         // Ouvrir un flux entre apps n'est pas un geste de programme (parente, 24/11).
         if (n === HUB_PROGRAMME.nom || n === HUB_REGLER.nom) return undefined;
         const o = cat.outils.find((x) => x.nom === n);
+        if (o && (familleReservee(o) || reserveAuHub(o))) return { injoignable: `${n} administre (membres, rôles, clés, webhooks, apps, réglages) : jamais depuis un programme, même nommé. ${reserveAuHub(o) ? 'Cela se fait au Hub.' : 'En appel direct, executer_outil.'}` };
         if (o) return o;
         const app = n.split('.')[0];
         const hs = cat.injoignables.find((i) => i.app === app);
@@ -399,6 +401,7 @@ async function appelerOutil(db: DbPorte, qui: Appelant, nom: string, args: Recor
       const hs = cat.injoignables.find((i) => i.app === app);
       return texte(hs ? `L'app ${app} ne répond pas (${hs.raison}). Réessayer plus tard.` : `Outil inconnu : ${cible}. Utiliser chercher_outils.`, true);
     }
+    if (reserveAuHub(o)) return texte(`${o.nom} : un utilisateur et son appartenance ne se changent qu'au Hub (app.veridian.site). Rien n'a été fait.`, true);
     if (o.nom === HUB_PROGRAMME.nom) {
       // L'espace se dit à côté ou dans les paramètres ; deux espaces différents ne se devinent pas.
       if (args.espace && params.espace && args.espace !== params.espace) return texte('Deux espaces différents : en choisir un seul.', true);
