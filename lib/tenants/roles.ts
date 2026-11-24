@@ -8,6 +8,7 @@ import { createHmac } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
+import { oublierUtilisateur } from '@/lib/mcp/cache';
 import { discoverAppForEmail } from '@/lib/sync/discovery';
 import { isTestAccount } from '@/lib/sync/test-residue';
 import type { SyncApp } from '@/lib/sync/types';
@@ -81,5 +82,8 @@ export async function pousserRole(db: Db, d: { tenantId: string; hubUserId: stri
   const u = await db.user.findFirst({ where: { supabaseUserId: d.hubUserId }, select: { email: true } });
   const o = (await organisationsPourRebond(db, d.hubUserId, deps.env ?? process.env)).find((x) => x.hub_tenant_id === d.tenantId);
   if (!u || !o) return APPS_A_ROLE.map((app) => ({ app, etat: 'ferme' as const, detail: 'rôle porté fermé pour cette organisation' }));
-  return Promise.all(APPS_A_ROLE.map((app) => pousserChez(app, o, { email: u.email, hubUserId: d.hubUserId }, deps)));
+  const issues = await Promise.all(APPS_A_ROLE.map((app) => pousserChez(app, o, { email: u.email, hubUserId: d.hubUserId }, deps)));
+  // Les outils dépendent du rôle : sans cet oubli, un promu ne voyait pas les siens avant 5 min (cache de la porte MCP).
+  oublierUtilisateur(d.hubUserId);
+  return issues;
 }

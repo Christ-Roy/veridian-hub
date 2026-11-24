@@ -64,8 +64,8 @@ cas(null, 'coupure : membre retiré et organisation suspendue refusés par la po
   // Avant : M n'y est pas. Membre : il y est. C'est la preuve positive, sans quoi le refus final ne prouverait rien.
   const etranger = await dansEspace(jetonM, slugP);
   expect(etranger.texte, `étranger : ${etranger.texte.slice(0, 200)}`).toContain('inconnu pour ce compte');
-  const ajout = await exiger(admin('POST', `tenants/${TENANT}/members`, { hub_user_id: M.hubUserId }), [200], 'ajout');
-  expect(ajout).toEqual({ cree: true, role: 'member' });
+  const ajout = await exiger(admin('POST', `tenants/${TENANT}/members`, { hub_user_id: M.hubUserId }), [200, 207], 'ajout'); // 207 : le CRM ne sert pas encore le rôle
+  expect(ajout).toMatchObject({ cree: true, role: 'member' });
   expect((await vue(jetonM)).espaces.map((e) => e.slug), 'membre').toContain(slugP);
   const entree = await appelTwenty('POST', `/api/veridian/workspaces/${espaceCrm}/attach-member`, { hub_user_id: M.hubUserId, hub_user_email: M.email, role: 'member' });
   if (!entree.ok) throw new NonAbouti(`entrée au CRM : HTTP ${entree.status}`);

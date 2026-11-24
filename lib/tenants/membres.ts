@@ -24,15 +24,32 @@ export type Origine = 'invitation' | 'reprise' | 'operateur';
 export type DbMembres = Pick<PrismaClient, 'tenant' | 'tenantMember' | 'user' | 'auditLog' | 'crossAppInvitation' | 'delegationGrant' | 'integrationPaire'>;
 type Deps = { fetchImpl?: typeof fetch; apps?: readonly SyncApp[]; env?: NodeJS.ProcessEnv };
 
-/** Ce que l'auteur du geste doit lire : les apps où l'accès n'est PAS coupé, et pourquoi (Analytics ne sait pas retirer), puis les clés API restées actives. */
+/** Ce que l'auteur du geste doit lire : les apps où l'accès n'est PAS coupé, et pourquoi (Analytics ne sait pas retirer). */
 export function nonCoupees(apps: IssueApp[]): string | null {
   const l = apps.filter((a) => a.etat === 'non_gere' || a.etat === 'echec');
-  const cles = apps.filter((a) => (a.cles ?? 0) > 0).map((a) => `${a.app} : ${a.cles}`);
-  const phrases = [
-    ...(l.length ? [`PAS coupé : ${l.map((a) => `${a.app} (${a.detail ?? a.etat})`).join(', ')}. Rejouer est sans effet de bord.`] : []),
-    ...(cles.length ? [`Clés API créées par cette personne, encore actives : ${cles.join(', ')}. À révoquer dans l'app.`] : []),
-  ];
-  return phrases.length ? phrases.join(' ') : null;
+  return l.length ? `PAS coupé : ${l.map((a) => `${a.app} (${a.detail ?? a.etat})`).join(', ')}. Rejouer est sans effet de bord.` : null;
+}
+
+/**
+ * Les clés API qui survivent au retrait (la parente, 24/11) : on ne les coupe pas, des automatisations en vivent, mais l'auteur du geste
+ * lit combien restent actives, app par app, et où les renouveler. Une app qui ne compte pas est dite « non comptées », jamais tue.
+ */
+export function avisCles(apps: IssueApp[]): string | null {
+  const l = apps.filter((a) => a.etat === 'retire' || a.etat === 'non_gere').filter((a) => a.cles?.actives !== 0);
+  if (l.length === 0) return null;
+  const dire = (a: IssueApp) => `${a.app} ${a.cles ? `${a.cles.actives}${a.cles.par === 'personne' ? ' créée(s) par cette personne' : ''}` : 'non comptées'}${a.cles?.url ? ` (${a.cles.url})` : ''}`;
+  return `Clés API encore actives après le retrait, à renouveler dans l'app si la personne les connaît : ${l.map(dire).join(', ')}.`;
+}
+
+/** Ce qu'une app dit de ses clés en réponse à remove-member. `active_api_keys` : tout l'espace. Un lien n'est gardé que chez nous. */
+function lireCles(j: unknown): IssueApp['cles'] {
+  const r = (j ?? {}) as { active_api_keys?: unknown; active_api_keys_created_by_member?: unknown; api_keys_url?: unknown };
+  const nombre = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : null);
+  const espace = nombre(r.active_api_keys);
+  const actives = espace ?? nombre(r.active_api_keys_created_by_member);
+  if (actives === null) return undefined;
+  const url = typeof r.api_keys_url === 'string' && /^https:\/\/[a-z0-9.-]+\.veridian\.site\/[\w./?=&%#-]*$/.test(r.api_keys_url) ? r.api_keys_url : undefined;
+  return { actives, par: espace !== null ? 'espace' : 'personne', ...(url ? { url } : {}) };
 }
 
 export class RefusMembre extends Error {
@@ -79,7 +96,7 @@ export async function rejoindre(db: DbMembres, d: { tenantId: string; hubUserId:
   return { cree: true, role };
 }
 
-export type IssueApp = { app: SyncApp; etat: 'retire' | 'suspendu' | 'repris' | 'absent' | 'non_gere' | 'echec'; detail?: string; /** Clés API créées par la personne et restées actives, quand l'app les compte. */ cles?: number };
+export type IssueApp = { app: SyncApp; etat: 'retire' | 'suspendu' | 'repris' | 'absent' | 'non_gere' | 'echec'; detail?: string; /** Clés API restées actives, quand l'app les compte. */ cles?: { actives: number; par: 'espace' | 'personne'; url?: string } };
 
 async function signer(app: SyncApp, methode: string, chemin: string, corps: Record<string, unknown>, deps: Deps): Promise<Response> {
   const config = resolveAppConfig(app, deps.env ?? process.env);
@@ -127,16 +144,16 @@ async function retirerChez(app: SyncApp, t: Tenant, email: string, hubUserId: st
     }
     if (espaces.length === 0) return { app, etat: 'absent' };
     if (!RETRAIT[app]) return { app, etat: 'non_gere', detail: 'aucune route de retrait dans cette app' };
-    let cles: number | undefined;
+    let cles: IssueApp['cles'];
     for (const s of espaces) {
       const res = await signer(app, 'POST', `/api/tenants/${encodeURIComponent(cible(app, t, s))}/remove-member`, { user_email: email, email, hub_user_id: hubUserId, reason: motif }, deps);
       if (!res.ok && res.status !== 404) return { app, etat: 'echec', detail: `http_${res.status}` };
-      const n = ((await res.json().catch(() => null)) as { active_api_keys_created_by_member?: unknown } | null)?.active_api_keys_created_by_member;
-      if (typeof n === 'number') cles = (cles ?? 0) + n;
+      const lues = lireCles(await res.json().catch(() => null));
+      if (lues) cles = cles ? { ...lues, actives: cles.actives + lues.actives } : lues;
     }
     const apres = await espacesChez(app, t, email, hubUserId, deps);
     if (apres === null) return { app, etat: 'echec', detail: 'retiré, mais pas relu' };
-    return apres.length === 0 ? { app, etat: 'retire', ...(cles !== undefined ? { cles } : {}) } : { app, etat: 'echec', detail: 'l\'app le voit encore après le retrait' };
+    return apres.length === 0 ? { app, etat: 'retire', ...(cles ? { cles } : {}) } : { app, etat: 'echec', detail: 'l\'app le voit encore après le retrait' };
   } catch (err) {
     return { app, etat: 'echec', detail: err instanceof Error ? err.message.slice(0, 160) : 'erreur' };
   }
@@ -176,7 +193,7 @@ export async function retirer(db: DbMembres, d: { tenantId: string; hubUserId: s
   if (!ligne && apps.every((a) => a.etat === 'absent')) throw new RefusMembre('pas_membre');
   const complet = apps.every((a) => a.etat === 'retire' || a.etat === 'absent');
   await writeAuditLog(db as PrismaClient, { action: 'membre.retire', actor: d.acteur, targetType: 'tenant', targetId: d.tenantId, payload: { hub_user_id: d.hubUserId, deja, complet, apps, invitations } });
-  return { deja, apps, complet, avis: nonCoupees(apps) };
+  return { deja, apps, complet, avis: [nonCoupees(apps), avisCles(apps)].filter(Boolean).join(' ') || null };
 }
 
 /** Les cibles suspendues, notées sur le tenant : une app peut cacher l'espace qu'on vient de suspendre (Prospection, 24/11). */

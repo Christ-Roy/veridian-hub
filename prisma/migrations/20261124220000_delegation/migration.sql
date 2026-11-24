@@ -10,13 +10,16 @@ CREATE TABLE IF NOT EXISTS "hub_app"."delegation_grants" (
   "revoque_le" TIMESTAMP(3),
   CONSTRAINT "delegation_grants_pkey" PRIMARY KEY ("id")
 );
+-- @safe: index sur table créée dans la même migration (vide) — lock instantané
 CREATE UNIQUE INDEX IF NOT EXISTS "delegation_grants_empreinte_key" ON "hub_app"."delegation_grants"("empreinte");
+-- @safe: index sur table créée dans la même migration (vide) — lock instantané
 CREATE INDEX IF NOT EXISTS "delegation_grants_hub_user_id_tenant_id_idx" ON "hub_app"."delegation_grants"("hub_user_id", "tenant_id");
 CREATE TABLE IF NOT EXISTS "hub_app"."delegation_nonces" (
   "empreinte" TEXT NOT NULL,
   "expire_le" TIMESTAMP(3) NOT NULL,
   CONSTRAINT "delegation_nonces_pkey" PRIMARY KEY ("empreinte")
 );
+-- @safe: index sur table créée dans la même migration (vide) — lock instantané
 CREATE INDEX IF NOT EXISTS "delegation_nonces_expire_le_idx" ON "hub_app"."delegation_nonces"("expire_le");
 CREATE TABLE IF NOT EXISTS "hub_app"."integration_paires" (
   "tenant_id" TEXT NOT NULL,

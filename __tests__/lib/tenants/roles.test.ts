@@ -2,6 +2,7 @@
 /** Rôle porté par le Hub : fermé par défaut, jamais une promotion par erreur, et « appliqué » veut dire relu. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { cacheOutils } from '@/lib/mcp/cache';
 import { APPS_A_ROLE, organisationsPourRebond, pousserRole, roleOrg, rolePorteOuvert } from '@/lib/tenants/roles';
 
 const CREE = new Date('2026-01-01');
@@ -68,6 +69,13 @@ describe('pousserRole', () => {
     expect(c.posts[0]).toMatchObject({ u: 'https://crm.test/api/hub/members/role', corps: { hub_tenant_id: 'B', hub_user_id: 'u', email: 'client@x.fr', role: 'admin', version: CHANGE.getTime() } });
     expect(c.posts[0].h['X-Veridian-Hub-Signature']).toMatch(/^[0-9a-f]{64}$/);
     expect(APPS_A_ROLE).toEqual(['crm']);
+  });
+  it('oublie les outils en cache du compte : un promu voit les siens tout de suite, les autres comptes gardent les leurs', async () => {
+    cacheOutils.set('twenty:u', { a: 1, outils: [] });
+    cacheOutils.set('twenty:autre', { a: 1, outils: [] });
+    await pousserRole(db, { tenantId: 'B', hubUserId: 'u' }, { env: TOUS, fetchImpl: (async () => new Response('', { status: 500 })) as never });
+    expect([cacheOutils.has('twenty:u'), cacheOutils.has('twenty:autre')]).toEqual([false, true]);
+    cacheOutils.clear();
   });
   it('fermé, ou compte hors de l\'organisation : rien n\'est envoyé', async () => {
     const c = crm(Response.json({ applied: true }));

@@ -51,8 +51,7 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   `client_id=undefined`. Une clé de `nomad/jobs/hub` se pose AVANT le déploiement qui la rend.
 - **Essai** : le 5e mail Notifuse nourrit `tenant_trials` ; le tick (30 min) n'active qu'à 48 h. Drapeau
   `TRIAL_MACHINE_ENABLED` (`lib/trial/flag.ts`) rendu par le template depuis `nomad/jobs/hub` : absent = 1, seul `0` coupe.
-  **Couper** : clé à 0, bloc complet par stdin (`nomad var put -out none -in json -check-index <index> nomad/jobs/hub -`,
-  index via `nomad-v raw var list nomad/jobs/hub`), puis `nomad-v run hub`. Preuve : `__tests__/lib/trial/flag.test.ts`.
+  **Couper** : clé à 0 (écriture du bloc : voir `AUTH_SECRET` plus bas), puis `nomad-v run hub`. Preuve : `__tests__/lib/trial/flag.test.ts`.
 - **Academy** (22/11, Robert seul) : espace comme le CRM (`lib/apps/espace-app.ts`, tenant créé s'il manque).
   Sans `hub app-access <email> --app academy --enabled true` : ni tuile, ni rebond, ni MCP. Grille propre,
   plans à la main, hors Stripe et essai. Secret : `ACADEMY_HUB_API_SECRET` de `nomad/jobs/hub`.
@@ -71,6 +70,9 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
 - **Mon IA** (VER-203, `docs/MON-IA.md`) : clé chiffrée, interrupteur allumé d'office, éteignable par app.
   Clé d'un compte : `hub ia brancher <email> --fournisseur <f> --depuis <VARIABLE de ~/credentials>`. CRM : chat natif de
   Twenty, fournisseur « Veridian » (`/api/ia/v1`), sans fenêtre au Hub. Ateliers : un par tenant, rise.
+- **Appartenance, rôle, délégation** (VER-245, contrat §5.19.3 à §5.19.5) : `lib/tenants/membres.ts` seul écrivain de
+  `tenant_members`. Rôle porté aux apps (`ROLE_PORTE`) et paires entre apps (`DELEGATION_CIBLES`) : fermés en prod tant que Robert
+  ne les ouvre pas ; jamais de jeton à `act` vers une app sans sa « garde servie ». Cas 21 à 23.
 - **Garde rapide** : `__tests__/contrat/` (révocation sans `iat`, `authAt`, cibles du rebond, origines) ; tout nouvel
   `encode(` de JWT de session s'y ajoute. Détail : `docs/PARCOURS-IDENTITE.md`.
 - **Sonde de prod** : « Sonde identité » de `hub-ci.yml` (lecture seule) ; le cron de reconcile alerte au-dessus de
@@ -111,9 +113,9 @@ Outil admin : `hub` (`hub doctor` d'abord : santé, secret, auth admin). Aucune 
 
 ## Commandes
 
-Dév : `dev -d <domaine> pnpm dev` (job Nomad) · `pnpm test` (2 workers, nice 19).
+Dév : `dev -d <domaine> pnpm dev` · `pnpm test` (2 workers, nice 19).
 
-## Où travailler (Robert, 18/11)
+## Où travailler (18/11)
 
 La session du Hub travaille dans le dossier principal, sur `main` (la branche qui déploie), jamais en
 worktree. Avant de commencer : `git fetch && git status -sb` doit dire `main...origin/main` sans
@@ -125,10 +127,6 @@ dossier : la branche extraite ici pilote le démarrage de toutes les sessions. S
 `staging` et `main` divergent ; `scripts/pousser-staging.sh` y porte `main` et refuse un conflit. `auto_revert` sur `stack` seul : CI rouge, lire « Groupe en cause ». La CI pose `deploy/hub.nomad.hcl` depuis `main`. La version servie
 se lit avec `nomad job inspect hub`, jamais dans le miroir `~/nomad-veridian/jobs/saas-prod/`.
 Un audit CVE ou un test rouge saute le déploiement sans bruit : lire `gh run view`, puis l'image.
-
-## Provisioning flow
-
-Signup → `utils/tenants/provision.ts` → Notifuse et Prospection en parallèle → `Tenant`.
 
 ## Règles
 
@@ -143,7 +141,7 @@ Signup → `utils/tenants/provision.ts` → Notifuse et Prospection en parallèl
 
 - Les env vars **runtime** viennent du job Nomad (`deploy/hub.nomad.hcl`, secrets `nomad/jobs/hub`), jamais de build-args.
 - Stripe = source de vérité billing. Config dans `lib/stripe/`.
-- Couleurs : tokens OKLCH seulement. Autre app : son URL publique.
+- Couleurs : tokens OKLCH. Autre app : son URL publique.
 - `/api/health` reste disponible (garde du déploiement et sonde de la CI).
 
 ## 💰 Pricing & trial
@@ -157,6 +155,5 @@ Jamais de limite visible. Stripe → Hub → apps, jamais Stripe → app.
 - `.github/workflows/hub-ci.yml` : test → audit (npm) → docker → **trivy** → deploy-prod (sur `main`) → e2e-prod-smoke → rollback-prod (si fail)
 - **Pas de cron Trivy** : CVE de l'image servie via `secu`, `_trivy-image.yml` à la construction.
 - Runners GitHub (dépôt public) : le smoke garde `playwright install --with-deps`.
-- Déploiement : job Nomad. Logs `nomad-v logs hub`, redeploy `nomad-v run hub`, état `nomad-v state`.
-  Secrets = Nomad Variable `nomad/jobs/hub`. Skill `/nomad`.
+- Logs `nomad-v logs hub`, redeploy `nomad-v run hub`. Skill `/nomad`.
 

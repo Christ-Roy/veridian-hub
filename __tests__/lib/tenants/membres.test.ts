@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { basculerSuspension, nonCoupees, oublierCompte, rejoindre, retirer, type DbMembres } from '@/lib/tenants/membres';
+import { basculerSuspension, avisCles, nonCoupees, oublierCompte, rejoindre, retirer, type DbMembres } from '@/lib/tenants/membres';
 
 import { parcourir } from '../../contrat/source';
 
@@ -107,7 +107,7 @@ describe('un membre retiré ne revient pas tout seul', () => {
 });
 
 /** Des apps qui tiennent leur liste de membres. */
-function apps(etat: Record<string, string[]>, o: { sourd?: string; refuse?: string; muet?: string; cles?: Record<string, number> } = {}) {
+function apps(etat: Record<string, string[]>, o: { sourd?: string; refuse?: string; muet?: string; cles?: Record<string, object> } = {}) {
   const posts: { app: string; chemin: string; corps: L }[] = [];
   const f = vi.fn(async (u: string, init: RequestInit = {}) => {
     const url = new URL(u);
@@ -124,7 +124,7 @@ function apps(etat: Record<string, string[]>, o: { sourd?: string; refuse?: stri
     posts.push({ app, chemin: url.pathname, corps });
     if (o.refuse === app) return new Response('', { status: 500 });
     if (o.sourd !== app && url.pathname.endsWith('/remove-member')) etat[app] = (etat[app] ?? []).filter((e) => e !== corps.email);
-    return Response.json({ removed: true, ...(o.cles?.[app] !== undefined ? { active_api_keys_created_by_member: o.cles[app] } : {}) });
+    return Response.json({ removed: true, ...(o.cles?.[app] ?? {}) });
   });
   return { f: f as unknown as typeof fetch, posts };
 }
@@ -144,13 +144,21 @@ describe('retirer', () => {
     expect(audits[0]).toMatchObject({ action: 'membre.retire', targetId: 'T' });
   });
 
-  it('Academy retire, et dit les clés API de la personne restées actives', async () => {
-    const a = apps({ academy: ['m@x.fr'] }, { cles: { academy: 2 } });
-    const r = await retirerM(a.f, ['academy']);
-    expect(r.apps).toEqual([{ app: 'academy', etat: 'retire', cles: 2 }]);
-    expect(r.complet, 'une clé de l\'espace n\'est pas un échec').toBe(true);
-    expect(nonCoupees(r.apps as never)).toMatch(/Clés API créées par cette personne, encore actives : academy : 2/);
-    expect(a.posts[0].chemin).toBe('/api/tenants/T/remove-member');
+  it('les clés API restées actives sont dites app par app, jamais tues ; une clé n\'est pas un échec', async () => {
+    const a = apps({ academy: ['m@x.fr'], notifuse: ['m@x.fr'], prospection: ['m@x.fr'], crm: ['m@x.fr'] }, { cles: {
+      academy: { active_api_keys_created_by_member: 2 },
+      notifuse: { active_api_keys: 3, api_keys_url: 'https://notifuse.app.veridian.site/console/cles' },
+      prospection: { active_api_keys: 0 },
+      crm: { active_api_keys: 1, api_keys_url: 'https://pirate.test/vol' },
+    } });
+    const r = await retirerM(a.f, ['notifuse', 'prospection', 'crm', 'academy']);
+    expect(r.complet).toBe(true);
+    expect(r.apps.map((x) => x.cles)).toEqual([
+      { actives: 3, par: 'espace', url: 'https://notifuse.app.veridian.site/console/cles' }, { actives: 0, par: 'espace' },
+      { actives: 1, par: 'espace' }, { actives: 2, par: 'personne' },
+    ]);
+    expect(r.avis).toMatch(/notifuse 3 \(https:\/\/notifuse\.app\.veridian\.site\/console\/cles\), crm 1, academy 2 créée\(s\) par cette personne\.$/);
+    expect(a.posts.find((p) => p.app === 'academy')?.chemin).toBe('/api/tenants/T/remove-member');
   });
 
   it('ses poignées de délégation dans CE tenant meurent', async () => {
@@ -259,6 +267,11 @@ it('oublierCompte : appartenances, invitations envoyées et reçues ; celles des
 it('nonCoupees : null quand tout est coupé, sinon chaque app et sa raison', () => {
   expect(nonCoupees([{ app: 'crm', etat: 'retire' }, { app: 'academy', etat: 'absent' }])).toBeNull();
   expect(nonCoupees([{ app: 'analytics', etat: 'non_gere', detail: 'aucune route' }, { app: 'crm', etat: 'echec', detail: 'http_500' }])).toMatch(/analytics \(aucune route\), crm \(http_500\)/);
+});
+
+it('avisCles : une app qui ne compte pas est dite « non comptées », zéro et absent se taisent', () => {
+  expect(avisCles([{ app: 'crm', etat: 'absent' }, { app: 'academy', etat: 'retire', cles: { actives: 0, par: 'espace' } }])).toBeNull();
+  expect(avisCles([{ app: 'notifuse', etat: 'retire' }, { app: 'analytics', etat: 'non_gere' }])).toMatch(/notifuse non comptées, analytics non comptées/);
 });
 
 it('le Hub ne resynchronise jamais un membre : aucun appel à sync-member, attach-member seulement pour une invitation acceptée', () => {
