@@ -9,6 +9,7 @@ import type { PrismaClient } from '@prisma/client';
 
 import { writeAuditLog } from '@/lib/admin/audit-log';
 
+import { organisationDeTest } from './ouverture';
 import { empreintePortees, paire as trouverPaire, paireServie, PAIRES } from './paires';
 import { empreinte } from './poignee';
 
@@ -17,8 +18,9 @@ type Db = Pick<PrismaClient, 'integrationPaire' | 'integrationDemande' | 'tenant
 export type EtatPaire = { paire: string; libelle: string; source: string; cible: string; nature: string; etat: 'allumee' | 'eteinte' | 'indisponible'; consentie: boolean; change_par: string | null; change_le: string | null; dernier_passage: string | null; derniere_erreur: string | null };
 export type Reglage = { etat: 'allumee' | 'eteinte' } | { etat: 'a_confirmer'; lien: string; expire_le: string } | { refus: 'paire_inconnue' | 'role_insuffisant' | 'cible_non_servie' };
 
-export async function listerIntegrations(db: Pick<Db, 'integrationPaire' | 'user'>, tenantId: string, env: NodeJS.ProcessEnv = process.env): Promise<EtatPaire[]> {
+export async function listerIntegrations(db: Pick<Db, 'integrationPaire' | 'user' | 'tenant'>, tenantId: string, env: NodeJS.ProcessEnv = process.env): Promise<EtatPaire[]> {
   const lignes = await db.integrationPaire.findMany({ where: { tenantId } });
+  const test = await organisationDeTest(db, tenantId, env);
   const ids = Array.from(new Set(lignes.map((l) => l.changePar.split(' ')[0])));
   const comptes = ids.length ? await db.user.findMany({ where: { supabaseUserId: { in: ids } }, select: { supabaseUserId: true, email: true } }) : [];
   const qui = (c: string) => {
@@ -27,7 +29,7 @@ export async function listerIntegrations(db: Pick<Db, 'integrationPaire' | 'user
   };
   return PAIRES.map((p) => {
     const l = lignes.find((x) => x.paire === p.cle);
-    const servie = paireServie(p, env);
+    const servie = paireServie(p, env, test);
     const consentie = Boolean(l?.consentiLe && l.portees === empreintePortees(p));
     return {
       paire: p.cle, libelle: p.libelle, source: p.source, cible: p.cible, nature: p.nature,
@@ -59,7 +61,7 @@ export async function reglerIntegration(db: Db, d: { tenantId: string; paire: st
   const changePar = `${d.hubUserId} via ${d.client}`.slice(0, 200);
   const l = await db.integrationPaire.findUnique({ where: cle });
   if (d.etat === 'allumee') {
-    if (!paireServie(p, env)) return { refus: 'cible_non_servie' };
+    if (!paireServie(p, env, await organisationDeTest(db, d.tenantId, env))) return { refus: 'cible_non_servie' };
     if (!l?.consentiLe || l.portees !== empreintePortees(p)) {
       const jeton = randomBytes(32).toString('base64url');
       const expireLe = new Date(Date.now() + DEMANDE_MIN * 60_000);
@@ -81,7 +83,7 @@ export async function lireDemande(db: Pick<Db, 'integrationDemande' | 'tenant' |
   const q = await db.integrationDemande.findUnique({ where: { empreinte: empreinte(jeton) } });
   if (!q || q.confirmeLe || q.expireLe <= new Date()) return null;
   const p = trouverPaire(q.paire);
-  if (!p || !paireServie(p, env)) return null;
+  if (!p || !paireServie(p, env, await organisationDeTest(db, q.tenantId, env))) return null;
   if ((await roleAuHub(db, q.tenantId, hubUserId)) !== 'owner') return null;
   const t = await db.tenant.findFirst({ where: { id: q.tenantId, deletedAt: null }, select: { name: true } });
   const u = await db.user.findFirst({ where: { supabaseUserId: q.demandePar }, select: { email: true } });

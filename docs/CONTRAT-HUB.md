@@ -1825,7 +1825,8 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
 - **Jeton** : `sub`, `tenant_id`, `jti`, `aud` = MCP de la cible, `act = { sub: "app:<source>" }`, portées étroites (jamais `veridian`),
   120 s. La cible exige `act`, refuse un `jti` déjà vu, et garde l'idempotence chez elle.
 - **Registre fermé** (`lib/delegation/paires.ts`) : cinq paires, aucune action destructive. Une cible s'ouvre (`DELEGATION_CIBLES`) après
-  son « garde servie ».
+  son « garde servie ». `crm@test` n'ouvre qu'aux
+  organisations d'un compte de test : la preuve en prod, sans aucun client (`lib/delegation/ouverture.ts`).
 - **Événements** (`notifuse>crm`, `crm>prospection`) : pas encore servis ; ni allumables, ni échangeables contre la poignée d'un
   utilisateur. Leur sujet sera `integration:<hub_tenant_id>`.
 - **Écran** : `/dashboard/liaisons` (adresse stable, les apps y renvoient) : état, allumer, couper, sans IA.
