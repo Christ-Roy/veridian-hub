@@ -50,7 +50,23 @@ export function exigeAutorisation(o: Pick<Outil, 'annotations'>): boolean {
   return !(a.readOnlyHint === true || a.destructiveHint === false);
 }
 
-/** Ce que le programme reçoit d'un outil : sa donnée structurée, sinon son texte, lu en JSON s'il en est. */
+/** Un texte qui commence comme un objet ou une liste JSON (jamais « [note] » ni « [1] voir »). */
+const DEBUT_JSON = /^\s*(\{\s*["}]|\[\s*[[{"])/;
+
+const seLit = (t: string): boolean => {
+  try {
+    JSON.parse(t);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Ce que le programme reçoit d'un outil : sa donnée structurée, sinon son texte, lu en JSON s'il en est. Un JSON commencé et
+ * illisible est une réponse COUPÉE par l'app : une erreur, jamais un texte que le code prendrait pour une donnée (24/11,
+ * Prospection coupait à 15 000 caractères).
+ */
 export function valeurDe(r: Contenu): unknown {
   const texte = (r.content ?? []).map((c) => (c?.type === 'text' ? c.text : '')).join('\n');
   if (r.isError) throw new Error(texte.slice(0, 2_000) || "erreur de l'outil");
@@ -58,7 +74,9 @@ export function valeurDe(r: Contenu): unknown {
   try {
     return JSON.parse(texte);
   } catch {
-    return texte;
+    // Plusieurs blocs dont l'un se lit entier : ce n'est pas une coupe, le texte est rendu tel quel.
+    if (!DEBUT_JSON.test(texte) || (r.content ?? []).some((c) => c?.type === 'text' && typeof c.text === 'string' && DEBUT_JSON.test(c.text) && seLit(c.text))) return texte;
+    throw new Error(`l'app a coupé sa réponse (${texte.length} caractères, JSON illisible). L'appel a été joué : demander moins de lignes ou de colonnes, ne pas le refaire à l'aveugle s'il écrit`);
   }
 }
 

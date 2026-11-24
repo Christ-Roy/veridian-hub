@@ -226,4 +226,25 @@ describe('valeurDe', () => {
     expect(() => valeurDe({ content: [{ type: 'text', text: 'non' }], isError: true })).toThrow('non');
     expect(new AppDebit(1)).toBeInstanceOf(AppInjoignable);
   });
+
+  it('une réponse coupée par l\'app est une erreur, jamais un texte pris pour une donnée', () => {
+    const t = (...textes: string[]) => ({ content: textes.map((text) => ({ type: 'text' as const, text })) });
+    const entier = JSON.stringify({ lignes: Array.from({ length: 50 }, (_, i) => ({ i })) });
+    for (const coupe of [entier.slice(0, 100), `${entier.slice(0, 100)}\n[réponse tronquée à 15000 caractères]`, '[{"a":1},{"a"', '["x","y', '{', ' {\n "a"']) {
+      if (coupe === '{') expect(valeurDe(t(coupe))).toBe('{');
+      else expect(() => valeurDe(t(coupe)), coupe.slice(0, 20)).toThrow('coupé sa réponse');
+    }
+    // Du texte qui n'est pas du JSON reste du texte.
+    for (const texte of ['[note] rien à dire', '[1] voir la page', '{{nom}} à compléter', '12 contacts', '']) expect(valeurDe(t(texte))).toBe(texte);
+    // Un JSON entier suivi d'un commentaire dans un autre bloc : rendu tel quel.
+    expect(valeurDe(t('{"a":1}', 'voir la page'))).toBe('{"a":1}\nvoir la page');
+    // La donnée structurée prime sur un texte coupé.
+    expect(valeurDe({ ...t('{"a":'), structuredContent: { a: 1 } })).toEqual({ a: 1 });
+  });
+
+  it('dans un programme : l\'appel coupé lève une exception que le code peut traiter', async () => {
+    const b = await lancer('try { await outil("a.lire"); return "donnée" } catch (e) { return String(e.message) }', { jouer: async () => ({ content: [{ type: 'text', text: '{"lignes":[{"a":1},{"b"' }] }) });
+    expect(b.resultat).toContain('coupé sa réponse');
+    expect(b.appels).toMatchObject({ faits: 1, reussis: 0, echoues: 1 });
+  });
 });

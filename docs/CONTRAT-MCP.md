@@ -108,7 +108,9 @@ la porte. Journal : `mcp.tool.call` par appel avec l'identifiant du programme, `
 autorisés, comptes) ; jamais le code ni les arguments. Mon IA n'offre pas cet outil.
 
 **Côté app** : l'en-tête `X-Veridian-MCP-Appel: programme` accompagne ces appels. Il autorise une app à rendre une page plus
-grosse (1 Mo au plus) ; il ne donne **aucun droit**. Une app qui ne le connaît pas marche sans rien changer. Le Hub ouvre
+grosse (1 Mo au plus) ; il ne donne **aucun droit**. Une app qui coupe ses réponses doit le lire
+et rendre la page entière, ou une erreur franche au-delà de 1 Mo : **jamais un JSON coupé**. Le Hub rend un JSON illisible en
+erreur explicite (« l'app a coupé sa réponse »), jamais en texte. Une app qui ne coupe pas n'a rien à changer. Le Hub ouvre
 une seule session MCP par app et par programme.
 
 **Enfermement** : le code vient d'un modèle, donc rien n'est à prendre s'il sort de QuickJS. Il tourne dans le groupe Nomad
