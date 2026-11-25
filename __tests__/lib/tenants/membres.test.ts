@@ -303,3 +303,8 @@ it('une pré-inscription ne donne que member, et ne rend pas un retiré si elle 
   await expect(joindre({ origine: 'preinscription', emiseLe: new Date('2026-11-19') })).rejects.toMatchObject({ code: 'retire' });
   expect(await joindre({ origine: 'preinscription', emiseLe: new Date('2026-11-21') })).toMatchObject({ cree: true, role: 'member' });
 });
+it('une fédération ne donne que member, et ne fait JAMAIS revenir un retiré', async () => {
+  await expect(joindre({ origine: 'federation', role: 'admin' })).rejects.toMatchObject({ code: 'role_refuse' });
+  membres = [{ tenantId: 'T', userId: 'u-m', role: 'member', deletedAt: new Date('2026-11-20') }];
+  await expect(joindre({ origine: 'federation', emiseLe: new Date() })).rejects.toMatchObject({ code: 'retire' });
+});

@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 
-import { consommerTicket, emettreTicket, federationExpiree, SESSION_FEDEREE_S } from '@/lib/federation/ticket';
+import { consommerTicket, emettreTicket, federationExpiree, FOURNISSEUR_FEDERATION, SESSION_FEDEREE_S } from '@/lib/federation/ticket';
 
 const base = () => {
   const l: any[] = [];
@@ -26,4 +26,14 @@ it('federationExpiree : 24 h depuis la connexion réelle ; une session ordinaire
   const f = (x: object) => federationExpiree(x, n);
   expect([f({ federe: true, authAt: n - SESSION_FEDEREE_S }), f({ federe: true, authAt: n - SESSION_FEDEREE_S - 1 }), f({ federe: true }), f({ authAt: 0 }), f({ federe: 'true', authAt: 0 })]).toEqual([false, true, true, false, false]);
   expect(SESSION_FEDEREE_S).toBe(86_400);
+});
+it('le fournisseur interne ne se confond avec aucun fournisseur réel ni avec les liens d\'organisation', () => {
+  expect(FOURNISSEUR_FEDERATION).toBe('federation');
+  expect(FOURNISSEUR_FEDERATION.startsWith('org:')).toBe(false);
+});
+it('émettre purge les tickets morts', async () => {
+  const db = base();
+  await emettreTicket(db as never, 'A', 1_000_000);
+  await emettreTicket(db as never, 'B', 2_000_000);
+  expect(db.l.map((x) => x.userId)).toEqual(['B']);
 });

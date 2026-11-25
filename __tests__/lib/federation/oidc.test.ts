@@ -2,7 +2,7 @@
 /** Le dialogue OIDC contre un VRAI serveur (jetable) : tout ce qu'un fournisseur peut fausser est refusé, et le témoin passe. */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { demarrer, ouvrir, sceller, terminer } from '@/lib/federation/oidc';
+import { CHEMIN_RETOUR, COOKIE_FEDERATION, demarrer, ouvrir, sceller, terminer, TRANSACTION_S } from '@/lib/federation/oidc';
 import type { IdpPret } from '@/lib/federation/idp';
 
 const admis = vi.hoisted(() => ({ oui: true }));
@@ -79,4 +79,8 @@ describe('terminer', () => {
     await expect(demarrer({ ...i, test: false }, RETOUR)).rejects.toThrow();
     expect(idp.demandes()).toBe(n);
   });
+});
+
+it('ce que le client configure chez lui ne bouge pas : adresse de retour, cookie, 10 min', () => {
+  expect([CHEMIN_RETOUR, COOKIE_FEDERATION, TRANSACTION_S]).toEqual(['/api/auth/federation/callback', 'veridian-federation', 600]);
 });

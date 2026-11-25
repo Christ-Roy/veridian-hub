@@ -69,3 +69,8 @@ describe('contenuOrg', () => {
     expect(c.contenu).not.toHaveProperty('version');
   });
 });
+
+it('le CRM est une app qui PEUT recevoir, jamais une app cochée d\'office (VER-252)', async () => {
+  expect(MODULES).toContain('crm');
+  expect((await doc())!.modules).not.toContain('crm');
+});
