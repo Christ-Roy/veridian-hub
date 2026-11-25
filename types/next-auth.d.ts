@@ -30,6 +30,8 @@ declare module 'next-auth/jwt' {
     uid?: string;
     /** Dernière connexion réelle (secondes). */
     authAt?: number;
+    /** `true` sur une session ouverte par le fournisseur d'une organisation : 24 h au plus. */
+    federe?: boolean;
     /** `true` sur un JWT issu d'une impersonation admin. */
     impersonated?: boolean;
     /** Email du platform admin à l'origine de l'impersonation. */

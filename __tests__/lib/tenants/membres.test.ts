@@ -261,9 +261,9 @@ describe('suspension', () => {
 
 it('oublierCompte : appartenances, invitations envoyées et reçues ; celles des autres restent', async () => {
   const jeu: L[] = [];
-  const d = { tenantPreinscription: { deleteMany: async (x: L) => { jeu.push(['preinscriptions', x.where]); return { count: 0 }; } }, tenantMember: { deleteMany: async (x: L) => { jeu.push(['membres', x.where]); return { count: 1 }; } }, crossAppInvitation: { updateMany: async (x: L) => { jeu.push(['acceptees', x]); return { count: 0 }; }, deleteMany: async (x: L) => { jeu.push(['invitations', x.where]); return { count: 2 }; } } } as never;
+  const d = { tenantIdp: { deleteMany: async (x: L) => { jeu.push(['idp', x.where]); return { count: 0 }; } }, tenantPreinscription: { deleteMany: async (x: L) => { jeu.push(['preinscriptions', x.where]); return { count: 0 }; } }, tenantMember: { deleteMany: async (x: L) => { jeu.push(['membres', x.where]); return { count: 1 }; } }, crossAppInvitation: { updateMany: async (x: L) => { jeu.push(['acceptees', x]); return { count: 0 }; }, deleteMany: async (x: L) => { jeu.push(['invitations', x.where]); return { count: 2 }; } } } as never;
   expect(await oublierCompte(d, { id: 'c', email: 'A@b.fr', hubUserId: 'u', tenants: ['T'] })).toEqual({ membres: 1, invitations: 2 });
-  expect(jeu).toEqual([['membres', { userId: 'u' }], ['preinscriptions', { OR: [{ email: 'a@b.fr' }, { tenantId: { in: ['T'] } }] }], ['acceptees', { where: { acceptedByUserId: 'c' }, data: { acceptedByUserId: null } }], ['invitations', { OR: [{ inviterUserId: 'c' }, { inviteeEmail: { equals: 'A@b.fr', mode: 'insensitive' } }] }]]);
+  expect(jeu).toEqual([['membres', { userId: 'u' }], ['preinscriptions', { OR: [{ email: 'a@b.fr' }, { tenantId: { in: ['T'] } }] }], ['idp', { tenantId: { in: ['T'] } }], ['acceptees', { where: { acceptedByUserId: 'c' }, data: { acceptedByUserId: null } }], ['invitations', { OR: [{ inviterUserId: 'c' }, { inviteeEmail: { equals: 'A@b.fr', mode: 'insensitive' } }] }]]);
   expect(await oublierCompte(d, { id: 'c', email: 'a@b.fr', hubUserId: null })).toEqual({ membres: 0, invitations: 2 });
 });
 
@@ -302,4 +302,9 @@ it('une pré-inscription ne donne que member, et ne rend pas un retiré si elle 
   membres = [{ tenantId: 'T', userId: 'u-m', role: 'member', deletedAt: new Date('2026-11-20') }];
   await expect(joindre({ origine: 'preinscription', emiseLe: new Date('2026-11-19') })).rejects.toMatchObject({ code: 'retire' });
   expect(await joindre({ origine: 'preinscription', emiseLe: new Date('2026-11-21') })).toMatchObject({ cree: true, role: 'member' });
+});
+it('une fédération ne donne que member, et ne fait JAMAIS revenir un retiré', async () => {
+  await expect(joindre({ origine: 'federation', role: 'admin' })).rejects.toMatchObject({ code: 'role_refuse' });
+  membres = [{ tenantId: 'T', userId: 'u-m', role: 'member', deletedAt: new Date('2026-11-20') }];
+  await expect(joindre({ origine: 'federation', emiseLe: new Date() })).rejects.toMatchObject({ code: 'retire' });
 });

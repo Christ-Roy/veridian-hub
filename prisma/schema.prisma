@@ -623,6 +623,33 @@ model TenantPreinscription {
   @@schema("hub_app")
 }
 
+/// Fournisseur d'identité OIDC d'une organisation (VER-227 S2, lib/federation). Le secret est chiffré, les domaines sont déclarés par Veridian.
+model TenantIdp {
+  id            String   @id @default(cuid())
+  tenantId      String   @unique @map("tenant_id")
+  issuer        String
+  clientId      String   @map("client_id")
+  secretChiffre String   @map("secret_chiffre")
+  domaines      String[]
+  creationAuto  Boolean  @default(false) @map("creation_auto")
+  actif         Boolean  @default(true)
+  posePar       String   @map("pose_par")
+  poseLe        DateTime @default(now()) @map("pose_le")
+
+  @@map("tenant_idps")
+  @@schema("hub_app")
+}
+
+/// Ticket à usage unique (60 s) entre le retour du fournisseur et Auth.js.
+model FederationTicket {
+  empreinte String   @id
+  userId    String   @map("user_id")
+  expireLe  DateTime @map("expire_le")
+
+  @@map("federation_tickets")
+  @@schema("hub_app")
+}
+
 /// Organisation réglée une fois au Hub, lue par les apps (VER-252, lib/organisations).
 model Organisation {
   tenantId        String   @id @map("tenant_id")

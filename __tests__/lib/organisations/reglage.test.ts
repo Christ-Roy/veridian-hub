@@ -13,7 +13,7 @@ const regler = (reglage: object, logo?: Buffer | null, tenantId = 'A') => regler
 
 describe('Reglage', () => {
   it('refuse une couleur, un module ou un champ inconnu', () => {
-    for (const x of [{ couleur_primaire: 'red' }, { couleur_accent: '#12' }, { couleur_primaire: 'url(x)' }, { modules: ['cms'] }, { type: 'autre' }, { nom_affiche: '' }, { pirate: 1 }, { reglages: { crm: {} } }]) expect(Reglage.safeParse(x).success, JSON.stringify(x)).toBe(false);
+    for (const x of [{ couleur_primaire: 'red' }, { couleur_accent: '#12' }, { couleur_primaire: 'url(x)' }, { modules: ['cms'] }, { type: 'autre' }, { nom_affiche: '' }, { pirate: 1 }, { reglages: { cms: {} } }]) expect(Reglage.safeParse(x).success, JSON.stringify(x)).toBe(false);
     expect(Reglage.safeParse({ type: 'organisation', couleur_primaire: '#0b5FFF', modules: ['academy'], reglages: { academy: { mode_opco: true } } }).success).toBe(true);
   });
 });

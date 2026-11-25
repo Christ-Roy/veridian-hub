@@ -57,6 +57,20 @@ describe('auth.ts — invariants de config critiques', () => {
     expect(authSource).toMatch(/callbacks:\s*\{[\s\S]*?jwt\(/);
   });
 
+  it('fédération : une session fédérée est marquée à la connexion et bornée à chaque lecture, avant la révocation', () => {
+    const jwt = authSource.slice(authSource.indexOf('async jwt('), authSource.indexOf('async session('));
+    expect(jwt).toMatch(/if \(account\?\.provider === FOURNISSEUR_FEDERATION\) token\.federe = true;/);
+    expect(jwt.indexOf('token.federe = true')).toBeLessThan(jwt.indexOf('return token'));
+    expect(jwt).toMatch(/if \(federationExpiree\(token\)\) return null;/);
+    expect(jwt.indexOf('federationExpiree(token)')).toBeLessThan(jwt.indexOf('isSessionRevoked'));
+  });
+
+  it('fédération : le fournisseur interne ne croit que le ticket, jamais une adresse reçue', () => {
+    const bloc = authSource.slice(authSource.indexOf('id: FOURNISSEUR_FEDERATION'), authSource.indexOf("name: 'Email'"));
+    expect(bloc).toMatch(/consommerTicket\(prisma, credentials\?\.ticket\)/);
+    expect(bloc).not.toMatch(/credentials\?\.(email|id|userId)/);
+  });
+
   it('câble events.createUser (filet OAuth supabaseUserId — régression 2026-05-21)', () => {
     // **Ce test aurait catché l'incident 2026-05-20→21.**
     // Si quelqu'un supprime ou commente events.createUser, ce test fail —

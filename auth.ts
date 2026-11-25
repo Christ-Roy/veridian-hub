@@ -18,6 +18,7 @@ import { createSignInCallback } from '@/lib/auth/sign-in-callback';
 import { createCreateUserEvent } from '@/lib/auth/create-user-event';
 import { buildMockOauthProvider } from '@/lib/auth/mock-oauth-provider';
 import { buildGoogleOneTapProvider } from '@/lib/auth/google-one-tap-provider';
+import { consommerTicket, federationExpiree, FOURNISSEUR_FEDERATION } from '@/lib/federation/ticket';
 import { createOauthEventLogger } from '@/lib/auth/oauth-event-log';
 import { impersonationExpiree } from '@/lib/auth/impersonation';
 import { normaliserEmail } from '@/lib/auth/email-normalize';
@@ -128,6 +129,16 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
     // Provider Google One Tap — null en staging (privatisation Tailscale)
     // ou si le client_id OAuth Google n'est pas configuré.
     ...(googleOneTapProvider ? [googleOneTapProvider] : []),
+    // Retour du fournisseur d'une organisation (lib/federation) : rend la personne que le ticket désigne, une fois. La suite (2FA, session) est la même.
+    Credentials({
+      id: FOURNISSEUR_FEDERATION,
+      name: 'Organisation',
+      credentials: { ticket: {} },
+      async authorize(credentials) {
+        const id = await consommerTicket(prisma, credentials?.ticket);
+        return id ? prisma.user.findUnique({ where: { id }, select: { id: true, email: true, name: true, image: true } }) : null;
+      },
+    }),
     Credentials({
       name: 'Email',
       credentials: {
@@ -180,14 +191,17 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
     // Callback signIn extrait dans lib/auth/sign-in-callback.ts pour le tester
     // unitairement. Gère MFA + retour boolean/string (path) selon spec Auth.js v5.
     signIn: createSignInCallback({ prisma, issueAndSendMfaCode, applyProviderEmailProof }),
-    async jwt({ token, user }) {
+    async jwt({ token, user, account }) {
       if (user) {
+        if (account?.provider === FOURNISSEUR_FEDERATION) token.federe = true;
         token.uid = user.id;
         token.authAt = Math.floor(Date.now() / 1000);
         return token;
       }
       // Impersonation : une heure après son début réel, quoi que dise la durée re-signée (D5).
       if (impersonationExpiree(token)) return null;
+      // Session ouverte par le fournisseur d'une organisation : 24 h (D6).
+      if (federationExpiree(token)) return null;
       // Session d'un an : la révocation doit se lire ici, à chaque lecture de session, sinon un
       // jeton volé ou un compte supprimé resterait valable jusqu'à son expiration.
       if (typeof token.uid === 'string' && (await isSessionRevoked(prisma, token))) {
