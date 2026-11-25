@@ -8,7 +8,7 @@ import { expect } from '@playwright/test';
 import { APP_URL, HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
 import { admin, adminOk, lookup, marquerTest } from './lib/hub-admin';
-import { adresseDe, creerCompteNonProuve, creerCompteProuve, type Compte } from './lib/parcours';
+import { adresseDe, attendreSessionHub, connexionHub, creerCompteNonProuve, creerCompteProuve, type Compte } from './lib/parcours';
 
 type Ligne = { email: string; etat: string; role?: string };
 type Membres = { document: { membres: { hub_user_id: string; role: string }[] } };
@@ -68,10 +68,34 @@ cas(null, 'pré-inscription : importée sans compte, elle rejoint à sa premièr
     await ctx.close();
   }
 
+  // M2, pré-prise de compte : N a été ouvert par quelqu'un qui n'a PAS prouvé l'adresse. Le vrai titulaire la prouve (lien reçu) : il rejoint, et
+  // l'ancien accès, session ouverte et mot de passe, est mort.
+  if (!N.etat) throw new NonAbouti('le compte non prouvé n\'a pas ouvert de session : M2 ne peut pas être joué');
+  const session = async (etat: unknown) => {
+    const c = await browser.newContext({ storageState: etat as never });
+    try {
+      return ((await (await c.request.get(`${HUB_URL}/api/auth/session`)).json().catch(() => null)) as { user?: { email?: string } } | null)?.user?.email ?? null;
+    } finally {
+      await c.close();
+    }
+  };
+  expect(await session(N.etat), 'contrôle positif : la session d\'avant la preuve vivait').toBe(adresses.N.toLowerCase());
+  const vrai: Compte = await creerCompteProuve(browser, 'pren', adresses.N, true);
+  expect(await session(N.etat), 'session d\'avant la preuve').toBeNull();
+  const ancien = await browser.newContext();
+  try {
+    const page = await ancien.newPage();
+    await connexionHub(page, adresses.N, N.motDePasse);
+    expect(await attendreSessionHub(ancien, adresses.N, 12_000), 'mot de passe d\'avant la preuve').toBe(false);
+  } finally {
+    await ancien.close();
+  }
+  expect((await entrer(vrai)).texte, 'le vrai titulaire a rejoint').toContain('TEST préinscription');
+
   // Retirée : elle ne revient pas par la même pré-inscription.
   const retrait = await admin<{ apps: { app: string; etat: string }[] }>('POST', `tenants/${T.id}/remove-member`, { hub_user_id: M.hubUserId });
   expect([200, 207], JSON.stringify(retrait.json).slice(0, 200)).toContain(retrait.status);
   expect((await entrer(M)).texte, 'retirée').not.toContain('TEST préinscription');
-  expect((await adminOk<Membres>('GET', `organisations/${T.id}`)).document.membres.map((m) => m.hub_user_id)).toEqual([P.hubUserId]);
-  return 'importée sans compte, jointe à la première connexion prouvée, arrivée dans Prospection ; annulée, non prouvée, inconnue : dehors ; retirée : ne revient pas';
-}, { timeout: 600_000 });
+  expect((await adminOk<Membres>('GET', `organisations/${T.id}`)).document.membres.map((m) => m.hub_user_id).sort()).toEqual([P.hubUserId, vrai.hubUserId].sort());
+  return 'importée sans compte, jointe à la première connexion prouvée, arrivée dans Prospection ; annulée, non prouvée, inconnue : dehors ; retirée : ne revient pas ; M2 : session et mot de passe d\'avant la preuve morts, le vrai titulaire a rejoint';
+}, { timeout: 900_000 });
