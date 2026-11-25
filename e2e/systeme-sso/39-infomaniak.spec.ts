@@ -92,6 +92,15 @@ cas(null, 'SSO comme Infomaniak : chacun relie le sien, aucune adresse crue, la 
     await crm.close();
     const depart = await un.ctx.request.post(`${HUB_URL}/api/tenants/start`, { data: { app: 'prospection' } });
     expect([refusCrm, depart.status(), ((await lookup(M.email)).json?.tenants ?? []).length], 'aucun espace à elle').toEqual([expect.stringContaining('/auth/bounce/error?app=crm&code=user_not_in_app'), 403, 0]);
+    // Le même refus pour un membre entré par sa propre connexion : un espace à lui couperait son entrée d'organisation.
+    const W1 = await browser.newContext({ storageState: W.etat as never });
+    ouverts.push(W1);
+    const departW = await W1.request.post(`${HUB_URL}/api/tenants/start`, { data: { app: 'prospection' } });
+    const ouvertureW = await W1.newPage();
+    await ouvertureW.goto(`${HUB_URL}/login?next=${encodeURIComponent(`${APP_URL.twenty}/`)}`, { waitUntil: 'networkidle' }).catch(() => undefined);
+    const refusW = `${new URL(ouvertureW.url()).pathname}${new URL(ouvertureW.url()).search}`;
+    await ouvertureW.close();
+    expect([departW.status(), (await departW.json().catch(() => null))?.error, refusW, ((await lookup(W.email)).json?.tenants ?? []).length], 'membre par sa propre connexion : aucun espace à lui').toEqual([403, 'membre_organisation', expect.stringContaining('/auth/bounce/error?app=crm&code=user_not_in_app'), 0]);
     // Elle arrive dans l'app, dans l'organisation ; elle ne branche pas d'IA et ne touche pas à son compte.
     const page = await un.ctx.newPage();
     await page.goto(`${APP_URL.prospection}/`, { waitUntil: 'networkidle' }).catch(() => undefined);
