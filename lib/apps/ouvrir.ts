@@ -9,7 +9,7 @@ import { ensureCrmWorkspace } from '@/lib/crm/provision';
 import type { SyncApp } from '@/lib/sync/types';
 import { provisionNotifuseTenant, provisionProspectionTenant } from '@/utils/tenants/provision';
 
-import { espaceNote, presenteDans } from './presence';
+import { espaceMailVivant, espaceNote, presenteDans } from './presence';
 
 export type Ouverture = { app: SyncApp; etat: 'ouverte' | 'attente' | 'echec'; detail?: string };
 export type Verdict = 'complet' | 'en_partie' | 'non_abouti';
@@ -46,7 +46,10 @@ export async function ouvrirApps(db: PrismaClient, tenantId: string, apps: reado
       }
       const t = await lire();
       const p = t && espaceNote(t, app) ? await presenteDans(app, t, { email: u.email, hubUserId }, deps) : false;
+      // Personne à voir encore dans l'espace ? L'espace, lui, doit vivre : un espace supprimé n'est pas « en attente de sa première connexion ».
+      const vivant = p === false && app === 'notifuse' && t?.notifuseWorkspaceSlug ? await espaceMailVivant(t.notifuseWorkspaceSlug, deps) : true;
       if (p) res.push({ app, etat: 'ouverte' });
+      else if (vivant !== true) res.push({ app, etat: 'echec', detail: vivant === false ? 'espace supprimé ou suspendu chez Mail' : 'relecture impossible' });
       // Une app peut ne relier le propriétaire qu'à sa première entrée prouvée : l'espace est là, pas encore lui.
       else if (p === false && !u.emailVerified) res.push({ app, etat: 'attente', detail: 'espace créé ; il y sera relié à sa première connexion' });
       else res.push({ app, etat: 'echec', detail: p === null ? 'relecture impossible' : 'créé d\'après nous, mais l\'app ne l\'y voit pas' });

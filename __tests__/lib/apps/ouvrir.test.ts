@@ -2,11 +2,11 @@
 /** Ouvrir un client : chaque app relue, jamais « créé » sur parole. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const m = vi.hoisted(() => ({ mail: vi.fn(), atlas: vi.fn(), crm: vi.fn(), academy: vi.fn(), presente: vi.fn() }));
+const m = vi.hoisted(() => ({ mail: vi.fn(), atlas: vi.fn(), crm: vi.fn(), academy: vi.fn(), presente: vi.fn(), vivant: vi.fn() }));
 vi.mock('@/utils/tenants/provision', () => ({ provisionNotifuseTenant: (...a: unknown[]) => m.mail(...a), provisionProspectionTenant: (...a: unknown[]) => m.atlas(...a) }));
 vi.mock('@/lib/crm/provision', () => ({ ensureCrmWorkspace: (...a: unknown[]) => m.crm(...a) }));
 vi.mock('@/lib/academy/provision', () => ({ ensureAcademyWorkspace: (...a: unknown[]) => m.academy(...a) }));
-vi.mock('@/lib/apps/presence', async (o) => ({ ...(await o<object>()), presenteDans: (...a: unknown[]) => m.presente(...a) }));
+vi.mock('@/lib/apps/presence', async (o) => ({ ...(await o<object>()), presenteDans: (...a: unknown[]) => m.presente(...a), espaceMailVivant: (...a: unknown[]) => m.vivant(...a) }));
 
 import { ouvrirApps, verdict } from '@/lib/apps/ouvrir';
 
@@ -21,6 +21,7 @@ beforeEach(() => {
   m.atlas.mockImplementation(async () => { t = { ...t, prospectionProvisionedAt: new Date() }; return { success: true }; });
   m.crm.mockImplementation(async () => { t = { ...t, metadata: { crm: { workspace_id: 'c' } } }; return { ok: true }; });
   m.presente.mockResolvedValue(true);
+  m.vivant.mockResolvedValue(true);
 });
 const ouvrir = async (...apps: any[]) => { const r = (await ouvrirApps(db, 'T', apps))!; return [r.apps.map((x) => [x.app, x.etat]), r.verdict]; };
 
@@ -44,6 +45,13 @@ describe('ouvrirApps', () => {
     m.presente.mockResolvedValue(false);
     expect(await ouvrir('notifuse', 'crm')).toEqual([[['notifuse', 'attente'], ['crm', 'attente']], 'en_partie']);
     expect(m.crm).not.toHaveBeenCalled();
+  });
+  it('adresse pas prouvée mais espace Mail supprimé ou illisible : échec, jamais « en attente » (25/11)', async () => {
+    u.emailVerified = null;
+    m.presente.mockResolvedValue(false);
+    const rendu = [];
+    for (const v of [false, null]) { m.vivant.mockResolvedValue(v); rendu.push((await ouvrirApps(db, 'T', ['notifuse']))!.apps[0]); }
+    expect(rendu).toEqual([{ app: 'notifuse', etat: 'echec', detail: 'espace supprimé ou suspendu chez Mail' }, { app: 'notifuse', etat: 'echec', detail: 'relecture impossible' }]);
   });
   it('Analytics : pas d\'espace inventé ; une app qui plante n\'empêche pas les autres', async () => {
     m.mail.mockRejectedValue(new Error('réseau'));
