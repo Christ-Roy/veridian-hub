@@ -76,7 +76,7 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
 Outil admin : `hub` (`hub doctor` d'abord : santé, secret, auth admin). Aucune de ces commandes n'affiche de secret.
 
 - **Un client ne peut plus se connecter** : `hub tenant <email>` (adresse prouvée ? apps liées ?), `hub audit --since <date>`.
-  Adresse non prouvée : aucun lien d'app, `hub invite <email>` renouvelle l'accès (`--no-email` : lien seul). Entrer chez lui : `/dashboard/admin/clients` ou `hub open <email>` (`docs/PARCOURS-IDENTITE.md`, cas 46).
+  Adresse non prouvée : aucun lien d'app, `hub invite <email>` renouvelle l'accès (`--no-email` : lien seul). Entrer chez lui : `/dashboard/admin/clients` ou `hub open <email>` (`docs/PARCOURS-IDENTITE.md`, cas 45).
 - **Un rebond échoue** : `/auth/bounce/error?code=` dit pourquoi (`not_configured` : variable `<APP>_API_URL` ou
   `<APP>_HUB_API_SECRET` absente du job ; `unreachable` : l'app ; refus d'identité : voir « Rebond refusé »).
   `nomad-v logs hub` (tag `[bounce][refus]`). 3 rebonds rapides : anti-boucle, 30 s.
