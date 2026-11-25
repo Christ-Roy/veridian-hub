@@ -6,6 +6,7 @@ import { auth } from '@/auth';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { VeridianHubLogo } from '@/components/icons/VeridianHubLogo';
+import { connecteursOuverts } from '@/lib/connecteurs/registre';
 import { isEmailProvenForSession } from '@/lib/auth/email-proof';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { validerDemande } from '@/lib/mcp/oauth';
@@ -91,6 +92,7 @@ export default async function AutoriserPage({ searchParams }: Props) {
   }
 
   const d = v.demande;
+  const services = connecteursOuverts();
   const retour = (() => {
     try {
       const u = new URL(d.redirectUri);
@@ -107,11 +109,13 @@ export default async function AutoriserPage({ searchParams }: Props) {
       </p>
       <ul className="text-sm text-muted-foreground list-disc pl-5 space-y-1">
         <li>Il pourra utiliser, en votre nom, les outils de vos apps Veridian (lire et agir).</li>
+        {services ? <li>Il pourra aussi utiliser les services extérieurs que vous reliez dans Connexions (lire, et écrire là où vous l&apos;avez allumé).</li> : null}
         <li>Vous pourrez couper cet accès à tout moment depuis Réglages, Sécurité.</li>
         <li>Retour vers : {retour}</li>
       </ul>
       <form method="post" action="/api/oauth/authorize" className="flex gap-3 pt-2">
         {CHAMPS.map((k) => (p[k] !== undefined ? <input key={k} type="hidden" name={k} value={p[k]} /> : null))}
+        {services ? <input type="hidden" name="services" value="1" /> : null}
         <Button type="submit" name="decision" value="autoriser" className="flex-1">
           Autoriser
         </Button>

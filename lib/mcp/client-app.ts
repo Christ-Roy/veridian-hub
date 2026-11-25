@@ -13,10 +13,15 @@ export type OutilApp = {
 
 export class AppInjoignable extends Error {
   /** Code de refus rendu par l'app (`CODES_REFUS`), quand elle en donne un. */
-  constructor(message?: string, readonly code?: string) {
+  constructor(message?: string, readonly code?: string, /** Statut HTTP de la réponse, quand c'est lui qui refuse. */ readonly statut?: number) {
     super(message);
   }
 }
+
+/** Le message vient du serveur MCP lui-même : le texte d'un tiers, pas le nôtre. */
+export class AppErreurMcp extends AppInjoignable {}
+/** Le message vient du réseau : il peut citer ce que le serveur présente (certificat, hôte). */
+export class AppReseau extends AppInjoignable {}
 
 /** Refus avant l'outil, que le Hub sait nommer (CRM, 25/11). Cherchés dans le corps : sa forme dépend de l'app. */
 const CODES_REFUS = /\b(app_not_available|app_uninstalled|app_installing|app_install_failed|tenant_not_linked|tenant_forbidden|workspace_inactive)\b/;
@@ -111,7 +116,7 @@ export class SessionApp {
     } catch (err) {
       // Coupé de notre côté : l'app a peut-être fini le travail. Le dire, sans quoi l'IA rejoue une écriture déjà faite.
       if (outil && delai.aborted) throw new AppInjoignable(`pas de réponse en ${DELAI_OUTIL_MS / 1000} s : l'action a peut-être eu lieu, le vérifier avant de rejouer`);
-      throw new AppInjoignable(err instanceof Error ? err.message : 'réseau');
+      throw new AppReseau(err instanceof Error ? err.message : 'réseau');
     }
   }
 
@@ -120,12 +125,12 @@ export class SessionApp {
     const res = await this.envoyer({ jsonrpc: '2.0', id, method, params });
     if (res.status === 401 || res.status === 403) {
       const corps = await res.text().catch(() => '');
-      if (corps.includes('hub_user_unknown')) throw new CompteAbsent('compte absent dans l\'app');
+      if (corps.includes('hub_user_unknown')) throw new CompteAbsent('compte absent dans l\'app', undefined, res.status);
       // Règle tenant_id du contrat : l'espace choisi n'est pas relié chez l'app, ou l'utilisateur n'en est pas membre.
-      if (corps.includes('tenant_not_linked')) throw new AppInjoignable('cet espace n\'est pas relié dans l\'app (tenant_not_linked)', 'tenant_not_linked');
-      if (corps.includes('tenant_forbidden')) throw new AppInjoignable('ce compte n\'est pas membre de cet espace dans l\'app (tenant_forbidden)', 'tenant_forbidden');
+      if (corps.includes('tenant_not_linked')) throw new AppInjoignable('cet espace n\'est pas relié dans l\'app (tenant_not_linked)', 'tenant_not_linked', res.status);
+      if (corps.includes('tenant_forbidden')) throw new AppInjoignable('ce compte n\'est pas membre de cet espace dans l\'app (tenant_forbidden)', 'tenant_forbidden', res.status);
       const code = CODES_REFUS.exec(corps)?.[1];
-      throw new AppInjoignable(code ? `l'app refuse (HTTP ${res.status}, ${code})` : `l'app refuse l'identité du Hub (HTTP ${res.status})`, code);
+      throw new AppInjoignable(code ? `l'app refuse (HTTP ${res.status}, ${code})` : `l'app refuse l'identité du Hub (HTTP ${res.status})`, code, res.status);
     }
     if (res.status === 429) {
       const s = Number(res.headers.get('retry-after'));
@@ -133,14 +138,14 @@ export class SessionApp {
     }
     if (!res.ok) {
       const code = CODES_REFUS.exec((await res.text().catch(() => '')).slice(0, 4_000))?.[1];
-      throw new AppInjoignable(code ? `HTTP ${res.status}, ${code}` : `HTTP ${res.status}`, code);
+      throw new AppInjoignable(code ? `HTTP ${res.status}, ${code}` : `HTTP ${res.status}`, code, res.status);
     }
     const sid = res.headers.get('mcp-session-id');
     if (sid) this.session = sid;
     const msg = await lireReponse(res, id, this.options.maxOctets).catch((err) => {
-      throw err instanceof AppInjoignable ? err : new AppInjoignable(err instanceof Error ? err.message : 'réseau');
+      throw err instanceof AppInjoignable ? err : new AppReseau(err instanceof Error ? err.message : 'réseau');
     });
-    if (msg.error) throw new AppInjoignable(msg.error.message ?? 'erreur MCP');
+    if (msg.error) throw new AppErreurMcp(msg.error.message ?? 'erreur MCP');
     return msg.result;
   }
 
@@ -170,3 +175,6 @@ export class SessionApp {
     return this.requete('tools/call', { name, arguments: args });
   }
 }
+
+/** Ce que la porte attend d'une session, d'app ou de service extérieur. */
+export type SessionOutils = Pick<SessionApp, 'outils' | 'appeler'>;

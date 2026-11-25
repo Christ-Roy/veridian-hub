@@ -3,7 +3,7 @@
  * d'app), identité présentée en JWT ES256 vérifiable par la clé publique, accès par app, bornes.
  */
 import { exportJWK, generateKeyPair, createLocalJWKSet, jwtVerify } from 'jose';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { viderCache } from '@/lib/mcp/catalogue';
 import { SORTIE_MAX_CAR } from '@/lib/mcp/config';
@@ -467,11 +467,19 @@ describe('executer_programme', () => {
     expect(joues()).toEqual(['creer_objectif', 'update_site_config']);
   });
   it('un service extérieur ne se joue jamais depuis un programme, même nommé', async () => {
-    const f = appFactice({ outils: [{ name: 'chercher', description: 'x', inputSchema: { type: 'object' }, annotations: { readOnlyHint: true } }] });
-    const avec = { ...db, connexionExterne: { findMany: async () => [{ connecteur: 'notion' }], findUnique: async () => null } };
-    const r: any = await traiter(avec as never, QUI, { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'executer_programme', arguments: { code: 'x', autoriser: ['notion.chercher'] } } }, { fetchImpl: f.fetchImpl, programme: true, ouvrirMoteur: moteur([{ nom: 'notion.chercher' }]) });
-    expect(f.recus.filter((x) => x.corps.method === 'tools/call')).toEqual([]);
-    expect(JSON.stringify(r)).toMatch(/recues/);
+    vi.stubEnv('CONNECTEURS_OUVERTS', '1');
+    const { cacheOutils } = await import('@/lib/mcp/cache');
+    cacheOutils.set(`notion:${HUB_USER}`, { a: Date.now(), outils: [{ nom: 'notion.chercher', app: 'notion', local: 'chercher', description: '', inputSchema: {}, annotations: { readOnlyHint: true }, externe: 'Notion' }] });
+    const lu: string[] = [];
+    const avec = { ...db, tenant: { ...db.tenant, findMany: async () => [{ id: 't', name: 'E', slug: 'e', status: 'active' }] }, connexionExterne: { findMany: async () => [{ connecteur: 'notion' }], findUnique: async () => { lu.push('jeton'); return null; } } };
+    const qui = { ...QUI, services: true };
+    const direct: any = await traiter(avec as never, qui, { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'executer_outil', arguments: { nom: 'notion.chercher' } } });
+    expect([direct.result.content[0].text.endsWith('est à rebrancher : Connexions, dans votre espace Veridian.'), lu.length], 'témoin : en direct, son jeton est cherché').toEqual([true, 1]);
+    const recu: string[] = [];
+    const ouvrir = async () => { const x = await moteur([{ nom: 'notion.chercher' }])(); return { ...x, envoyer: (e: Record<string, unknown>) => { recu.push(JSON.stringify(e)); x.envoyer(e); } }; };
+    await traiter(avec as never, qui, { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'executer_programme', arguments: { code: 'x', autoriser: ['notion.chercher'] } } }, { programme: true, ouvrirMoteur: ouvrir });
+    vi.unstubAllEnvs();
+    expect([recu.some((x) => x.includes('service extérieur, en appel direct')), lu.length], 'refusé, et aucun jeton n\'a été cherché').toEqual([true, 1]);
   });
   it('offert seulement quand le moteur est configuré ; sinon trois outils et refus', async () => {
     const r: any = await traiter(db as never, QUI, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, { programme: true, ouvrirMoteur: moteur([]) });

@@ -691,6 +691,8 @@ model ConnecteurClient {
   retour        String
   clientId      String   @map("client_id")
   secretChiffre String?  @map("secret_chiffre")
+  /// Jeton et adresse de gestion de notre inscription (RFC 7592), chiffrés : pour pouvoir l'effacer chez le service.
+  gestionChiffre String? @map("gestion_chiffre")
   creeLe        DateTime @default(now()) @map("cree_le")
 
   @@id([connecteur, retour])
@@ -710,9 +712,31 @@ model ConnexionExterne {
   etat           String    @default("active")
   creeLe         DateTime  @default(now()) @map("cree_le")
   renouveleLe    DateTime  @default(now()) @map("renouvele_le")
+  /// Allumée par la personne, pour ce service seul.
+  ecriture       Boolean   @default(false)
+  /// Nom que le service donne au compte relié, s'il en donne un.
+  compte         String?
+  /// Rebranchement en attente du choix de la personne : jetons neufs, chiffrés.
+  attenteChiffre String?   @map("attente_chiffre")
+  attenteCompte  String?   @map("attente_compte")
+  /// Un renouvellement est en cours (bail entre deux versions du Hub).
+  renouvellementLe DateTime? @map("renouvellement_le")
 
   @@unique([hubUserId, connecteur])
   @@map("connexions_externes")
+  @@schema("hub_app")
+}
+
+/// Outils annoncés par un service extérieur et non relus : relevés pour relecture, jamais servis (lib/connecteurs/outils.ts).
+model ConnecteurOutilVu {
+  connecteur String
+  empreinte  String
+  nom        String
+  definition String
+  vuLe       DateTime @default(now()) @map("vu_le")
+
+  @@id([connecteur, empreinte])
+  @@map("connecteur_outils_vus")
   @@schema("hub_app")
 }
 
@@ -1108,6 +1132,8 @@ model OauthCode {
   codeChallenge String    @map("code_challenge")
   scope         String
   resource      String
+  /// La personne autorise aussi ses services extérieurs.
+  services      Boolean   @default(false)
   expiresAt     DateTime  @map("expires_at") @db.Timestamptz(6)
   usedAt        DateTime? @map("used_at") @db.Timestamptz(6)
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -1127,6 +1153,8 @@ model OauthToken {
   hubUserId  String    @map("hub_user_id")
   scope      String
   resource   String
+  /// Suit le code : ses services extérieurs sont-ils visibles de cette connexion IA.
+  services   Boolean   @default(false)
   expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
   usedAt     DateTime? @map("used_at") @db.Timestamptz(6)
   revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)

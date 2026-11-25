@@ -107,10 +107,14 @@ export async function DELETE(request: NextRequest) {
     actions.push('User has no supabaseUserId bridge — skipped tenant/sub/profile cleanup');
   }
 
-  if (userUuid) {
-    const coupees = await couperToutes(prisma, userUuid, retourConnecteur()).catch(() => 0);
-    if (coupees) actions.push(`Coupé : ${coupees} connexion(s) extérieure(s)`);
-  }
+  // Deux fois : avant, et une fois le compte parti, pour un branchement qui finissait pendant la suppression (coffre.ts, `garder`).
+  const couperConnexions = async () => {
+    if (!userUuid) return;
+    const x = await couperToutes(prisma, userUuid, retourConnecteur()).catch(() => null);
+    if (!x || x.echecs) actions.push(`⚠️ connexions extérieures : ${x ? `${x.echecs} non coupée(s)` : 'non lues, peut-être encore là'}`);
+    if (x?.coupees) actions.push(`Coupé : ${x.coupees} connexion(s) extérieure(s)${x.nonConfirmees ? `, dont ${x.nonConfirmees} que le service n'a pas confirmée(s)` : ''}`);
+  };
+  await couperConnexions();
   const oubli = await oublierCompte(prisma, { id: user.id, email, hubUserId: userUuid ?? null, tenants: idsTenants });
   if (oubli.membres || oubli.invitations) actions.push(`Oublié : ${oubli.membres} appartenance(s), ${oubli.invitations} invitation(s)`);
 
@@ -126,6 +130,8 @@ export async function DELETE(request: NextRequest) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     actions.push(`⚠️ Auth user delete failed: ${message}`);
   }
+
+  await couperConnexions();
 
   // Une suppression ne passe plus sans trace (09/11 : deux comptes réels supprimés le 07/11 sans
   // qu'on puisse dire par qui). Ni adresse ni contenu : identifiants et issues par app.

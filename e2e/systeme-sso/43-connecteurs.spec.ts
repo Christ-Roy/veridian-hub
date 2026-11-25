@@ -27,6 +27,12 @@ cas(null, 'connexions : fermées, aucun départ vers un service extérieur', asy
       const r = await ctx.request.post(`${HUB_URL}/api/connecteurs`, { headers: { origin: new URL(HUB_URL).origin }, form: { connecteur: c, geste: 'brancher' }, maxRedirects: 0 });
       expect(r.headers().location, `${c} forcé sans l'écran`).toContain('avis=ferme');
     }
+    // Ni l'écriture ni un remplacement ne s'ouvrent ; éteindre et garder, qui retirent un accès, répondent.
+    const geste = async (g: string) => (await ctx.request.post(`${HUB_URL}/api/connecteurs`, { headers: { origin: new URL(HUB_URL).origin }, form: { connecteur: 'notion', geste: g }, maxRedirects: 0 })).headers().location;
+    expect([await geste('allumer'), await geste('remplacer')].map((l) => l?.includes('avis=ferme')), 'allumer, remplacer').toEqual([true, true]);
+    expect([await geste('eteindre'), await geste('garder')].map((l) => /avis=(absente|tranche)/.test(l ?? '')), 'éteindre, garder').toEqual([true, true]);
+    // Le retour d'un service, forgé : rien ne s'échange.
+    expect((await ctx.request.get(`${HUB_URL}/api/connecteurs/retour?code=x&state=y`, { maxRedirects: 0 })).headers().location).toContain('avis=ferme');
     // Couper n'est pas fermé : sans connexion, la route le dit, au lieu de « pas encore ouverte ».
     const coupe = await ctx.request.post(`${HUB_URL}/api/connecteurs`, { headers: { origin: new URL(HUB_URL).origin }, form: { connecteur: 'notion', geste: 'couper' }, maxRedirects: 0 });
     expect(coupe.headers().location, 'couper répond').toContain('avis=absente');

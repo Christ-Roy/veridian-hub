@@ -2,7 +2,8 @@
 import { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const m = vi.hoisted(() => ({ user: vi.fn(), emprunt: vi.fn(), ouvrir: vi.fn(), terminer: vi.fn(), garder: vi.fn() }));
+const m = vi.hoisted(() => ({ auth: vi.fn(), user: vi.fn(), emprunt: vi.fn(), ouvrir: vi.fn(), terminer: vi.fn(), garder: vi.fn() }));
+vi.mock('@/auth', () => ({ auth: () => m.auth() }));
 vi.mock('@/lib/auth/get-user', () => ({ getCurrentUser: () => m.user(), userUuid: (u: { supabaseUserId: string }) => u.supabaseUserId }));
 vi.mock('@/lib/auth/recent-auth', () => ({ denyIfImpersonated: () => m.emprunt() }));
 vi.mock('@/lib/connecteurs/coffre', () => ({ garder: (...a: unknown[]) => m.garder(...a) }));
@@ -17,6 +18,8 @@ const revenir = async (q = 'code=c&state=s') => { const r = await GET(new NextRe
 beforeEach(() => {
   vi.clearAllMocks();
   vi.stubEnv('CONNECTEURS_OUVERTS', '1');
+  m.auth.mockResolvedValue({ user: {} });
+  m.garder.mockResolvedValue('branchee');
   m.user.mockResolvedValue({ id: 'U', supabaseUserId: 'h' });
   m.emprunt.mockResolvedValue(null);
   m.ouvrir.mockReturnValue({ cle: 'notion', userId: 'U' });
@@ -34,6 +37,7 @@ describe('GET', () => {
     ['autre compte', () => m.user.mockResolvedValue({ id: 'V', supabaseUserId: 'v' }), 'expiree'],
     ['déconnecté', () => m.user.mockResolvedValue(null), 'expiree'],
     ['session d\'emprunt', () => m.emprunt.mockResolvedValue(new Response('', { status: 403 })), 'expiree'],
+    ['session d\'organisation entre-temps', () => m.auth.mockResolvedValue({ user: { federe: true } }), 'expiree'],
     ['échange refusé', () => { vi.spyOn(console, 'error').mockReturnValue(); m.terminer.mockRejectedValue(new Error('state')); }, 'echec'],
   ])('%s : rien n\'est gardé', async (_n, casser, avis) => {
     casser();
@@ -43,6 +47,13 @@ describe('GET', () => {
   it('jamais en cache, et le code ne fuit pas par l\'adresse d\'origine', async () => {
     const r = await GET(new NextRequest('https://0.0.0.0/api/connecteurs/retour?code=c&state=s'));
     expect([r.headers.get('cache-control'), r.headers.get('referrer-policy'), r.headers.get('location')?.includes('code=')]).toEqual(['no-store', 'no-referrer', false]);
+  });
+  it('déjà reliée : à confirmer, jamais remplacée en silence ; non gardée : échec', async () => {
+    m.garder.mockResolvedValue('a_confirmer');
+    expect((await revenir()).avis).toBe('a_confirmer');
+    vi.spyOn(console, 'error').mockReturnValue();
+    m.garder.mockRejectedValue(new Error('base'));
+    expect((await revenir()).avis).toBe('echec');
   });
   it('fermé : aucun échange, rien n\'est gardé', async () => {
     vi.stubEnv('CONNECTEURS_OUVERTS', '');

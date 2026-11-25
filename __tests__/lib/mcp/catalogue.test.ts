@@ -87,13 +87,16 @@ describe('catalogue et services extérieurs', () => {
   beforeEach(() => { vi.stubEnv('CONNECTEURS_OUVERTS', '1'); });
   it('reliés par la personne, ils sont dans ses apps ; à rebrancher, dits ; une lecture ratée n\'emporte rien', async () => {
     viderCache();
-    const base = { mcpApp: { findMany: async () => [] }, tenantApp: { findMany: async () => [] } };
+    const base = { mcpApp: { findMany: async () => [] }, tenantApp: { findMany: async () => [] }, tenantMember: { findMany: async () => [] }, tenant: { findMany: async () => [{ id: 't', name: 'E', slug: 'e', status: 'active' }] } };
+    const SIENNE = { ...QUI, services: true };
     const avec = { ...base, connexionExterne: { findMany: async () => [{ connecteur: 'notion' }], findUnique: async () => null } } as unknown as Db;
-    const c = await catalogue(avec, QUI as never, []);
+    const c = await catalogue(avec, SIENNE as never, []);
+    expect((await catalogue(avec, QUI as never, [])).apps, 'connexion IA sans services').toEqual([]);
     expect([c.apps.map((a) => [a.appKey, a.externe]), c.injoignables[0]?.raison]).toEqual([[['notion', true]], expect.stringContaining('à rebrancher')]);
     vi.spyOn(console, 'error').mockReturnValue();
     const casse = { ...base, connexionExterne: { findMany: async () => { throw new Error('base'); } } } as unknown as Db;
-    expect((await catalogue(casse, QUI as never, [])).apps).toEqual([]);
+    expect((await catalogue(casse, SIENNE as never, [])).apps).toEqual([]);
+    expect(console.error).toHaveBeenCalled();
   });
 });
 

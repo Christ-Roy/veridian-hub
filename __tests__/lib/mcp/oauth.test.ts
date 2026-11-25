@@ -195,3 +195,23 @@ describe('identité de l\'appelant', () => {
     expect(db.oauthToken.lignes.find((l) => l.kind === 'access')?.lastUsedAt).toBeInstanceOf(Date);
   });
 });
+
+describe('services extérieurs', () => {
+  it('suivent la famille, du code au renouvellement ; absents par défaut', async () => {
+    const jouer = async (services?: boolean) => {
+      const { c, k } = await connexion();
+      const v = await validerDemande(db as never, { response_type: 'code', client_id: c.client_id, redirect_uri: RETOUR, code_challenge: k.challenge, code_challenge_method: 'S256', state: 'x', resource: mcpResource() });
+      if (!v.ok) throw new Error('demande refusée');
+      const t = await echangerCode(db as never, { code: await creerCode(db as never, v.demande, HUB_USER, services), client_id: c.client_id, redirect_uri: RETOUR, code_verifier: k.verifier });
+      const r = await renouveler(db as never, { refresh_token: t.refresh_token, client_id: c.client_id });
+      return [(await verifierAcces(db as never, t.access_token))?.services, (await verifierAcces(db as never, r.access_token))?.services];
+    };
+    expect([await jouer(true), await jouer(false), await jouer()]).toEqual([[true, true], [false, false], [false, false]]);
+  });
+  it('une connexion d\'avant (colonne vide) : aucun service', async () => {
+    const { c, k, code } = await connexion();
+    const t = await echangerCode(db as never, { code, client_id: c.client_id, redirect_uri: RETOUR, code_verifier: k.verifier });
+    db.oauthToken.lignes.forEach((x) => { delete x.services; });
+    expect((await verifierAcces(db as never, t.access_token))?.services).toBe(false);
+  });
+});
