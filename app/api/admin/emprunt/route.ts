@@ -61,6 +61,6 @@ export async function POST(request: NextRequest) {
   res.cookies.set(sessionCookieName(secure), jeton, { ...commun, path: '/', maxAge: IMPERSONATION_SESSION_TTL_S });
   res.cookies.set(cookieRetour(secure), retour, { ...commun, sameSite: 'strict', path: CHEMIN_RETOUR, maxAge: IMPERSONATION_SESSION_TTL_S });
   if (tenantId) res.cookies.set(COOKIE_ACTIF, tenantId, { ...commun, path: '/', maxAge: IMPERSONATION_SESSION_TTL_S });
-  else res.cookies.delete(COOKIE_ACTIF);
+  else res.cookies.set(COOKIE_ACTIF, '', { ...commun, path: '/', maxAge: 0 });
   return res;
 }

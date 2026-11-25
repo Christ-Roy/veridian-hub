@@ -30,8 +30,9 @@ export async function POST(request: NextRequest) {
   if (!enEmprunt) return res;
   await suiteEmprunt(prisma, { action: 'end', empruntId: u!.empruntId!, par: u!.impersonatedBy ?? '', userId: u!.id!, detail: { retour: !!retour } });
   if (retour) res.cookies.set(sessionCookieName(secure), retour.session, { httpOnly: true, secure, sameSite: 'lax', path: '/', maxAge: 31_536_000 });
-  else res.cookies.delete(sessionCookieName(secure));
+  // Un cookie `__Secure-` ne s'efface qu'avec `Secure` : `cookies.delete` le laissait vivant (vu le 26/11 par le sabotage emprunt-retour).
+  else res.cookies.set(sessionCookieName(secure), '', { httpOnly: true, secure, sameSite: 'lax', path: '/', maxAge: 0 });
   if (retour?.org) res.cookies.set(COOKIE_ACTIF, retour.org, { httpOnly: true, secure, sameSite: 'lax', path: '/', maxAge: 31_536_000 });
-  else res.cookies.delete(COOKIE_ACTIF);
+  else res.cookies.set(COOKIE_ACTIF, '', { httpOnly: true, secure, sameSite: 'lax', path: '/', maxAge: 0 });
   return res;
 }

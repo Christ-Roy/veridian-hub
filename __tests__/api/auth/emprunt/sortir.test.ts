@@ -48,6 +48,8 @@ describe('sortir', () => {
     for (const retour of [await scellerRetour({ empruntId: 'emprunt-2', session: 'la-mienne', org: null }), 'forge', undefined]) {
       const r = await s({ retour });
       expect(r.cookies.get(SESSION)?.value).toBe('');
+      // Le navigateur n'efface un cookie `__Secure-` que si l'effacement porte `Secure`.
+      expect(r.headers.getSetCookie().find((c) => c.startsWith(`${SESSION}=;`))).toMatch(/Max-Age=0.*Secure|Secure.*Max-Age=0/i);
       expect(r.headers.get('location')).toContain('/login');
     }
   });
