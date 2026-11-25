@@ -2,6 +2,9 @@
 # Batterie système SSO : une commande, un résultat à trois états.
 #   bash scripts/test-systeme-sso.sh            # toute la batterie (prod)
 #   bash scripts/test-systeme-sso.sh 00-        # un sous-ensemble (filtre Playwright)
+#   SSO_NAVIGATEUR=distant bash scripts/test-systeme-sso.sh   # le navigateur tourne sur node02 (scripts/navigateur-distant.sh) ;
+#     seul le processus Node reste ici. Navigateur injoignable : NON ABOUTI (2), jamais un échec. Les pages sortent alors
+#     depuis node02 (IP de node02), `request` depuis le bastion : voir l'en-tête de navigateur-distant.sh.
 # Sortie : 0 tout passe (ou attendu rouge) · 1 au moins un échec · 2 au moins un cas non abouti.
 # Lance un Chromium en `nice 19`, un seul worker. À jouer depuis le bastion (la version servie
 # se lit par `nomad job inspect`). Aucun secret dans le dépôt : ADMIN_SECRET vient de
@@ -59,6 +62,16 @@ if [ ! -e node_modules/@playwright/test ] && [ ! -e ../../node_modules/@playwrig
   ln -sfn "$SRC" node_modules
 fi
 
+# Navigateur distant : démarré ici, arrêté toujours (trap), PW_WS honoré par playwright.config.ts.
+NAV="$(cd ../.. && pwd)/scripts/navigateur-distant.sh"
+if [ "${SSO_NAVIGATEUR:-}" = distant ]; then
+  trap 'bash "$NAV" --stop' EXIT
+  bash "$NAV" || { echo "✗ NON ABOUTI : navigateur distant injoignable (rien n'a été mesuré)"; exit 2; }
+  PW_WS="$(cat .run/navigateur/ws)"; export PW_WS
+  bash "$NAV" --sonde >/dev/null || { echo "✗ NON ABOUTI : le navigateur distant ne lit pas une page publique"; exit 2; }
+  PW_CHROMIUM=distant
+fi
+
 # Chromium : le plus récent du cache Playwright si aucun n'est imposé.
 if [ -z "${PW_CHROMIUM:-}" ]; then
   PW_CHROMIUM="$(ls -d "$HOME"/.cache/ms-playwright/chromium_headless_shell-*/chrome-headless-shell-linux64/chrome-headless-shell 2>/dev/null | sort -V | tail -1)"
@@ -70,6 +83,11 @@ PW_BIN=node_modules/.bin/playwright
 [ -e "$PW_BIN" ] || PW_BIN=../../node_modules/.bin/playwright
 nice -n 19 "$PW_BIN" test -c playwright.config.ts "$@"
 PW=$?
+
+# Un serveur mort en cours de route fait échouer les cas pour une raison qui n'est pas la leur : non abouti.
+if [ "${SSO_NAVIGATEUR:-}" = distant ] && [ "$PW" -ne 0 ]; then
+  bash "$NAV" --sonde >/dev/null 2>&1 || { echo "✗ NON ABOUTI : le navigateur distant a disparu pendant la batterie (code Playwright $PW)"; exit 2; }
+fi
 
 [ -f .run/resultat.json ] || { echo "✗ NON ABOUTI : aucun résultat écrit (code Playwright $PW)"; exit 2; }
 node -e '

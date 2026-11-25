@@ -20,7 +20,10 @@ export default defineConfig({
   reporter: [['./reporter.ts']],
   globalTeardown: './global-teardown.ts',
   use: {
-    launchOptions: process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {},
+    // PW_WS : navigateur distant (`scripts/navigateur-distant.sh`). Absent, Chromium local comme avant.
+    ...(process.env.PW_WS
+      ? { connectOptions: { wsEndpoint: process.env.PW_WS, timeout: 30_000 } }
+      : { launchOptions: process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {} }),
     locale: 'fr-FR',
     userAgent: 'Veridian-Systeme-SSO/1.0 (test systeme libelle)',
   },
