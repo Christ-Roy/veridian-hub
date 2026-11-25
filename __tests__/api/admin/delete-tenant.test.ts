@@ -167,7 +167,8 @@ describe('DELETE /api/admin/delete-tenant', () => {
     let encoreLa = false;
     oubli.mockImplementationOnce(async () => { encoreLa = userStore.has('inv@x.com'); return { membres: 1, invitations: 2 }; });
     const res = await DELETE(new (await import('next/server')).NextRequest('http://x/api/admin/delete-tenant', { method: 'DELETE', body: JSON.stringify({ email: 'inv@x.com', confirm: true }) }));
-    expect(oubli.mock.calls[0][1]).toMatchObject({ id: 'u-inv', hubUserId: 'uuid-inv' });
+    // `tenants` : les adresses que ses organisations avaient pré-inscrites partent avec lui (VER-227).
+    expect(oubli.mock.calls[0][1]).toMatchObject({ id: 'u-inv', hubUserId: 'uuid-inv', tenants: expect.any(Array) });
     expect(encoreLa).toBe(true);
     expect((await res.json()).actions.join('\n')).toContain('1 appartenance(s), 2 invitation(s)');
   });

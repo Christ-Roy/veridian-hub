@@ -1844,10 +1844,16 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
 - **Émission** : `POST <app>/api/hub/organisations/sync` (HMAC `ts.corps`) `{ hub_tenant_id, version, nom, type, marque, modules, membres, reglages }`,
   à chaque changement, vers les apps cochées seulement. `version` monotone, ne bouge que si le contenu bouge. `membres` ADDITIF : une absence
   ne retire personne ; `joined_at` = adhésion en vigueur. Réponse `{ applied, reason: unchanged | stale }`.
+- **Nom** : `marque.nom_affiche` est celui que le propriétaire a CHOISI, ou null ; `nom` est le nom du compte au Hub. Une app ne se renomme que
+  d'après `marque.nom_affiche`, et un null ne vide rien.
 - **Relecture** : `GET <app>/api/hub/organisations/sync?hub_tenant_id=` → `{ version }`. « Appliqué » veut dire relu.
 - **Rattrapage** : `POST /api/organisations/lire`, signé comme la délégation (nonce) : le même document, pour une app cochée.
 - **Logo** : réencodé par le Hub (PNG, 512 px), servi à `/api/public/org/<tenant>/logo?v=<empreinte>` ; SVG refusé.
 - **Réglage** : `/dashboard/organisation` (propriétaire, admin ; sans modules ni réglages d'app), `hub org regler|etat|importer`.
+- **Pré-inscription** (VER-227 S1, `lib/tenants/preinscription.ts`) : `hub org importer` PRÉ-INSCRIT une adresse sans compte ou non prouvée
+  (30 jours). Aucun mail. Au premier passage avec cette adresse exacte, PROUVÉE (tableau de bord, ou rebond vers une app), la personne rejoint
+  l'organisation en `member`, et les apps cochées l'apprennent avant qu'elle y arrive. Un retrait annule ; seul un geste neuf la rouvre.
+  Jamais depuis une session d'emprunt. `hub org preinscrits|annuler`, liste à l'écran.
 - **Organisation active** : `hub_tenant_id` facultatif dans `issue-magic-link`, choisie au Hub, revérifiée au rebond.
 - **Activité** : `POST /api/organisations/activite { hub_tenant_id, hub_user_id, prefixe, depuis }` (signé avec nonce, Academy seule) →
   `{ fait, premier, dernier, nombre }`. `prefixe` nomme l'app (`twenty.create_`), `depuis` ISO, 400 jours au plus. Compte les appels RÉUSSIS par la

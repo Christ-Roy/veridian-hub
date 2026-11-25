@@ -604,6 +604,25 @@ model WebhookDedup {
   @@schema("hub_app")
 }
 
+/// Adresse pré-inscrite dans une organisation (VER-227 S1, lib/tenants/preinscription.ts) : jointe au premier passage avec l'adresse PROUVÉE.
+model TenantPreinscription {
+  id          String    @id @default(cuid())
+  tenantId    String    @map("tenant_id")
+  /// En minuscules, exacte : ni points ni « + » retirés.
+  email       String
+  expireLe    DateTime  @map("expire_le")
+  creePar     String    @map("cree_par")
+  creeLe      DateTime  @default(now()) @map("cree_le")
+  consommeeLe DateTime? @map("consommee_le")
+  annuleeLe   DateTime? @map("annulee_le")
+  hubUserId   String?   @map("hub_user_id")
+
+  @@unique([tenantId, email])
+  @@index([email])
+  @@map("tenant_preinscriptions")
+  @@schema("hub_app")
+}
+
 /// Organisation réglée une fois au Hub, lue par les apps (VER-252, lib/organisations).
 model Organisation {
   tenantId        String   @id @map("tenant_id")

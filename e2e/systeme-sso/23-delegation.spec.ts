@@ -32,7 +32,7 @@ cas(null, 'délégation : le propriétaire ouvre une liaison, une app agit 120 s
     noterEspaceTwenty(P.email, T.id);
     const jetonP = await obtenirJetonMcp(browser, P, 'TEST DELEGATION');
     const regler = async (etat: string) => JSON.parse((await outil(jetonP, 'executer_outil', { nom: 'hub.integrations_regler', arguments: { paire: PAIRE, etat }, espace: T.slug })).texte);
-    const etat = async () => JSON.parse((await outil(jetonP, 'executer_outil', { nom: 'hub.integrations_lister', espace: T.slug })).texte).liaisons.find((l: { paire: string }) => l.paire === PAIRE);
+    const etat = async (paire = PAIRE) => JSON.parse((await outil(jetonP, 'executer_outil', { nom: 'hub.integrations_lister', espace: T.slug })).texte).liaisons.find((l: { paire: string }) => l.paire === paire);
 
     const poignee = async (c: Compte) => {
       const r = await adminOk<{ delegations: { hub_tenant_id: string; grant: string }[] }>('POST', 'delegation/poignee', { email: c.email, app: 'prospection' });
@@ -48,6 +48,10 @@ cas(null, 'délégation : le propriétaire ouvre une liaison, une app agit 120 s
 
     // Ouvert à toutes les organisations (Robert, 24/11), sans marque de test : ÉTEINTE tant que le propriétaire n'a pas cliqué.
     expect((await etat()).etat, 'avant tout clic').toBe('eteinte');
+    // Les événements, eux, s'ouvrent organisation par organisation : pas celle-ci, et un clic n'y peut rien.
+    expect((await etat('notifuse>crm')).etat, 'événement non ouvert ici').toBe('indisponible');
+    const force = JSON.parse((await outil(jetonP, 'executer_outil', { nom: 'hub.integrations_regler', arguments: { paire: 'notifuse>crm', etat: 'allumee' }, espace: T.slug })).texte);
+    expect(force, 'événement non ouvert : le réglage direct refuse').toEqual({ refus: 'cible_non_servie' });
     const g = await poignee(P);
     if (!g) throw new NonAbouti('aucune poignée émise');
     expect((await echanger(g)).json, 'liaison éteinte').toEqual({ error: 'integration_off' });

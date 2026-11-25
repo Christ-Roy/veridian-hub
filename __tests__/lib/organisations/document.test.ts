@@ -19,11 +19,16 @@ const doc = () => documentOrg(db as never, 'A', 'https://hub.test');
 describe('documentOrg', () => {
   it('nom, marque, logo versionné ; propriétaire et membres prouvés, jamais un retiré ni une adresse non prouvée', async () => {
     const d = (await doc())!;
-    expect(d).toMatchObject({ hub_tenant_id: 'A', nom: 'Atelier', type: 'organisation', modules: ['academy'], marque: { nom_affiche: 'Atelier', logo_url: 'https://hub.test/api/public/org/A/logo?v=abc', couleur_primaire: '#0B5FFF', couleur_accent: null } });
+    expect(d).toMatchObject({ hub_tenant_id: 'A', nom: 'Atelier', type: 'organisation', modules: ['academy'], marque: { nom_affiche: null, logo_url: 'https://hub.test/api/public/org/A/logo?v=abc', couleur_primaire: '#0B5FFF', couleur_accent: null } });
     expect(d.membres).toEqual([
       { hub_user_id: 'm', email: 'm@x.fr', email_proven: true, name: null, role: 'admin', joined_at: '2026-02-01T00:00:00.000Z' },
       { hub_user_id: 'prop', email: 'prop@x.fr', email_proven: true, name: 'P', role: 'owner', joined_at: T0.toISOString() },
     ]);
+  });
+  it('un nom affiché est CHOISI ou absent : le nom par défaut du compte ne part jamais comme une marque', async () => {
+    expect((await doc())!.marque.nom_affiche).toBeNull();
+    db.organisation.lignes[0].nomAffiche = 'Veridian';
+    expect((await doc())!).toMatchObject({ nom: 'Veridian', marque: { nom_affiche: 'Veridian' } });
   });
   it('la version ne bouge que si le contenu bouge, et ne recule jamais', async () => {
     const v1 = (await doc())!.version;

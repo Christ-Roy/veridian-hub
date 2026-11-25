@@ -26,6 +26,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
+import { auth } from '@/auth';
+import { isImpersonatedSession } from '@/lib/auth/impersonation';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { denyUnlessEmailProven } from '@/lib/auth/email-proof';
 import {
@@ -46,6 +48,7 @@ import { getHubBaseUrl } from '@/lib/mail/oauth-cookies';
 import { emettrePoignees } from '@/lib/delegation/poignee';
 import { prisma } from '@/lib/prisma';
 import type { SyncApp } from '@/lib/sync/types';
+import { consommerPreinscriptions } from '@/lib/tenants/preinscription';
 import { APPS_A_ROLE, organisationsPourRebond } from '@/lib/tenants/roles';
 
 export const dynamic = 'force-dynamic';
@@ -121,6 +124,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return wipeCookies(NextResponse.redirect(new URL('/dashboard', baseUrl)));
   }
 
+  // Pré-inscrit par une organisation : il la rejoint maintenant, et l'app le connaît avant qu'on l'y envoie. Un échec n'empêche pas d'entrer.
+  const jointes = user.supabaseUserId && !isImpersonatedSession(await auth())
+    ? await consommerPreinscriptions(prisma, user.supabaseUserId).catch((err): string[] => { console.error('[preinscription]', err instanceof Error ? err.message.slice(0, 160) : 'erreur'); return []; })
+    : [];
+
   // Consomme le cookie AVANT l'appel downstream pour garantir l'idempotence
   // côté navigation (refresh = pas de double-bounce).
   try {
@@ -132,7 +140,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       next: parsed.url,
       // Seulement aux apps qui le traduisent ; une lecture ratée n'empêche jamais d'entrer (l'app ne change alors rien).
       delegations: await emettrePoignees(prisma, { hubUserId: userUuid(user), app: parsed.app }).catch(() => []),
-      hubTenantId: await organisationActive(prisma, userUuid(user), req.cookies.get(COOKIE_ACTIF)?.value).catch(() => null),
+      // Il vient de la rejoindre : il y arrive, même s'il a déjà son propre espace.
+      hubTenantId: jointes[0] ?? await organisationActive(prisma, userUuid(user), req.cookies.get(COOKIE_ACTIF)?.value).catch(() => null),
       organisations: APPS_A_ROLE.includes(parsed.app as SyncApp) ? await organisationsPourRebond(prisma, userUuid(user)).catch(() => []) : [],
     };
     // Academy est réservée : sans activation au Hub, aucun lien, même si l'app connaît encore le compte

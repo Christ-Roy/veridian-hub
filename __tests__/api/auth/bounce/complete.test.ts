@@ -25,6 +25,11 @@ const poignees = vi.hoisted(() => vi.fn(async (..._a: unknown[]): Promise<unknow
 vi.mock('@/lib/delegation/poignee', () => ({ emettrePoignees: poignees }));
 const actif = vi.hoisted(() => vi.fn(async (..._a: unknown[]): Promise<string | null> => null));
 vi.mock('@/lib/tenants/actif', () => ({ COOKIE_ACTIF: 'veridian_org', organisationActive: actif }));
+const preinscrits = vi.hoisted(() => vi.fn(async (..._a: unknown[]) => [] as string[]));
+const emprunt = vi.hoisted(() => ({ oui: false }));
+vi.mock('@/lib/tenants/preinscription', () => ({ consommerPreinscriptions: preinscrits }));
+vi.mock('@/auth', () => ({ auth: async () => ({ user: {} }) }));
+vi.mock('@/lib/auth/impersonation', () => ({ isImpersonatedSession: () => emprunt.oui }));
 vi.mock('@/lib/tenants/roles', () => ({ APPS_A_ROLE: ['crm'], organisationsPourRebond: orgs }));
 vi.mock('@/lib/crm/provision', () => ({ ensureCrmWorkspace: (...a: unknown[]) => ensureCrmMock(...a) }));
 const ensureAcademyMock = vi.hoisted(() => vi.fn());
@@ -440,6 +445,25 @@ describe('GET /api/auth/bounce/complete', () => {
     const { GET } = await import('@/app/api/auth/bounce/complete/route');
     await GET(makeReq({ cookie }));
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('pré-inscrit : il rejoint AVANT que l\'app soit appelée ; un échec n\'empêche pas d\'entrer ; jamais depuis une session d\'emprunt', async () => {
+    getCurrentUserMock.mockResolvedValue({ id: 'user-1', email: 'a@b.c', name: 'Alice', image: null, supabaseUserId: 'uuid-1' });
+    const ordre: string[] = [];
+    preinscrits.mockImplementation(async (...a: unknown[]) => { ordre.push(`rejoint ${a[1]}`); return []; });
+    fetchMock.mockImplementation(async () => { ordre.push('app'); return new Response(JSON.stringify({ magic_link_url: 'https://notifuse.veridian.site/auth/token?t=z' }), { status: 200 }); });
+    const { GET } = await import('@/app/api/auth/bounce/complete/route');
+    const entrer = () => GET(makeReq({ cookie: signNextCookie('https://notifuse.veridian.site/', TEST_SECRET) }));
+    await entrer();
+    expect(ordre).toEqual(['rejoint uuid-1', 'app']);
+    preinscrits.mockRejectedValueOnce(new Error('base coupée'));
+    expect((await entrer()).headers.get('location')).toContain('/auth/token');
+    const n = preinscrits.mock.calls.length;
+    emprunt.oui = true;
+    await entrer();
+    emprunt.oui = false;
+    expect(preinscrits.mock.calls.length).toBe(n);
+    preinscrits.mockReset().mockResolvedValue([]);
   });
 
   describe('CRM : la première ouverture crée l\'espace', () => {

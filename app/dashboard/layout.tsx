@@ -7,9 +7,12 @@ import { Suspense } from 'react';
 import { AuthTracker } from '@/components/analytics/auth-tracker';
 import { PurchaseTracker } from '@/components/analytics/purchase-tracker';
 
+import { auth } from '@/auth';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
+import { isImpersonatedSession } from '@/lib/auth/impersonation';
 import { isPlatformAdmin } from '@/lib/admin/check-admin';
 import { prisma } from '@/lib/prisma';
+import { consommerPreinscriptions } from '@/lib/tenants/preinscription';
 import { resolveTrialBannerState } from '@/lib/trial/banner-state';
 
 /**
@@ -50,6 +53,10 @@ export default async function DashboardLayout({
   if (!user) {
     redirect('/login');
   }
+
+  // Pré-inscrit par une organisation : il la rejoint à son premier passage prouvé. Sans attente en base, une lecture indexée.
+  // Jamais depuis une session d'emprunt : rejoindre est le geste de la personne, pas de qui regarde son compte.
+  if (user.supabaseUserId && !isImpersonatedSession(await auth())) await consommerPreinscriptions(prisma, user.supabaseUserId).catch((err) => console.error('[preinscription]', err instanceof Error ? err.message.slice(0, 160) : 'erreur'));
 
   // PERF (fix N+1 du 2026-05-21, étendu 2026-05-22) : reads indépendants
   // parallélisés via Promise.all. `fetchTrialRows` fait lui-même 2 reads

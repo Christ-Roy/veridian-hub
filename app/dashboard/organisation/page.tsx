@@ -17,6 +17,7 @@ import { hubPublicUrl } from '@/lib/organisations/base';
 import { urlLogo } from '@/lib/organisations/document';
 import { prisma } from '@/lib/prisma';
 import { COOKIE_ACTIF, organisationActive } from '@/lib/tenants/actif';
+import { listerPreinscriptions } from '@/lib/tenants/preinscription';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,6 +30,7 @@ const AVIS: Record<string, string> = {
   format_refuse: 'Logo refusé : PNG, JPEG ou WebP.',
   refus: 'Réglage refusé : vérifiez les couleurs (#RRGGBB) et le nom.',
 };
+const ATTENTE: Record<string, string> = { en_attente: 'attendue', joint: 'a rejoint', expiree: 'délai passé', annulee: 'annulée' };
 const APPS: Record<string, string> = { academy: 'Academy', notifuse: 'Mail', prospection: 'Prospection' };
 
 export default async function Organisation({ searchParams }: { searchParams: Promise<{ avis?: string }> }) {
@@ -41,6 +43,7 @@ export default async function Organisation({ searchParams }: { searchParams: Pro
     au: await roleAuHub(prisma, e.id, userUuid(user)),
     org: await prisma.organisation.findUnique({ where: { tenantId: e.id }, omit: { logo: true } }),
     emissions: await prisma.organisationEmission.findMany({ where: { tenantId: e.id } }),
+    preinscrits: (await listerPreinscriptions(prisma, e.id)).filter((p) => p.etat !== 'annulee'),
   })));
   const active = await organisationActive(prisma, userUuid(user), (await cookies()).get(COOKIE_ACTIF)?.value);
   const miens = espaces.filter((e) => e.au === 'owner' || e.au === 'admin');
@@ -56,7 +59,7 @@ export default async function Organisation({ searchParams }: { searchParams: Pro
           <CardContent>
             <form method="post" action="/api/organisations/active" className="flex flex-wrap items-center gap-3">
               <select name="tenant" aria-label="Organisation active" defaultValue={active ?? espaces[0].id} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
-                {espaces.map((e) => <option key={e.id} value={e.id}>{e.nom}</option>)}
+                {espaces.map((e) => <option key={e.id} value={e.id}>{e.org?.nomAffiche ?? e.nom}</option>)}
               </select>
               <Button type="submit" variant="outline">Choisir</Button>
             </form>
@@ -69,14 +72,14 @@ export default async function Organisation({ searchParams }: { searchParams: Pro
         return (
           <Card key={e.id}>
             <CardHeader>
-              <CardTitle>{e.nom}</CardTitle>
+              <CardTitle>{e.org?.nomAffiche ?? e.nom}</CardTitle>
             </CardHeader>
             <CardContent>
               <form method="post" action="/api/organisations/regler" encType="multipart/form-data" className="flex flex-col gap-4">
                 <input type="hidden" name="tenant" value={e.id} />
                 <div className="flex flex-col gap-2">
                   <Label htmlFor={`nom-${e.id}`}>Nom affiché</Label>
-                  <Input id={`nom-${e.id}`} name="nom_affiche" maxLength={80} defaultValue={e.org?.nomAffiche ?? e.nom} />
+                  <Input id={`nom-${e.id}`} name="nom_affiche" maxLength={80} defaultValue={e.org?.nomAffiche ?? ''} placeholder={e.nom} />
                 </div>
                 <div className="flex flex-col gap-2">
                   <Label htmlFor={`type-${e.id}`}>Type</Label>
@@ -109,6 +112,15 @@ export default async function Organisation({ searchParams }: { searchParams: Pro
                   <Button type="submit">Enregistrer</Button>
                 </div>
               </form>
+              {e.preinscrits.length > 0 ? (
+                <div className="mt-6">
+                  <p className="font-medium">Personnes attendues</p>
+                  <p className="text-sm text-muted-foreground">Elles rejoignent l&apos;organisation à leur première connexion avec cette adresse. Aucun mail n&apos;est envoyé.</p>
+                  <ul className="mt-2 text-sm">
+                    {e.preinscrits.map((p) => <li key={p.email}>{p.email} : {ATTENTE[p.etat]}</li>)}
+                  </ul>
+                </div>
+              ) : null}
             </CardContent>
           </Card>
         );
