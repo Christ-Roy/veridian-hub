@@ -7,7 +7,7 @@
  */
 import type { PrismaClient } from '@prisma/client';
 
-import { isPlatformAdmin } from '@/lib/admin/check-admin';
+import { estAdresseOperateur, isPlatformAdminId } from '@/lib/admin/check-admin';
 import { discoverAppForEmail, HUB_USER_ID_APPS, readAppSecret, readAppUrl, signGet } from '@/lib/sync/discovery';
 import { horsPerimetre } from '@/lib/sync/identity-audit';
 import { isTestAccount } from '@/lib/sync/test-residue';
@@ -105,7 +105,7 @@ export function classer(app: SyncApp, lus: Lu[], hub: { users: HubUser[]; tenant
       const homonyme = parEmail.get(email);
       const u = relie ?? (homonyme?.emailVerified ? homonyme : undefined);
       const hubUserId = u?.supabaseUserId ?? null;
-      const raison = horsPerimetre(app, email) ?? (isPlatformAdmin({ email: u?.email ?? email }) ? 'opérateur de Veridian' : null);
+      const raison = horsPerimetre(app, email) ?? (isPlatformAdminId(hubUserId) || estAdresseOperateur(u?.email ?? email) ? 'opérateur de Veridian' : null);
       let cas: Cas;
       if (!e.hubTenantId) cas = 'espace_non_relie';
       else if (hubUserId && appartient(e.hubTenantId, hubUserId)) cas = 'dans_les_deux';

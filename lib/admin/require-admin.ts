@@ -9,7 +9,7 @@ import { isPlatformAdmin } from '@/lib/admin/check-admin';
  *
  * Deux chemins acceptés :
  *  - header `x-admin-secret` qui matche `ADMIN_SECRET` env (script / cron)
- *  - session Auth.js dont l'email est whitelistée dans `isPlatformAdmin`
+ *  - session Auth.js d'un administrateur de plateforme (`isPlatformAdmin`, par hub_user_id)
  *
  * Renvoie `null` si la requête est autorisée, sinon une `NextResponse` 401/403
  * que la route doit retourner directement.
@@ -26,7 +26,7 @@ export async function requireAdmin(request: NextRequest): Promise<NextResponse |
       { status: 401 },
     );
   }
-  if (!isPlatformAdmin(session.user)) {
+  if (!(await isPlatformAdmin(session))) {
     return NextResponse.json({ error: 'Forbidden — admin access only' }, { status: 403 });
   }
   if (!isAuthRecent(session.user.authAt, PREUVE_COMPTE_S)) {

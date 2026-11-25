@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
   });
 
   // Authorization: only the tenant owner OR a platform admin can request a magic link
-  if (tenant.userId !== me?.supabaseUserId && !isPlatformAdmin(sessionUser)) {
+  if (tenant.userId !== me?.supabaseUserId && !(await isPlatformAdmin(session))) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 

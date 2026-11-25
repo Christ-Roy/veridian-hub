@@ -1,93 +1,44 @@
-/**
- * Tests pour lib/admin/check-admin.ts — `isPlatformAdmin`.
- *
- * Gardien d'autorisation CRITIQUE : c'est la whitelist qui décide qui est
- * platform-admin du Hub. Consommé directement par `requireAdmin`,
- * `authenticateAdmin`, `lib/auth/impersonation.ts` et la route
- * `notifuse/magic-link`. Un bug ici = élévation de privilège silencieuse.
- *
- * Pourquoi ces tests (sabotage-test mental) :
- *   - retirer le `?.email` guard → un user null/sans email crash ou passe → test rouge
- *   - retirer le `.toLowerCase()` → un admin avec casse différente perd l'accès → test rouge
- *   - inverser la condition `includes` → tout le monde devient admin → test rouge
- *
- * `ADMIN_EMAILS` est lu au moment de l'import du module (constante top-level).
- * On teste donc le comportement avec la valeur d'env effective au chargement
- * (défaut `brunon5robert@gmail.com`), et la robustesse de la fonction pure.
- */
+// @vitest-environment node
+/** Qui administre la plateforme : une personne désignée par son hub_user_id, adresse prouvée, session à elle. Jamais une adresse (VER-263). */
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { describe, it, expect } from 'vitest';
+const m = vi.hoisted(() => ({ lire: vi.fn() }));
+vi.mock('@/lib/prisma', () => ({ prisma: { user: { findUnique: (...a: unknown[]) => m.lire(...a) } } }));
 
-import { isPlatformAdmin, ADMIN_EMAILS } from '@/lib/admin/check-admin';
+import { estAdresseOperateur, isPlatformAdmin, isPlatformAdminId } from '@/lib/admin/check-admin';
 
-describe('isPlatformAdmin — gardien whitelist platform-admin', () => {
-  it('refuse la session fédérée d\'un administrateur ; sa session à lui passe', () => {
-    expect([isPlatformAdmin({ email: ADMIN_EMAILS[0], federe: true }), isPlatformAdmin({ email: ADMIN_EMAILS[0] })]).toEqual([false, true]);
-  });
-
-  it('refuse un user null', () => {
-    expect(isPlatformAdmin(null)).toBe(false);
-  });
-
-  it('refuse un user undefined', () => {
-    expect(isPlatformAdmin(undefined)).toBe(false);
-  });
-
-  it('refuse un user sans email (email absent)', () => {
-    expect(isPlatformAdmin({})).toBe(false);
-  });
-
-  it('refuse un user avec email null', () => {
-    expect(isPlatformAdmin({ email: null })).toBe(false);
-  });
-
-  it('refuse un user avec email vide', () => {
-    expect(isPlatformAdmin({ email: '' })).toBe(false);
-  });
-
-  it('refuse un email NON whitelisté', () => {
-    expect(isPlatformAdmin({ email: 'random@attacker.com' })).toBe(false);
-  });
-
-  it('accepte un email whitelisté (1er de la liste effective)', () => {
-    // On lit le 1er admin de la whitelist effective au chargement du module
-    // plutôt que de hardcoder — robuste à un override ADMIN_EMALS futur.
-    const known = ADMIN_EMAILS[0];
-    expect(known).toBeTruthy();
-    expect(isPlatformAdmin({ email: known })).toBe(true);
-  });
-
-  it('est insensible à la casse de l\'email (UPPERCASE accepté)', () => {
-    const known = ADMIN_EMAILS[0];
-    expect(isPlatformAdmin({ email: known.toUpperCase() })).toBe(true);
-  });
-
-  it('est insensible à la casse mixte (MiXeD case accepté)', () => {
-    const known = ADMIN_EMAILS[0];
-    const mixed = known
-      .split('')
-      .map((c, i) => (i % 2 === 0 ? c.toUpperCase() : c.toLowerCase()))
-      .join('');
-    expect(isPlatformAdmin({ email: mixed })).toBe(true);
-  });
-
-  it('ne fait PAS de match partiel (substring d\'un admin refusé)', () => {
-    // Garde-fou : un email qui CONTIENT un admin mais n'est pas exactement lui
-    // ne doit jamais passer (pas de .includes() côté string).
-    const known = ADMIN_EMAILS[0];
-    expect(isPlatformAdmin({ email: `${known}.attacker.com` })).toBe(false);
-    expect(isPlatformAdmin({ email: `prefix${known}` })).toBe(false);
-  });
+const ROBERT = '53245ae1-6bf8-4ec6-870f-32d75b7c0281';
+const base = (u: object | null) => m.lire.mockResolvedValue(u);
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.unstubAllEnvs();
+  vi.stubEnv('PLATFORM_ADMINS', ` ${ROBERT.toUpperCase()} , autre`);
+  vi.stubEnv('ADRESSES_OPERATEUR', 'Robert@X.fr');
+  base({ supabaseUserId: ROBERT, emailVerified: new Date() });
 });
+const s = (o: object = {}) => ({ user: { id: 'u1', ...o } });
 
-describe('ADMIN_EMAILS — la whitelist est non vide et normalisée lowercase', () => {
-  it('contient au moins un admin', () => {
-    expect(ADMIN_EMAILS.length).toBeGreaterThan(0);
+describe('isPlatformAdmin', () => {
+  it('la personne désignée, adresse prouvée : oui', async () => expect(await isPlatformAdmin(s())).toBe(true));
+  it('la même adresse que l\'administrateur, tapée à l\'inscription et pas prouvée, ou une autre personne : non', async () => {
+    base({ supabaseUserId: 'inconnu', emailVerified: null });
+    const copie = await isPlatformAdmin(s({ email: 'robert@x.fr' }));
+    base({ supabaseUserId: 'inconnu', emailVerified: new Date() });
+    const autre = await isPlatformAdmin(s({ email: 'robert@x.fr' }));
+    base({ supabaseUserId: ROBERT, emailVerified: null });
+    expect([copie, autre, await isPlatformAdmin(s())]).toEqual([false, false, false]);
   });
-
-  it('toutes les entrées sont en lowercase (normalisation au chargement)', () => {
-    for (const email of ADMIN_EMAILS) {
-      expect(email).toBe(email.toLowerCase());
-    }
+  it('session empruntée ou ouverte par le fournisseur d\'une organisation : non, sans lire la base', async () => {
+    expect([await isPlatformAdmin(s({ impersonated: true })), await isPlatformAdmin(s({ federe: true }))]).toEqual([false, false]);
+    expect(m.lire).not.toHaveBeenCalled();
   });
+  it('sans session, sans identifiant, compte disparu ou base en panne : non', async () => {
+    base(null);
+    const rendu = [await isPlatformAdmin(null), await isPlatformAdmin({ user: {} }), await isPlatformAdmin(s())];
+    m.lire.mockRejectedValue(new Error('base'));
+    expect([...rendu, await isPlatformAdmin(s())]).toEqual([false, false, false, false]);
+  });
+  it('réglage vide : personne', async () => { vi.stubEnv('PLATFORM_ADMINS', ''); expect(await isPlatformAdmin(s())).toBe(false); });
 });
+it('isPlatformAdminId : liste exacte, casse indifférente', () => expect([isPlatformAdminId(ROBERT), isPlatformAdminId('x'), isPlatformAdminId(null), isPlatformAdminId('')]).toEqual([true, false, false, false]));
+it('estAdresseOperateur : pour les rapports, ne donne aucun droit', () => expect([estAdresseOperateur(' robert@x.FR '), estAdresseOperateur('a@x.fr')]).toEqual([true, false]));

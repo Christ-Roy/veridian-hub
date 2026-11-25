@@ -84,7 +84,7 @@ describe('authenticateAdmin', () => {
 
   it('200 avec session admin', async () => {
     authMock.mockResolvedValueOnce({ user: { email: 'admin@x', id: 'u1' } });
-    isPlatformAdminMock.mockReturnValueOnce(true);
+    isPlatformAdminMock.mockResolvedValueOnce(true);
     const res = await authenticateAdmin(makeReq() as never);
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.sessionEmail).toBe('admin@x');
@@ -92,7 +92,7 @@ describe('authenticateAdmin', () => {
 
   it('403 avec session non-admin', async () => {
     authMock.mockResolvedValueOnce({ user: { email: 'random@x', id: 'u1' } });
-    isPlatformAdminMock.mockReturnValueOnce(false);
+    isPlatformAdminMock.mockResolvedValueOnce(false);
     const res = await authenticateAdmin(makeReq() as never);
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.response.status).toBe(403);
@@ -167,7 +167,7 @@ describe('authenticateAdmin — garde-fou anti-ré-impersonation', () => {
     authMock.mockResolvedValueOnce({
       user: { email: 'admin@x', id: 'u1', impersonated: true },
     });
-    isPlatformAdminMock.mockReturnValueOnce(true);
+    isPlatformAdminMock.mockResolvedValueOnce(true);
     const res = await authenticateAdmin(makeReq() as never);
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.response.status).toBe(403);
@@ -180,7 +180,7 @@ describe('authenticateAdmin — garde-fou anti-ré-impersonation', () => {
       user: { email: 'admin@x', id: 'u1' },
       impersonated: true,
     });
-    isPlatformAdminMock.mockReturnValueOnce(true);
+    isPlatformAdminMock.mockResolvedValueOnce(true);
     const res = await authenticateAdmin(makeReq() as never);
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.response.status).toBe(403);
@@ -190,7 +190,7 @@ describe('authenticateAdmin — garde-fou anti-ré-impersonation', () => {
     // Garde-fou : le check anti-impersonation ne doit pas bloquer un admin
     // légitime. `impersonated` absent → accès autorisé.
     authMock.mockResolvedValueOnce({ user: { email: 'admin@x', id: 'u1' } });
-    isPlatformAdminMock.mockReturnValueOnce(true);
+    isPlatformAdminMock.mockResolvedValueOnce(true);
     const res = await authenticateAdmin(makeReq() as never);
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.sessionEmail).toBe('admin@x');

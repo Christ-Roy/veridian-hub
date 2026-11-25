@@ -10,7 +10,6 @@ import { PurchaseTracker } from '@/components/analytics/purchase-tracker';
 import { auth } from '@/auth';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { isImpersonatedSession } from '@/lib/auth/impersonation';
-import { isPlatformAdmin } from '@/lib/admin/check-admin';
 import { prisma } from '@/lib/prisma';
 import { consommerPreinscriptions } from '@/lib/tenants/preinscription';
 import { resolveTrialBannerState } from '@/lib/trial/banner-state';
@@ -105,12 +104,6 @@ export default async function DashboardLayout({
   // `docs/PRICING-VERIDIAN.md`). Le bandeau n'apparaît qu'à partir de la
   // révélation du trial (state machine en `trial_active`+).
   const trialBanner = resolveTrialBannerState(trialRows, hasActiveSubscription);
-
-  // initialIsAdmin sera passé en prop dès que AppSidebar/NavUser l'acceptent
-  // (LOT C). Pour l'instant on calcule la valeur côté serveur — utile à terme
-  // pour passer au sidebar et éviter qu'il refasse un fetch côté client.
-  const _initialIsAdmin = isPlatformAdmin(user);
-  void _initialIsAdmin;
 
   return (
     <SidebarProvider>

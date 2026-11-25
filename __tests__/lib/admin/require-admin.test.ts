@@ -94,7 +94,7 @@ describe('requireAdmin — chemin session Auth.js', () => {
 
   it('rejette (403) quand session user présent mais NON admin', async () => {
     authMock.mockResolvedValueOnce({ user: { email: 'random@x', id: 'u1' } });
-    isPlatformAdminMock.mockReturnValueOnce(false);
+    isPlatformAdminMock.mockResolvedValueOnce(false);
     const res = await requireAdmin(makeReq());
     expect(res).not.toBeNull();
     expect(res!.status).toBe(403);
@@ -102,7 +102,7 @@ describe('requireAdmin — chemin session Auth.js', () => {
   it('admin dont la dernière connexion est trop ancienne : 403, preuve récente exigée', async () => {
     recente.ok = false;
     authMock.mockResolvedValueOnce({ user: { email: 'admin@x' } });
-    isPlatformAdminMock.mockReturnValueOnce(true);
+    isPlatformAdminMock.mockResolvedValueOnce(true);
     const res = await requireAdmin(new NextRequest('https://app.veridian.site/api/admin/x'));
     recente.ok = true;
     expect(res?.status).toBe(403);
@@ -112,7 +112,7 @@ describe('requireAdmin — chemin session Auth.js', () => {
 
   it('autorise (null) quand session user est admin', async () => {
     authMock.mockResolvedValueOnce({ user: { email: 'admin@x', id: 'u1' } });
-    isPlatformAdminMock.mockReturnValueOnce(true);
+    isPlatformAdminMock.mockResolvedValueOnce(true);
     const res = await requireAdmin(makeReq());
     expect(res).toBeNull();
   });
@@ -145,7 +145,7 @@ describe('requireAdmin — garde-fous de configuration (sécu)', () => {
     // valide passe par le header. On verrouille que la présence d'une session
     // non-admin ne casse PAS l'accès par secret.
     authMock.mockResolvedValueOnce({ user: { email: 'random@x' } });
-    isPlatformAdminMock.mockReturnValueOnce(false);
+    isPlatformAdminMock.mockResolvedValueOnce(false);
     const res = await requireAdmin(makeReq({ 'x-admin-secret': 'super-secret-for-tests' }));
     expect(res).toBeNull();
   });

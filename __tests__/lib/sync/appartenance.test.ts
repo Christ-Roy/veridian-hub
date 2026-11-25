@@ -2,7 +2,7 @@
 /** Relevé d'appartenance (VER-245 a) : il classe, il n'écrit rien, et ce qu'il n'a pas pu lire n'est jamais un zéro. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('@/lib/admin/check-admin', () => ({ isPlatformAdmin: (u: { email: string }) => u.email === 'patron@veridian.example' }));
+vi.mock('@/lib/admin/check-admin', () => ({ isPlatformAdminId: () => false, estAdresseOperateur: (e: string) => e === 'patron@veridian.example' }));
 
 import { humainsDe, classer, releverAppartenance, type HubTenant, type HubUser } from '@/lib/sync/appartenance';
 import type { TenantSnapshot } from '@/lib/sync/types';

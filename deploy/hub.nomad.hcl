@@ -220,7 +220,9 @@ HOSTNAME=0.0.0.0
 NEXT_TELEMETRY_DISABLED=1
 AUTH_TRUST_HOST=true
 DEPLOY_ENV=prod
-ADMIN_EMAILS=brunon5robert@gmail.com,robert.brunon@veridian.site
+# Administrateurs de plateforme, par hub_user_id (VER-263). L'autre ligne ne sert qu'aux rapports.
+PLATFORM_ADMINS=53245ae1-6bf8-4ec6-870f-32d75b7c0281
+ADRESSES_OPERATEUR=brunon5robert@gmail.com,robert.brunon@veridian.site
 
 AUTH_URL=https://app.veridian.site
 NEXTAUTH_URL=https://app.veridian.site

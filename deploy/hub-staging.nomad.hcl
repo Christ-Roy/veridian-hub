@@ -213,7 +213,9 @@ DELEGATION_SOURCES=crm
 # F3 (§2.3) : une réponse reçue dans Mail devient une tâche au CRM. Organisations MARQUÉES de test seulement ; garde du CRM servie en staging (25/11).
 DELEGATION_EVENEMENTS=notifuse>crm@test
 OAUTH_TEST_PROVIDER=true
-ADMIN_EMAILS=brunon5robert@gmail.com,robert.brunon@veridian.site
+# Administrateurs de plateforme, par hub_user_id (VER-263). L'autre ligne ne sert qu'aux rapports.
+PLATFORM_ADMINS=03edb21f-4560-4698-987b-37b5f4d230d1
+ADRESSES_OPERATEUR=brunon5robert@gmail.com,robert.brunon@veridian.site
 
 AUTH_URL=https://hub.staging.veridian.site
 NEXTAUTH_URL=https://hub.staging.veridian.site

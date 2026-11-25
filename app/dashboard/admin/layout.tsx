@@ -1,5 +1,5 @@
 /**
- * Hub admin layout — restricted to ADMIN_EMAILS whitelist.
+ * Hub admin layout — administrateurs de plateforme (PLATFORM_ADMINS, par hub_user_id).
  * Redirects to /dashboard if non-admin.
  *
  * Auth.js v5 — utilise getCurrentUser() (Prisma) et isPlatformAdmin().
@@ -18,12 +18,12 @@ export default async function AdminHubLayout({ children }: { children: React.Rea
   if (!user) {
     redirect('/login?redirect=/dashboard/admin');
   }
-  if (!isPlatformAdmin(user)) {
+  const session = await auth();
+  if (!(await isPlatformAdmin(session))) {
     // Use notFound semantics so non-admins don't discover the admin area
     redirect('/dashboard');
   }
   // Les routes admin exigent une connexion réelle récente : le dire ici, pas page par page.
-  const session = await auth();
   if (!isAuthRecent(session?.user?.authAt, PREUVE_COMPTE_S)) {
     redirect(`/login?reauth=1&callbackUrl=${encodeURIComponent('/dashboard/admin')}`);
   }

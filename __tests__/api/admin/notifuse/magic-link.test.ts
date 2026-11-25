@@ -69,7 +69,7 @@ beforeEach(() => {
   tenantUpdateMock.mockReset();
   tenantUpdateMock.mockResolvedValue({});
   isPlatformAdminMock.mockReset();
-  isPlatformAdminMock.mockReturnValue(false);
+  isPlatformAdminMock.mockResolvedValue(false);
   process.env.NOTIFUSE_API_URL = 'https://notifuse.test.veridian.site';
   process.env.NOTIFUSE_HUB_API_SECRET = 'test-secret-very-strong-32chars-min';
 });
@@ -154,7 +154,7 @@ describe('POST /api/admin/notifuse/magic-link', () => {
       notifuseUserEmail: 'owner@x.com',
     });
     userFindUniqueMock.mockResolvedValueOnce({ supabaseUserId: 'other-uuid-bbb' });
-    isPlatformAdminMock.mockReturnValue(false);
+    isPlatformAdminMock.mockResolvedValue(false);
 
     const { POST } = await import('@/app/api/admin/notifuse/magic-link/route');
     const res = await POST(makeReq({ tenantId: VALID_UUID }) as never);
@@ -277,7 +277,7 @@ describe('POST /api/admin/notifuse/magic-link', () => {
       notifuseUserEmail: 'other@x.com',
     });
     userFindUniqueMock.mockResolvedValueOnce({ supabaseUserId: 'admin-uuid' });
-    isPlatformAdminMock.mockReturnValue(true);
+    isPlatformAdminMock.mockResolvedValue(true);
     generateMagicLinkMock.mockResolvedValueOnce({
       magic_link: 'https://notifuse.staging.veridian.site/magic?token=adm',
       auto_login_url: 'https://notifuse.staging.veridian.site/auto?token=adm',

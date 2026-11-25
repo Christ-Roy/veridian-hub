@@ -99,7 +99,7 @@ export async function authenticateAdmin(
       ),
     };
   }
-  if (!isPlatformAdmin(session.user)) {
+  if (!(await isPlatformAdmin(session))) {
     return {
       ok: false,
       response: NextResponse.json({ error: 'forbidden' }, { status: 403 }),
