@@ -331,6 +331,10 @@ export const onboardingConsumeLimiter = new RateLimiter({
   name: 'onboarding-consume',
 });
 
+// Renouveler un lien d'activation expiré : chaque appel abouti envoie un mail à l'adresse du compte.
+export const renouvellementIpLimiter = new RateLimiter({ capacity: 5, windowMs: 15 * 60_000, name: 'onboarding-renouveler-ip' });
+export const renouvellementLienLimiter = new RateLimiter({ capacity: 2, windowMs: 60 * 60_000, name: 'onboarding-renouveler-lien' });
+
 // Qualification post-activation, sessionnée. Cap généreux pour permettre la
 // sauvegarde progressive à chaque étape sans ouvrir un endpoint de spam.
 export const onboardingQualificationLimiter = new RateLimiter({

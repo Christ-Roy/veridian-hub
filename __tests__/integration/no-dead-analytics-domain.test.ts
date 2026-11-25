@@ -44,17 +44,13 @@ const SCANNED_DIRS = ['app', 'lib', 'components'];
  *    c'est une liste d'accueil, pas une cible d'appel.
  *  - `lib/analytics/track-event.ts` : le Hub mesure son PROPRE usage sur la
  *    génération précédente. Cible interne, pas un lien servi à un client.
- *  - `lib/prospect/engine-client.ts` : pull des events prospect depuis la
- *    génération précédente, où vit l'historique. Idem, interne.
  *
- * Les deux dernières disparaîtront quand ces flux auront migré ; tant qu'elles
- * sont là, elles sont volontaires et documentées.
+ * La dernière disparaîtra quand ce flux aura migré.
  */
 const ALLOWED_FILES = new Set([
   'lib/invitations/attach-downstream.ts',
   'lib/mail/oauth-cookies.ts',
   'lib/analytics/track-event.ts',
-  'lib/prospect/engine-client.ts',
 ]);
 
 function collectFiles(dir: string): string[] {

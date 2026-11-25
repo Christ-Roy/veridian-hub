@@ -79,7 +79,8 @@ cas(null, 'délégation : le propriétaire ouvre une liaison, une app agit 120 s
         const bouton = page.getByRole('button', { name: 'Allumer' });
         if (c === M) expect(await bouton.count(), 'un étranger ne voit pas le bouton').toBe(0);
         else if (confirme) {
-          await expect(page.getByText('TEST DELEGATION', { exact: false }).first()).toBeVisible();
+          // Client MCP réemprunté (enregistrements bornés à 10/h) : son nom n'est pas celui de ce cas.
+          if (!process.env.SSO_MCP_CLIENT) await expect(page.getByText('TEST DELEGATION', { exact: false }).first()).toBeVisible();
           await bouton.click();
           await expect(page.getByText('Liaison allumée')).toBeVisible();
         }

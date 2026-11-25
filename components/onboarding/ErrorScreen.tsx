@@ -17,12 +17,15 @@ export function ErrorScreen({
   email,
   supportHref = 'mailto:contact@veridian.site',
   onRetry,
+  message,
 }: {
   variant: 'expire' | 'technique';
   /** Email du destinataire, affiché quand on peut renvoyer un lien. */
   email?: string;
   supportHref?: string;
   onRetry?: () => void;
+  /** Ce qui vient de se passer (lien renvoyé, refus). */
+  message?: string | null;
 }) {
   const expire = variant === 'expire';
   const Icon = expire ? Clock : AlertTriangle;
@@ -47,7 +50,7 @@ export function ErrorScreen({
         </h1>
         <p className="text-balance text-sm text-muted-foreground">
           {expire
-            ? 'Pour votre sécurité, les liens d’activation ont une durée de vie limitée. Si vous avez déjà choisi un mot de passe, connectez-vous. Sinon, contactez Veridian pour recevoir un nouveau lien.'
+            ? 'Pour votre sécurité, les liens d’activation ont une durée de vie limitée. Demandez-en un nouveau : il part à l’adresse de votre compte. Si vous avez déjà choisi un mot de passe, connectez-vous.'
             : 'Nous n’avons pas pu terminer l’activation de votre compte. Rien n’est perdu, vous pouvez réessayer.'}
         </p>
       </div>
@@ -57,6 +60,12 @@ export function ErrorScreen({
           <div className="text-xs text-muted-foreground">Compte concerné</div>
           <div className="truncate text-sm font-medium">{email}</div>
         </div>
+      )}
+
+      {message && (
+        <p role="status" className="text-center text-sm">
+          {message}
+        </p>
       )}
 
       {onRetry ? (

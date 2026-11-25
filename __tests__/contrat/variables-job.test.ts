@@ -17,7 +17,6 @@ import { code, parcourir } from './source';
 const FACULTATIVES: Record<string, string> = {
   // ── Manque réel, à câbler (08/11) ──
   // ── Reste du moteur G2 arrêté ──
-  ANALYTICS_ADMIN_KEY: 'client admin du moteur G2 (panneau admin Analytics) : aucune route équivalente dans Rybbit',
   // ── Repli codé, rien ne casse ──
   ANALYTICS_TRACK_URL: 'défaut : Rybbit prod (objectifs du Hub, lib/analytics/track-event.ts)',
   ANALYTICS_TRACK_URL_STAGING: 'staging seulement',

@@ -45,9 +45,6 @@ export default async function AdminHubLayout({ children }: { children: React.Rea
             <Link href="/dashboard/admin/tenants" className="hover:text-primary">
               Tenants
             </Link>
-            <Link href="/dashboard/admin/analytics" className="hover:text-primary">
-              Analytics
-            </Link>
           </nav>
           <div className="ml-auto text-xs text-muted-foreground">{user.email}</div>
         </div>

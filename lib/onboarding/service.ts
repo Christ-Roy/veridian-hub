@@ -145,6 +145,8 @@ export async function createOnboardingInvitation(
     actor: string;
     invitedBy?: string;
     sendEmail?: boolean;
+    /** Durée du lien, en minutes (défaut : 14 jours). */
+    validiteMinutes?: number;
   }
 ): Promise<{
   userId: string;
@@ -172,7 +174,7 @@ export async function createOnboardingInvitation(
 
   const token = generateOnboardingToken();
   const tokenHash = hashOnboardingToken(token);
-  const expiresAt = new Date(Date.now() + ONBOARDING_TOKEN_TTL_MS);
+  const expiresAt = new Date(Date.now() + (input.validiteMinutes ? input.validiteMinutes * 60_000 : ONBOARDING_TOKEN_TTL_MS));
   const identifier = onboardingIdentifier(user.id);
   const inviteUrl = `${getURL()}/onboard/${encodeURIComponent(token)}`;
   const invitedBy = input.invitedBy ?? input.actor.replace(/^admin:/, '');
@@ -248,11 +250,6 @@ export async function getOnboardingInviteByToken(
   const userId = userIdFromOnboardingIdentifier(record.identifier);
   if (!userId) return { ok: false, code: 'invalid' };
 
-  if (record.expires < new Date()) {
-    await prisma.verificationToken.delete({ where: { token: tokenHash } }).catch(() => {});
-    return { ok: false, code: 'expired' };
-  }
-
   const user = await prisma.user.findUnique({
     where: { id: userId },
     include: {
@@ -264,6 +261,8 @@ export async function getOnboardingInviteByToken(
   if (user.onboarding?.activatedAt || user.accounts.some((a) => a.provider === 'credentials')) {
     return { ok: false, code: 'activated' };
   }
+  // Expiré : il n'ouvre plus rien, mais il reste en base pour que la personne demande le suivant (renouvelerLienActivation).
+  if (record.expires < new Date()) return { ok: false, code: 'expired' };
 
   const workspaceMember = await prisma.workspaceMember.findFirst({
     where: { userId, workspace: { deletedAt: null } },
@@ -293,6 +292,31 @@ export async function getOnboardingInviteByToken(
   };
 }
 
+export type Renouvellement = 'envoye' | 'invalide' | 'actif' | 'encore_valable';
+
+/**
+ * Lien d'activation expiré : la personne qui le détient en demande un neuf (VER-104). Il part à l'adresse du COMPTE, jamais à une adresse reçue,
+ * et jamais dans la réponse : l'ancien lien, seul, n'ouvre toujours rien. Un lien encore bon n'est pas remplacé.
+ */
+export async function renouvelerLienActivation(prisma: PrismaClient, token: string): Promise<{ issue: Renouvellement; userId?: string }> {
+  const lu = await getOnboardingInviteByToken(prisma, token);
+  if (lu.ok) return { issue: 'encore_valable' };
+  if (lu.code === 'activated') return { issue: 'actif' };
+  if (lu.code !== 'expired') return { issue: 'invalide' };
+  const record = await prisma.verificationToken.findUnique({ where: { token: hashOnboardingToken(token) } });
+  const userId = record && userIdFromOnboardingIdentifier(record.identifier);
+  const user = userId ? await prisma.user.findUnique({ where: { id: userId }, include: { onboarding: true } }) : null;
+  if (!user) return { issue: 'invalide' };
+  const metadata = metadataObject(user.onboarding?.metadata);
+  await createOnboardingInvitation(prisma, {
+    email: user.email,
+    apps: getMetadataApps(metadata),
+    actor: 'system:lien-expire',
+    invitedBy: typeof metadata.invitedBy === 'string' ? metadata.invitedBy : 'Veridian',
+  });
+  return { issue: 'envoye', userId: user.id };
+}
+
 export async function activateOnboarding(
   prisma: PrismaClient,
   input: { token: string; password: string },
@@ -314,7 +338,6 @@ export async function activateOnboarding(
     throw Object.assign(new Error('invalid'), { code: 'invalid' });
   }
   if (record.expires < new Date()) {
-    await prisma.verificationToken.delete({ where: { token: tokenHash } }).catch(() => {});
     throw Object.assign(new Error('expired'), { code: 'expired' });
   }
 

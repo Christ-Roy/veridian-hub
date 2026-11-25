@@ -55,6 +55,13 @@ describe('POST /api/admin/onboarding/invite', () => {
     writeAuditLogMock.mockResolvedValue(undefined);
   });
 
+  it('une durée plus courte passe au service ; hors bornes, refusée', async () => {
+    await POST(makeReq({ email: 'client@example.com', validiteMinutes: 1 }));
+    expect(createOnboardingInvitationMock.mock.calls[0][1]).toMatchObject({ validiteMinutes: 1 });
+    for (const v of [0, 20_161, 1.5]) expect((await POST(makeReq({ email: 'client@example.com', validiteMinutes: v }))).status).toBe(400);
+    expect(createOnboardingInvitationMock).toHaveBeenCalledTimes(1);
+  });
+
   it('refuse avant toute mutation si authenticateAdmin rejette', async () => {
     authenticateAdminMock.mockResolvedValue({
       ok: false,

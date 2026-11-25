@@ -38,6 +38,7 @@ vi.mock('@/lib/prisma', () => ({
         id: 't1',
         notifuseWorkspaceSlug: 'ws',
         prospectionPlan: 'freemium',
+        prospectionProvisionedAt: new Date(),
       })),
       update: vi.fn(async () => ({})),
     },
@@ -50,8 +51,7 @@ const originalFetch = globalThis.fetch;
 
 beforeEach(() => {
   vi.clearAllMocks();
-  process.env.PROSPECTION_API_URL = 'https://prospection.test';
-  process.env.PROSPECTION_TENANT_API_SECRET = 'secret';
+  process.env.NEXT_PUBLIC_PROSPECTION_URL = 'https://prospection.test';
   process.env.NEXT_PUBLIC_SITE_URL = 'https://app.veridian.site';
   // Par défaut : admin autorisé via session.
   authenticateAdminMock.mockResolvedValue({ ok: true, sessionEmail: 'robert@veridian.site' });
@@ -124,6 +124,15 @@ describe('POST /api/admin/impersonate', () => {
     expect(res.status).toBe(429);
   });
 
+  it('Prospection : le lien du rebond signé, rien n\'est appelé ni écrit (VER-106)', async () => {
+    const { POST } = await import('@/app/api/admin/impersonate/route');
+    const { prisma } = await import('@/lib/prisma');
+    const corps = await (await POST(makeReq({ email: 'a@test.io' }))).json();
+    expect(corps.links.prospection).toBe('https://app.veridian.site/login?next=https%3A%2F%2Fprospection.test%2F');
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect((prisma as unknown as { tenant: { update: ReturnType<typeof vi.fn> } }).tenant.update).not.toHaveBeenCalled();
+  });
+
   it('returns links with hub callback + notifuse when admin', async () => {
     const { POST } = await import('@/app/api/admin/impersonate/route');
     const res = await POST(makeReq({ email: 'a@test.io' }));
@@ -161,23 +170,5 @@ describe('POST /api/admin/impersonate', () => {
     await POST(makeReq({ email: 'a@test.io' }));
     const arg = auditLogCreate.mock.calls[0][0] as { data: Record<string, unknown> };
     expect(arg.data.actor).toBe('token:ADMIN_SECRET');
-  });
-
-  it('appelle Prospection en HMAC standard (pas de Bearer legacy)', async () => {
-    const { POST } = await import('@/app/api/admin/impersonate/route');
-    await POST(makeReq({ email: 'a@test.io' }));
-
-    const fetchMock = globalThis.fetch as ReturnType<typeof vi.fn>;
-    expect(fetchMock).toHaveBeenCalled();
-    const init = fetchMock.mock.calls[0][1] as RequestInit;
-    const headers = init.headers as Record<string, string>;
-
-    expect(headers['X-Veridian-Timestamp']).toMatch(/^\d+$/);
-    expect(headers['X-Veridian-Hub-Signature']).toMatch(/^[a-f0-9]{64}$/);
-    expect(headers.Authorization).toBeUndefined();
-
-    const body = JSON.parse(init.body as string);
-    expect(body.user_id).toBe('uuid-1');
-    expect(body.metadata).toEqual({ hub_user_id: 'uuid-1' });
   });
 });

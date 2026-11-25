@@ -201,6 +201,12 @@ describe('POST /api/tenants/start — goal app_started tunnel', () => {
     expect(apps).toEqual(['prospection']);
   });
 
+  it('Prospection : aucun lien de connexion dans la réponse, l\'app s\'ouvre par le rebond (VER-106)', async () => {
+    tenantRow = null;
+    const { POST } = await import('@/app/api/tenants/start/route');
+    expect((await (await POST(makeReq({ app: 'prospection' }))).json()).prospection).not.toHaveProperty('login_url');
+  });
+
   it('un salarié, sans espace à lui : refusé, rien de provisionné', async () => {
     tenantRow = null;
     seul.oui = true;

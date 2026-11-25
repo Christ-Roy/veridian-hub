@@ -139,7 +139,6 @@ export async function provisionProspectionTenant(
 ): Promise<{
   success: boolean;
   tenantId?: string;
-  loginUrl?: string;
   apiKey?: string;
   error?: string;
 }> {
@@ -166,8 +165,8 @@ export async function provisionProspectionTenant(
 
     const prospectionData = {
       prospectionApiKey: data.api_key,
-      prospectionLoginToken: data.login_url?.split('t=')[1] ?? null,
-      prospectionLoginTokenCreatedAt: new Date(),
+      // VER-106 : plus aucun jeton de connexion gardé au Hub, l'app s'ouvre par le rebond signé.
+      prospectionLoginToken: null,
       prospectionPlan: 'freemium',
       prospectionProvisionedAt: new Date(),
     };
@@ -193,7 +192,6 @@ export async function provisionProspectionTenant(
     return {
       success: true,
       tenantId: data.tenant_id,
-      loginUrl: data.login_url,
       apiKey: data.api_key,
     };
   } catch (error: any) {

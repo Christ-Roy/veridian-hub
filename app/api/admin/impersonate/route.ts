@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { authenticateAdmin } from '@/lib/admin/authenticate';
 import { writeAuditLog } from '@/lib/admin/audit-log';
 import { prisma } from '@/lib/prisma';
-import { createProspectionClientFromEnv } from '@/lib/prospection/client';
+import { lienApp } from '@/lib/apps/lien-app';
 import { createImpersonationToken } from '@/lib/auth/impersonation';
 import { getURL } from '@/utils/helpers';
 
@@ -62,37 +62,6 @@ export async function POST(request: NextRequest) {
     ? await prisma.tenant.findFirst({ where: { userId: user.supabaseUserId, deletedAt: null } })
     : null;
 
-  // Generate Prospection auto-login token
-  let prospectionUrl: string | null = null;
-  const prospectionClient = createProspectionClientFromEnv();
-  const targetUserUuid = user.supabaseUserId ?? user.id;
-
-  if (prospectionClient) {
-    try {
-      const provData = await prospectionClient.provisionTenant({
-        email,
-        name: email.split('@')[0],
-        userId: targetUserUuid,
-        plan: tenant?.prospectionPlan || 'freemium',
-      });
-      prospectionUrl = provData.login_url ?? null;
-
-      if (provData.login_url && tenant) {
-        const token = String(provData.login_url).split('t=')[1];
-        await prisma.tenant.update({
-          where: { id: tenant.id },
-          data: {
-            prospectionLoginToken: token ?? null,
-            prospectionLoginTokenCreatedAt: new Date(),
-            prospectionLoginTokenUsed: false,
-          },
-        });
-      }
-    } catch {
-      /* non-blocking */
-    }
-  }
-
   // Hub session : génère un token impersonate court-vécu (10 min, usage
   // unique, stocké hashé). Le lien `impersonate-callback` consomme ce token
   // et pose le cookie de session Auth.js du user cible.
@@ -121,7 +90,8 @@ export async function POST(request: NextRequest) {
       // pose le cookie de session Auth.js (httpOnly, secure, sameSite=lax),
       // puis redirige vers /dashboard.
       hub: hubLink,
-      prospection: prospectionUrl,
+      // Rebond signé, une fois la session Hub posée : rien n'est créé chez Prospection (VER-106).
+      prospection: tenant?.prospectionProvisionedAt ? getURL(lienApp('prospection') ?? '/dashboard') : null,
       notifuse: tenant?.notifuseWorkspaceSlug
         ? `https://notifuse.app.veridian.site`
         : null,

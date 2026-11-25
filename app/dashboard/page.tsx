@@ -13,6 +13,8 @@ import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
 import { APPS } from '@/lib/pricing/plans';
 import { getEnabledGatedApps } from '@/lib/tenant-apps';
+import { lienApp } from '@/lib/apps/lien-app';
+import { montrerInclusAvecSite } from '@/lib/apps/inclus-avec-site';
 import { organisationsSeules } from '@/lib/tenants/membre-seul';
 import { resolveAnalyticsCardTarget } from '@/lib/analytics/dashboard-target';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -27,7 +29,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
  *    -> reload + auto-open dans nouvel onglet.
  * 4. Clic "Open" sur une app déjà provisionnée :
  *    - Notifuse : magic link auto-login Hub→Notifuse
- *    - Prospection : login token one-shot
+ *    - Prospection : rebond signé du Hub
  */
 
 export default async function DashboardPage({
@@ -79,8 +81,6 @@ export default async function DashboardPage({
       notifuseInvitationSentAt: true,
       notifusePlan: true,
       prospectionProvisionedAt: true,
-      prospectionLoginToken: true,
-      prospectionLoginTokenCreatedAt: true,
       prospectionPlan: true,
       metadata: true,
     },
@@ -146,23 +146,7 @@ export default async function DashboardPage({
     isAnalyticsEnabled || hasLifetimeSiteVitrine || hasServiceAnalytics;
   const showActiveCms = isCmsEnabled || hasLifetimeSiteVitrine || hasServiceCms;
 
-  let prospectionTokenValid = false;
-  if (tenant?.prospectionLoginToken && tenant?.prospectionLoginTokenCreatedAt) {
-    const tokenAge =
-      new Date().getTime() -
-      new Date(tenant.prospectionLoginTokenCreatedAt).getTime();
-    const maxAge = 23 * 60 * 60 * 1000;
-    prospectionTokenValid = tokenAge < maxAge;
-  }
-
-  const prospectionBaseUrl =
-    process.env.NEXT_PUBLIC_PROSPECTION_URL ||
-    'https://saas-prospection.staging.veridian.site';
   const emailProven = await isEmailProvenForSession(user.id);
-  const prospectionLoginUrl = emailProven && tenant?.prospectionLoginToken
-    ? `${prospectionBaseUrl}/api/auth/token?t=${tenant.prospectionLoginToken}`
-    : null;
-
   // Cible de la carte Analytics. On demande à l'app d'analytics quels sites
   // CET email peut ouvrir, plutôt que de relire une URL figée au provisioning.
   // Un seul site → on y emmène le client directement ; plusieurs → la racine.
@@ -201,7 +185,6 @@ export default async function DashboardPage({
               <div>Tenant ID: {tenant.id}</div>
               <div>Notifuse workspace: {tenant.notifuseWorkspaceSlug || 'not configured'}</div>
               <div>Prospection: {tenant.prospectionProvisionedAt ? 'provisioned' : 'not provisioned'}</div>
-              <div>Prospection token valid: {prospectionTokenValid ? 'yes' : 'no/expired'}</div>
             </>
           )}
         </div>
@@ -224,8 +207,7 @@ export default async function DashboardPage({
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           <ProspectionCard
             configured={!!tenant?.prospectionProvisionedAt}
-            loginUrl={prospectionLoginUrl}
-            tokenValid={prospectionTokenValid}
+            url={lienApp('prospection')}
             plan={tenant?.prospectionPlan || 'freemium'}
           />
 

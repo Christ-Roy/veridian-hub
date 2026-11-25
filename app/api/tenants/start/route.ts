@@ -131,7 +131,6 @@ export async function POST(request: NextRequest) {
       ? {
           success: result.prospection.success,
           tenant_id: result.prospection.tenantId,
-          login_url: result.prospection.loginUrl,
           error: result.prospection.error,
         }
       : null,

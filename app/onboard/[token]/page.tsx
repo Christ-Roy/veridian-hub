@@ -3,23 +3,14 @@ import Link from 'next/link';
 
 import { prisma } from '@/lib/prisma';
 import { getOnboardingInviteByToken } from '@/lib/onboarding/service';
+import { LienExpire } from './LienExpire';
 import { OnboardClient } from './OnboardClient';
-import { OnboardingScreen } from '@/components/onboarding/OnboardingScreen';
-import type { OnboardingInvite } from '@/components/onboarding/types';
 import { OnboardingShell } from '@/components/onboarding/OnboardingShell';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-const EMPTY_INVITE: OnboardingInvite = {
-  email: 'client@exemple.fr',
-  workspaceName: 'Votre espace Veridian',
-  invitedBy: 'Veridian',
-  apps: [],
-  expiresAt: new Date().toISOString(),
-};
 
 export default async function OnboardPage({
   params,
@@ -50,13 +41,7 @@ export default async function OnboardPage({
         </OnboardingShell>
       );
     }
-    return (
-      <OnboardingScreen
-        state={lookup.code === 'expired' ? 'token-expire' : 'erreur'}
-        invite={EMPTY_INVITE}
-        steps={[]}
-      />
-    );
+    return <LienExpire token={token} />;
   }
 
   return <OnboardClient token={token} invite={lookup.invite} />;

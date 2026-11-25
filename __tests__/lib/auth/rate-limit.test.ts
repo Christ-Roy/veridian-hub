@@ -218,6 +218,16 @@ describe('exported limiter instances', () => {
     onboardingConsumeLimiter.reset();
   });
 
+  const plafond = async (nom: 'renouvellementIpLimiter' | 'renouvellementLienLimiter', n: number) => {
+    const l = (await import('@/lib/auth/rate-limit'))[nom];
+    l.reset();
+    for (let i = 0; i < n; i++) expect(l.enforce('k').ok).toBe(true);
+    expect([l.enforce('k').ok, l.enforce('autre').ok]).toEqual([false, true]);
+    l.reset();
+  };
+  it('exports renouvellementIpLimiter : 5 envois, puis refus', () => plafond('renouvellementIpLimiter', 5));
+  it('exports renouvellementLienLimiter : 2 envois par lien, puis refus', () => plafond('renouvellementLienLimiter', 2));
+
   it('exports onboardingQualificationLimiter avec capacity 60/min par userId:IP', async () => {
     const { onboardingQualificationLimiter } = await import('@/lib/auth/rate-limit');
     onboardingQualificationLimiter.reset();
@@ -521,6 +531,8 @@ describe('RateLimiter.enforceWithBypass', () => {
       'onboardingVerifyLimiter',
       'onboardingConsumeLimiter',
       'onboardingQualificationLimiter',
+      'renouvellementIpLimiter',
+      'renouvellementLienLimiter',
       'discoveryPreVerifyLimiter',
       'discoveryAppLimiter',
       'billingStatePollLimiter',

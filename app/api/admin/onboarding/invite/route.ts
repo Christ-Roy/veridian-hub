@@ -16,6 +16,8 @@ const bodySchema = z.object({
     .default(['hub']),
   invitedBy: z.string().min(1).max(120).optional(),
   sendEmail: z.boolean().default(true),
+  /** Lien plus court que les 14 jours : une minute au moins. */
+  validiteMinutes: z.number().int().min(1).max(14 * 24 * 60).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -40,6 +42,7 @@ export async function POST(request: NextRequest) {
       actor,
       invitedBy: parsed.data.invitedBy ?? authResult.sessionEmail ?? 'Veridian',
       sendEmail: parsed.data.sendEmail,
+      validiteMinutes: parsed.data.validiteMinutes,
     });
 
     await writeAuditLog(prisma, {

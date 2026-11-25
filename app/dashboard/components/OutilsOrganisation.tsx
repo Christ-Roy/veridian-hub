@@ -1,22 +1,22 @@
 // Les apps d'une organisation, vues par un salarié (VER-261) : celles qu'elle a ouvertes, rien à démarrer, rien à payer.
+import { lienApp } from '@/lib/apps/lien-app';
 import type { OrganisationSeule } from '@/lib/tenants/membre-seul';
 
 import { ServiceCard, type ServiceCardIcon } from './ServiceCard';
 import type { AppKey } from './AppIdentity';
 
-const APPS: Record<string, { nom: string; texte: string; icone: ServiceCardIcon; cle: AppKey; adresse: (e: NodeJS.ProcessEnv) => string | undefined; chemin: string }> = {
-  crm: { nom: 'CRM', texte: 'Les contacts, sociétés et affaires de votre organisation.', icone: 'Users', cle: 'crm', adresse: (e) => e.CRM_API_URL, chemin: '/' },
-  notifuse: { nom: 'Mail', texte: 'Les emails et campagnes de votre organisation.', icone: 'Mail', cle: 'mail', adresse: (e) => e.NOTIFUSE_API_URL, chemin: '/console/' },
-  prospection: { nom: 'Prospection', texte: 'Les recherches et listes de votre organisation.', icone: 'Globe', cle: 'prospection', adresse: (e) => e.NEXT_PUBLIC_PROSPECTION_URL, chemin: '/' },
-  academy: { nom: 'Academy', texte: 'Les formations de votre organisation.', icone: 'GraduationCap', cle: 'academy', adresse: (e) => e.ACADEMY_API_URL, chemin: '/' },
+const APPS: Record<string, { nom: string; texte: string; icone: ServiceCardIcon; cle: AppKey }> = {
+  crm: { nom: 'CRM', texte: 'Les contacts, sociétés et affaires de votre organisation.', icone: 'Users', cle: 'crm' },
+  notifuse: { nom: 'Mail', texte: 'Les emails et campagnes de votre organisation.', icone: 'Mail', cle: 'mail' },
+  prospection: { nom: 'Prospection', texte: 'Les recherches et listes de votre organisation.', icone: 'Globe', cle: 'prospection' },
+  academy: { nom: 'Academy', texte: 'Les formations de votre organisation.', icone: 'GraduationCap', cle: 'academy' },
 };
 
-/** Par le rebond du Hub : il ouvre l'app connectée, dans l'organisation. Academy reste réservée aux comptes activés. */
+/** Les apps ouvertes par l'organisation. Academy reste réservée aux comptes activés. */
 export function outilsDe(o: OrganisationSeule, academyActivee: boolean, env: NodeJS.ProcessEnv = process.env): { cle: string; url: string }[] {
   return o.modules.flatMap((cle) => {
-    const a = APPS[cle];
-    const base = a?.adresse(env);
-    return !base || (cle === 'academy' && !academyActivee) ? [] : [{ cle, url: `/login?next=${encodeURIComponent(`${base.replace(/\/+$/, '')}${a.chemin}`)}` }];
+    const url = lienApp(cle, env);
+    return !url || (cle === 'academy' && !academyActivee) ? [] : [{ cle, url }];
   });
 }
 
