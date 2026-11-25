@@ -114,6 +114,11 @@ cas(null, 'une réponse humaine reçue dans Mail devient une tâche au CRM, une 
     expect([suite[0], suite[1].effet], `suite du même fil : ${JSON.stringify(suite[1])}`).toEqual([200, 'aucun']);
     expect((await compter('tasks')).n, 'toujours une seule tâche').toBe(apres.n);
 
+    // Un vrai refus du CRM, dit en 200 (success:false, thread_invalide) : jamais pris pour un succès, la source réessaiera.
+    const refuse = await recevoir(randomUUID(), { thread_id: 'fil/1', email: `refus@reponse${n}.invalid` });
+    expect(refuse, 'refus du CRM en texte').toEqual([502, { error: 'crm_unreachable' }]);
+    expect((await compter('tasks')).n, 'refusée : rien au CRM').toBe(apres.n);
+
     // CRM éteint au registre du Hub : 5xx, la source réessaie, rien n'est perdu.
     const perdu = randomUUID();
     const autreFil = { thread_id: `t2_${n}`, email: `autre@reponse${n}.invalid` };
