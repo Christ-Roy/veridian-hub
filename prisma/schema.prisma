@@ -678,6 +678,8 @@ model TenantIdp {
 model FederationTicket {
   empreinte String   @id
   userId    String   @map("user_id")
+  /// L'organisation dont la session ne sortira pas (lib/federation/borne.ts)
+  tenantId  String?  @map("tenant_id")
   expireLe  DateTime @map("expire_le")
 
   @@map("federation_tickets")

@@ -26,9 +26,9 @@ vi.mock('@/lib/delegation/poignee', () => ({ emettrePoignees: poignees }));
 const actif = vi.hoisted(() => vi.fn(async (..._a: unknown[]): Promise<string | null> => null));
 vi.mock('@/lib/tenants/actif', () => ({ COOKIE_ACTIF: 'veridian_org', organisationActive: actif }));
 const preinscrits = vi.hoisted(() => vi.fn(async (..._a: unknown[]) => [] as string[]));
-const emprunt = vi.hoisted(() => ({ oui: false }));
+const emprunt = vi.hoisted(() => ({ oui: false, federe: false }));
 vi.mock('@/lib/tenants/preinscription', () => ({ consommerPreinscriptions: preinscrits }));
-vi.mock('@/auth', () => ({ auth: async () => ({ user: {} }) }));
+vi.mock('@/auth', () => ({ auth: async () => ({ user: { federe: emprunt.federe } }) }));
 vi.mock('@/lib/auth/impersonation', () => ({ isImpersonatedSession: () => emprunt.oui }));
 vi.mock('@/lib/tenants/roles', () => ({ APPS_A_ROLE: ['crm'], organisationsPourRebond: orgs }));
 vi.mock('@/lib/crm/provision', () => ({ ensureCrmWorkspace: (...a: unknown[]) => ensureCrmMock(...a) }));
@@ -462,6 +462,10 @@ describe('GET /api/auth/bounce/complete', () => {
     emprunt.oui = true;
     await entrer();
     emprunt.oui = false;
+    // Ni depuis une session ouverte par le fournisseur d'une organisation : elle n'en fait rejoindre aucune autre.
+    emprunt.federe = true;
+    await entrer();
+    emprunt.federe = false;
     expect(preinscrits.mock.calls.length).toBe(n);
     preinscrits.mockReset().mockResolvedValue([]);
   });

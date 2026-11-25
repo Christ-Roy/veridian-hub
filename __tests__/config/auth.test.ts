@@ -59,7 +59,8 @@ describe('auth.ts — invariants de config critiques', () => {
 
   it('fédération : une session fédérée est marquée à la connexion et bornée à chaque lecture, avant la révocation', () => {
     const jwt = authSource.slice(authSource.indexOf('async jwt('), authSource.indexOf('async session('));
-    expect(jwt).toMatch(/if \(account\?\.provider === FOURNISSEUR_FEDERATION\) token\.federe = true;/);
+    expect(jwt).toMatch(/if \(account\?\.provider === FOURNISSEUR_FEDERATION\) \{\s*token\.federe = true;\s*token\.federeOrg = user\.federeOrg;/);
+    expect(jwt, 'et tombe dès que la personne est d\'ailleurs').toMatch(/if \(await horsDeSaBorne\(prisma, token\)\) return null;/);
     expect(jwt.indexOf('token.federe = true')).toBeLessThan(jwt.indexOf('return token'));
     expect(authSource, 'la session le dit aux gestes de compte').toMatch(/if \(token\?\.federe === true && session\.user\) session\.user\.federe = true;/);
     expect(jwt).toMatch(/if \(federationExpiree\(token\)\) return null;/);

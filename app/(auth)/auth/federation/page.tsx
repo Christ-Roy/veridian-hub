@@ -16,6 +16,8 @@ const RAISONS: Record<string, string> = {
   compte_existant: 'Un compte Veridian existe déjà avec cette adresse. Connectez-vous une fois comme d\'habitude, puis revenez par le lien de votre organisation : il sera relié.',
   autre_identite: 'Ce compte est déjà relié à une autre identité de votre organisation. Prévenez son administrateur.',
   non_attendu: 'Votre organisation ne vous attend pas encore. Demandez à son administrateur de vous ajouter.',
+  non_relie: 'Ce compte n\'est pas encore relié à votre accès Veridian. Connectez-vous une fois comme d\'habitude, ouvrez Paramètres, puis « Relier mon compte ».',
+  autre_organisation: 'Vous appartenez aussi à une autre organisation : cette connexion n\'ouvre que celle-ci. Connectez-vous avec votre mot de passe ou Google pour les retrouver toutes.',
   retire: 'Vous avez été retiré de cette organisation. Demandez à son administrateur de vous ajouter à nouveau.',
   autre_adresse: 'Votre organisation a confirmé une autre adresse que celle que vous avez demandée. Rien n\'a été ajouté.',
   trop_d_adresses: 'Vous avez déjà le nombre maximal d\'adresses. Détachez-en une avant d\'en ajouter.',

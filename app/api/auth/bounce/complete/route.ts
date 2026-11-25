@@ -125,7 +125,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   }
 
   // Pré-inscrit par une organisation : il la rejoint maintenant, et l'app le connaît avant qu'on l'y envoie. Un échec n'empêche pas d'entrer.
-  const jointes = user.supabaseUserId && !isImpersonatedSession(await auth())
+  const session = await auth();
+  // Une session fédérée ne fait rejoindre aucune autre organisation : elle n'ouvre que la sienne.
+  const jointes = user.supabaseUserId && !isImpersonatedSession(session) && session?.user?.federe !== true
     ? await consommerPreinscriptions(prisma, user.supabaseUserId).catch((err): string[] => { console.error('[preinscription]', err instanceof Error ? err.message.slice(0, 160) : 'erreur'); return []; })
     : [];
 

@@ -56,7 +56,8 @@ describe('poserIdp', () => {
     expect(idps).toHaveLength(1);
   });
   it('ReglageIdp : domaines bien formés, champ inconnu refusé', () => {
-    for (const x of [{ domaines: [] }, { domaines: ['*.fr'] }, { domaines: ['a'] }, { domaines: ['@client.fr'] }, { pirate: 1 }, { issuer: 'x' }]) expect(ReglageIdp.safeParse({ ...R, ...x }).success, JSON.stringify(x)).toBe(false);
+    expect(ReglageIdp.safeParse({ ...R, domaines: [] }).success, 'sans domaine : chacun relie le sien').toBe(true);
+    for (const x of [{ domaines: [], creation_auto: true }, { domaines: ['*.fr'] }, { domaines: ['a'] }, { domaines: ['@client.fr'] }, { pirate: 1 }, { issuer: 'x' }]) expect(ReglageIdp.safeParse({ ...R, ...x }).success, JSON.stringify(x)).toBe(false);
   });
 });
 

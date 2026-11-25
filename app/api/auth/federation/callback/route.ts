@@ -10,8 +10,10 @@ import { NEXT_COOKIE_NAME_INSECURE, NEXT_COOKIE_NAME_SECURE } from '@/lib/auth/b
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { isImpersonatedSession } from '@/lib/auth/impersonation';
 import { isAuthRecent, PREUVE_COMPTE_S } from '@/lib/auth/recent-auth';
+import { seulementIci } from '@/lib/federation/borne';
 import { resoudreIdentite, type Connecte } from '@/lib/federation/identite';
 import { idpPret } from '@/lib/federation/idp';
+import { relierParPersonne } from '@/lib/federation/liaison';
 import { CHEMIN_RETOUR, COOKIE_FEDERATION, ouvrir, terminer } from '@/lib/federation/oidc';
 import { emettreTicket, FOURNISSEUR_FEDERATION } from '@/lib/federation/ticket';
 import { getHubBaseUrl } from '@/lib/mail/oauth-cookies';
@@ -59,11 +61,20 @@ export async function GET(request: NextRequest) {
     const a = await ajouterParFournisseur(prisma, i, identite, u, t.ajout.email);
     return 'refus' in a ? refus(a.refus) : vers('/dashboard/settings?adresse=ajoutee');
   }
+  if (t.relier) {
+    const elle = await connecte();
+    const u = elle?.userId === t.relier.userId ? await prisma.user.findUnique({ where: { id: elle.userId }, select: { id: true, email: true, emailVerified: true, supabaseUserId: true } }) : null;
+    if (!u) return refus('demande_expiree');
+    const l = await relierParPersonne(prisma, i, identite, u);
+    return 'refus' in l ? refus(l.refus) : vers('/dashboard/settings?federation=reliee');
+  }
   const r = await resoudreIdentite(prisma, i, identite, await connecte());
   if ('refus' in r) return refus(r.refus);
   const suite = request.cookies.has(NEXT_COOKIE_NAME_SECURE) || request.cookies.has(NEXT_COOKIE_NAME_INSECURE) ? '/api/auth/bounce/complete' : '/dashboard';
+  // Elle n'ouvre que cette organisation : quelqu'un d'ailleurs aussi entre par sa propre connexion (lib/federation/borne.ts).
+  if (!(await seulementIci(prisma, r.hubUserId, i.tenantId))) return refus('autre_organisation');
   // Auth.js pose la session, ou renvoie vers la 2FA : son verdict fait foi.
-  const ticket = await emettreTicket(prisma, r.userId);
+  const ticket = await emettreTicket(prisma, r.userId, i.tenantId);
   const issue: unknown = await signIn(FOURNISSEUR_FEDERATION, { ticket, redirect: false, redirectTo: suite });
   const cible = typeof issue === 'string' ? new URL(issue, base) : new URL(suite, base);
   if (cible.origin !== base.origin || cible.searchParams.has('error')) return refus('session_refusee');

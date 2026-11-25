@@ -12,6 +12,10 @@
 import type { DefaultSession } from 'next-auth';
 
 declare module 'next-auth' {
+  interface User {
+    /** Organisation dont le fournisseur ouvre la session. */
+    federeOrg?: string;
+  }
   interface Session {
     user: {
       id?: string;
@@ -34,6 +38,8 @@ declare module 'next-auth/jwt' {
     authAt?: number;
     /** `true` sur une session ouverte par le fournisseur d'une organisation : 24 h au plus. */
     federe?: boolean;
+    /** L'organisation qu'elle n'a pas le droit de quitter. */
+    federeOrg?: string;
     /** `true` sur un JWT issu d'une impersonation admin. */
     impersonated?: boolean;
     /** Email du platform admin à l'origine de l'impersonation. */

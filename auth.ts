@@ -18,6 +18,7 @@ import { createSignInCallback } from '@/lib/auth/sign-in-callback';
 import { createCreateUserEvent } from '@/lib/auth/create-user-event';
 import { buildMockOauthProvider } from '@/lib/auth/mock-oauth-provider';
 import { buildGoogleOneTapProvider } from '@/lib/auth/google-one-tap-provider';
+import { horsDeSaBorne } from '@/lib/federation/borne';
 import { consommerTicket, federationExpiree, FOURNISSEUR_FEDERATION } from '@/lib/federation/ticket';
 import { createOauthEventLogger } from '@/lib/auth/oauth-event-log';
 import { impersonationExpiree } from '@/lib/auth/impersonation';
@@ -135,8 +136,9 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       name: 'Organisation',
       credentials: { ticket: {} },
       async authorize(credentials) {
-        const id = await consommerTicket(prisma, credentials?.ticket);
-        return id ? prisma.user.findUnique({ where: { id }, select: { id: true, email: true, name: true, image: true } }) : null;
+        const t = await consommerTicket(prisma, credentials?.ticket);
+        const u = t ? await prisma.user.findUnique({ where: { id: t.userId }, select: { id: true, email: true, name: true, image: true } }) : null;
+        return t && u ? { ...u, federeOrg: t.tenantId } : null;
       },
     }),
     Credentials({
@@ -193,7 +195,10 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
     signIn: createSignInCallback({ prisma, issueAndSendMfaCode, applyProviderEmailProof }),
     async jwt({ token, user, account }) {
       if (user) {
-        if (account?.provider === FOURNISSEUR_FEDERATION) token.federe = true;
+        if (account?.provider === FOURNISSEUR_FEDERATION) {
+          token.federe = true;
+          token.federeOrg = user.federeOrg;
+        }
         token.uid = user.id;
         token.authAt = Math.floor(Date.now() / 1000);
         return token;
@@ -202,6 +207,8 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       if (impersonationExpiree(token)) return null;
       // Session ouverte par le fournisseur d'une organisation : 24 h (D6).
       if (federationExpiree(token)) return null;
+      // Et seulement tant que la personne n'appartient qu'à cette organisation.
+      if (await horsDeSaBorne(prisma, token)) return null;
       // Session d'un an : la révocation doit se lire ici, à chaque lecture de session, sinon un
       // jeton volé ou un compte supprimé resterait valable jusqu'à son expiration.
       if (typeof token.uid === 'string' && (await isSessionRevoked(prisma, token))) {

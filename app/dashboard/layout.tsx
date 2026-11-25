@@ -56,7 +56,8 @@ export default async function DashboardLayout({
 
   // Pré-inscrit par une organisation : il la rejoint à son premier passage prouvé. Sans attente en base, une lecture indexée.
   // Jamais depuis une session d'emprunt : rejoindre est le geste de la personne, pas de qui regarde son compte.
-  if (user.supabaseUserId && !isImpersonatedSession(await auth())) await consommerPreinscriptions(prisma, user.supabaseUserId).catch((err) => console.error('[preinscription]', err instanceof Error ? err.message.slice(0, 160) : 'erreur'));
+  const session = await auth();
+  if (user.supabaseUserId && !isImpersonatedSession(session) && session?.user?.federe !== true) await consommerPreinscriptions(prisma, user.supabaseUserId).catch((err) => console.error('[preinscription]', err instanceof Error ? err.message.slice(0, 160) : 'erreur'));
 
   // PERF (fix N+1 du 2026-05-21, étendu 2026-05-22) : reads indépendants
   // parallélisés via Promise.all. `fetchTrialRows` fait lui-même 2 reads

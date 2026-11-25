@@ -31,6 +31,8 @@ export async function POST(request: NextRequest) {
   if (!user?.supabaseUserId) return NextResponse.json({ error: 'non connecté' }, { status: 401 });
   const session = await auth();
   if (session?.user?.impersonated === true) return NextResponse.json({ error: 'impersonation' }, { status: 403 });
+  // L'accès donné à une IA survit à la session et suit toutes les organisations de la personne : elle le donne par sa propre connexion.
+  if (session?.user?.federe === true) return NextResponse.json({ error: 'session_federee' }, { status: 403 });
   if (!(await isEmailProvenForSession(user.id))) return NextResponse.json({ error: 'adresse non prouvée' }, { status: 403 });
 
   const p = await lireParams(request);

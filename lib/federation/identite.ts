@@ -19,7 +19,7 @@ import { provisionDefaultWorkspace } from '@/lib/workspace/provision';
 import type { IdpPret } from './idp';
 import type { Identite } from './oidc';
 
-export type RefusFederation = 'adresse_absente' | 'adresse_non_verifiee' | 'domaine_refuse' | 'compte_existant' | 'autre_identite' | 'non_attendu' | 'retire' | 'organisation_indisponible';
+export type RefusFederation = 'non_relie' | 'adresse_absente' | 'adresse_non_verifiee' | 'domaine_refuse' | 'compte_existant' | 'autre_identite' | 'non_attendu' | 'retire' | 'organisation_indisponible';
 type Db = DbMembres & Pick<PrismaClient, 'account' | 'tenantPreinscription' | 'organisation' | 'organisationEmission' | 'userEmail'>;
 /** La personne déjà connectée au Hub, preuve récente, jamais une session d'emprunt : la seule qui puisse relier un compte existant. */
 export type Connecte = { userId: string; email: string } | null;
@@ -29,6 +29,8 @@ export const fournisseur = (i: Pick<IdpPret, 'id'>): string => `org:${i.id}`;
 
 /** L'adresse que ce fournisseur a le droit d'affirmer, ou son refus. */
 export function adresseAffirmee(i: IdpPret, x: Identite): { email: string } | { refus: RefusFederation } {
+  // Aucun domaine déclaré : il ne prouve aucune adresse, l'identité se relie d'abord par sa personne.
+  if (i.domaines.length === 0) return { refus: 'non_relie' };
   if (!x.email || !/^[^\s@]+@[^\s@]+$/.test(x.email)) return { refus: 'adresse_absente' };
   if (x.emailNie) return { refus: 'adresse_non_verifiee' };
   if (!i.domaines.includes(x.email.split('@')[1])) return { refus: 'domaine_refuse' };

@@ -19,10 +19,11 @@ export const ReglageIdp = z.strictObject({
   issuer: z.string().url().max(300),
   client_id: z.string().min(1).max(300),
   client_secret: z.string().min(1).max(1_000),
-  domaines: z.array(Domaine).min(1).max(20),
+  /** Vide : il n'affirme aucune adresse, chacun relie son identité lui-même (lib/federation/liaison.ts). */
+  domaines: z.array(Domaine).max(20),
   creation_auto: z.boolean().default(false),
   actif: z.boolean().default(true),
-});
+}).refine((r) => !r.creation_auto || r.domaines.length > 0, { message: 'creation_auto_sans_domaine' });
 export type Reglage = z.infer<typeof ReglageIdp>;
 export type RefusIdp = 'tenant_introuvable' | 'issuer_refuse' | 'domaine_public' | 'domaine_veridian' | 'domaine_pris';
 type Db = Pick<PrismaClient, 'tenant' | 'tenantIdp'>;

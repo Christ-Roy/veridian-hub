@@ -46,6 +46,13 @@ describe('adresseAffirmee', () => {
   });
 });
 
+it('sans domaine déclaré (Infomaniak) : aucune adresse n\'est crue, rien n\'est créé, seule une identité déjà reliée entre', async () => {
+  const i = { domaines: [] as string[] };
+  for (const x of [{}, { emailNie: true }, { email: null }, { email: 'jean@client.test' }]) expect(await aller(x, i, { userId: 'U1', email: 'jean@client.test' })).toEqual({ refus: 'non_relie' });
+  expect([db.user.lignes.length, db.tenantMember.lignes.length, liens('U1')]).toEqual([3, 0, []]);
+  db.account.lignes.push({ id: 'a9', userId: 'U1', type: 'oidc', provider: fournisseur(I), providerAccountId: 's1' });
+  expect(await aller({ email: 'perso@gmail.com', emailNie: true }, i)).toEqual({ userId: 'U1', hubUserId: 'h1', neuf: false });
+});
 describe('resoudreIdentite : qui entre', () => {
   it('attendue (création ouverte, ou pré-inscrite) : compte neuf, prouvé, relié, membre ; puis la même identité le retrouve, quelle que soit son adresse', async () => {
     expect(await aller({}, { creationAuto: true })).toMatchObject({ neuf: true });
