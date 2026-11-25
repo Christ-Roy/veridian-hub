@@ -52,13 +52,15 @@ describe('POST organisations/[id]/membres', () => {
   });
 });
 
-describe('pré-inscriptions : GET et DELETE', () => {
-  const del = (corps: unknown, id = T) => DELETE(new NextRequest('https://h/x', { method: 'DELETE', body: JSON.stringify(corps) }), ctx(id));
+const del = (corps: unknown, id = T) => DELETE(new NextRequest('https://h/x', { method: 'DELETE', body: JSON.stringify(corps) }), ctx(id));
+describe('GET organisations/[id]/membres', () => {
   it('GET rend la liste de CETTE organisation', async () => {
     m.lister.mockResolvedValue([{ email: 'a@x.fr', etat: 'en_attente' }]);
     const r = await GET(new NextRequest('https://h/x'), ctx());
     expect([r.status, await r.json(), m.lister.mock.calls[0][1]]).toEqual([200, { preinscrits: [{ email: 'a@x.fr', etat: 'en_attente' }] }, T]);
   });
+});
+describe('DELETE organisations/[id]/membres', () => {
   it('DELETE annule une adresse et le note, sans l\'adresse ; rien à annuler : rien de noté', async () => {
     m.annuler.mockResolvedValue(1);
     expect(await (await del({ email: 'a@x.fr' })).json()).toEqual({ annulees: 1 });

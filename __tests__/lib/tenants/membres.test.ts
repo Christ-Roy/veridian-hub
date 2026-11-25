@@ -291,3 +291,15 @@ it('un seul écrivain de tenant_members dans tout le code', () => {
   expect(fichiers.length).toBeGreaterThan(100);
   expect(fichiers.filter((f) => ecrit.test(readFileSync(f, 'utf8'))).map((f) => f.replace(/^.*\/(lib|app|utils|scripts)\//, '$1/'))).toEqual(['lib/tenants/membres.ts', 'scripts/e2e/mega-purge.sh' /* purge des comptes de test */]);
 });
+
+it('retirer annule la pré-inscription encore ouverte de cette adresse, dans cette organisation seule', async () => {
+  membres = [{ tenantId: 'T', userId: 'u-m', role: 'member', deletedAt: null }];
+  await retirer(db, { tenantId: 'T', hubUserId: 'u-m', acteur: 'op' }, { apps: [] });
+  expect(preinscrites).toEqual([[{ tenantId: 'T', email: 'm@x.fr', consommeeLe: null, annuleeLe: null }, { annuleeLe: expect.any(Date) }]]);
+});
+it('une pré-inscription ne donne que member, et ne rend pas un retiré si elle date d\'avant', async () => {
+  await expect(joindre({ origine: 'preinscription', role: 'admin' })).rejects.toMatchObject({ code: 'role_refuse' });
+  membres = [{ tenantId: 'T', userId: 'u-m', role: 'member', deletedAt: new Date('2026-11-20') }];
+  await expect(joindre({ origine: 'preinscription', emiseLe: new Date('2026-11-19') })).rejects.toMatchObject({ code: 'retire' });
+  expect(await joindre({ origine: 'preinscription', emiseLe: new Date('2026-11-21') })).toMatchObject({ cree: true, role: 'member' });
+});
