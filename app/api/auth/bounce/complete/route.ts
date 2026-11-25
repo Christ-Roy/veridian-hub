@@ -48,6 +48,7 @@ import { getHubBaseUrl } from '@/lib/mail/oauth-cookies';
 import { emettrePoignees } from '@/lib/delegation/poignee';
 import { prisma } from '@/lib/prisma';
 import type { SyncApp } from '@/lib/sync/types';
+import { membreSeul } from '@/lib/tenants/membre-seul';
 import { consommerPreinscriptions } from '@/lib/tenants/preinscription';
 import { APPS_A_ROLE, organisationsPourRebond } from '@/lib/tenants/roles';
 
@@ -162,6 +163,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       // le Hub crée l'espace puis reprend.
       const premiere = err instanceof BounceError && err.code === 'user_not_in_app';
       if (!premiere || (parsed.app !== 'crm' && parsed.app !== 'academy')) throw err;
+      // Un salarié n'a pas d'espace à lui : pas ouvert à son organisation, c'est refusé et dit, jamais un espace vide créé à sa place.
+      if (await membreSeul(prisma, userUuid(user))) throw err;
       const qui = { hubUserId: userUuid(user), email: user.email, name: user.name };
       const espace =
         parsed.app === 'crm'

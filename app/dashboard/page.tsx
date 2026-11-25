@@ -5,6 +5,7 @@ import { TenantCard } from './components/TenantCard';
 import { ProspectionCard } from './components/ProspectionCard';
 import { ServiceCard } from './components/ServiceCard';
 import { ShadowAppCard } from './components/ShadowAppCard';
+import { OutilsOrganisation } from './components/OutilsOrganisation';
 import { OnboardingChecklist } from './components/OnboardingChecklist';
 import { DashboardPageHeader } from '@/components/dashboard/PageHeader';
 import { LayoutDashboard } from 'lucide-react';
@@ -12,6 +13,7 @@ import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
 import { APPS } from '@/lib/pricing/plans';
 import { getEnabledGatedApps } from '@/lib/tenant-apps';
+import { organisationsSeules } from '@/lib/tenants/membre-seul';
 import { resolveAnalyticsCardTarget } from '@/lib/analytics/dashboard-target';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
@@ -54,6 +56,18 @@ export default async function DashboardPage({
   // Academy est réservée : sa tuile n'existe que pour un compte activé (Robert seul, 22/11).
   const academyUrl = process.env.ACADEMY_API_URL;
   const isAcademyEnabled = enabledApps.has('academy') && !!academyUrl;
+
+  // Un salarié, sans espace à lui : les apps de son organisation, aucun essai à démarrer.
+  const organisations = await organisationsSeules(prisma, userUuid(user)).catch(() => []);
+  if (organisations.length > 0) {
+    return (
+      <div className="container mx-auto p-4 sm:p-6 lg:p-8 max-w-6xl">
+        <DashboardPageHeader title="Vos outils" description="Les applications ouvertes par votre organisation" icon={LayoutDashboard} className="mb-8" />
+        {!(await isEmailProvenForSession(user.id)) && user.email && <EmailProofBanner email={user.email} />}
+        <OutilsOrganisation organisations={organisations} academyActivee={isAcademyEnabled} />
+      </div>
+    );
+  }
 
   const tenant = await prisma.tenant.findFirst({
     where: { userId: userUuid(user), deletedAt: null },

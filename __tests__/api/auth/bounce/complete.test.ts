@@ -28,6 +28,8 @@ vi.mock('@/lib/tenants/actif', () => ({ COOKIE_ACTIF: 'veridian_org', organisati
 const preinscrits = vi.hoisted(() => vi.fn(async (..._a: unknown[]) => [] as string[]));
 const emprunt = vi.hoisted(() => ({ oui: false, federe: false }));
 vi.mock('@/lib/tenants/preinscription', () => ({ consommerPreinscriptions: preinscrits }));
+const seul = vi.hoisted(() => ({ oui: false }));
+vi.mock('@/lib/tenants/membre-seul', () => ({ membreSeul: async () => seul.oui }));
 vi.mock('@/auth', () => ({ auth: async () => ({ user: { federe: emprunt.federe } }) }));
 vi.mock('@/lib/auth/impersonation', () => ({ isImpersonatedSession: () => emprunt.oui }));
 vi.mock('@/lib/tenants/roles', () => ({ APPS_A_ROLE: ['crm'], organisationsPourRebond: orgs }));
@@ -485,6 +487,18 @@ describe('GET /api/auth/bounce/complete', () => {
       expect(res.headers.get('location')).toBe('https://crm.app.veridian.site/auth/token?t=Z');
       expect(ensureCrmMock).toHaveBeenCalledWith(expect.anything(), { hubUserId: 'uuid-1', email: 'a@b.c', name: 'Alice' }, expect.anything());
       expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('un salarié, sans espace à lui : aucun espace créé, le refus est dit', async () => {
+      getCurrentUserMock.mockResolvedValue(user);
+      ensureCrmMock.mockReset();
+      fetchMock.mockReset();
+      fetchMock.mockResolvedValueOnce(refus());
+      seul.oui = true;
+      const { GET } = await import('@/app/api/auth/bounce/complete/route');
+      const res = await GET(makeReq({ cookie: signNextCookie('https://crm.app.veridian.site/', TEST_SECRET) }));
+      seul.oui = false;
+      expect([res.headers.get('location'), ensureCrmMock.mock.calls.length]).toEqual([expect.stringContaining('/auth/bounce/error?app=crm&code=user_not_in_app'), 0]);
     });
 
     it('le rôle d\'organisation part au CRM, dans le corps signé ; une lecture ratée n\'empêche jamais d\'entrer', async () => {
