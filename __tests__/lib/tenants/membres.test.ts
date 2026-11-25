@@ -429,8 +429,8 @@ it('retirer annule la pré-inscription encore ouverte de cette adresse, dans cet
   secondaires = [];
   expect(preinscrites[1][0].email, 'toutes ses adresses, pas celles d\'un autre').toEqual({ in: ['m@x.fr', 'pro@client.fr'] });
 });
-it('une pré-inscription ne donne que member, et ne rend pas un retiré si elle date d\'avant', async () => {
-  await expect(joindre({ origine: 'preinscription', role: 'admin' })).rejects.toMatchObject({ code: 'role_refuse' });
+it('une pré-inscription ne donne jamais owner (admin, posé par un opérateur, oui), et ne rend pas un retiré si elle date d\'avant', async () => {
+  await expect(joindre({ origine: 'preinscription', role: 'owner' })).rejects.toMatchObject({ code: 'role_refuse' });
   membres = [{ tenantId: 'T', userId: 'u-m', role: 'member', deletedAt: new Date('2026-11-20') }];
   await expect(joindre({ origine: 'preinscription', emiseLe: new Date('2026-11-19') })).rejects.toMatchObject({ code: 'retire' });
   expect(await joindre({ origine: 'preinscription', emiseLe: new Date('2026-11-21') })).toMatchObject({ cree: true, role: 'member' });

@@ -14,7 +14,7 @@ import { estDeTest } from '@/lib/tenants/marque-test';
 /** Boîtes ouvertes à tous : les affirmer donnerait à un client les comptes de n'importe qui. */
 export const DOMAINES_PUBLICS: ReadonlySet<string> = new Set(['gmail.com', 'googlemail.com', 'outlook.com', 'outlook.fr', 'hotmail.com', 'hotmail.fr', 'live.com', 'live.fr', 'msn.com', 'yahoo.com', 'yahoo.fr', 'icloud.com', 'me.com', 'mac.com', 'aol.com', 'orange.fr', 'wanadoo.fr', 'free.fr', 'sfr.fr', 'laposte.net', 'bbox.fr', 'neuf.fr', 'gmx.com', 'gmx.fr', 'proton.me', 'protonmail.com']);
 /** Nos propres domaines : les affirmer donnerait l'administration de la plateforme. `e2e.` n'a pas de compte réel. */
-const DOMAINES_VERIDIAN = /(^|\.)veridian\.site$/;
+export const DOMAINES_VERIDIAN = /(^|\.)veridian\.site$/;
 
 const Domaine = z.string().trim().toLowerCase().max(253).regex(/^(?=.{3,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/);
 export const ReglageIdp = z.strictObject({
@@ -53,8 +53,9 @@ export function certificatLu(texte: string, now = Date.now()): string | null {
   }
 }
 
-export type RefusIdp = 'certificat_refuse' | 'alias_pris' | 'pose_par_veridian' | 'essai_manquant' | 'absent' | 'tenant_introuvable' | 'issuer_refuse' | 'domaine_public' | 'domaine_veridian' | 'domaine_pris';
+export type RefusIdp = 'obligatoire_actif' | 'certificat_refuse' | 'alias_pris' | 'pose_par_veridian' | 'essai_manquant' | 'absent' | 'tenant_introuvable' | 'issuer_refuse' | 'domaine_public' | 'domaine_veridian' | 'domaine_pris';
 type Db = Pick<PrismaClient, 'tenant' | 'tenantIdp'>;
+type DbRegle = Db & Pick<PrismaClient, 'tenantConnexion'>;
 
 /** HTTPS vers un nom public. Une adresse privée du tailnet, en clair, seulement pour une organisation MARQUÉE de test (IdP jetable d'épreuve). */
 export function issuerAccepte(issuer: string, test: boolean): boolean {
@@ -79,7 +80,7 @@ export const adresseAcceptee = (adresse: string | undefined, test: boolean): boo
 
 type Pose = { tenantId: string; reglage: Reglage | RegleSaml; acteur: string; /** Par le propriétaire : aucune adresse affirmée, inactif jusqu'à l'essai. */ libreService?: boolean; alias?: string | null; sessionJours?: number | null };
 
-export async function poserIdp(db: Db, d: Pose): Promise<{ id: string } | { refus: RefusIdp }> {
+export async function poserIdp(db: DbRegle, d: Pose): Promise<{ id: string } | { refus: RefusIdp }> {
   const t = await db.tenant.findFirst({ where: { id: d.tenantId, deletedAt: null }, select: { metadata: true } });
   if (!t) return { refus: 'tenant_introuvable' };
   const test = estDeTest(t.metadata);
@@ -97,6 +98,7 @@ export async function poserIdp(db: Db, d: Pose): Promise<{ id: string } | { refu
   if (await db.tenantIdp.findFirst({ where: { domaines: { hasSome: domaines }, actif: true, NOT: { tenantId: d.tenantId } }, select: { id: true } })) return { refus: 'domaine_pris' };
   const avant = await db.tenantIdp.findUnique({ where: { tenantId: d.tenantId }, select: { id: true, issuer: true, libreService: true, protocole: true } });
   if (d.libreService && avant && !avant.libreService) return { refus: 'pose_par_veridian' };
+  if (d.libreService && (await db.tenantConnexion.findFirst({ where: { tenantId: d.tenantId, obligatoire: true }, select: { tenantId: true } }))) return { refus: 'obligatoire_actif' };
   if (d.alias && ((await db.tenantIdp.findFirst({ where: { alias: d.alias, NOT: { tenantId: d.tenantId } }, select: { id: true } })) || (await db.tenant.findFirst({ where: { slug: d.alias, NOT: { id: d.tenantId } }, select: { id: true } })))) return { refus: 'alias_pris' };
   const ligne = {
     // Un émetteur SAML est un nom, comparé à l'identique ; une adresse OIDC s'écrit sans barre finale.
@@ -138,10 +140,12 @@ export async function idpEssai(db: Db, tenantId: string): Promise<IdpPret | null
 }
 
 /** Activer après essai, couper, retirer : le propriétaire, sur ce qu'il a posé lui-même. Couper ferme la porte aussitôt, retirer oublie aussi les liens. */
-export async function reglerIdpLibre(db: Db & Pick<PrismaClient, 'account'>, tenantId: string, geste: 'activer' | 'couper' | 'retirer'): Promise<{ ok: true } | { refus: RefusIdp }> {
+export async function reglerIdpLibre(db: DbRegle & Pick<PrismaClient, 'account'>, tenantId: string, geste: 'activer' | 'couper' | 'retirer'): Promise<{ ok: true } | { refus: RefusIdp }> {
   const i = await db.tenantIdp.findUnique({ where: { tenantId }, select: { id: true, libreService: true, essaiLe: true } });
   if (!i) return { refus: 'absent' };
   if (!i.libreService) return { refus: 'pose_par_veridian' };
+  // Tant que l'organisation l'exige, on ne coupe pas la porte par laquelle chacun passe : d'abord « libre ».
+  if (geste !== 'activer' && (await db.tenantConnexion.findFirst({ where: { tenantId, obligatoire: true }, select: { tenantId: true } }))) return { refus: 'obligatoire_actif' };
   if (geste === 'activer' && !i.essaiLe) return { refus: 'essai_manquant' };
   if (geste === 'retirer') {
     await db.account.deleteMany({ where: { provider: `org:${i.id}` } });

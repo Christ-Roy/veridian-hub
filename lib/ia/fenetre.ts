@@ -3,6 +3,8 @@
  * affichage (docs/MON-IA.md). Aucune valeur par défaut ; refus visibles : le tenant demandé n'est pas un espace de
  * l'utilisateur connecté, ou l'app n'a pas de fenêtre au Hub (le CRM a son chat natif depuis le 23/11).
  */
+import type { Preuve } from '@/lib/federation/obligation';
+
 import { estAppFenetre } from './branchements';
 import { espaceDe, type Espace } from './contexte';
 
@@ -15,10 +17,10 @@ export const MESSAGES_REFUS: Record<Refus, string> = {
 };
 
 export async function autoriserFenetre(
-  p: { app: string; tenant?: string | null; hubUserId: string },
+  p: { app: string; tenant?: string | null; hubUserId: string; preuve: Preuve },
   deps: { espaceDe?: typeof espaceDe } = {},
 ): Promise<Fenetre> {
   if (!estAppFenetre(p.app)) return { ok: false, refus: 'chat_natif' };
-  const espace = p.tenant ? await (deps.espaceDe ?? espaceDe)(p.hubUserId, p.tenant, { app: p.app, workspaceId: null }) : null;
+  const espace = p.tenant ? await (deps.espaceDe ?? espaceDe)(p.hubUserId, p.tenant, p.preuve, { app: p.app, workspaceId: null }) : null;
   return espace ? { ok: true, espace } : { ok: false, refus: 'espace_etranger' };
 }

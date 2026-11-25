@@ -13,6 +13,7 @@ import { appsDe, espacesDe } from '@/lib/mcp/catalogue';
 import { connexionsActives } from '@/lib/mcp/connexions';
 import { getEnabledGatedApps } from '@/lib/tenant-apps';
 import { liensInstallation } from '@/lib/mcp/liens-installation';
+import { preuveDeSession } from '@/lib/federation/obligation';
 import { prisma } from '@/lib/prisma';
 
 import { ConnecterAssistant } from './ConnecterAssistant';
@@ -29,13 +30,14 @@ export default async function AssistantsIaPage() {
   if (!user) redirect('/login');
   const connexions = user.supabaseUserId ? await connexionsActives(prisma, user.supabaseUserId) : [];
   const hubUserId = user.supabaseUserId;
+  const preuve = preuveDeSession(session);
   const [branchements, espaces, activations, ouvertes, appsPorte] = hubUserId
     ? await Promise.all([
         branchementsDe(prisma, hubUserId),
-        espacesDe(prisma, hubUserId),
+        espacesDe(prisma, hubUserId, preuve),
         prisma.iaActivation.findMany({ where: { hubUserId }, select: { app: true, tenantId: true, enabled: true } }),
         getEnabledGatedApps(prisma, hubUserId),
-        appsDe(prisma, hubUserId),
+        appsDe(prisma, hubUserId, preuve),
       ])
     : [[], [], [], new Set<string>(), []];
   // L'assistant n'est proposé que dans une app ouverte pour ce compte, et seulement pour les espaces

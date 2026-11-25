@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { RateLimiter } from '@/lib/auth/rate-limit';
 
-const m = vi.hoisted(() => ({ auth: vi.fn(), user: vi.fn(), emprunt: vi.fn(), role: vi.fn(), poser: vi.fn(), regler: vi.fn(), essai: vi.fn(), partir: vi.fn(), audit: vi.fn() }));
+const m = vi.hoisted(() => ({ fermee: vi.fn(() => false), auth: vi.fn(), user: vi.fn(), emprunt: vi.fn(), role: vi.fn(), poser: vi.fn(), regler: vi.fn(), essai: vi.fn(), partir: vi.fn(), audit: vi.fn() }));
 vi.mock('@/auth', () => ({ auth: () => m.auth() }));
 vi.mock('@/lib/admin/audit-log', () => ({ writeAuditLog: (...a: unknown[]) => m.audit(...a) }));
 vi.mock('@/lib/auth/get-user', () => ({ getCurrentUser: () => m.user(), userUuid: (u: { supabaseUserId: string }) => u.supabaseUserId }));
@@ -14,6 +14,7 @@ vi.mock('@/lib/delegation/interrupteur', () => ({ roleAuHub: () => m.role() }));
 vi.mock('@/lib/federation/depart', () => ({ partir: (...a: unknown[]) => m.partir(...a) }));
 vi.mock('@/lib/federation/idp', async (o) => ({ ...(await o<object>()), poserIdp: (...a: unknown[]) => m.poser(...a), reglerIdpLibre: (...a: unknown[]) => m.regler(...a), idpEssai: () => m.essai() }));
 vi.mock('@/lib/mail/oauth-cookies', () => ({ getHubBaseUrl: () => new URL('https://app.veridian.site') }));
+vi.mock('@/lib/federation/session', () => ({ fermeeIci: async () => m.fermee?.() ?? false, preuveIci: async () => ({ par: 'session' }), reponseFermee: () => new Response(null, { status: 403 }) }));
 vi.mock('@/lib/prisma', () => ({ prisma: {} }));
 
 import { POST } from '@/app/api/organisations/fournisseur/route';

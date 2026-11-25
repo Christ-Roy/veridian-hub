@@ -17,7 +17,7 @@ it('OIDC : cookie Lax borné au retour ; qui relie ou essaie est transmis', asyn
   const [url, c] = await cookie({ id: 'i' }, { relier: { userId: 'U' } });
   expect(url).toBe('https://idp/a');
   expect(c).toMatch(/veridian-federation=o; Path=\/api\/auth\/federation\/callback;.*Secure; HttpOnly; SameSite=lax/i);
-  expect(m.oidc.mock.calls[0].slice(1)).toEqual(['https://app.veridian.site/api/auth/federation/callback', undefined, undefined, { userId: 'U' }, undefined]);
+  expect(m.oidc.mock.calls[0].slice(1)).toEqual(['https://app.veridian.site/api/auth/federation/callback', undefined, undefined, { userId: 'U' }, undefined, undefined]);
 });
 it('SAML : cookie SameSite=None, Secure, borné à la réponse postée', async () => {
   const [url, c] = await cookie({ id: 'i', protocole: 'saml' }, { essai: { userId: 'V' } });

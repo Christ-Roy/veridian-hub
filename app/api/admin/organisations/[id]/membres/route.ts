@@ -19,6 +19,8 @@ const Corps = z.object({
   membres: z.array(z.object({ email: z.string().max(254), role: z.string().max(20).optional() })).min(1).max(LIMITE_IMPORT),
   /** Essai : dit ce que chaque ligne deviendrait, n'écrit rien, n'émet rien. */
   a_blanc: z.boolean().optional(),
+  /** Les pré-inscrits gardent leur accès habituel jusqu'au rattachement (VER-261). */
+  exempter: z.boolean().optional(),
 }).strict();
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -30,7 +32,7 @@ export async function POST(request: NextRequest, { params }: Ctx) {
   const id = IdTenant.safeParse((await params).id);
   const c = Corps.safeParse(await request.json().catch(() => null));
   if (!id.success || !c.success) return rendre({ error: 'invalid' }, 400);
-  const r = await importerMembres(prisma, { tenantId: id.data, membres: c.data.membres, acteur: resolveActor(request.headers, null), aBlanc: c.data.a_blanc === true });
+  const r = await importerMembres(prisma, { tenantId: id.data, membres: c.data.membres, acteur: resolveActor(request.headers, null), aBlanc: c.data.a_blanc === true, exempter: c.data.exempter === true });
   if ('refus' in r) return rendre({ error: r.refus }, 404);
   const compte: Record<string, number> = {};
   for (const l of r.lignes) compte[l.etat] = (compte[l.etat] ?? 0) + 1;

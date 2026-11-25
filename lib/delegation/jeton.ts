@@ -10,6 +10,7 @@ import { writeAuditLog } from '@/lib/admin/audit-log';
 import { readAppSecrets } from '@/lib/sync/discovery';
 import type { SyncApp } from '@/lib/sync/types';
 import { signerAction } from '@/lib/mcp/identite';
+import { estFermee, type DbObligation } from '@/lib/federation/obligation';
 import { appsParOrganisation } from '@/lib/tenant-apps/organisation';
 
 import { liaisonActive, noterPassage } from './etat';
@@ -24,7 +25,7 @@ const PAR_MINUTE = 60;
 const APPS: readonly AppPaire[] = ['prospection', 'notifuse', 'crm'];
 
 export type Refus = { statut: number; error: string; retryAfterS?: number };
-export type Db = Pick<PrismaClient, 'delegationGrant' | 'delegationNonce' | 'tenant' | 'tenantMember' | 'user' | 'integrationPaire' | 'mcpApp' | 'tenantApp' | 'organisation' | 'auditLog'>;
+export type Db = Pick<PrismaClient, 'delegationGrant' | 'delegationNonce' | 'tenant' | 'tenantMember' | 'user' | 'integrationPaire' | 'mcpApp' | 'tenantApp' | 'organisation' | 'auditLog'> & DbObligation;
 
 /** Signature de l'app : HMAC-SHA256 du secret de l'app sur `ts.nonce.corps`, fenêtre de 5 min, nonce à usage unique. */
 export async function verifierAppel<A extends SyncApp = AppPaire>(db: Pick<PrismaClient, 'delegationNonce'>, h: Headers, corps: string, now = Date.now(), apps: readonly A[] = APPS as unknown as readonly A[]): Promise<{ app: A } | Refus> {
@@ -85,6 +86,8 @@ export async function echanger(db: Db, app: AppPaire, d: Demande, env: NodeJS.Pr
     if (!m || m.deletedAt) return refuser('not_member');
   }
   if (t.status === 'suspended' || t.status === 'deleted') return refuser('tenant_suspended');
+  // Aucune session ici : son dernier passage par le fournisseur de l'organisation fait foi.
+  if (await estFermee(db, g.hubUserId, { par: 'personne' }, g.tenantId)) return refuser('organisation_fournisseur');
   if (!(await liaisonActive(db, p, g.tenantId))) return refuser('integration_off');
   if (deborde(`${app}:${g.tenantId}`, Date.now())) return { statut: 429, error: 'rate_limited', retryAfterS: 60 };
 

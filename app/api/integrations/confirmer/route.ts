@@ -5,8 +5,9 @@ import { auth } from '@/auth';
 import { isImpersonatedSession } from '@/lib/auth/impersonation';
 import { isAuthRecent, PREUVE_COMPTE_S } from '@/lib/auth/recent-auth';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
-import { confirmerDemande, reglerIntegration } from '@/lib/delegation/interrupteur';
+import { confirmerDemande, lireDemande, reglerIntegration } from '@/lib/delegation/interrupteur';
 import { suivreAbonnement } from '@/lib/evenements/allumage';
+import { fermeeIci } from '@/lib/federation/session';
 import { getHubBaseUrl } from '@/lib/mail/oauth-cookies';
 import { prisma } from '@/lib/prisma';
 
@@ -26,6 +27,8 @@ export async function POST(request: NextRequest) {
   if (!user || !session) return vers(`/login?callbackUrl=${encodeURIComponent(`/liaisons/confirmer/${jeton}`)}`);
   if (isImpersonatedSession(session)) return NextResponse.json({ error: 'forbidden' }, { status: 403 });
   if (!isAuthRecent(session.user.authAt, PREUVE_COMPTE_S)) return vers('/liaisons/confirmer/ancienne');
+  const demande = await lireDemande(prisma, jeton, userUuid(user));
+  if (demande && (await fermeeIci(userUuid(user), demande.tenantId))) return vers('/auth/organisation');
   const r = await confirmerDemande(prisma, jeton, userUuid(user));
   // Un événement a besoin de son abonnement chez la source : sans lui, la liaison s'éteint aussitôt plutôt que de rester allumée pour rien.
   if (r.ok && (await suivreAbonnement(prisma, { tenantId: r.tenantId, paire: r.paire, actif: true })) === 'echec') {

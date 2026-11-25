@@ -2,6 +2,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
 import { auth } from '@/auth';
+import { fermeeIci } from '@/lib/federation/session';
 import { isImpersonatedSession } from '@/lib/auth/impersonation';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { roleAuHub } from '@/lib/delegation/interrupteur';
@@ -28,6 +29,7 @@ export async function POST(request: NextRequest) {
   if (!f || !id.success) return vers('refus');
   const role = await roleAuHub(prisma, id.data, userUuid(user));
   if (role !== 'owner' && role !== 'admin') return vers('role_insuffisant');
+  if (await fermeeIci(userUuid(user), id.data)) return vers('organisation_fournisseur');
   const champ = (n: string) => { const v = String(f.get(n) ?? '').trim(); return v === '' ? null : v; };
   // Les modules et réglages d'app restent à l'opérateur : cet écran ne les reçoit pas.
   const c = Reglage.safeParse({ type: champ('type') ?? undefined, nom_affiche: champ('nom_affiche'), couleur_primaire: champ('couleur_primaire'), couleur_accent: champ('couleur_accent') });

@@ -53,7 +53,7 @@ function client(i: IdpPret, base: URL, demande: string): SAML {
   });
 }
 
-export async function demarrerSaml(i: IdpPret, base: URL, o: { relier?: { userId: string }; essai?: { userId: string } } = {}, now = Date.now()): Promise<{ url: string; cookie: string }> {
+export async function demarrerSaml(i: IdpPret, base: URL, o: { relier?: { userId: string }; essai?: { userId: string }; prouver?: { userId: string } } = {}, now = Date.now()): Promise<{ url: string; cookie: string }> {
   const demande = `_${randomBytes(20).toString('hex')}`;
   const url = await client(i, base, demande).getAuthorizeUrlAsync('', undefined, {});
   return { url, cookie: sceller({ idp: i.id, state: demande, nonce: '', verifier: '', exp: Math.floor(now / 1000) + TRANSACTION_S, ...o }) };

@@ -9,6 +9,7 @@ import { auth } from '@/auth';
 import { isImpersonatedSession } from '@/lib/auth/impersonation';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { reglerEtSuivre } from '@/lib/delegation/regler';
+import { fermeeIci } from '@/lib/federation/session';
 import { getHubBaseUrl } from '@/lib/mail/oauth-cookies';
 import { prisma } from '@/lib/prisma';
 
@@ -28,6 +29,7 @@ export async function POST(request: NextRequest) {
   const form = await request.formData().catch(() => null);
   const c = Corps.safeParse(form ? Object.fromEntries(form) : null);
   if (!c.success) return vers('/dashboard/liaisons?avis=refus');
+  if (await fermeeIci(userUuid(user), c.data.tenant)) return vers('/auth/organisation');
   const r = await reglerEtSuivre(prisma, { tenantId: c.data.tenant, paire: c.data.paire, etat: c.data.etat, hubUserId: userUuid(user), client: 'Veridian, page Liaisons', origine: base.origin });
   if ('lien' in r) return vers(new URL(r.lien).pathname);
   return vers(`/dashboard/liaisons?avis=${'refus' in r ? r.refus : r.etat}`);

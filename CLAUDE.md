@@ -62,6 +62,7 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   clic du propriétaire ; jamais de jeton à `act` sans « garde servie ». Organisation unique (§5.19.6, `hub org`). Cas 21 à 26.
 - **Adresses** (§5.19.6 à 8) : changement fermé chez Academy et par compte non relié ; l'ancienne est prévenue et annule 72 h (`lib/adresses/annulation.ts`). 30 à 33, 42.
 - **Fournisseur d'une organisation** (§5.19.6) : OIDC ou SAML, posé par nous (`hub org idp`) ou par le propriétaire à l'écran (sans domaine, essai d'abord). Session bornée à l'organisation. 39, 41.
+- **Connexion obligatoire** (§5.19.6, VER-261) : `hub org connexion`. Toute lecture d'espaces prend une `Preuve` (`lib/federation/obligation.ts`). 45.
 - **Connexions extérieures** (`docs/CONNECTEURS.md`) : FERMÉES (Robert ouvre), aucun appel réel en épreuve. 43.
 - **Garde rapide** : `__tests__/contrat/` (révocation sans `iat`, `authAt`, cibles du rebond, origines) ; tout nouvel
   `encode(` de JWT de session s'y ajoute. Détail : `docs/PARCOURS-IDENTITE.md`.

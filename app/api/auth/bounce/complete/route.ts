@@ -38,6 +38,7 @@ import {
   NEXT_COOKIE_NAME_INSECURE,
 } from '@/lib/auth/bounce-next';
 import { issueMagicLinkForApp, BounceError } from '@/lib/auth/bounce-apps';
+import { fermees, preuveDeSession, tientApp, type Preuve } from '@/lib/federation/obligation';
 import { COOKIE_ACTIF, organisationActive } from '@/lib/tenants/actif';
 import { journaliserRefus, journaliserReussite } from '@/lib/auth/bounce-refus';
 import { ensureAcademyWorkspace } from '@/lib/academy/provision';
@@ -142,6 +143,22 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     ? await consommerPreinscriptions(prisma, user.supabaseUserId).catch((err): string[] => { console.error('[preinscription]', err instanceof Error ? err.message.slice(0, 160) : 'erreur'); return []; })
     : [];
 
+  // Une session d'app suit la personne avec TOUS ses espaces : une app qui garde quelque chose d'une organisation que cette session n'ouvre pas reste fermée,
+  // et on dit par où passer. Le cookie du rebond reste : elle y revient après son fournisseur.
+  // Une entrée de l'opérateur agit pour la personne : ce qu'elle a prouvé elle-même ces 30 derniers jours, rien de plus (lib/emprunt).
+  const preuve: Preuve = enEmprunt ? { par: 'personne' } : preuveDeSession(session);
+  const closes = user.supabaseUserId ? await fermees(prisma, user.supabaseUserId, preuve) : [];
+  for (const f of closes) {
+    if (!(await tientApp(prisma, f, parsed.app))) continue;
+    journaliserRefus({ app: parsed.app, code: 'organisation_fournisseur', hubUserId: user.supabaseUserId ?? null });
+    const url = new URL('/auth/organisation', baseUrl);
+    url.searchParams.set('org', f.tenantId);
+    const r = NextResponse.redirect(url);
+    r.headers.set('Cache-Control', 'no-store');
+    return r;
+  }
+  const ouverte = (id: string) => !closes.some((f) => f.tenantId === id);
+
   // Consomme le cookie AVANT l'appel downstream pour garantir l'idempotence
   // côté navigation (refresh = pas de double-bounce).
   try {
@@ -152,10 +169,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       emailProven: await isEmailProvenInDb(prisma, userUuid(user)),
       next: parsed.url,
       // Seulement aux apps qui le traduisent ; une lecture ratée n'empêche jamais d'entrer (l'app ne change alors rien).
-      delegations: enEmprunt ? [] : await emettrePoignees(prisma, { hubUserId: userUuid(user), app: parsed.app }).catch(() => []),
+      delegations: enEmprunt ? [] : await emettrePoignees(prisma, { hubUserId: userUuid(user), app: parsed.app, sauf: closes.map((f) => f.tenantId) }).catch(() => []),
       // Il vient de la rejoindre : il y arrive, même s'il a déjà son propre espace.
-      hubTenantId: jointes[0] ?? await organisationActive(prisma, userUuid(user), req.cookies.get(COOKIE_ACTIF)?.value).catch(() => null),
-      organisations: !enEmprunt && APPS_A_ROLE.includes(parsed.app as SyncApp) ? await organisationsPourRebond(prisma, userUuid(user)).catch(() => []) : [],
+      hubTenantId: jointes.find(ouverte) ?? await organisationActive(prisma, userUuid(user), preuve, req.cookies.get(COOKIE_ACTIF)?.value).catch(() => null),
+      organisations: !enEmprunt && APPS_A_ROLE.includes(parsed.app as SyncApp) ? (await organisationsPourRebond(prisma, userUuid(user)).catch(() => [])).filter((o) => ouverte(o.hub_tenant_id)) : [],
       emprunt,
     };
     // Academy est réservée : sans activation au Hub, aucun lien, même si l'app connaît encore le compte

@@ -9,9 +9,10 @@ import path from 'node:path';
 import { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const m = vi.hoisted(() => ({ contexte: vi.fn(), atelier: vi.fn() }));
+const m = vi.hoisted(() => ({ contexte: vi.fn(), atelier: vi.fn(), fermee: vi.fn(() => false) }));
 vi.mock('@/lib/ia/contexte', () => ({ contexteUtilisateur: () => m.contexte() }));
 vi.mock('@/lib/ia/atelier', async (orig) => ({ ...(await orig<typeof import('@/lib/ia/atelier')>()), appelerAtelier: (...a: unknown[]) => m.atelier(...a) }));
+vi.mock('@/lib/federation/session', () => ({ fermeeIci: async () => m.fermee(), reponseFermee: () => new Response(JSON.stringify({ error: 'organisation_fournisseur' }), { status: 403 }) }));
 vi.mock('@/lib/admin/audit-log', () => ({ writeAuditLog: vi.fn() }));
 const t = vi.hoisted(() => ({ tenants: [] as { id: string; userId: string; metadata: unknown }[] }));
 vi.mock('@/lib/prisma', () => ({ prisma: { iaBranchement: { upsert: vi.fn(), deleteMany: vi.fn() }, tenant: { findMany: async ({ where }: { where: { userId: string } }) => t.tenants.filter((x) => x.userId === where.userId) } } }));

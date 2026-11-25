@@ -8,6 +8,8 @@ import { NextResponse } from 'next/server';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { isEmailProvenForSession } from '@/lib/auth/email-proof';
 import { RateLimiter } from '@/lib/auth/rate-limit';
+import type { Preuve } from '@/lib/federation/obligation';
+import { preuveIci } from '@/lib/federation/session';
 import { espacesDe } from '@/lib/mcp/catalogue';
 import { MCP_SCOPE } from '@/lib/mcp/config';
 import type { Appelant } from '@/lib/mcp/oauth';
@@ -35,6 +37,7 @@ export async function contexteUtilisateur(): Promise<ContexteIa | NextResponse> 
       email: user.email,
       name: user.name ?? null,
       userId: user.id,
+      preuve: await preuveIci(),
     },
   };
 }
@@ -52,12 +55,13 @@ const WORKSPACE_ID = /^[0-9a-f-]{36}$/i;
 export async function espaceDe(
   hubUserId: string,
   tenantId: unknown,
+  preuve: Preuve,
   parApp?: { app: string; workspaceId: unknown },
 ): Promise<Espace | null> {
   const parTenant = typeof tenantId === 'string' && tenantId.length > 0;
   const ws = parApp && typeof parApp.workspaceId === 'string' && WORKSPACE_ID.test(parApp.workspaceId) ? parApp.workspaceId : null;
   if (!parTenant && !ws) return null;
-  const espaces = await espacesDe(prisma, hubUserId);
+  const espaces = await espacesDe(prisma, hubUserId, preuve);
   const ids = espaces.map((e) => e.id);
   if (!ids.length) return null;
   const lignes = await prisma.tenant.findMany({ where: { id: { in: ids }, deletedAt: null }, select: { id: true, slug: true, metadata: true } });

@@ -9,6 +9,7 @@ import { OutilsOrganisation } from './components/OutilsOrganisation';
 import { OnboardingChecklist } from './components/OnboardingChecklist';
 import { DashboardPageHeader } from '@/components/dashboard/PageHeader';
 import { LayoutDashboard } from 'lucide-react';
+import { fermeesIci, PAGE_ORGANISATION } from '@/lib/federation/session';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
 import { APPS } from '@/lib/pricing/plans';
@@ -41,6 +42,8 @@ export default async function DashboardPage({
   if (!user) {
     redirect('/login');
   }
+  // Le layout ne rejoue pas à chaque navigation : la garde est aussi ici.
+  if ((await fermeesIci(user)).some((f) => f.proprietaire)) redirect(PAGE_ORGANISATION);
 
   const params = await searchParams;
   const showDebug = process.env.NODE_ENV === 'development' && params.debug === '1';

@@ -14,6 +14,8 @@ import { AppDebit, AppInjoignable, type SessionOutils } from './client-app';
 import { listerIntegrations } from '@/lib/delegation/interrupteur';
 import { reglerEtSuivre } from '@/lib/delegation/regler';
 
+import type { DbObligation } from '@/lib/federation/obligation';
+
 import { hubIssuer, PROTOCOLES, SORTIE_MAX_CAR } from './config';
 import type { Appelant } from './oauth';
 import { familleReservee, reserveAuHub } from './reserves';
@@ -21,7 +23,7 @@ import { signatureOutil } from './signature';
 import { AUTORISER_MAX, CODE_MAX_CAR, DELAI_MS, executerProgramme, exigeAutorisation, ETAT_MAX_CAR, prendrePlace, presenter, REPONSE_MAX_OCTETS, type Contenu } from './programme';
 import { ouvrirMoteur, programmeConfigure } from './programme-moteur';
 
-export type DbPorte = Pick<PrismaClient, 'integrationPaire' | 'integrationDemande' | 'evenementAbonnement' | 'user' | 'mcpApp' | 'tenantApp' | 'tenant' | 'tenantTrial' | 'tenantMember' | 'organisation' | 'auditLog'>;
+export type DbPorte = Pick<PrismaClient, 'integrationPaire' | 'integrationDemande' | 'evenementAbonnement' | 'user' | 'mcpApp' | 'tenantApp' | 'tenant' | 'tenantTrial' | 'tenantMember' | 'organisation' | 'auditLog'> & DbObligation;
 
 type Rpc = { jsonrpc?: string; id?: string | number | null; method?: string; params?: Record<string, unknown> };
 
@@ -140,7 +142,7 @@ const OUTILS_HUB: Outil[] = [
   },
 ];
 
-async function monCompte(db: DbPorte, qui: Appelant, apps: { appKey: string; label: string }[], { vivants: espaces, suspendus }: Espaces) {
+async function monCompte(db: DbPorte, qui: Appelant, apps: { appKey: string; label: string }[], { vivants: espaces, suspendus, fermes }: Espaces) {
   const ids = espaces.map((e) => e.id);
   const [tenants, essais] = ids.length
     ? await Promise.all([
@@ -164,6 +166,7 @@ async function monCompte(db: DbPorte, qui: Appelant, apps: { appKey: string; lab
       };
     }),
     ...(suspendus.length ? { espaces_suspendus: suspendus.map((e) => ({ nom: e.nom, slug: e.slug })) } : {}),
+    ...(fermes.length ? { espaces_fermes: fermes.map((e) => ({ nom: e.nom, slug: e.slug, raison: `cet espace demande une connexion par ${e.fournisseur}`, ouvrir: `${hubIssuer()}/connexion/${e.porte}` })) } : {}),
     apps_connectees: apps.map((a) => ({ cle: a.appKey, nom: a.label })),
   };
 }
@@ -224,20 +227,24 @@ async function journal(db: DbPorte, qui: Appelant, outil: string, ok: boolean, m
  * Rybbit 401, Notifuse 403, avec l'unique espace signé).
  */
 type Espaces = Awaited<ReturnType<typeof tousEspaces>>;
-function espaceChoisi({ vivants, suspendus }: Espaces, demande: unknown): { tenantId?: string; orgRole?: string; refus?: Contenu } {
+const direFerme = (e: Espaces['fermes'][number]): string => `L'organisation ${e.nom} demande une connexion par ${e.fournisseur}. Ouvrir ${hubIssuer()}/connexion/${e.porte}, puis reconnecter cette IA à Veridian si le refus demeure. Rien ne s'y exécute avant.`;
+function espaceChoisi({ vivants, suspendus, fermes }: Espaces, demande: unknown): { tenantId?: string; orgRole?: string; refus?: Contenu } {
   const est = (d: unknown) => (x: Espace) => x.slug === d || x.id === d;
   if (typeof demande === 'string' && demande) {
     const e = vivants.find(est(demande));
     if (e) return { tenantId: e.id, orgRole: roleOrg(e.role) };
+    const ferme = fermes.find(est(demande));
+    if (ferme) return { refus: texte(direFerme(ferme), true) };
     return { refus: texte(suspendus.some(est(demande)) ? `Espace suspendu : ${demande}. Rien ne s'y exécute.` : `Espace inconnu pour ce compte : ${demande}. Voir hub.mon_compte.`, true) };
   }
+  if (fermes.length) return { refus: texte(`${direFerme(fermes[0])}${vivants.length ? ` Les autres espaces restent ouverts : préciser espace=<slug> parmi ${vivants.map((e) => e.slug).join(', ')}.` : ''}`, true) };
   // Sans espace choisi, l'app prend celui par défaut du compte : ce pourrait être le suspendu. On ne le laisse pas deviner.
   if (suspendus.length === 0) return {};
   return { refus: texte(vivants.length ? `Un de vos espaces est suspendu : préciser espace=<slug> parmi ${vivants.map((e) => e.slug).join(', ')}.` : 'Espace suspendu : aucun outil ne s\'exécute. Contacter Veridian.', true) };
 }
 
 /** Sans choix, un appel n'est attribué à un espace que si le compte n'en a qu'un. Plusieurs : attribué à aucun, jamais deviné. */
-const seulEspace = ({ vivants, suspendus }: Espaces): string | undefined => (vivants.length === 1 && suspendus.length === 0 ? vivants[0].id : undefined);
+const seulEspace = ({ vivants, suspendus, fermes }: Espaces): string | undefined => (vivants.length === 1 && suspendus.length === 0 && fermes.length === 0 ? vivants[0].id : undefined);
 
 /** Les liaisons se disent et se règlent dans UN espace : celui qu'on choisit, ou le seul qu'on a. */
 async function integrations(db: DbPorte, qui: Appelant, o: Outil, params: Record<string, unknown>, espaces: Espaces, tenantId?: string): Promise<Contenu> {
@@ -300,7 +307,7 @@ async function programme(db: DbPorte, qui: Appelant, cat: Catalogue, args: Recor
   if (!Array.isArray(noms) || noms.length > AUTORISER_MAX || noms.some((n) => typeof n !== 'string')) return texte(`autoriser : une liste de ${AUTORISER_MAX} noms d'outils au plus.`, true);
   const reprise = args.reprise ?? null;
   if (JSON.stringify(reprise).length > ETAT_MAX_CAR) return texte(`reprise trop longue : ${ETAT_MAX_CAR} caractères au plus.`, true);
-  const espaces = await tousEspaces(db, qui.hubUserId);
+  const espaces = await tousEspaces(db, qui.hubUserId, qui.preuve);
   const choisi = espaceChoisi(espaces, args.espace);
   if (choisi.refus) return choisi.refus;
   const place = prendrePlace(qui.hubUserId);
@@ -384,7 +391,7 @@ const origine = (o: Outil) => (o.externe ? { origine: `${o.externe}, service ext
 
 async function appelerOutil(db: DbPorte, qui: Appelant, nom: string, args: Record<string, unknown>, deps: Deps): Promise<Contenu> {
   const arrivee = Date.now();
-  const dirige = async () => (await tousEspaces(db, qui.hubUserId)).vivants.some((e) => roleOrg(e.role) !== 'member');
+  const dirige = async () => (await tousEspaces(db, qui.hubUserId, qui.preuve)).vivants.some((e) => roleOrg(e.role) !== 'member');
   const outilsHub = [...OUTILS_HUB, HUB_LISTER, ...(args.nom === HUB_REGLER.nom || nom === 'chercher_outils' ? ((await dirige()) ? [HUB_REGLER] : []) : []), ...(programmeOffert(deps) ? [HUB_PROGRAMME] : [])];
   const cat = await catalogue(db, qui, outilsHub, deps);
   if (nom === 'chercher_outils') {
@@ -419,7 +426,7 @@ async function appelerOutil(db: DbPorte, qui: Appelant, nom: string, args: Recor
       if (args.espace && params.espace && args.espace !== params.espace) return texte('Deux espaces différents : en choisir un seul.', true);
       return programme(db, qui, cat, { ...params, espace: params.espace ?? args.espace }, deps, arrivee);
     }
-    const espaces = await tousEspaces(db, qui.hubUserId);
+    const espaces = await tousEspaces(db, qui.hubUserId, qui.preuve);
     // hub.mon_compte reste lisible : c'est là qu'on apprend qu'un espace est suspendu.
     const choisi = o.app === 'hub' && !args.espace ? {} : o.nom === 'hub.mon_compte' ? {} : espaceChoisi(espaces, args.espace);
     if (choisi.refus) return choisi.refus;

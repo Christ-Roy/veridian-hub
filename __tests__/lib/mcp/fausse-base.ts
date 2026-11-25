@@ -1,6 +1,8 @@
 /** Base en mémoire pour les tests de la porte MCP : seulement les opérations que lib/mcp utilise. */
 import { randomUUID } from 'node:crypto';
 
+import { LIBRE } from '../federation/libre';
+
 type Ligne = Record<string, any>;
 
 function correspond(l: Ligne, where: Ligne = {}): boolean {
@@ -60,6 +62,9 @@ function table(cle: string, defauts: () => Ligne = () => ({})) {
 
 export function fausseBase() {
   return {
+    ...LIBRE,
+    tenantIdp: { findUnique: async () => null },
+    account: { findFirst: async () => null },
     oauthClient: table('clientId', () => ({ id: randomUUID(), lastUsedAt: null })),
     oauthCode: table('codeHash', () => ({ usedAt: null })),
     oauthToken: table('tokenHash', () => ({ id: randomUUID(), usedAt: null, revokedAt: null })),

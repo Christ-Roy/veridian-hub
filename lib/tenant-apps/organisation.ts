@@ -11,13 +11,13 @@ import type { GatedAppKey } from './index';
 const OUVERTES_PAR_ORGANISATION: Record<string, GatedAppKey> = { crm: 'twenty' };
 type Db = Pick<PrismaClient, 'tenant' | 'tenantMember' | 'organisation'>;
 
-/** `tenantId` : seulement par CETTE organisation. Une lecture ratée n'ouvre rien. */
-export async function appsParOrganisation(db: Db, hubUserId: string, tenantId?: string): Promise<Set<GatedAppKey>> {
+/** `tenantId` : seulement par CETTE organisation. `sauf` : celles que la preuve de l'appelant n'ouvre pas. Une lecture ratée n'ouvre rien. */
+export async function appsParOrganisation(db: Db, hubUserId: string, tenantId?: string, sauf: string[] = []): Promise<Set<GatedAppKey>> {
   try {
     const membre = await db.tenantMember.findMany({ where: { userId: hubUserId, deletedAt: null, ...(tenantId ? { tenantId } : {}) }, select: { tenantId: true } });
     const vivants = await db.tenant.findMany({ where: { deletedAt: null, status: { notIn: ['suspended', 'deleted'] }, OR: [{ userId: hubUserId }, { id: { in: membre.map((m) => m.tenantId) } }], ...(tenantId ? { id: tenantId } : {}) }, select: { id: true } });
     if (vivants.length === 0) return new Set();
-    const orgs = await db.organisation.findMany({ where: { tenantId: { in: vivants.map((t) => t.id) } }, select: { modules: true } });
+    const orgs = await db.organisation.findMany({ where: { tenantId: { in: vivants.map((t) => t.id).filter((id) => !sauf.includes(id)) } }, select: { modules: true } });
     return new Set(orgs.flatMap((o) => o.modules).flatMap((m) => OUVERTES_PAR_ORGANISATION[m] ?? []));
   } catch {
     return new Set();

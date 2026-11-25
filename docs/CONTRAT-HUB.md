@@ -1884,7 +1884,7 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
 - **Réglage** : `/dashboard/organisation` (propriétaire, admin ; sans modules ni réglages d'app), `hub org regler|etat|importer`.
 - **Pré-inscription** (VER-227 S1, `lib/tenants/preinscription.ts`) : `hub org importer` PRÉ-INSCRIT une adresse sans compte ou non prouvée
   (30 jours). Aucun mail. Au premier passage avec cette adresse exacte, PROUVÉE (tableau de bord, ou rebond vers une app), la personne rejoint
-  l'organisation en `member`, et les apps cochées l'apprennent avant qu'elle y arrive. Un retrait annule ; seul un geste neuf la rouvre.
+  l'organisation avec le rôle posé, et les apps cochées l'apprennent avant qu'elle y arrive. Un retrait annule ; seul un geste neuf la rouvre.
   Jamais depuis une session d'emprunt. `hub org preinscrits|annuler`, liste à l'écran.
 - **Plusieurs adresses** (VER-227 S1b, `lib/adresses`) : une personne ajoute une adresse en prouvant, par un code reçu, qu'elle la tient. Une secondaire
   ne connecte pas, ne reçoit aucun lien : elle fait reconnaître (pré-inscription, fédération). Une adresse active n'appartient qu'à une personne, tenu
@@ -1916,6 +1916,19 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
   (fournisseur, `sub`). Compte neuf : création ouverte ou adresse pré-inscrite. Compte existant prouvé : sa personne le relie, connectée, une fois. Jamais
   prouvé : première preuve, ce qui précédait tombe (M2). Retirée : ne revient pas. Session de 24 h. Une adresse privée en clair ne vaut que pour une
   organisation MARQUÉE de test, et n'y affirme que des comptes de batterie.
+- **Connexion obligatoire** (VER-261, 25/11, `lib/federation/{obligation,connexion,prouver}.ts`, cas 45) : une organisation est « libre » ou « obligatoire par son
+  fournisseur ». Obligatoire = une session qui n'y est pas passée n'ouvre AUCUNE de ses portes (écrans, rebond, porte MCP, liaisons, jetons d'IA, assistant,
+  échange entre apps) ; les autres organisations de la personne restent ouvertes. UNE question, `fermees()`, et la preuve (`session`, `jeton`, `personne`) est un
+  paramètre obligatoire d'`espacesDe` : une porte qui l'oublie ne compile pas. Sa session passe par le fournisseur et reste la sienne (`/auth/organisation`,
+  `/connexion/<alias>`) ; la preuve vit dans le jeton de session, par organisation, sur la durée réglée (30 j au plus), et ne vaut que pour CE fournisseur et un
+  lien (fournisseur, `sub`) vivant. Un jeton d'IA emporte les organisations prouvées à sa remise, et vaut tant que la personne repasse tous les 30 jours.
+  **Accès gardé** : `rattachement` (tombe au premier passage, pour de bon) ou `secours` (le dernier ne s'enlève pas). Obligatoire exige un fournisseur actif et un
+  accès de secours ; on ne coupe pas le fournisseur tant que c'est obligatoire. Au passage en obligatoire, les sessions d'app de ceux qu'elle ferme tombent.
+  **Page de connexion** : le domaine déclaré par nous (`aiguillage`) choisit la méthode, jamais l'identité ; aucun compte n'est lu (`/api/auth/methode`).
+  Écran Organisation (propriétaire règle, admin regarde), `hub org connexion <tenant> voir|obligatoire|libre|domaines|exempter|secours|lever`.
+  **Limite** : une session d'app suit la PERSONNE ; une app qui garde quelque chose de l'organisation fermée est donc refusée en entier au rebond, et une session
+  d'app ouverte régulièrement vit sa propre durée. Un fournisseur ouvert à tous (Infomaniak) ne dit pas qui appartient à l'organisation : le lien (fournisseur,
+  `sub`), posé par sa personne, le dit. La pré-inscription porte un rôle (`member`, `admin`) et `exemptee`.
 - **Organisation active** : `hub_tenant_id` facultatif dans `issue-magic-link`, choisie au Hub, revérifiée au rebond.
 - **Activité** : `POST /api/organisations/activite { hub_tenant_id, hub_user_id, prefixe, depuis }` (signé avec nonce, Academy seule) →
   `{ fait, premier, dernier, nombre }`. `prefixe` nomme l'app (`twenty.create_`), `depuis` ISO, 400 jours au plus. Compte les appels RÉUSSIS par la

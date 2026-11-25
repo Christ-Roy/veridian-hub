@@ -39,7 +39,7 @@ describe('POST /api/oauth/authorize', () => {
     expect(m.code).not.toHaveBeenCalled();
   });
   it('services extérieurs : seulement ouverts ET lus à l\'écran', async () => {
-    const vu = async (ouvert: string, services?: string) => { vi.stubEnv('CONNECTEURS_OUVERTS', ouvert); m.params = { decision: 'autoriser', ...(services ? { services } : {}) }; m.code.mockClear(); await poster(); return m.code.mock.calls[0][3]; };
+    const vu = async (ouvert: string, services?: string) => { vi.stubEnv('CONNECTEURS_OUVERTS', ouvert); m.params = { decision: 'autoriser', ...(services ? { services } : {}) }; m.code.mockClear(); await poster(); return m.code.mock.calls[0][4]; };
     expect([await vu('1', '1'), await vu('1'), await vu('', '1'), await vu('1', 'oui')]).toEqual([true, false, false, false]);
     m.params = { decision: 'autoriser' };
   });

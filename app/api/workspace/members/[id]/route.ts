@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { auth } from '@/auth';
+import { getCurrentUser } from '@/lib/auth/get-user';
+import { refusSiMienneFermee } from '@/lib/federation/session';
 import { prisma } from '@/lib/prisma';
 import { canChangeRole, canRemoveMember } from '@/types/workspace';
 import type { WorkspaceRole } from '@/types/workspace';
@@ -22,6 +24,9 @@ export async function PATCH(
   if (!sessionUser?.id) {
     return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
   }
+  const moi = await getCurrentUser();
+  const ferme = moi ? await refusSiMienneFermee(moi) : null;
+  if (ferme) return ferme;
 
   let body: unknown;
   try {
@@ -71,6 +76,9 @@ export async function DELETE(
   if (!sessionUser?.id) {
     return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
   }
+  const moi = await getCurrentUser();
+  const ferme = moi ? await refusSiMienneFermee(moi) : null;
+  if (ferme) return ferme;
 
   const { id } = await params;
 

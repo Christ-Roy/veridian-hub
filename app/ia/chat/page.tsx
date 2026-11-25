@@ -5,6 +5,7 @@
 import { writeAuditLog } from '@/lib/admin/audit-log';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { estAppChat } from '@/lib/ia/branchements';
+import { preuveIci } from '@/lib/federation/session';
 import { autoriserFenetre, MESSAGES_REFUS } from '@/lib/ia/fenetre';
 import { prisma } from '@/lib/prisma';
 import { ChatIa } from './ChatIa';
@@ -25,7 +26,7 @@ export default async function ChatPage({ searchParams }: { searchParams: Promise
       </p>
     );
   }
-  const f = await autoriserFenetre({ app: p.app, tenant: p.tenant, hubUserId: user.supabaseUserId });
+  const f = await autoriserFenetre({ app: p.app, tenant: p.tenant, hubUserId: user.supabaseUserId, preuve: await preuveIci() });
   if (!f.ok) {
     await writeAuditLog(prisma, { action: 'ia.refus', actor: user.email ?? 'inconnu', targetType: 'ia_chat', targetId: user.supabaseUserId, payload: { app: p.app, raison: f.refus } }).catch(() => {});
     return (

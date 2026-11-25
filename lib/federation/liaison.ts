@@ -11,20 +11,13 @@ import { isTestAccount } from '@/lib/sync/test-residue';
 
 import { fournisseur } from './identite';
 import { idpPret, type IdpPret } from './idp';
+import { nomFournisseur } from './nom';
 import type { Identite } from './oidc';
 
 export type RefusLiaison = 'email_not_verified' | 'non_attendu' | 'autre_identite';
 type Db = Pick<PrismaClient, 'account' | 'tenant' | 'tenantIdp' | 'tenantMember' | 'auditLog'>;
 
-const CONNUS: Record<string, string> = { 'login.infomaniak.com': 'Infomaniak', 'accounts.google.com': 'Google', 'login.microsoftonline.com': 'Microsoft' };
-export function nomFournisseur(issuer: string): string {
-  try {
-    const h = new URL(issuer).hostname;
-    return CONNUS[h] ?? h;
-  } catch {
-    return 'votre organisation';
-  }
-}
+export { nomFournisseur };
 
 /** Le fournisseur de CETTE organisation, pour cette personne. Null, une seule réponse : pas membre, pas de fournisseur, ou fermé. */
 export async function fournisseurDe(db: Db, u: Titulaire, tenantId: string): Promise<IdpPret | null> {

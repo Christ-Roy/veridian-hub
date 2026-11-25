@@ -5,6 +5,8 @@ import { expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({ pret: vi.fn(async () => null) }));
 vi.mock('@/auth', () => ({ auth: async () => null, signIn: async () => '' }));
 vi.mock('@/lib/prisma', () => ({ prisma: {} }));
+vi.mock('@/lib/federation/obligation', () => ({ noterPassage: async () => undefined }));
+vi.mock('@/lib/federation/prouver', () => ({ prouver: async () => ({ ok: true }), marquer: async () => undefined }));
 vi.mock('@/lib/federation/borne', () => ({ seulementIci: async () => false }));
 vi.mock('@/lib/federation/idp', async (o) => ({ ...(await o<object>()), idpPret: m.pret }));
 

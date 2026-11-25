@@ -2,12 +2,14 @@
 import { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const m = vi.hoisted(() => ({ auth: vi.fn(), signIn: vi.fn(), user: vi.fn(), emprunt: vi.fn(), pret: vi.fn(), terminer: vi.fn(), resoudre: vi.fn(), ticket: vi.fn(), ligne: vi.fn(), ajouter: vi.fn(), ici: vi.fn(), relier: vi.fn(), role: vi.fn(), idpMaj: vi.fn(), audit: vi.fn(), alias: vi.fn() }));
+const m = vi.hoisted(() => ({ auth: vi.fn(), signIn: vi.fn(), user: vi.fn(), emprunt: vi.fn(), pret: vi.fn(), terminer: vi.fn(), resoudre: vi.fn(), ticket: vi.fn(), ligne: vi.fn(), ajouter: vi.fn(), ici: vi.fn(), relier: vi.fn(), role: vi.fn(), idpMaj: vi.fn(), audit: vi.fn(), alias: vi.fn(), passage: vi.fn(), prouver: vi.fn(), marquer: vi.fn() }));
 vi.mock('@/auth', () => ({ auth: () => m.auth(), signIn: (...a: unknown[]) => m.signIn(...a) }));
 vi.mock('@/lib/prisma', () => ({ prisma: { user: { findUnique: (...a: unknown[]) => m.ligne(...a) }, tenantIdp: { update: (...a: unknown[]) => m.idpMaj(...a), findUnique: async () => m.alias() }, tenant: { findFirst: async () => ({ slug: 'client-long' }) } } }));
 vi.mock('@/lib/delegation/interrupteur', () => ({ roleAuHub: (...a: unknown[]) => m.role(...a) }));
 vi.mock('@/lib/admin/audit-log', () => ({ writeAuditLog: (...a: unknown[]) => m.audit(...a) }));
 vi.mock('@/lib/adresses/federation', () => ({ ajouterParFournisseur: (...a: unknown[]) => m.ajouter(...a) }));
+vi.mock('@/lib/federation/obligation', () => ({ noterPassage: (...a: unknown[]) => m.passage(...a) }));
+vi.mock('@/lib/federation/prouver', () => ({ prouver: (...a: unknown[]) => m.prouver(...a), marquer: (...a: unknown[]) => m.marquer(...a) }));
 vi.mock('@/lib/federation/borne', () => ({ seulementIci: (...a: unknown[]) => m.ici(...a) }));
 vi.mock('@/lib/federation/liaison', () => ({ relierParPersonne: (...a: unknown[]) => m.relier(...a) }));
 vi.mock('@/lib/auth/get-user', () => ({ getCurrentUser: () => m.user() }));
@@ -15,7 +17,7 @@ vi.mock('@/lib/auth/impersonation', () => ({ isImpersonatedSession: () => m.empr
 vi.mock('@/lib/auth/recent-auth', () => ({ PREUVE_COMPTE_S: 86_400, isAuthRecent: (a: number | undefined) => a === 1 }));
 vi.mock('@/lib/federation/idp', () => ({ idpPret: (...a: unknown[]) => m.pret(...a) }));
 vi.mock('@/lib/federation/identite', () => ({ resoudreIdentite: (...a: unknown[]) => m.resoudre(...a) }));
-vi.mock('@/lib/federation/oidc', () => ({ CHEMIN_RETOUR: '/api/auth/federation/callback', COOKIE_FEDERATION: 'veridian-federation', ouvrir: (c?: string) => (c === 'bon' ? { idp: 'i1', state: 's' } : c === 'ajout' ? { idp: 'i1', state: 's', ajout: { userId: 'U', email: 'pro@client.test' } } : c === 'essai' ? { idp: 'i1', state: 's', essai: { userId: 'U' } } : c === 'relier' ? { idp: 'i1', state: 's', relier: { userId: 'U' } } : null), terminer: (...a: unknown[]) => m.terminer(...a) }));
+vi.mock('@/lib/federation/oidc', () => ({ CHEMIN_RETOUR: '/api/auth/federation/callback', COOKIE_FEDERATION: 'veridian-federation', ouvrir: (c?: string) => (c === 'bon' ? { idp: 'i1', state: 's' } : c === 'prouver' ? { idp: 'i1', state: 's', prouver: { userId: 'U' } } : c === 'ajout' ? { idp: 'i1', state: 's', ajout: { userId: 'U', email: 'pro@client.test' } } : c === 'essai' ? { idp: 'i1', state: 's', essai: { userId: 'U' } } : c === 'relier' ? { idp: 'i1', state: 's', relier: { userId: 'U' } } : null), terminer: (...a: unknown[]) => m.terminer(...a) }));
 vi.mock('@/lib/federation/ticket', () => ({ FOURNISSEUR_FEDERATION: 'federation', emettreTicket: (...a: unknown[]) => m.ticket(...a) }));
 vi.mock('@/lib/mail/oauth-cookies', () => ({ getHubBaseUrl: () => new URL('https://app.veridian.site') }));
 
@@ -47,6 +49,24 @@ describe('GET callback', () => {
     const c = r.headers.getSetCookie().join('\n');
     expect(c).toMatch(/veridian_org=T;/);
     expect(c).toMatch(/veridian-federation=;.*Max-Age=0/i);
+  });
+  it('sa session passe par le fournisseur : elle reste la sienne, aucune autre ne naît ; une autre personne, un emprunt ou un refus : rien', async () => {
+    m.auth.mockResolvedValue({ user: { authAt: 1 } });
+    m.prouver.mockResolvedValue({ ok: true });
+    expect([lieu(await revenir({ cookie: 'prouver' })), m.signIn.mock.calls.length, m.prouver.mock.calls[0].slice(1).map((x: unknown) => (typeof x === 'boolean' ? x : typeof x))]).toEqual(['/dashboard', 0, ['object', 'object', 'object', true]]);
+    expect(lieu(await revenir({ cookie: 'prouver', bounce: true }))).toBe('/api/auth/bounce/complete');
+    m.prouver.mockResolvedValue({ refus: 'autre_identite' });
+    expect(lieu(await revenir({ cookie: 'prouver' }))).toBe('/auth/federation?code=autre_identite');
+    m.prouver.mockClear();
+    m.user.mockResolvedValue({ id: 'V', email: 'autre@client.test' });
+    expect(lieu(await revenir({ cookie: 'prouver' }))).toBe('/auth/federation?code=demande_expiree');
+    m.user.mockResolvedValue({ id: 'U', email: 'jean@client.test' });
+    m.emprunt.mockReturnValue(true);
+    expect(lieu(await revenir({ cookie: 'prouver' }))).toBe('/auth/federation?code=demande_expiree');
+    m.emprunt.mockReturnValue(false);
+    m.auth.mockResolvedValue({ user: { federe: true } });
+    expect(lieu(await revenir({ cookie: 'prouver' }))).toBe('/auth/federation?code=demande_expiree');
+    expect(m.prouver).not.toHaveBeenCalled();
   });
   it('ce navigateur retient la porte : l\'alias, sinon le nom ; une liaison ou un refus ne retiennent rien', async () => {
     m.alias.mockResolvedValue({ alias: 'asd' });

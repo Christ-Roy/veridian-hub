@@ -95,7 +95,7 @@ export async function rejoindre(db: DbMembres, d: { tenantId: string; hubUserId:
   if (!u.emailVerified) throw new RefusMembre('adresse_non_prouvee');
   if (t.userId === d.hubUserId) return { cree: false, role: 'owner' };
   const role = d.role ?? 'member';
-  if (!ROLES.includes(role) || (role !== 'member' && d.origine !== 'operateur')) throw new RefusMembre('role_refuse');
+  if (!ROLES.includes(role) || (role !== 'member' && d.origine !== 'operateur' && !(role === 'admin' && d.origine === 'preinscription'))) throw new RefusMembre('role_refuse');
   const cle = { tenantId_userId: { tenantId: d.tenantId, userId: d.hubUserId } };
   const avant = await db.tenantMember.findUnique({ where: cle });
   if (avant && !avant.deletedAt && (d.origine !== 'operateur' || avant.role === role)) return { cree: false, role: avant.role };
@@ -379,12 +379,16 @@ export async function basculerSuspension(db: DbMembres, d: { tenantId: string; s
  * À la suppression d'un compte : ses appartenances, et ses invitations. Celles qu'il a envoyées bloquaient la suppression (clé
  * étrangère, 24/11), celles qu'il a reçues gardaient son adresse.
  */
-export async function oublierCompte(db: Pick<PrismaClient, 'tenantMember' | 'crossAppInvitation' | 'tenantPreinscription' | 'tenantIdp'> & Partial<Pick<PrismaClient, 'organisationAcces'>>, u: { id: string; email: string; hubUserId: string | null; tenants?: string[] }): Promise<{ membres: number; invitations: number }> {
+export async function oublierCompte(db: Pick<PrismaClient, 'tenantMember' | 'crossAppInvitation' | 'tenantPreinscription' | 'tenantIdp'> & Partial<Pick<PrismaClient, 'organisationAcces' | 'tenantConnexion' | 'connexionExemption' | 'connexionPreuve'>>, u: { id: string; email: string; hubUserId: string | null; tenants?: string[] }): Promise<{ membres: number; invitations: number }> {
   const m = u.hubUserId ? await db.tenantMember.deleteMany({ where: { userId: u.hubUserId } }) : { count: 0 };
   // Son adresse pré-inscrite ailleurs, et les adresses que ses organisations avaient pré-inscrites.
   await db.organisationAcces?.deleteMany({ where: { OR: [...(u.hubUserId ? [{ hubUserId: u.hubUserId }] : []), { tenantId: { in: u.tenants ?? [] } }] } });
   await db.tenantPreinscription.deleteMany({ where: { OR: [{ email: u.email.trim().toLowerCase() }, { tenantId: { in: u.tenants ?? [] } }] } });
   await db.tenantIdp.deleteMany({ where: { tenantId: { in: u.tenants ?? [] } } });
+  const sien = { OR: [...(u.hubUserId ? [{ hubUserId: u.hubUserId }] : []), { tenantId: { in: u.tenants ?? [] } }] };
+  await db.connexionExemption?.deleteMany({ where: sien });
+  await db.connexionPreuve?.deleteMany({ where: sien });
+  await db.tenantConnexion?.deleteMany({ where: { tenantId: { in: u.tenants ?? [] } } });
   await db.crossAppInvitation.updateMany({ where: { acceptedByUserId: u.id }, data: { acceptedByUserId: null } });
   const i = await db.crossAppInvitation.deleteMany({ where: { OR: [{ inviterUserId: u.id }, { inviteeEmail: { equals: u.email, mode: 'insensitive' } }] } });
   return { membres: m.count, invitations: i.count };

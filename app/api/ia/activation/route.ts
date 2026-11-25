@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
   if (!corps || !estAppChat(corps.app) || typeof corps.enabled !== 'boolean') {
     return NextResponse.json({ error: 'requete_invalide' }, { status: 400 });
   }
-  const espace = await espaceDe(c.hubUserId, corps.tenantId);
+  const espace = await espaceDe(c.hubUserId, corps.tenantId, c.qui.preuve);
   if (!espace) return NextResponse.json({ error: 'espace_inconnu' }, { status: 404 });
   await activer(prisma, { hubUserId: c.hubUserId, app: corps.app, tenantId: espace.id }, corps.enabled);
   await writeAuditLog(prisma, {

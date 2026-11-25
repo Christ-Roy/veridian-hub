@@ -19,9 +19,11 @@ import { seulementIci } from './borne';
 import { resoudreIdentite, type Connecte } from './identite';
 import { idpPret, type IdpPret } from './idp';
 import { relierParPersonne } from './liaison';
+import { noterPassage } from './obligation';
 import { COOKIE_PREMIERE, PREMIERE_S, scellerPremiere } from './premiere';
 import { porteValable, retenirPorte } from './porte';
 import type { Identite, Transaction } from './oidc';
+import { marquer, prouver } from './prouver';
 import { emettreTicket, FOURNISSEUR_FEDERATION } from './ticket';
 
 /** La personne déjà connectée par ses propres moyens, preuve récente, jamais une session d'emprunt ni fédérée : la seule qui relie un compte existant. */
@@ -77,7 +79,21 @@ export async function conclure(request: NextRequest, base: URL, i: IdpPret, t: T
     const u = elle?.userId === t.relier.userId ? await prisma.user.findUnique({ where: { id: elle.userId }, select: { id: true, email: true, emailVerified: true, supabaseUserId: true } }) : null;
     if (!u) return refus('demande_expiree');
     const l = await relierParPersonne(prisma, i, identite, u);
-    return 'refus' in l ? refus(l.refus) : vers('/dashboard/settings?federation=reliee');
+    if ('refus' in l) return refus(l.refus);
+    // Elle vient d'y passer : son accès gardé tombe, et cette session ouvre l'organisation.
+    if (u.supabaseUserId) await marquer(prisma, i, { id: u.id, hubUserId: u.supabaseUserId });
+    return vers('/dashboard/settings?federation=reliee');
+  }
+  if (t.prouver) {
+    const session = await auth();
+    const c = session?.user && !isImpersonatedSession(session) && session.user.federe !== true ? await getCurrentUser() : null;
+    const u = c?.id === t.prouver.userId ? await prisma.user.findUnique({ where: { id: c.id }, select: { id: true, email: true, emailVerified: true, supabaseUserId: true } }) : null;
+    if (!u) return refus('demande_expiree');
+    const p = await prouver(prisma, i, identite, u, isAuthRecent(session!.user!.authAt, PREUVE_COMPTE_S));
+    if ('refus' in p) return refus(p.refus);
+    console.log(JSON.stringify({ tag: '[federation][prouvee]', level: 'info', hub_user_id: u.supabaseUserId, tenant_id: i.tenantId }));
+    const rebond = request.cookies.has(NEXT_COOKIE_NAME_SECURE) || request.cookies.has(NEXT_COOKIE_NAME_INSECURE);
+    return vers(rebond ? '/api/auth/bounce/complete' : '/dashboard');
   }
   const r = await resoudreIdentite(prisma, i, identite, await connecte());
   if ('refus' in r) {
@@ -93,6 +109,7 @@ export async function conclure(request: NextRequest, base: URL, i: IdpPret, t: T
 /** La session naît par Auth.js, n'ouvre que cette organisation, et ce navigateur retient sa porte. */
 export async function ouvrirSession(request: NextRequest, base: URL, i: IdpPret, r: { userId: string; hubUserId: string; neuf: boolean }, { vers, refus }: Sortie): Promise<NextResponse> {
   const suite = request.cookies.has(NEXT_COOKIE_NAME_SECURE) || request.cookies.has(NEXT_COOKIE_NAME_INSECURE) ? '/api/auth/bounce/complete' : '/dashboard';
+  await noterPassage(prisma, i, r.hubUserId);
   // Elle n'ouvre que cette organisation : quelqu'un d'ailleurs aussi entre par sa propre connexion (lib/federation/borne.ts).
   if (!(await seulementIci(prisma, r.hubUserId, i.tenantId))) return refus('autre_organisation');
   // Auth.js pose la session, ou renvoie vers la 2FA : son verdict fait foi.

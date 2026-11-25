@@ -7,6 +7,8 @@ import { randomUUID } from 'node:crypto';
 
 import type { PrismaClient } from '@prisma/client';
 
+import type { Preuve } from '@/lib/federation/obligation';
+
 import { ACCESS_TTL_S, CODE_TTL_S, MCP_SCOPE, REFRESH_TTL_S, mcpResource } from './config';
 import { empreinte, jetonAleatoire, pkceValide } from './crypto';
 
@@ -117,14 +119,15 @@ export async function validerDemande(
   };
 }
 
-/** `services` : la personne autorise AUSSI ses services extérieurs, depuis sa propre session. Suit toute la famille de jetons ; absent = non. */
-export async function creerCode(db: Db, d: DemandeAutorisation, hubUserId: string, services = false): Promise<string> {
+/** `orgs` : les organisations prouvées par leur fournisseur dans cette session (VER-261). `services` : la personne autorise AUSSI ses services extérieurs, depuis sa propre session. Suit toute la famille de jetons ; absent = non. */
+export async function creerCode(db: Db, d: DemandeAutorisation, hubUserId: string, orgs: string[], services = false): Promise<string> {
   const code = jetonAleatoire('mcpa');
   await db.oauthCode.create({
     data: {
       codeHash: empreinte(code),
       clientId: d.clientId,
       hubUserId,
+      orgs,
       redirectUri: d.redirectUri,
       codeChallenge: d.codeChallenge,
       scope: d.scope,
@@ -136,12 +139,12 @@ export async function creerCode(db: Db, d: DemandeAutorisation, hubUserId: strin
   return code;
 }
 
-async function emettre(db: Db, c: { clientId: string; hubUserId: string; scope: string; resource: string; services?: boolean; familyId?: string }) {
+async function emettre(db: Db, c: { clientId: string; hubUserId: string; scope: string; resource: string; orgs: string[]; services?: boolean; familyId?: string }) {
   const familyId = c.familyId ?? randomUUID();
   const access = jetonAleatoire('mcpt');
   const refresh = jetonAleatoire('mcpr');
   const now = Date.now();
-  const base = { familyId, clientId: c.clientId, hubUserId: c.hubUserId, scope: c.scope, resource: c.resource, services: c.services === true };
+  const base = { familyId, clientId: c.clientId, hubUserId: c.hubUserId, scope: c.scope, resource: c.resource, orgs: c.orgs, services: c.services === true };
   await db.oauthToken.create({ data: { ...base, kind: 'access', tokenHash: empreinte(access), expiresAt: new Date(now + ACCESS_TTL_S * 1000) } });
   await db.oauthToken.create({ data: { ...base, kind: 'refresh', tokenHash: empreinte(refresh), expiresAt: new Date(now + REFRESH_TTL_S * 1000) } });
   void db.oauthClient.update({ where: { clientId: c.clientId }, data: { lastUsedAt: new Date() } }).catch(() => {});
@@ -221,6 +224,8 @@ export type Appelant = {
   userId: string;
   /** Cette connexion IA a été autorisée à voir les services extérieurs de la personne. Absent : non (Mon IA, connexions d'avant). */
   services?: boolean;
+  /** Ce qui dit quelles organisations lui sont ouvertes (lib/federation/obligation.ts). */
+  preuve: Preuve;
 };
 
 /** La dernière utilisation n'est réécrite qu'au plus toutes les 5 min : une écriture par appel coûterait. */
@@ -245,5 +250,5 @@ export async function verifierAcces(db: Db, brut: string): Promise<Appelant | nu
     void db.oauthClient.update({ where: { clientId: t.clientId }, data: { lastUsedAt: new Date(maintenant) } }).catch(() => {});
   }
   const client = await db.oauthClient.findUnique({ where: { clientId: t.clientId }, select: { name: true } });
-  return { hubUserId: t.hubUserId, clientId: t.clientId, clientName: client?.name, scope: t.scope, email: u.email, name: u.name, userId: u.id, services: t.services === true };
+  return { hubUserId: t.hubUserId, clientId: t.clientId, clientName: client?.name, scope: t.scope, email: u.email, name: u.name, userId: u.id, preuve: { par: 'jeton', orgs: t.orgs }, services: t.services === true };
 }

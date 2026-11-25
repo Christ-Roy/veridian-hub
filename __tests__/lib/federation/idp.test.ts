@@ -17,13 +17,24 @@ const db = {
     delete: async ({ where }: any) => { idps = idps.filter((x) => x.id !== where.id); },
     upsert: async ({ where, create, update }: any) => { const l = idps.find((x) => x.tenantId === where.tenantId); if (l) return Object.assign(l, update); const c = { id: `i${Math.random()}`, ...create }; idps.push(c); return c; },
   },
+  tenantConnexion: { findFirst: async ({ where }: any) => (where.tenantId === obligatoire ? { tenantId: obligatoire } : null) },
   account: { deleteMany: async ({ where }: any) => { delies.push(where.provider); return { count: 1 }; } },
 } as never;
 let delies: string[] = [];
+let obligatoire: string | null = null;
 beforeEach(() => {
   vi.stubEnv('VAULT_ENC_KEY', 'k'.repeat(40));
   tenants = [{ id: 'T', slug: 'client', status: 'active', metadata: {} }, { id: 'E', slug: 'epreuve', status: 'active', metadata: TEST }];
   idps = [];
+});
+it('obligatoire : le propriétaire ne coupe, ne retire ni ne remplace le fournisseur par lequel chacun passe', async () => {
+  const r = ReglageIdp.parse({ issuer: 'https://idp.client.test', client_id: 'c', client_secret: 's', domaines: [] });
+  await poserIdp(db, { tenantId: 'T', reglage: r, acteur: 'u', libreService: true });
+  obligatoire = 'T';
+  try {
+    for (const g of ['couper', 'retirer'] as const) expect(await reglerIdpLibre(db, 'T', g)).toEqual({ refus: 'obligatoire_actif' });
+    expect(await poserIdp(db, { tenantId: 'T', reglage: r, acteur: 'u', libreService: true })).toEqual({ refus: 'obligatoire_actif' });
+  } finally { obligatoire = null; }
 });
 const R = { issuer: 'https://idp.client.test', client_id: 'c', client_secret: 'secret-tres-secret', domaines: ['client.test'] };
 const poser = (o: object = {}, tenantId = 'T') => poserIdp(db, { tenantId, reglage: ReglageIdp.parse({ ...R, ...o }), acteur: 'op' });

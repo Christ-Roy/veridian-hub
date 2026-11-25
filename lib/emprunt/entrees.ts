@@ -58,7 +58,7 @@ async function etatDe(db: PrismaClient, app: SyncApp, qui: { hubUserId: string; 
 export async function ficheClient(db: PrismaClient, hubUserId: string, deps: Deps = {}): Promise<FicheClient | null> {
   const u = await db.user.findFirst({ where: { supabaseUserId: hubUserId }, select: { email: true, name: true, emailVerified: true } });
   if (!u) return null;
-  const { vivants, suspendus } = await tousEspaces(db, hubUserId);
+  const { vivants, suspendus } = await tousEspaces(db, hubUserId, { par: 'operateur' });
   const ids = [...vivants, ...suspendus].map((e) => e.id);
   const [tenants, orgs] = await Promise.all([
     db.tenant.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, notifuseWorkspaceSlug: true, prospectionProvisionedAt: true, metadata: true } }),

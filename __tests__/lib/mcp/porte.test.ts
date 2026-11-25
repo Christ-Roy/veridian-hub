@@ -15,7 +15,7 @@ import { oublierProgrammes, type Moteur } from '@/lib/mcp/programme';
 import { fausseBase, type FausseBase } from './fausse-base';
 
 const HUB_USER = '11111111-2222-3333-4444-555555555555';
-const QUI: Appelant = { hubUserId: HUB_USER, clientId: 'mcpc_test', scope: 'veridian', email: 'client@exemple.fr', name: 'Client', userId: 'u1' };
+const QUI: Appelant = { hubUserId: HUB_USER, clientId: 'mcpc_test', scope: 'veridian', email: 'client@exemple.fr', name: 'Client', userId: 'u1', preuve: { par: 'jeton', orgs: [] } };
 const URL_APP = 'https://analytics.exemple.test/api/mcp';
 
 let ancienneCle: string | undefined;
@@ -328,6 +328,29 @@ describe('client_name dans le jeton présenté aux apps', () => {
     const f = appFactice();
     await traiter(db as never, { ...QUI, clientName: 'Claude' }, { jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'executer_outil', arguments: { nom: 'analytics.visites_du_site' } } }, { fetchImpl: f.fetchImpl });
     expect(await claims(f)).toMatchObject({ client_id: 'mcpc_test', client_name: 'Claude' });
+  });
+});
+
+describe('organisation qui demande son fournisseur (VER-261)', () => {
+  beforeEach(async () => {
+    await db.tenant.create({ data: { id: 't2', userId: 'quelqu-un', name: 'Organisation', slug: 'organisation', status: 'active', createdAt: new Date() } });
+    await db.tenantMember.create({ data: { tenantId: 't2', userId: HUB_USER, role: 'member', deletedAt: null } });
+    const tous = db.tenant.findMany.bind(db.tenant) as any;
+    (db as any).tenant.findMany = async (q: any) => (q.where.OR ? tous({ where: { id: q.where.id, deletedAt: null } }) : tous(q));
+    (db as any).tenantConnexion = { findMany: async () => [{ tenantId: 't2' }] };
+    (db as any).organisation = { findUnique: async () => null, findMany: async () => [] };
+    (db as any).tenantIdp = { findUnique: async () => ({ id: 'i', issuer: 'https://login.infomaniak.com', alias: 'org', actif: true, sessionJours: 7 }) };
+  });
+  it('rien ne s\'y exécute, sans espace non plus (l\'app prendrait peut-être celle-là) ; l\'autre espace reste ouvert ; mon_compte dit pourquoi', async () => {
+    const f = appFactice();
+    for (const espace of ['organisation', undefined]) {
+      const r = (await appel('executer_outil', { nom: 'analytics.visites_du_site', arguments: {}, ...(espace ? { espace } : {}) }, f)) as any;
+      expect([r.result.isError, r.result.content[0].text], String(espace)).toEqual([true, expect.stringMatching(/Infomaniak.*\/connexion\/org/)]);
+    }
+    expect(((await appel('executer_outil', { nom: 'analytics.visites_du_site', arguments: {}, espace: 'mon-espace' }, f)) as any).result.isError).not.toBe(true);
+    const c = json(await appel('executer_outil', { nom: 'hub.mon_compte' }, f));
+    expect([c.espaces.map((e: any) => e.slug), c.espaces_fermes]).toEqual([['mon-espace'], [expect.objectContaining({ slug: 'organisation', raison: expect.stringContaining('Infomaniak') })]]);
+    expect(((await appel('executer_outil', { nom: 'hub.integrations_lister', espace: 'organisation' }, f)) as any).result.isError).toBe(true);
   });
 });
 

@@ -39,7 +39,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'requete_invalide' }, { status: 400 });
   }
   const app = corps.app;
-  const espace = await espaceDe(c.hubUserId, corps.tenantId, { app, workspaceId: null });
+  const espace = await espaceDe(c.hubUserId, corps.tenantId, c.qui.preuve, { app, workspaceId: null });
   if (!espace) return NextResponse.json({ error: 'espace_inconnu' }, { status: 404 });
   const triplet = { hubUserId: c.hubUserId, app, tenantId: espace.id };
   if (!(await estActive(prisma, triplet))) return NextResponse.json({ error: 'chat_desactive' }, { status: 403 });

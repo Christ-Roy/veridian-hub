@@ -13,6 +13,7 @@ import { isAuthRecent, PREUVE_COMPTE_S } from '@/lib/auth/recent-auth';
 import { roleAuHub } from '@/lib/delegation/interrupteur';
 import { partir } from '@/lib/federation/depart';
 import { idpEssai, poserIdp, ReglageIdp, ReglageSaml, reglerIdpLibre } from '@/lib/federation/idp';
+import { fermeeIci } from '@/lib/federation/session';
 import { getHubBaseUrl } from '@/lib/mail/oauth-cookies';
 import { prisma } from '@/lib/prisma';
 import { IdTenant } from '@/lib/tenants/membres-http';
@@ -36,6 +37,7 @@ export async function POST(request: NextRequest) {
   const id = IdTenant.safeParse(f?.get('tenant'));
   if (!f || !id.success) return vers('refus');
   if ((await roleAuHub(prisma, id.data, userUuid(user))) !== 'owner') return vers('proprietaire_seul');
+  if (await fermeeIci(userUuid(user), id.data)) return vers('organisation_fournisseur');
   if (!debit.enforce(user.id).ok) return vers('trop_de_gestes');
 
   const acteur = `user:${user.id}`;

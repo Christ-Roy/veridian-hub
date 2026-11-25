@@ -15,11 +15,12 @@ import { SORTIE_MAX_CAR } from '@/lib/mcp/config';
 import { traiter } from '@/lib/mcp/porte';
 import { viderCache } from '@/lib/mcp/cache';
 
+import { LIBRE } from '../federation/libre';
 import { fausseBaseConnexions } from './fausse-base';
 import { OUTILS_JETABLES, ouvrirService } from '../../../e2e/systeme-sso/lib/service-jetable';
 
 const D = { fetchImpl: fetch as never, enClair: true };
-const QUI = { hubUserId: 'h', services: true };
+const QUI = { hubUserId: 'h', services: true, preuve: { par: 'jeton', orgs: [] } };
 const ESPACE = { vivants: [{ role: 'proprietaire' }], suspendus: [] as { role: string }[] };
 const espaces = async () => ESPACE;
 let s: Awaited<ReturnType<typeof ouvrirService>>;
@@ -28,6 +29,7 @@ const journaux: any[] = [];
 const tenants = { siens: [] as any[] };
 const db = {
   ...base,
+  ...LIBRE,
   mcpApp: { findMany: async () => [] }, tenantApp: { findMany: async () => [] }, tenantMember: { findMany: async () => [] }, tenantTrial: { findMany: async () => [] },
   tenant: { findMany: async () => tenants.siens }, organisation: { findMany: async () => [] },
   auditLog: { create: async ({ data }: any) => { journaux.push(data); } },

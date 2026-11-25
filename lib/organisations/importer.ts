@@ -36,28 +36,27 @@ export function normaliser(lignes: ImportMembre[]): { email: string; role: strin
 }
 
 /** Un seul passage : chaque adresse rend son état, puis UNE émission vers les apps cochées. À blanc : rien n'est écrit, rien n'est émis. */
-export async function importerMembres(db: Db, d: { tenantId: string; membres: ImportMembre[]; acteur: string; aBlanc?: boolean }, deps: Deps = {}): Promise<{ lignes: LigneImport[]; organisation: Emission[] } | { refus: 'tenant_introuvable' }> {
+export async function importerMembres(db: Db, d: { tenantId: string; membres: ImportMembre[]; acteur: string; aBlanc?: boolean; /** Ceux qu'il pré-inscrit gardent leur accès habituel jusqu'au rattachement. */ exempter?: boolean }, deps: Deps = {}): Promise<{ lignes: LigneImport[]; organisation: Emission[] } | { refus: 'tenant_introuvable' }> {
   const t = await db.tenant.findFirst({ where: { id: d.tenantId, deletedAt: null }, select: { id: true, userId: true } });
   if (!t) return { refus: 'tenant_introuvable' };
   const lignes: LigneImport[] = [];
   for (const l of normaliser(d.membres)) {
-    lignes.push(await unMembre(db, { tenantId: t.id, proprietaire: t.userId, ...l, acteur: d.acteur, aBlanc: d.aBlanc === true }));
+    lignes.push(await unMembre(db, { tenantId: t.id, proprietaire: t.userId, ...l, acteur: d.acteur, aBlanc: d.aBlanc === true, exempter: d.exempter === true }));
   }
   const organisation = d.aBlanc ? [] : await suivreOrganisation(db, t.id, deps);
   return { lignes, organisation };
 }
 
-async function unMembre(db: Db, d: { tenantId: string; proprietaire: string; email: string; role: string; acteur: string; aBlanc: boolean }): Promise<LigneImport> {
+async function unMembre(db: Db, d: { tenantId: string; proprietaire: string; email: string; role: string; acteur: string; aBlanc: boolean; exempter: boolean }): Promise<LigneImport> {
   const base = { email: d.email, role: 'member' as Role };
   if (!adresse.safeParse(d.email).success) return { ...base, etat: 'refuse', detail: 'adresse_invalide' };
   if (!ROLES_IMPORTABLES.includes(d.role as Role)) return { ...base, etat: 'refuse', detail: 'role_refuse' };
   const role = d.role as Role;
   const u = await db.user.findFirst({ where: { email: { equals: d.email, mode: 'insensitive' } }, select: { supabaseUserId: true, emailVerified: true } });
   const attendre = async (): Promise<LigneImport> => {
-    const detail = role === 'member' ? undefined : 'membre d\'abord : un rôle plus haut se pose après la jonction';
-    if (d.aBlanc) return { ...base, etat: 'preinscrit', detail: detail ?? 'à blanc' };
-    const fin = await preinscrire(db, { tenantId: d.tenantId, email: d.email, acteur: d.acteur });
-    return { ...base, etat: 'preinscrit', detail: detail ?? `jusqu'au ${fin.toISOString().slice(0, 10)}` };
+    if (d.aBlanc) return { ...base, role, etat: 'preinscrit', detail: 'à blanc' };
+    const fin = await preinscrire(db, { tenantId: d.tenantId, email: d.email, acteur: d.acteur, role: role as 'member' | 'admin', exemptee: d.exempter });
+    return { ...base, role, etat: 'preinscrit', detail: `jusqu'au ${fin.toISOString().slice(0, 10)}` };
   };
   if (!u?.supabaseUserId) return attendre();
   if (u.supabaseUserId === d.proprietaire) return { ...base, role, etat: 'deja', detail: 'owner' };

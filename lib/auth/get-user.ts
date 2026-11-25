@@ -15,6 +15,7 @@
 // `user.supabaseUserId` (cast en UUID dans la query Prisma).
 
 import { auth } from '@/auth';
+import { fermees, preuveDeSession } from '@/lib/federation/obligation';
 import { prisma } from '@/lib/prisma';
 
 export type AuthUser = {
@@ -60,6 +61,10 @@ export async function requireUser(): Promise<AuthUser> {
       status: 401,
       headers: { 'Content-Type': 'application/json' },
     });
+  }
+  // Ces routes agissent sur l'espace dont elle est propriétaire : fermées si cette organisation demande son fournisseur (lib/federation/obligation.ts).
+  if (user.supabaseUserId && (await fermees(prisma, user.supabaseUserId, preuveDeSession(await auth()))).some((f) => f.proprietaire)) {
+    throw new Response(JSON.stringify({ error: 'organisation_fournisseur', ouvrir: '/auth/organisation' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
   }
   return user;
 }

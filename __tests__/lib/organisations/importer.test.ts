@@ -50,7 +50,7 @@ describe('importerMembres', () => {
       { email: 'nouveau@x.fr' }, { email: 'inconnu@x.fr' }, { email: 'flou@x.fr' }, { email: 'actif@x.fr', role: 'member' }, { email: 'parti@x.fr' }, { email: 'prop@x.fr' },
     ] });
     expect('lignes' in r && r.lignes.map((l) => l.etat)).toEqual(['joint', 'preinscrit', 'preinscrit', 'deja', 'retire', 'deja']);
-    expect(m.preinscrire.mock.calls.map((c) => c[1])).toEqual([{ tenantId: 'T', email: 'inconnu@x.fr', acteur: 'op' }, { tenantId: 'T', email: 'flou@x.fr', acteur: 'op' }]);
+    expect(m.preinscrire.mock.calls.map((c) => c[1])).toEqual([{ tenantId: 'T', email: 'inconnu@x.fr', acteur: 'op', role: 'member', exemptee: false }, { tenantId: 'T', email: 'flou@x.fr', acteur: 'op', role: 'member', exemptee: false }]);
     expect(etat(r, 'inconnu@x.fr')).toMatchObject({ role: 'member', detail: 'jusqu\'au 2026-12-25' });
     expect(m.rejoindre).toHaveBeenCalledTimes(1);
     expect(m.rejoindre.mock.calls[0][1]).toMatchObject({ tenantId: 'T', hubUserId: 'nouveau', role: 'member', origine: 'operateur', acteur: 'op' });

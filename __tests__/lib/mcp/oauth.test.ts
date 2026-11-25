@@ -43,7 +43,7 @@ async function connexion() {
     code_challenge: k.challenge, code_challenge_method: 'S256', state: 'xyz', resource: mcpResource(),
   });
   if (!v.ok) throw new Error('demande refusée');
-  const code = await creerCode(db as never, v.demande, HUB_USER);
+  const code = await creerCode(db as never, v.demande, HUB_USER, ['org-prouvee']);
   return { c, k, code };
 }
 
@@ -97,6 +97,8 @@ describe('échange du code', () => {
     const t = await echangerCode(db as never, { code, client_id: c.client_id, redirect_uri: RETOUR, code_verifier: k.verifier, resource: mcpResource() });
     expect(t.token_type).toBe('Bearer');
     const qui = await verifierAcces(db as never, t.access_token);
+    // Les organisations prouvées à la remise suivent le jeton, et son renouvellement.
+    expect(qui?.preuve).toEqual({ par: 'jeton', orgs: ['org-prouvee'] });
     expect(qui).toMatchObject({ hubUserId: HUB_USER, clientId: c.client_id, email: 'client@exemple.fr' });
   });
   it('en base : empreintes seulement, jamais le jeton', async () => {
@@ -202,7 +204,7 @@ describe('services extérieurs', () => {
       const { c, k } = await connexion();
       const v = await validerDemande(db as never, { response_type: 'code', client_id: c.client_id, redirect_uri: RETOUR, code_challenge: k.challenge, code_challenge_method: 'S256', state: 'x', resource: mcpResource() });
       if (!v.ok) throw new Error('demande refusée');
-      const t = await echangerCode(db as never, { code: await creerCode(db as never, v.demande, HUB_USER, services), client_id: c.client_id, redirect_uri: RETOUR, code_verifier: k.verifier });
+      const t = await echangerCode(db as never, { code: await creerCode(db as never, v.demande, HUB_USER, [], services), client_id: c.client_id, redirect_uri: RETOUR, code_verifier: k.verifier });
       const r = await renouveler(db as never, { refresh_token: t.refresh_token, client_id: c.client_id });
       return [(await verifierAcces(db as never, t.access_token))?.services, (await verifierAcces(db as never, r.access_token))?.services];
     };

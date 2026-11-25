@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { listerIntegrations, roleAuHub, type EtatPaire } from '@/lib/delegation/interrupteur';
+import { preuveDeSession } from '@/lib/federation/obligation';
 import { espacesDe } from '@/lib/mcp/catalogue';
 import { prisma } from '@/lib/prisma';
 
@@ -55,7 +56,7 @@ export default async function Liaisons({ searchParams }: { searchParams: Promise
   const hubUserId = userUuid(user);
   const avis = AVIS[(await searchParams).avis ?? ''];
   const espaces = await Promise.all(
-    (await espacesDe(prisma, hubUserId)).map(async (e) => ({
+    (await espacesDe(prisma, hubUserId, preuveDeSession(session))).map(async (e) => ({
       ...e,
       au: await roleAuHub(prisma, e.id, hubUserId),
       liaisons: (await listerIntegrations(prisma, e.id)).filter((l) => l.etat !== 'indisponible'),

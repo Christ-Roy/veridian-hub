@@ -13,11 +13,12 @@ import type { Provisionneur } from './provisionneurs';
 
 import { servicesDe, sessionExterne } from '@/lib/connecteurs/porte';
 import type { Deps as DepsConnecteur } from '@/lib/connecteurs/sortie';
+import { fermees, type DbObligation, type Fermee, type Preuve } from '@/lib/federation/obligation';
 import { appsParOrganisation } from '@/lib/tenant-apps/organisation';
 
 export { viderCache } from './cache';
 
-export type Db = Pick<PrismaClient, 'mcpApp' | 'tenantApp' | 'tenant' | 'tenantTrial' | 'tenantMember' | 'organisation'> & Partial<Pick<PrismaClient, 'connexionExterne' | 'connecteurClient' | 'connecteurOutilVu' | 'auditLog' | 'user'>>;
+export type Db = Pick<PrismaClient, 'mcpApp' | 'tenantApp' | 'tenant' | 'tenantTrial' | 'tenantMember' | 'organisation'> & DbObligation & Partial<Pick<PrismaClient, 'connexionExterne' | 'connecteurClient' | 'connecteurOutilVu' | 'auditLog' | 'user'>>;
 
 export type Outil = {
   nom: string;
@@ -55,7 +56,7 @@ export type Deps = {
 };
 
 /** Apps du registre ouvertes à cet utilisateur. */
-export async function appsDe(db: Db, hubUserId: string): Promise<AppInscrite[]> {
+export async function appsDe(db: Db, hubUserId: string, preuve: Preuve): Promise<AppInscrite[]> {
   const apps = await db.mcpApp.findMany({ where: { enabled: true }, orderBy: { appKey: 'asc' } });
   const besoinActivation = apps.filter((a) => a.acces !== 'tous').map((a) => a.appKey);
   const actives = besoinActivation.length
@@ -68,21 +69,22 @@ export async function appsDe(db: Db, hubUserId: string): Promise<AppInscrite[]> 
         ).map((r) => r.appKey),
       )
     : new Set<string>();
-  for (const app of besoinActivation.length ? Array.from(await appsParOrganisation(db, hubUserId)) : []) actives.add(app);
+  for (const app of besoinActivation.length ? Array.from(await appsParOrganisation(db, hubUserId, undefined, (await fermees(db, hubUserId, preuve)).map((f) => f.tenantId))) : []) actives.add(app);
   return apps
     .filter((a) => a.acces === 'tous' || actives.has(a.appKey))
     .map((a) => ({ appKey: a.appKey, label: a.label, mcpUrl: a.mcpUrl }));
 }
 
+export type DbEspaces = Pick<PrismaClient, 'tenant' | 'tenantMember'> & DbObligation;
 export type Espace = { id: string; nom: string; slug: string; role: string };
 
 /** Espaces où l'utilisateur agit : les siens, et ceux dont il est membre. Un espace suspendu n'en est pas (VER-245). */
-export async function espacesDe(db: Db, hubUserId: string): Promise<Espace[]> {
-  return (await tousEspaces(db, hubUserId)).vivants;
+export async function espacesDe(db: DbEspaces, hubUserId: string, preuve: Preuve): Promise<Espace[]> {
+  return (await tousEspaces(db, hubUserId, preuve)).vivants;
 }
 
-/** Les mêmes, avec ceux qui sont suspendus, à part : ils se disent, ils ne s'ouvrent pas. */
-export async function tousEspaces(db: Db, hubUserId: string): Promise<{ vivants: Espace[]; suspendus: Espace[] }> {
+/** Les mêmes, avec ceux qui sont suspendus, et ceux que cette preuve n'ouvre pas, à part : ils se disent, ils ne s'ouvrent pas. */
+export async function tousEspaces(db: DbEspaces, hubUserId: string, preuve: Preuve): Promise<{ vivants: Espace[]; suspendus: Espace[]; fermes: (Espace & Pick<Fermee, 'fournisseur' | 'porte'>)[] }> {
   const champs = { id: true, name: true, slug: true, status: true } as const;
   const [siens, membre] = await Promise.all([
     db.tenant.findMany({ where: { userId: hubUserId, deletedAt: null }, select: champs, orderBy: { createdAt: 'asc' } }),
@@ -97,8 +99,11 @@ export async function tousEspaces(db: Db, hubUserId: string): Promise<{ vivants:
     ...lus.map((t) => ({ id: t.id, nom: t.name, slug: t.slug, role: autres.find((m) => m.tenantId === t.id)?.role ?? 'membre', status: t.status })),
   ];
   const sans = ({ status: _s, ...e }: (typeof tous)[number]): Espace => e;
+  const closes = await fermees(db, hubUserId, preuve);
+  const close = (id: string) => closes.find((f) => f.tenantId === id);
   return {
-    vivants: tous.filter((t) => t.status !== 'suspended' && t.status !== 'deleted').map(sans),
+    vivants: tous.filter((t) => t.status !== 'suspended' && t.status !== 'deleted' && !close(t.id)).map(sans),
+    fermes: tous.filter((t) => t.status !== 'suspended' && t.status !== 'deleted').flatMap((t) => { const f = close(t.id); return f ? [{ ...sans(t), fournisseur: f.fournisseur, porte: f.porte }] : []; }),
     suspendus: tous.filter((t) => t.status === 'suspended').map(sans),
   };
 }
@@ -186,8 +191,8 @@ export async function outilsApp(app: AppInscrite, qui: Appelant, deps: Deps = {}
 export type Catalogue = { outils: Outil[]; apps: AppInscrite[]; injoignables: { app: string; raison: string }[] };
 
 export async function catalogue(db: Db, qui: Appelant, outilsHub: Outil[], deps: Deps = {}): Promise<Catalogue> {
-  const siennes = await appsDe(db, qui.hubUserId);
-  const services = await servicesDe(db as never, qui, () => tousEspaces(db, qui.hubUserId)).catch((err) => (console.error('[mcp] services extérieurs', err instanceof Error ? err.message.slice(0, 120) : 'erreur'), []));
+  const siennes = await appsDe(db, qui.hubUserId, qui.preuve);
+  const services = await servicesDe(db as never, qui, () => tousEspaces(db, qui.hubUserId, qui.preuve)).catch((err) => (console.error('[mcp] services extérieurs', err instanceof Error ? err.message.slice(0, 120) : 'erreur'), []));
   // Une de nos apps garde son nom : un service extérieur ne la remplace jamais.
   const apps: AppInscrite[] = [...siennes, ...services.filter((s) => !siennes.some((a) => a.appKey === s.appKey))];
   const res = await Promise.allSettled(apps.map((a) => outilsApp(a, qui, { ...deps, db })));

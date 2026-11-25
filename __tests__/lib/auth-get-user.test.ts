@@ -28,6 +28,7 @@ vi.mock('@/lib/prisma', () => ({
     user: {
       findUnique: vi.fn(),
     },
+    tenantConnexion: { findMany: vi.fn(async () => []) },
   },
 }));
 
