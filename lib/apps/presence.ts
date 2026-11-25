@@ -4,6 +4,7 @@
  */
 import type { PrismaClient } from '@prisma/client';
 
+import { NotifuseClient } from '@/lib/notifuse/client';
 import { configuredSyncApps, discoverAppForEmail } from '@/lib/sync/discovery';
 import type { SyncApp } from '@/lib/sync/types';
 
@@ -20,13 +21,29 @@ export function espaceNote(t: Pick<TenantLu, 'notifuseWorkspaceSlug' | 'prospect
   return typeof id === 'string' && id ? id : null;
 }
 
+/** Mail liste encore un espace supprimé, sans son état (mesuré le 25/11 par l'épreuve) : l'état se lit sur l'espace lui-même. Illisible : on ne sait pas. */
+export async function espaceMailVivant(slug: string, deps: Pick<Deps, 'fetchImpl'> = {}): Promise<boolean | null> {
+  const apiUrl = process.env.NOTIFUSE_API_URL;
+  const hubSecret = process.env.NOTIFUSE_HUB_API_SECRET;
+  if (!apiUrl || !hubSecret) return null;
+  try {
+    const r = await new NotifuseClient({ apiUrl, hubSecret, maxRetries: 0, timeoutMs: 8_000, fetchImpl: deps.fetchImpl }).getStatus(slug);
+    return typeof r.status === 'string' ? r.status === 'active' && !r.deleted_at : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Dans UNE app. L'espace se reconnaît à son lien au Hub, sinon à l'identifiant que le Hub a noté. */
 export async function presenteDans(app: SyncApp, t: TenantLu, u: { email: string; hubUserId: string }, deps: Deps = {}): Promise<boolean | null> {
   const r = await discoverAppForEmail(app, u.email, { hubUserId: u.hubUserId, fetchImpl: deps.fetchImpl, timeoutMs: 8_000 });
   if ('error' in r) return null;
   if (!r.found) return false;
   const note = espaceNote(t, app);
-  return r.snapshots.some((s) => s.status !== 'deleted' && (s.hubTenantLink === t.id || (typeof note === 'string' && s.workspaceId === note)));
+  const ici = r.snapshots.filter((s) => s.status !== 'deleted' && (s.hubTenantLink === t.id || (typeof note === 'string' && s.workspaceId === note)));
+  if (app !== 'notifuse' || ici.length === 0) return ici.length > 0;
+  const etats = await Promise.all(ici.map((s) => espaceMailVivant(s.workspaceId, deps)));
+  return etats.includes(true) ? true : etats.includes(null) ? null : false;
 }
 
 export async function presenceDe(db: Db, tenantId: string, hubUserId: string, deps: Deps = {}): Promise<Presence[]> {
