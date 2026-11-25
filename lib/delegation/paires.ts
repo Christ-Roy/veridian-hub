@@ -35,11 +35,13 @@ export const cibleServie = (cible: AppPaire, env: NodeJS.ProcessEnv = process.en
   const l = (env.DELEGATION_CIBLES ?? '').split(',').map((x) => x.trim());
   return l.includes(cible) || (test && l.includes(`${cible}@test`));
 };
+/** Paires dont la SOURCE n'a encore ni bouton ni appelant (CRM, 25/11) : l'allumer ne ferait rien, donc elle ne se propose pas. */
+const SANS_APPELANT = new Set(['crm>notifuse']);
 /**
  * Une liaison qui peut servir : cible ouverte, et une ACTION. Un événement n'a pas d'utilisateur (son sujet est l'intégration, ADR-037
  * D1) : tant que son chemin n'existe pas, il ne s'allume pas et ne s'échange pas contre la poignée de quelqu'un.
  */
-export const paireServie = (p: Paire, env: NodeJS.ProcessEnv = process.env, test = false): boolean => p.nature === 'action' && cibleServie(p.cible, env, test);
+export const paireServie = (p: Paire, env: NodeJS.ProcessEnv = process.env, test = false): boolean => p.nature === 'action' && !SANS_APPELANT.has(p.cle) && cibleServie(p.cible, env, test);
 /**
  * Un événement se règle à part (`DELEGATION_EVENEMENTS`, vide par défaut) : `notifuse>crm` pour tous, `notifuse>crm@<tenant>` pour une seule
  * organisation, `notifuse>crm@test` pour celles marquées de test. Ouvert ne veut pas dire allumé : le clic du propriétaire reste dû.
