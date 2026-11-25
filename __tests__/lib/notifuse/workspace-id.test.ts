@@ -3,34 +3,23 @@ import { describe, it, expect } from 'vitest';
 import {
   NOTIFUSE_WORKSPACE_ID_MAX_LENGTH,
   validateWorkspaceId,
-  workspaceIdFromEmail,
+  workspaceIdDuTenant,
 } from '@/lib/notifuse/workspace-id';
 
-describe('workspaceIdFromEmail', () => {
-  it('génère un id alphanumérique lowercase tronqué à 20 chars', () => {
-    expect(workspaceIdFromEmail('john.doe+test@gmail.com')).toBe('johndoetest');
+describe('workspaceIdDuTenant', () => {
+  const [A, B] = ['3f0c1c52-9c0d-4a50-8d4e-1f2f6c1f7a01', '3f0c1c52-9c0d-4a50-8d4e-1f2f6c1f7a02'];
+  it('contact@a.fr et contact@b.fr : chacun le sien ; le même à chaque rejeu, quelle que soit l\'adresse du moment', () => {
+    const a = workspaceIdDuTenant(A, 'contact@a.fr');
+    expect(a).not.toBe(workspaceIdDuTenant(B, 'contact@b.fr'));
+    expect([workspaceIdDuTenant(A, 'contact@a.fr'), workspaceIdDuTenant(A, 'autre@ailleurs.fr')]).toEqual([a, a]);
   });
-
-  it('strip les majuscules vers lowercase', () => {
-    expect(workspaceIdFromEmail('JohnDoe@example.com')).toBe('johndoe');
+  it('accepté par Mail, sans rien de l\'adresse ; mille tenants, mille identifiants', () => {
+    const ids = Array.from({ length: 1000 }, (_, i) => workspaceIdDuTenant(`3f0c1c52-9c0d-4a50-8d4e-${String(i).padStart(12, '0')}`, 'contact@a.fr'));
+    expect(new Set(ids).size).toBe(1000);
+    for (const x of ids) { expect(validateWorkspaceId(x)).toEqual({ ok: true }); expect(x).toHaveLength(NOTIFUSE_WORKSPACE_ID_MAX_LENGTH); expect(x).not.toContain('contact'); }
   });
-
-  it('retire tout caractère non alphanumérique', () => {
-    expect(workspaceIdFromEmail('user_name-with.dots@x.fr')).toBe('usernamewithdots');
-  });
-
-  it('tronque à 20 chars exactement', () => {
-    const result = workspaceIdFromEmail('thisisalongusernameindeed@x.com');
-    expect(result.length).toBeLessThanOrEqual(NOTIFUSE_WORKSPACE_ID_MAX_LENGTH);
-    expect(result).toBe('thisisalongusernamei');
-  });
-
-  it('throw sur email avec local-part vide alphanumérique', () => {
-    expect(() => workspaceIdFromEmail('___@example.com')).toThrow(/no alphanumeric/);
-  });
-
-  it('throw sur email vide', () => {
-    expect(() => workspaceIdFromEmail('@example.com')).toThrow(/no alphanumeric/);
+  it('un compte d\'épreuve garde le préfixe que le nettoyage compte ; un vrai compte ne l\'a jamais', () => {
+    expect([workspaceIdDuTenant(A, 'e2e-sso-x@veridian.site').slice(0, 6), workspaceIdDuTenant(A, 'e2e-autre@x.fr').slice(0, 3), workspaceIdDuTenant(A, 'e2ecompagnie@x.fr')[0]]).toEqual(['e2esso', 'e2e', 'v']);
   });
 });
 

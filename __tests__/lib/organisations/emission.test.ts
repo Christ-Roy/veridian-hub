@@ -36,6 +36,21 @@ describe('emettreOrganisation', () => {
     expect(a.posts[0]).toMatchObject({ u: 'https://a.test/api/hub/organisations/sync', corps: { hub_tenant_id: 'A', nom: 'Atelier' } });
     expect(db.organisationEmission.lignes).toEqual([expect.objectContaining({ tenantId: 'A', app: 'academy', etat: 'applique' })]);
   });
+  it('app réservée : qui entre est noté venu par l\'organisation, une fois l\'émission appliquée seulement ; recoche : adhésion datée', async () => {
+    vi.stubEnv('ACADEMY_API_URL', ENV.ACADEMY_API_URL!);
+    vi.stubEnv('ACADEMY_HUB_API_SECRET', 's');
+    db.user.lignes.push({ supabaseUserId: 'u', email: 'u@x.fr', name: null, emailVerified: new Date() });
+    db.tenantMember.lignes.push({ tenantId: 'A', userId: 'u', role: 'member', joinedAt: new Date('2026-02-01'), deletedAt: null });
+    const avecGet = (a: ReturnType<typeof app>) => ({ ...a, f: (async (u: string, i: RequestInit) => (u.includes('by-email') ? Response.json({ found: false }) : a.f(u, i))) as unknown as typeof fetch });
+    await emettre(avecGet(app({ post: () => new Response('', { status: 500 }) })));
+    expect(db.organisationAcces.lignes, 'rien d\'appliqué, rien de noté').toEqual([]);
+    const a = avecGet(app());
+    await emettre(a);
+    expect(db.organisationAcces.lignes.map((n: any) => [n.tenantId, n.app, n.hubUserId, n.origine])).toEqual([['A', 'academy', 'u', 'organisation']]);
+    db.organisationAcces.lignes[0].rejointLe = new Date('2026-11-25');
+    await emettre(a);
+    expect(a.posts.at(-1).corps.membres.map((x: any) => [x.hub_user_id, x.joined_at.slice(0, 10)])).toEqual([['p', '2026-01-01'], ['u', '2026-11-25']]);
+  });
   it.each([['membres_refuses', 2, '2 membre(s) refusé(s) par l\'app'], ['refused', 1, '1 membre(s) refusé(s) par l\'app'], ['refuses', 3, '3 membre(s) refusé(s) par l\'app'], ['refused', 0, null], ['membres_refuses', 'deux', null]] as const)('%s = %s : appliqué, et le refus partiel se lit', async (nom, n, detail) => {
     expect((await emettre(app({ post: () => Response.json({ applied: true, [nom]: n }) }))).etat).toBe('applique');
     expect(db.organisationEmission.lignes[0]).toMatchObject({ etat: 'applique', detail });

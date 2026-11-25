@@ -22,7 +22,7 @@ export const ROLES = ['member', 'admin', 'owner'] as const;
 export type Role = (typeof ROLES)[number];
 export type Origine = 'invitation' | 'reprise' | 'operateur' | 'preinscription' | 'federation';
 
-export type DbMembres = Pick<PrismaClient, 'tenant' | 'tenantMember' | 'user' | 'auditLog' | 'crossAppInvitation' | 'delegationGrant' | 'integrationPaire' | 'tenantPreinscription' | 'userEmail'>;
+export type DbMembres = Pick<PrismaClient, 'organisationAcces' | 'tenant' | 'tenantMember' | 'user' | 'auditLog' | 'crossAppInvitation' | 'delegationGrant' | 'integrationPaire' | 'tenantPreinscription' | 'userEmail'>;
 type Deps = { fetchImpl?: typeof fetch; apps?: readonly SyncApp[]; env?: NodeJS.ProcessEnv };
 
 /** Ce que l'auteur du geste doit lire : les apps où l'accès n'est PAS coupé, et pourquoi (Analytics ne sait pas retirer). */
@@ -135,6 +135,9 @@ async function espacesChez(app: SyncApp, t: Tenant, email: string, hubUserId: st
 
 /** L'identifiant que l'app attend dans son chemin : son espace, son tenant, ou le tenant Hub. */
 const cible = (app: SyncApp, t: Tenant, s: TenantSnapshot): string => (app === 'crm' || app === 'academy' ? t.id : app === 'prospection' ? (s.tenantId ?? s.workspaceId) : s.workspaceId);
+
+/** Décocher une app réservée (lib/organisations/decocher.ts) : le même retrait, d'une seule app ; l'appartenance au Hub ne bouge pas. */
+export const retirerDeLApp = (app: SyncApp, t: Tenant, email: string, hubUserId: string, deps: Deps = {}): Promise<IssueApp> => retirerChez(app, t, email, hubUserId, 'admin_action', deps);
 
 async function retirerChez(app: SyncApp, t: Tenant, email: string, hubUserId: string, motif: string, deps: Deps): Promise<IssueApp> {
   try {
@@ -285,9 +288,10 @@ export async function basculerSuspension(db: DbMembres, d: { tenantId: string; s
  * À la suppression d'un compte : ses appartenances, et ses invitations. Celles qu'il a envoyées bloquaient la suppression (clé
  * étrangère, 24/11), celles qu'il a reçues gardaient son adresse.
  */
-export async function oublierCompte(db: Pick<PrismaClient, 'tenantMember' | 'crossAppInvitation' | 'tenantPreinscription' | 'tenantIdp'>, u: { id: string; email: string; hubUserId: string | null; tenants?: string[] }): Promise<{ membres: number; invitations: number }> {
+export async function oublierCompte(db: Pick<PrismaClient, 'tenantMember' | 'crossAppInvitation' | 'tenantPreinscription' | 'tenantIdp'> & Partial<Pick<PrismaClient, 'organisationAcces'>>, u: { id: string; email: string; hubUserId: string | null; tenants?: string[] }): Promise<{ membres: number; invitations: number }> {
   const m = u.hubUserId ? await db.tenantMember.deleteMany({ where: { userId: u.hubUserId } }) : { count: 0 };
   // Son adresse pré-inscrite ailleurs, et les adresses que ses organisations avaient pré-inscrites.
+  await db.organisationAcces?.deleteMany({ where: { OR: [...(u.hubUserId ? [{ hubUserId: u.hubUserId }] : []), { tenantId: { in: u.tenants ?? [] } }] } });
   await db.tenantPreinscription.deleteMany({ where: { OR: [{ email: u.email.trim().toLowerCase() }, { tenantId: { in: u.tenants ?? [] } }] } });
   await db.tenantIdp.deleteMany({ where: { tenantId: { in: u.tenants ?? [] } } });
   await db.crossAppInvitation.updateMany({ where: { acceptedByUserId: u.id }, data: { acceptedByUserId: null } });

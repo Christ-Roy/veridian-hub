@@ -722,6 +722,23 @@ model OrganisationEmission {
   @@schema("hub_app")
 }
 
+/// Qui est entré dans une app réservée par l'organisation (lib/organisations/acces.ts).
+model OrganisationAcces {
+  tenantId  String    @map("tenant_id")
+  app       String
+  hubUserId String    @map("hub_user_id")
+  /// organisation | main
+  origine   String
+  poseLe    DateTime  @default(now()) @map("pose_le")
+  retireLe  DateTime? @map("retire_le")
+  rejointLe DateTime? @map("rejoint_le")
+
+  @@id([tenantId, app, hubUserId])
+  @@index([hubUserId])
+  @@map("organisation_acces")
+  @@schema("hub_app")
+}
+
 model TenantMember {
   tenantId         String    @map("tenant_id")
   userId           String    @map("user_id")

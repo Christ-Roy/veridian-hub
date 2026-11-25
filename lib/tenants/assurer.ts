@@ -12,18 +12,25 @@ function slugify(email: string): string {
   return email.split('@')[0].replace(/[^a-z0-9]/gi, '').toLowerCase();
 }
 
-export async function assurerTenantHub(
-  db: Pick<PrismaClient, 'tenant'>,
-  email: string,
-  userId: string,
-  nom?: string | null,
-): Promise<string> {
-  const existant = await db.tenant.findFirst({
-    where: { userId, deletedAt: null },
-    orderBy: { createdAt: 'asc' },
-    select: { id: true },
+type Db = Pick<PrismaClient, 'tenant'>;
+
+/** Deux appels qui se croisent pour un même compte n'en créent qu'un : le second attend le premier (verrou Postgres, rendu en fin de transaction). */
+export async function assurerTenantHub(db: Db & Partial<Pick<PrismaClient, '$transaction'>>, email: string, userId: string, nom?: string | null): Promise<string> {
+  const deja = await vivant(db, userId);
+  if (deja) return deja;
+  if (!db.$transaction) return chercherOuCreer(db, email, userId, nom);
+  return db.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`tenant:${userId}`}, 0))`;
+    return chercherOuCreer(tx, email, userId, nom);
   });
-  if (existant) return existant.id;
+}
+
+const vivant = async (db: Db, userId: string): Promise<string | null> =>
+  (await db.tenant.findFirst({ where: { userId, deletedAt: null }, orderBy: { createdAt: 'asc' }, select: { id: true } }))?.id ?? null;
+
+async function chercherOuCreer(db: Db, email: string, userId: string, nom?: string | null): Promise<string> {
+  const existant = await vivant(db, userId);
+  if (existant) return existant;
   const slug = slugify(email);
   const slugPris = await db.tenant.findUnique({ where: { slug }, select: { id: true } });
   const trialEndsAt = new Date();

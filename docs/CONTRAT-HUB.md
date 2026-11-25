@@ -750,6 +750,10 @@ versionné `/api/v1/tenants/*` à partir du jour où on bumpe v2).
 
 ### 5.1 `POST /api/tenants/provision`
 
+> **Identifiant d'espace Mail (25/11)** : choisi par le Hub, tiré de l'id du tenant (`workspaceIdDuTenant`), jamais de l'adresse ; un espace déjà noté garde le
+> sien. Avant : le début de l'adresse coupé à 20 caractères, `contact@a.fr` et `contact@b.fr` visaient le même. Mesuré le 25/11 : 0 client touché, 0 début
+> partagé, 0 entrée chez un autre. `POST /api/notifuse/create-tenant` (identifiant choisi par l'appelant, sans appelant) est retiré. Cas 36.
+
 **Idempotent.** Si appelé 2× avec le même `tenant_id` + `owner_email`, retourne
 `created: false` mais reste fonctionnel (magic_link régénéré).
 
@@ -1860,6 +1864,10 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
 - **Plusieurs adresses** (VER-227 S1b, `lib/adresses`) : une personne ajoute une adresse en prouvant, par un code reçu, qu'elle la tient. Une secondaire
   ne connecte pas, ne reçoit aucun lien : elle fait reconnaître (pré-inscription, fédération). Une adresse active n'appartient qu'à une personne, tenu
   par la BASE pour tous les chemins. Le code reçu dans une vraie boîte : NON PROUVÉ (pas de boîte d'épreuve).
+- **Décocher une app réservée** (parente 25/11, `lib/organisations/{acces,decocher}.ts`, table `organisation_acces`, CRM et Academy) : ceux venus PAR
+  l'organisation en sortent par `remove-member`, session ouverte comprise ; recocher les remet (l'émission porte une `joined_at` datée de la recoche).
+  L'origine se note à l'émission qui fait entrer : déjà dans l'espace avant, invité à la main, app muette, ou membre d'avant cette note = « à la main »,
+  gardé. Jamais le propriétaire. Rien n'est effacé. Un retrait refusé se refait au réglage suivant, réponse 207. Cas 35.
 - **Changer d'adresse principale** (AD-M3, 25/11, `lib/adresses/{federation,promotion}.ts`, cas 32) : une secondaire PROUVÉE, par un code ou par le
   fournisseur de son organisation (elle se reconnecte devant lui, `prompt=login`, et il affirme exactement l'adresse demandée ; ni session ni lien n'en
   naissent). Le `hub_user_id` ne bouge pas, les apps suivent par `users/sync` ; l'ancienne devient un alias ; toutes les sessions tombent. Une app qui

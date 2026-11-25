@@ -1687,17 +1687,9 @@ Body vide → defaults `all`.
 
 ---
 
-#### NOTIFUSE-CREATE — POST /api/notifuse/create-tenant
+#### NOTIFUSE-CREATE — retiré le 25/11/2026
 
-**Statut** : ✅ livré (legacy — gardé pour scripts ops).
-**Direction** : front Hub → Hub → Notifuse fork.
-**Auth** : Session Hub.
-**Body** : `{ workspaceId, workspaceName }`.
-
-Tendance long terme : à réabsorber dans `/api/tenants/start` une fois
-multi-tenant workspace supporté (cf §5.18).
-
----
+L'appelant y choisissait l'identifiant d'espace. Le Hub le tire maintenant de l'id du tenant (`/api/tenants/start`).
 
 #### PROSPECTION-REGEN — POST /api/prospection/regenerate-login
 
@@ -2986,7 +2978,6 @@ if (target === session.email) {
 | TENANT-START | POST /api/tenants/start | ✅ | unit + E2E | Click manuel "Commencer l'essai" — remplace auto-provision signup |
 | TENANT-RETRY | POST /api/tenants/retry | ✅ | unit | Recovery partial failure |
 | TENANT-STATUS | GET /api/tenants/status | ✅ | — | Front dashboard provisioning |
-| NOTIFUSE-CREATE | POST /api/notifuse/create-tenant | 🟡 | unit | Legacy — à réabsorber dans TENANT-START quand multi-tenant supporté |
 | PROSPECTION-REGEN | POST /api/prospection/regenerate-login | ✅ | unit | Fresh login_url |
 
 ### Endpoints Hub-locaux : Admin API

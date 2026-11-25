@@ -9,29 +9,28 @@
  *
  * Tout ce qui touche à un workspace_id Notifuse côté Hub doit passer par
  * ces helpers — sinon on a des écarts de validation entre routes (déjà
- * arrivé : `provision.ts` slice 20 vs `create-tenant/route.ts` valide 32).
+ * arrivé : deux routes, deux longueurs).
  */
+
+import { createHash } from 'node:crypto';
+
+import { estCompteDeTest } from '@/lib/email/compte-de-test';
+import { isTestAccount } from '@/lib/sync/test-residue';
 
 export const NOTIFUSE_WORKSPACE_ID_MAX_LENGTH = 20;
 
+/** Préfixe des comptes d'épreuve : leurs espaces se comptent et se retirent par lui. */
+const prefixe = (email: string): string => (estCompteDeTest(email) ? 'e2esso' : isTestAccount(email) ? 'e2e' : 'v');
+
 /**
- * Génère un workspace_id valide depuis un email. Applique :
- *  - split sur `@` (prend le local-part)
- *  - retire tout caractère non `[a-z0-9]` (case-insensitive puis lowercase)
- *  - tronque à 20 chars
- *
- * Si le résultat est vide (email exotique tout en symboles), throw.
+ * L'identifiant de l'espace Mail d'un tenant : choisi par le Hub, tiré de l'id du tenant, jamais de l'adresse. Le même à chaque rejeu et dans deux
+ * provisionnements qui se croisent ; jamais celui d'un autre. Avant le 25/11 c'était le début de l'adresse coupé à 20 caractères : contact@a.fr et
+ * contact@b.fr visaient le même espace, et qui choisissait son adresse choisissait l'espace visé. Les espaces déjà là gardent le leur.
  */
-export function workspaceIdFromEmail(email: string): string {
-  const local = email.split('@')[0] ?? '';
-  const cleaned = local.replace(/[^a-z0-9]/gi, '').toLowerCase();
-  const truncated = cleaned.slice(0, NOTIFUSE_WORKSPACE_ID_MAX_LENGTH);
-  if (!truncated) {
-    throw new Error(
-      `Cannot derive Notifuse workspace_id from email "${email}" — local-part has no alphanumeric characters`,
-    );
-  }
-  return truncated;
+export function workspaceIdDuTenant(hubTenantId: string, email: string): string {
+  const p = prefixe(email);
+  const h = BigInt(`0x${createHash('sha256').update(`notifuse:${hubTenantId}`).digest('hex')}`).toString(36);
+  return (p + h).slice(0, NOTIFUSE_WORKSPACE_ID_MAX_LENGTH);
 }
 
 export interface WorkspaceIdValidation {
@@ -42,9 +41,7 @@ export interface WorkspaceIdValidation {
 /**
  * Valide qu'un workspace_id fourni par un client respecte les contraintes
  * Notifuse. Retourne `{ ok: true }` ou `{ ok: false, error }`.
- *
- * Utiliser ça côté routes API qui acceptent un workspaceId user-fourni
- * (création manuelle), pas pour ceux dérivés via `workspaceIdFromEmail()`.
+
  */
 export function validateWorkspaceId(value: unknown): WorkspaceIdValidation {
   if (typeof value !== 'string' || !value) {

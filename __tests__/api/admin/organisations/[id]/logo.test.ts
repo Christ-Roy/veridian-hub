@@ -12,7 +12,7 @@ import { DELETE, PUT } from '@/app/api/admin/organisations/[id]/logo/route';
 const T = '11111111-1111-4111-8111-111111111111';
 const ctx = (id = T) => ({ params: Promise.resolve({ id }) });
 const req = (method: string, h: Record<string, string> = {}) => new NextRequest('https://h/x', { method, headers: h, ...(method === 'PUT' ? { body: Buffer.from('img') } : {}) });
-beforeEach(() => { vi.clearAllMocks(); m.admin.mockResolvedValue(null); m.regler.mockResolvedValue({ emissions: [] }); });
+beforeEach(() => { vi.clearAllMocks(); m.admin.mockResolvedValue(null); m.regler.mockResolvedValue({ emissions: [], retraits: [] }); });
 
 describe('logo', () => {
   it('PUT passe les octets ; DELETE retire', async () => {
@@ -27,7 +27,7 @@ describe('logo', () => {
     expect((await DELETE(req('DELETE'), ctx('x'))).status).toBe(400);
   });
   it('une app en retard : 207, sur la pose comme sur le retrait', async () => {
-    m.regler.mockResolvedValue({ emissions: [{ app: 'academy', etat: 'echec' }] });
+    m.regler.mockResolvedValue({ emissions: [{ app: 'academy', etat: 'echec' }], retraits: [] });
     expect([(await PUT(req('PUT'), ctx())).status, (await DELETE(req('DELETE'), ctx())).status]).toEqual([207, 207]);
   });
 });

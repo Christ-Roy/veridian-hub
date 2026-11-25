@@ -6,11 +6,12 @@ import type { PrismaClient } from '@prisma/client';
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
 import { hubPublicUrl } from '@/lib/organisations/base';
 
+import { avecRecoche, noterVenus, releverAvant, RESERVEES } from './acces';
 import { documentOrg, MODULES, pourApp, type Module } from './document';
 
 const DELAI_MS = 15_000;
 export type Emission = { app: Module; version: number; etat: 'applique' | 'non_relu' | 'ignore' | 'echec'; detail?: string };
-type Db = Pick<PrismaClient, 'organisation' | 'organisationEmission' | 'tenant' | 'tenantMember' | 'user'>;
+type Db = Pick<PrismaClient, 'organisation' | 'organisationEmission' | 'organisationAcces' | 'tenant' | 'tenantMember' | 'user'>;
 type Deps = { env?: NodeJS.ProcessEnv; fetchImpl?: typeof fetch };
 
 async function signer(app: Module, methode: 'GET' | 'POST', chemin: string, corps: string, deps: Deps): Promise<Response> {
@@ -53,7 +54,14 @@ async function versApp(app: Module, d: NonNullable<Awaited<ReturnType<typeof doc
 export async function emettreOrganisation(db: Db, tenantId: string, deps: Deps = {}): Promise<Emission[]> {
   const d = await documentOrg(db, tenantId, hubPublicUrl(deps.env));
   if (!d) return [];
-  const res = await Promise.all(MODULES.filter((m) => d.modules.includes(m)).map((m) => versApp(m, d, deps)));
+  const proprietaire = (await db.tenant.findFirst({ where: { id: tenantId, deletedAt: null }, select: { userId: true } }))?.userId ?? '';
+  const res = await Promise.all(MODULES.filter((m) => d.modules.includes(m)).map(async (m) => {
+    if (!RESERVEES.includes(m)) return versApp(m, d, deps);
+    const vus = await releverAvant(db, d, m, proprietaire, deps);
+    const e = await versApp(m, await avecRecoche(db, d, m), deps);
+    if (e.etat === 'applique') await noterVenus(db, tenantId, m, vus);
+    return e;
+  }));
   for (const e of res) {
     const ligne = { version: BigInt(e.version), etat: e.etat, detail: e.detail ?? null, le: new Date() };
     await db.organisationEmission.upsert({ where: { tenantId_app: { tenantId, app: e.app } }, create: { tenantId, app: e.app, ...ligne }, update: ligne });

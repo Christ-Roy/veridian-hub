@@ -1,7 +1,7 @@
 /**
  * Suspendre une organisation au Hub la ferme DANS le CRM (VER-254) : une session déjà ouverte (propriétaire et membre) et une clé API, en secondes ; le
  * rebond le dit ; l'organisation d'à côté ne bouge pas ; la reprise rend tout, la même session et la même clé, et ce que le CRM avait refusé d'appliquer
- * repart. Cochée au Hub, puis non cochée (CRM ouvert au compte). Enfin ce que DÉCOCHER le CRM ferme, mesuré.
+ * repart. Cochée au Hub, puis non cochée (CRM ouvert au compte). Décocher : cas 35.
  * NON PROUVÉ ici : 409 not_suspended_by_hub (il faudrait un espace fermé par un autre chemin ; tests), IMAP, 24 h.
  * Épreuves : `SSO_SABOTAGE=suspension-crm` ne suspend pas, `suspension-reprise` ne reprend pas : le cas doit échouer.
  */
@@ -10,7 +10,6 @@ import { expect, type BrowserContext } from '@playwright/test';
 import { APP_URL, HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
 import { activerTwentyAuHub, admin, adminOk, lookup } from './lib/hub-admin';
-import { obtenirJetonMcp, outil } from './lib/mcp';
 import { creerCompteProuve, noterEspaceTwenty, ouvrirApp, type Compte } from './lib/parcours';
 
 type Issue = { app: string; etat: string; detail?: string };
@@ -129,23 +128,7 @@ cas(null, 'suspension : le CRM ferme session et clé, puis les rend ; cochée et
     const un = await jouer('cochée', T, [{ s: sP, c: P }, { s: sM, c: M }], kP, { s: sQ, c: Q, k: kQ });
     const deux = await jouer('non cochée', T2, [{ s: sQ, c: Q }], kQ, { s: sP, c: P, k: kP });
 
-    // Décocher le CRM : les portes du Hub se ferment ; la session déjà ouverte, on le mesure.
-    const jetonM = await obtenirJetonMcp(browser, M, 'TEST SUSPENSION');
-    const porte = async () => (JSON.parse((await outil(jetonM, 'chercher_outils', { besoin: 'lire les sociétés', app: 'twenty' })).texte) as { apps: string[] }).apps.includes('twenty');
-    expect(await porte(), 'contrôle positif : la porte IA est ouverte').toBe(true);
-    await adminOk('PUT', `organisations/${T.id}`, { modules: [] });
-    expect(await porte(), 'décochée : porte IA').toBe(false);
-    await new Promise((r) => setTimeout(r, 10_000));
-    const session = (await sM.donnees()) ? 'LIT ENCORE les données' : 'fermée';
-    const neuf = await browser.newContext({ storageState: M.etat as never });
-    let rebond = '';
-    try {
-      const s = await entrer(M, neuf);
-      rebond = s.origine === sP.origine && (await s.donnees()) ? 'ENTRE dans l\'espace de l\'organisation' : `${s.a.hote}${s.a.chemin}`;
-    } finally {
-      await neuf.close();
-    }
-    return `${un} ; ${deux} ;${lus.length ? ` ${lus.join(' ; ')} ;` : ''} jamais suspendue, reprise : crm ${jamais.crm?.etat} ${jamais.crm?.detail ?? ''} ; DÉCOCHÉ : porte IA fermée, session CRM de M ${session}, nouvelle entrée de M par le Hub : ${rebond}`;
+    return `${un} ; ${deux} ;${lus.length ? ` ${lus.join(' ; ')} ;` : ''} jamais suspendue, reprise : crm ${jamais.crm?.etat} ${jamais.crm?.detail ?? ''}`;
   } finally {
     for (const c of ouverts) await c.close().catch(() => undefined);
   }

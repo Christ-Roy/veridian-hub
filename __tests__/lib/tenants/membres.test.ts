@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const org = vi.hoisted(() => ({ suivre: vi.fn(async (..._a: unknown[]) => []) }));
 vi.mock('@/lib/organisations/emission', () => ({ suivreOrganisation: org.suivre }));
 
-import { basculerSuspension, avisCles, nonCoupees, oublierCompte, rejoindre, retirer, type DbMembres } from '@/lib/tenants/membres';
+import { basculerSuspension, avisCles, nonCoupees, oublierCompte, rejoindre, retirer, retirerDeLApp, type DbMembres } from '@/lib/tenants/membres';
 
 import { parcourir } from '../../contrat/source';
 
@@ -304,6 +304,22 @@ it('oublierCompte : appartenances, invitations envoyées et reçues ; celles des
   expect(await oublierCompte(d, { id: 'c', email: 'A@b.fr', hubUserId: 'u', tenants: ['T'] })).toEqual({ membres: 1, invitations: 2 });
   expect(jeu).toEqual([['membres', { userId: 'u' }], ['preinscriptions', { OR: [{ email: 'a@b.fr' }, { tenantId: { in: ['T'] } }] }], ['idp', { tenantId: { in: ['T'] } }], ['acceptees', { where: { acceptedByUserId: 'c' }, data: { acceptedByUserId: null } }], ['invitations', { OR: [{ inviterUserId: 'c' }, { inviteeEmail: { equals: 'A@b.fr', mode: 'insensitive' } }] }]]);
   expect(await oublierCompte(d, { id: 'c', email: 'a@b.fr', hubUserId: null })).toEqual({ membres: 0, invitations: 2 });
+});
+
+it('retirerDeLApp : cette app seule, relue ; l\'appartenance au Hub ne bouge pas', async () => {
+  await joindre();
+  const a = apps({ crm: ['m@x.fr'], notifuse: ['m@x.fr'] });
+  expect(await retirerDeLApp('crm', tenant as never, 'm@x.fr', 'u-m', { fetchImpl: a.f })).toMatchObject({ app: 'crm', etat: 'retire' });
+  expect(a.posts.map((p) => [p.app, p.chemin])).toEqual([['crm', '/api/tenants/T/remove-member']]);
+  expect(membres[0].deletedAt ?? null).toBeNull();
+  expect(await retirerDeLApp('crm', tenant as never, 'm@x.fr', 'u-m', { fetchImpl: apps({ crm: ['m@x.fr'] }, { refuse: 'crm' }).f })).toMatchObject({ etat: 'echec' });
+});
+
+it('oublierCompte : ses notes d\'accès par organisation partent aussi, et celles de ses tenants', async () => {
+  const vus: L[] = [];
+  const rien = { deleteMany: async () => ({ count: 0 }), updateMany: async () => ({ count: 0 }) };
+  await oublierCompte({ tenantIdp: rien, tenantPreinscription: rien, tenantMember: rien, crossAppInvitation: rien, organisationAcces: { deleteMany: async (x: L) => { vus.push(x.where); return { count: 1 }; } } } as never, { id: 'c', email: 'a@b.fr', hubUserId: 'u', tenants: ['T'] });
+  expect(vus).toEqual([{ OR: [{ hubUserId: 'u' }, { tenantId: { in: ['T'] } }] }]);
 });
 
 it('nonCoupees : null quand tout est coupé, sinon chaque app et sa raison', () => {
