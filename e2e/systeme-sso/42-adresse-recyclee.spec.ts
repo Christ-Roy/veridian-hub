@@ -9,6 +9,7 @@ import { expect, type BrowserContext } from '@playwright/test';
 import { APP_URL, HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
 import { activerTwentyAuHub, admin, adminOk, lookup, marquerTest, supprimerTenantHub } from './lib/hub-admin';
+import { COMPAGNIES } from './lib/portes-crm';
 import { creerCompteProuve, noterEspaceTwenty, ouvrirApp, type Compte } from './lib/parcours';
 
 const pause = (ms: number) => new Promise((ok) => setTimeout(ok, ms));
@@ -36,9 +37,17 @@ async function voir(ctx: BrowserContext, email: string): Promise<Vu> {
     if (moi?.user?.email?.toLowerCase() !== email.toLowerCase()) erreurs.push('mail : autre personne');
     v.mail = moi?.workspaces?.map((w) => w.id) ?? null;
   }
-  const crm = await ouvrirApp(ctx, 'twenty');
-  if (/\/auth\/bounce\/error|\/dashboard/.test(crm.chemin)) erreurs.push(`crm ${new URL(crm.url).search}`.slice(0, 160));
-  else v.crm = new URL(crm.url).host;
+  // Arrivé sur l'hôte ne veut pas dire entré : la session doit LIRE son espace (25/11 : la page de connexion du CRM comptait pour une entrée).
+  for (let i = 0; i < 3 && !v.crm; i++) {
+    if (i) await pause(35_000);
+    const crm = new URL((await ouvrirApp(ctx, 'twenty')).url);
+    for (let k = 0; k < 8 && !v.crm; k++) {
+      const r = await ctx.request.post(`${crm.origin}/graphql`, { headers: { origin: crm.origin, 'x-twenty-session-cookie': '1' }, data: { query: COMPAGNIES }, timeout: 15_000 }).catch(() => null);
+      if (((await r?.json().catch(() => null)) as { data?: { companies?: unknown } } | null)?.data?.companies) v.crm = crm.host;
+      else await pause(2_000);
+    }
+    if (!v.crm) erreurs.push(`crm ${crm.host}${crm.pathname}${crm.search.slice(0, 60)}`);
+  }
   return v;
 }
 
@@ -78,6 +87,7 @@ cas(null, 'adresse recyclée : un compte neuf entre partout chez lui, et n\'hér
       crm: neuf.crm !== null && neuf.crm === avantM.crm ? 1 : 0,
     };
     const entre = { prospection: Boolean(neuf.prospection?.length), mail: Boolean(neuf.mail?.length), crm: Boolean(neuf.crm) };
+    expect.soft(refusCrm, 'son espace CRM, ouvert par l\'opérateur').toBeNull();
     expect.soft(herite, 'ce que le compte neuf a hérité').toEqual({ prospection: 0, mail: 0, crm: 0 });
     expect.soft(entre, `il entre partout : ${[refusCrm, ...neuf.erreurs].filter(Boolean).join(' | ')}`).toEqual({ prospection: true, mail: true, crm: true });
     // Ce que M tenait est fermé, et ne s'est pas rouvert avec le compte neuf.
