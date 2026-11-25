@@ -74,7 +74,14 @@ cas(null, 'API du CRM dans un programme : lire passe, écrire se nomme, administ
       ['api_supprimer', 'mutation { deleteCompanies(filter: { name: { like: "%" } }) { id } }'],
       ['api_ecrire', 'mutation A { createCompany(data: { name: "a" }) { id } b: updateWorkspaceMember(id: "00000000-0000-4000-8000-000000000000", data: { locale: "fr-FR" }) { id } }'],
       ['api_lire', 'query { __schema { types { name } } }'],
+      // En lecture, un membre se réduit à id, name, userEmail, et aucun lien de fichier ne sort (parente, 25/11).
+      ['api_lire', 'query { workspaceMembers(first: 5) { edges { node { id locale } } } }'],
+      ['api_lire', 'query { workspaceMembers(first: 5) { edges { node { id avatarUrl } } } }'],
+      ['api_lire', 'query { people(first: 5) { edges { node { id avatarUrl } } } }'],
+      ['api_lire', 'query { companies(first: 5) { edges { node { id accountOwner { id avatarUrl } } } } }'],
     ];
+    const [permis] = await jouer([['api_lire', 'query { workspaceMembers(first: 5) { edges { node { id name { firstName } userEmail } } } }']]);
+    expect([permis.slice(0, 4), permis.includes(membre)], `les trois champs d'un membre se lisent : ${permis.slice(0, 300)}`).toEqual(['ok :', true]);
     const refus = await jouer(interdits, ['twenty.api_ecrire', 'twenty.api_supprimer']);
     expect(refus.map((x, i) => [interdits[i][1].slice(0, 70), /^(refus|reserve)/.test(x)]), refus.join('\n').slice(0, 1500)).toEqual(interdits.map((x) => [x[1].slice(0, 70), true]));
     if (process.env.SSO_RAISONS) writeFileSync(process.env.SSO_RAISONS, refus.map((x, i) => `${interdits[i][0]} ${interdits[i][1].slice(0, 60)} => ${x}`).join('\n'));
