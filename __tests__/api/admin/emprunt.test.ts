@@ -32,7 +32,7 @@ beforeEach(() => {
   m.findUnique.mockResolvedValue({ email: 'robert@v', supabaseUserId: ADMIN, emailVerified: new Date() });
   m.findFirst.mockResolvedValue({ id: 'u-client', email: 'client@c', name: 'C', image: null, supabaseUserId: CLIENT });
   m.audit.mockResolvedValue({ id: 'emprunt-1' });
-  m.orgActive.mockImplementation(async (_d: unknown, _h: string, s: string) => s);
+  m.orgActive.mockImplementation(async (_d: unknown, _h: string, _p: unknown, s: string) => s);
 });
 
 describe('entrer', () => {

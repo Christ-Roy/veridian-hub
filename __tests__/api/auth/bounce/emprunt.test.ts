@@ -18,6 +18,7 @@ vi.mock('@/lib/tenants/actif', () => ({ COOKIE_ACTIF: 'veridian_org', organisati
 vi.mock('@/lib/tenants/membre-seul', () => ({ membreSeul: async () => false }));
 vi.mock('@/lib/crm/provision', () => ({ ensureCrmWorkspace: m.crm }));
 vi.mock('@/lib/academy/provision', () => ({ ensureAcademyWorkspace: vi.fn() }));
+vi.mock('@/lib/federation/obligation', () => ({ fermees: async () => [], tientApp: async () => true, preuveDeSession: () => ({ par: 'session' }) }));
 vi.mock('@/lib/tenant-apps', () => ({ getEnabledGatedApps: async () => new Set() }));
 
 import { GET } from '@/app/api/auth/bounce/complete/route';

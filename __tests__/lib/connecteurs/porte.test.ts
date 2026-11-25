@@ -194,7 +194,7 @@ describe('sessionExterne', () => {
 });
 
 describe('la porte entière', () => {
-  const appelant = (o: object = {}) => ({ hubUserId: 'h', email: 'a@x.fr', name: 'A', clientId: 'c', scope: '', userId: 'U', services: true, ...o }) as never;
+  const appelant = (o: object = {}) => ({ hubUserId: 'h', email: 'a@x.fr', name: 'A', clientId: 'c', scope: '', userId: 'U', services: true, preuve: { par: 'jeton', orgs: [] }, ...o }) as never;
   const jouer = async (nom: string, args: object, qui: object = {}) => {
     const r: any = await traiter(db, appelant(qui), { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: nom, arguments: args } }, { connecteur: D });
     return { texte: r.result.content[0].text as string, erreur: r.result.isError === true };

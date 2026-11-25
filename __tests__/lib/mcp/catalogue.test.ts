@@ -10,7 +10,7 @@ beforeAll(async () => {
   const { privateKey } = await generateKeyPair('ES256', { extractable: true });
   process.env.MCP_SIGNING_JWK = JSON.stringify({ ...(await exportJWK(privateKey)), kid: 'k1' });
 });
-const QUI = { hubUserId: 'u', email: 'u@example.test', clientId: 'c', scope: 'veridian' };
+const QUI = { hubUserId: 'u', email: 'u@example.test', clientId: 'c', scope: 'veridian', preuve: { par: 'jeton', orgs: [] } };
 const APP = { appKey: 'crm', label: 'CRM', mcpUrl: 'https://crm.test/mcp' };
 
 describe('appsDe et espacesDe', () => {
