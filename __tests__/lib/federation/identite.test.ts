@@ -7,7 +7,7 @@ vi.mock('@/lib/organisations/emission', () => ({ suivreOrganisation: m.suivre })
 vi.mock('@/lib/tenants/roles', () => ({ pousserRole: m.role }));
 vi.mock('@/lib/workspace/provision', () => ({ provisionDefaultWorkspace: m.ws }));
 
-import { fournisseur, resoudreIdentite, type Connecte } from '@/lib/federation/identite';
+import { adresseAffirmee, fournisseur, resoudreIdentite, type Connecte } from '@/lib/federation/identite';
 
 import { base, table } from '../delegation/fausse';
 
@@ -38,6 +38,13 @@ beforeEach(() => {
 const aller = (x: object = {}, i: object = {}, connecte: Connecte = null) => resoudreIdentite(db, { ...I, ...i }, { sub: 's1', email: 'neuf@client.test', emailNie: false, nom: 'N', ...x }, connecte);
 const liens = (userId: string) => db.account.lignes.filter((a: any) => a.userId === userId).map((a: any) => a.provider);
 const membres = () => db.tenantMember.lignes.map((x: any) => [x.userId, x.role, x.origine]);
+
+describe('adresseAffirmee', () => {
+  it('ce que le fournisseur a le droit de dire', () => {
+    const x = { sub: 's', email: 'a@client.test', emailNie: false, nom: null };
+    expect([adresseAffirmee(I, x), adresseAffirmee(I, { ...x, email: 'a@ailleurs.test' }), adresseAffirmee({ ...I, test: true }, x), adresseAffirmee(I, { ...x, emailNie: true })]).toEqual([{ email: 'a@client.test' }, { refus: 'domaine_refuse' }, { refus: 'domaine_refuse' }, { refus: 'adresse_non_verifiee' }]);
+  });
+});
 
 describe('resoudreIdentite : qui entre', () => {
   it('attendue (création ouverte, ou pré-inscrite) : compte neuf, prouvé, relié, membre ; puis la même identité le retrouve, quelle que soit son adresse', async () => {

@@ -38,6 +38,16 @@ describe('demarrer', () => {
   });
 });
 
+describe('demarrer pour un ajout d\'adresse', () => {
+  it('le fournisseur redemande la connexion, pour l\'adresse nommée ; qui l\'a demandé est scellé ; une connexion ordinaire n\'en dit rien', async () => {
+    const d = await demarrer(i, RETOUR, undefined, { userId: 'U', email: 'jean@client.test' });
+    const p = new URL(d.url).searchParams;
+    expect([p.get('prompt'), p.get('login_hint'), ouvrir(d.cookie)?.ajout]).toEqual(['login', 'jean@client.test', { userId: 'U', email: 'jean@client.test' }]);
+    const o = await aller();
+    expect([o.url.searchParams.get('prompt'), o.t.ajout]).toEqual([null, undefined]);
+  });
+});
+
 describe('terminer', () => {
   it('témoin : l\'identité dite, adresse en minuscules', async () => {
     const x = await aller();

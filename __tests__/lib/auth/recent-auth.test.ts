@@ -41,6 +41,13 @@ describe('denyUnlessRecentAuth (D12)', () => {
     expect(await denyUnlessRecentAuth(PREUVE_FACTURATION_S)).toBeNull();
   });
 
+  it('ouverte par le fournisseur d\'une organisation : jamais un geste de compte, même fraîche ; la facturation, si', async () => {
+    authMock.mockResolvedValue({ user: { id: 'u1', authAt: Date.now() / 1000, federe: true } });
+    const compte = await denyUnlessRecentAuth(PREUVE_COMPTE_S);
+    expect([compte?.status, (await compte?.json())?.error]).toEqual([403, 'session_federee']);
+    expect(await denyUnlessRecentAuth(PREUVE_FACTURATION_S)).toBeNull();
+  });
+
   it('session sans date de connexion réelle : refusée', async () => {
     authMock.mockResolvedValue({ user: { id: 'u1' } });
     expect((await denyUnlessRecentAuth(PREUVE_COMPTE_S))?.status).toBe(403);

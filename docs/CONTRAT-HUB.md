@@ -1856,7 +1856,16 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
   Jamais depuis une session d'emprunt. `hub org preinscrits|annuler`, liste à l'écran.
 - **Plusieurs adresses** (VER-227 S1b, `lib/adresses`) : une personne ajoute une adresse en prouvant, par un code reçu, qu'elle la tient. Une secondaire
   ne connecte pas, ne reçoit aucun lien : elle fait reconnaître (pré-inscription, fédération). Une adresse active n'appartient qu'à une personne, tenu
-  par la BASE pour tous les chemins. PROMOTION et avis par mail (AD-M3) : pas écrits. Le code reçu dans une vraie boîte : NON PROUVÉ (pas de boîte d'épreuve).
+  par la BASE pour tous les chemins. Le code reçu dans une vraie boîte : NON PROUVÉ (pas de boîte d'épreuve).
+- **Changer d'adresse principale** (AD-M3, 25/11, `lib/adresses/{federation,promotion}.ts`, cas 32) : une secondaire PROUVÉE, par un code ou par le
+  fournisseur de son organisation (elle se reconnecte devant lui, `prompt=login`, et il affirme exactement l'adresse demandée ; ni session ni lien n'en
+  naissent). Le `hub_user_id` ne bouge pas, les apps suivent par `users/sync` ; l'ancienne devient un alias ; toutes les sessions tombent. Une app qui
+  refuse l'adresse remet tout comme avant. Dans un domaine tenu par une organisation, elle seule prouve, à ses membres. Refusée, avant tout changement,
+  à qui a un compte chez **Mail ou le CRM** (`APPS_PAR_ADRESSE`) : Mail retire, change le rôle et rétablit un membre par l'adresse ; le CRM retire un
+  membre par l'adresse, et note le propriétaire d'un espace par celle de la création (`provision` répond 409 ensuite, `by-email` le dit « member »).
+  Ils en sortent quand ils lisent `hub_user_id`. Pas écrits : avis à l'ancienne adresse et annulation (mail).
+- **Une session ouverte par le fournisseur d'une organisation** ne fait AUCUN geste de compte (adresse, mot de passe, 2FA, fournisseurs) et n'administre
+  pas la plateforme (25/11) : l'administrateur de ce fournisseur peut en ouvrir une. `denyUnlessRecentAuth(PREUVE_COMPTE_S)`, `isPlatformAdmin`.
 - **Apps ouvertes par l'organisation** (option A, parente 25/11, `lib/tenant-apps/organisation.ts`) : le CRM coché s'ouvre (tuile, IA, délégation) aux
   membres VIVANTS, lu à chaque fois : retrait, suspension ou case décochée referment. L'app garde ses droits. Academy garde sa réserve.
 - **Fédération OIDC** (VER-227 S2, `lib/federation`) : `hub org idp poser` déclare le fournisseur ET les domaines qu'il peut affirmer (un domaine, une

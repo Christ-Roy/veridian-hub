@@ -14,9 +14,10 @@ export const ADMIN_EMAILS: string[] =
     ? ADMIN_EMAILS_ENV.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
     : DEFAULT_ADMINS.map((s) => s.toLowerCase());
 
-type EmailHolder = { email?: string | null } | null | undefined;
+type EmailHolder = { email?: string | null; federe?: boolean } | null | undefined;
 
 export function isPlatformAdmin(user: EmailHolder): boolean {
-  if (!user?.email) return false;
+  // Une session ouverte par le fournisseur d'une organisation n'administre jamais la plateforme : son administrateur peut en ouvrir une.
+  if (!user?.email || user.federe === true) return false;
   return ADMIN_EMAILS.includes(user.email.toLowerCase());
 }

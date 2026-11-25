@@ -220,6 +220,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       if (typeof token?.authAt === 'number' && session.user) {
         session.user.authAt = token.authAt;
       }
+      if (token?.federe === true && session.user) session.user.federe = true;
       // Expose le marqueur d'impersonation côté session pour que les Server
       // Components / routes admin puissent (a) afficher une bannière et
       // (b) refuser la ré-impersonation via isImpersonatedSession().

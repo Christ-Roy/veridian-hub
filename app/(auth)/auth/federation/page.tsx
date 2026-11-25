@@ -17,6 +17,9 @@ const RAISONS: Record<string, string> = {
   autre_identite: 'Ce compte est déjà relié à une autre identité de votre organisation. Prévenez son administrateur.',
   non_attendu: 'Votre organisation ne vous attend pas encore. Demandez à son administrateur de vous ajouter.',
   retire: 'Vous avez été retiré de cette organisation. Demandez à son administrateur de vous ajouter à nouveau.',
+  autre_adresse: 'Votre organisation a confirmé une autre adresse que celle que vous avez demandée. Rien n\'a été ajouté.',
+  trop_d_adresses: 'Vous avez déjà le nombre maximal d\'adresses. Détachez-en une avant d\'en ajouter.',
+  email_not_verified: 'Confirmez d\'abord votre adresse principale.',
   session_refusee: 'La connexion n\'a pas abouti. Repartez du lien de votre organisation.',
 };
 

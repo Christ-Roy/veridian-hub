@@ -56,6 +56,21 @@ describe('EmailForm', () => {
   });
 });
 
+describe('session ouverte par une organisation', () => {
+  it('le refus se dit en phrase, jamais en code', async () => {
+    fetchMock.mockImplementation(async () => Response.json({ error: 'session_federee', message: 'Connectez-vous avec votre propre connexion.' }, { status: 403 }));
+    render(<EmailForm userEmail="a@x.fr" />);
+    fireEvent.change(screen.getByPlaceholderText('Votre email'), { target: { value: 'b@x.fr' } });
+    fireEvent.submit(document.getElementById('emailForm')!);
+    await waitFor(() => expect(toastError).toHaveBeenCalledWith('Connectez-vous avec votre propre connexion.'));
+    render(<PasswordForm />);
+    fireEvent.change(screen.getByLabelText('Nouveau mot de passe'), { target: { value: 'motdepasse1' } });
+    fireEvent.change(screen.getByLabelText('Confirmer le nouveau mot de passe'), { target: { value: 'motdepasse1' } });
+    fireEvent.click(screen.getByRole('button', { name: /Mettre à jour le mot de passe/ }));
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Connectez-vous avec votre propre connexion.'));
+  });
+});
+
 describe('SignupForm', () => {
   it('coupure réseau : message français, bouton réactivé', async () => {
     const { container } = render(<SignupForm />);

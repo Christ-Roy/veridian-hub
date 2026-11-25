@@ -50,7 +50,7 @@ export default function PasswordForm() {
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         if (redirectIfReauthRequired(data)) return;
-        setError(data.error || 'Échec de la mise à jour du mot de passe');
+        setError(data.message || data.error || 'Échec de la mise à jour du mot de passe');
         return;
       }
 

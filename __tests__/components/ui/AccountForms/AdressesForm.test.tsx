@@ -51,4 +51,29 @@ describe('AdressesForm', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Détacher pro@client.fr' }));
     await waitFor(() => expect(posts).toEqual([{ geste: 'detacher', email: 'pro@client.fr' }]));
   });
+  it('rend principale, puis renvoie se connecter ; un refus se dit et rien ne part', async () => {
+    const aller = vi.fn();
+    vi.stubGlobal('location', { ...window.location, assign: aller });
+    reponse = { status: 409, corps: { error: 'app_par_adresse', apps: ['crm'] } };
+    render(<AdressesForm />);
+    const bouton = await screen.findByRole('button', { name: 'Rendre principale pro@client.fr' });
+    fireEvent.click(bouton);
+    await waitFor(() => expect(t.error.mock.calls[0][0]).toMatch(/CRM ou Mail/));
+    expect(aller).not.toHaveBeenCalled();
+    reponse = { status: 200, corps: { ok: true, principale: 'pro@client.fr', reconnect: true } };
+    await waitFor(() => expect((bouton as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(bouton);
+    await waitFor(() => expect(aller).toHaveBeenCalledWith('/login'));
+    expect(posts.at(-1)).toEqual({ geste: 'promouvoir', email: 'pro@client.fr' });
+  });
+  it('confirme par son organisation : part chez elle, avec l\'adresse saisie', async () => {
+    const aller = vi.fn();
+    vi.stubGlobal('location', { ...window.location, assign: aller });
+    reponse = { status: 200, corps: { ok: true, url: 'https://idp.client.test/a' } };
+    render(<AdressesForm />);
+    fireEvent.change(await screen.findByLabelText('Ajouter une adresse'), { target: { value: 'Moi@Client.fr' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirmer par mon organisation' }));
+    await waitFor(() => expect(aller).toHaveBeenCalledWith('https://idp.client.test/a'));
+    expect(posts).toEqual([{ geste: 'federer', email: 'moi@client.fr' }]);
+  });
 });

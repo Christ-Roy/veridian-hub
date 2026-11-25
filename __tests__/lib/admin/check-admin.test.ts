@@ -21,6 +21,10 @@ import { describe, it, expect } from 'vitest';
 import { isPlatformAdmin, ADMIN_EMAILS } from '@/lib/admin/check-admin';
 
 describe('isPlatformAdmin — gardien whitelist platform-admin', () => {
+  it('refuse la session fédérée d\'un administrateur ; sa session à lui passe', () => {
+    expect([isPlatformAdmin({ email: ADMIN_EMAILS[0], federe: true }), isPlatformAdmin({ email: ADMIN_EMAILS[0] })]).toEqual([false, true]);
+  });
+
   it('refuse un user null', () => {
     expect(isPlatformAdmin(null)).toBe(false);
   });

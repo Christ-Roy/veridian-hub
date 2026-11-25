@@ -61,6 +61,7 @@ describe('auth.ts — invariants de config critiques', () => {
     const jwt = authSource.slice(authSource.indexOf('async jwt('), authSource.indexOf('async session('));
     expect(jwt).toMatch(/if \(account\?\.provider === FOURNISSEUR_FEDERATION\) token\.federe = true;/);
     expect(jwt.indexOf('token.federe = true')).toBeLessThan(jwt.indexOf('return token'));
+    expect(authSource, 'la session le dit aux gestes de compte').toMatch(/if \(token\?\.federe === true && session\.user\) session\.user\.federe = true;/);
     expect(jwt).toMatch(/if \(federationExpiree\(token\)\) return null;/);
     expect(jwt.indexOf('federationExpiree(token)')).toBeLessThan(jwt.indexOf('isSessionRevoked'));
   });

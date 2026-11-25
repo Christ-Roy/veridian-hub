@@ -17,6 +17,8 @@ declare module 'next-auth' {
       id?: string;
       /** Dernière connexion réelle (secondes). Ne glisse pas avec le renouvellement. */
       authAt?: number;
+      /** `true` : session ouverte par le fournisseur d'une organisation, elle ne prouve pas la personne pour son compte. */
+      federe?: boolean;
       /** `true` si la session provient d'une impersonation admin. */
       impersonated?: boolean;
       /** Email du platform admin à l'origine de l'impersonation, sinon null. */

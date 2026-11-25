@@ -5,6 +5,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
 import { auth, signIn } from '@/auth';
+import { ajouterParFournisseur } from '@/lib/adresses/federation';
 import { NEXT_COOKIE_NAME_INSECURE, NEXT_COOKIE_NAME_SECURE } from '@/lib/auth/bounce-next';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { isImpersonatedSession } from '@/lib/auth/impersonation';
@@ -20,10 +21,10 @@ import { COOKIE_ACTIF } from '@/lib/tenants/actif';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-/** La personne déjà connectée, preuve récente, jamais une session d'emprunt : la seule qui relie un compte existant. */
+/** La personne déjà connectée par ses propres moyens, preuve récente, jamais une session d'emprunt ni fédérée : la seule qui relie un compte existant. */
 async function connecte(): Promise<Connecte> {
   const session = await auth();
-  if (!session?.user || isImpersonatedSession(session) || !isAuthRecent(session.user.authAt, PREUVE_COMPTE_S)) return null;
+  if (!session?.user || isImpersonatedSession(session) || session.user.federe === true || !isAuthRecent(session.user.authAt, PREUVE_COMPTE_S)) return null;
   const u = await getCurrentUser();
   return u?.email ? { userId: u.id, email: u.email } : null;
 }
@@ -49,6 +50,14 @@ export async function GET(request: NextRequest) {
     identite = await terminer(i, t, new URL(`${CHEMIN_RETOUR}${new URL(request.url).search}`, base));
   } catch (err) {
     return refus('reponse_refusee', err instanceof Error ? `${err.name} ${(err as { code?: string }).code ?? ''}` : undefined);
+  }
+  if (t.ajout) {
+    // La personne qui l'a demandé, toujours connectée dans CE navigateur ; sinon le jeton d'un autre onglet prouverait une adresse à sa place.
+    const elle = await connecte();
+    const u = elle?.userId === t.ajout.userId ? await prisma.user.findUnique({ where: { id: elle.userId }, select: { id: true, email: true, emailVerified: true, supabaseUserId: true } }) : null;
+    if (!u) return refus('demande_expiree');
+    const a = await ajouterParFournisseur(prisma, i, identite, u, t.ajout.email);
+    return 'refus' in a ? refus(a.refus) : vers('/dashboard/settings?adresse=ajoutee');
   }
   const r = await resoudreIdentite(prisma, i, identite, await connecte());
   if ('refus' in r) return refus(r.refus);

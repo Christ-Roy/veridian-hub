@@ -47,8 +47,7 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   et laisse `[bounce][refus]` (app, code, hub_user_id, jamais l'adresse) ; un succès, `[bounce][reussi]`. Batterie : `09-adresses` ; `10-creation`
   (OAuth jusqu'au fournisseur ; inscription pendant un déploiement : `SSO_PENDANT_DEPLOIEMENT=1 … 10-` après un push).
 - **Variables du job** : toute variable lue par le code est rendue par `deploy/hub.nomad.hcl` (source de la CI) ou
-  déclarée facultative avec sa raison (`__tests__/contrat/variables-job.test.ts`). 08/11 : `MICROSOFT_OAUTH_*` manquait,
-  `client_id=undefined`. Une clé de `nomad/jobs/hub` se pose AVANT le déploiement qui la rend.
+  déclarée facultative avec sa raison (`__tests__/contrat/variables-job.test.ts`). Une clé de `nomad/jobs/hub` se pose AVANT le déploiement qui la rend.
 - **Essai** : le 5e mail Notifuse nourrit `tenant_trials` ; le tick (30 min) n'active qu'à 48 h. Drapeau
   `TRIAL_MACHINE_ENABLED` (`lib/trial/flag.ts`) rendu par le template depuis `nomad/jobs/hub` : absent = 1, seul `0` coupe.
   **Couper** : clé à 0 (écriture du bloc : voir `AUTH_SECRET` plus bas), puis `nomad-v run hub`. Preuve : `__tests__/lib/trial/flag.test.ts`.
@@ -73,6 +72,7 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
 - **Appartenance, rôle, délégation** (VER-245, contrat §5.19.3 à §5.19.5) : `lib/tenants/membres.ts` seul écrivain de
   `tenant_members`. Rôle porté aux apps (`ROLE_PORTE`) : fermé sans Robert. Liaisons (`DELEGATION_CIBLES`) : ouvertes, éteintes jusqu'au
   clic du propriétaire ; jamais de jeton à `act` sans « garde servie ». Organisation unique (§5.19.6, `hub org`). Cas 21 à 26.
+- **Adresses** (VER-227, §5.19.6) : promotion fermée à qui est chez Mail ou au CRM (`APPS_PAR_ADRESSE`). Session fédérée : aucun geste de compte. Cas 30 à 32.
 - **Garde rapide** : `__tests__/contrat/` (révocation sans `iat`, `authAt`, cibles du rebond, origines) ; tout nouvel
   `encode(` de JWT de session s'y ajoute. Détail : `docs/PARCOURS-IDENTITE.md`.
 - **Sonde de prod** : « Sonde identité » de `hub-ci.yml` (lecture seule) ; le cron de reconcile alerte au-dessus de
@@ -92,7 +92,7 @@ Outil admin : `hub` (`hub doctor` d'abord : santé, secret, auth admin). Aucune 
 - **Le Hub est en 502** : `nomad-v state`, `nomad-v allocs hub`. Après un **reboot de nœud**, le réseau CNI n'est pas
   reconstruit : `nomad-v run hub` ne répare rien et `hub-selfheal` non plus. Runbook :
   `~/.claude/skills/nomad/reference/cluster-ops.md`, section « Piège CNI orphelin » (`nomad-v raw job restart -reschedule -yes hub`,
-  puis purge des DNAT orphelins). Un déploiement coupe 19 à 51 s (07/11) : attendre `/api/health` avant de conclure.
+  puis purge des DNAT orphelins).
 - **Couper un compte en urgence** : `hub app-access <email> --app twenty|analytics|cms --enabled false`, `hub unlink <email> --app <app>`
   ou `hub delete-tenant <email> --confirm` (irréversible, propage aux apps). Membre : `hub membre retirer` ; organisation :
   `hub suspension poser` (0 coupé et relu, 1 une app n'a pas suivi ; §5.19.3). Sessions : le client les coupe.
