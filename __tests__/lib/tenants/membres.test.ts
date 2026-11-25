@@ -116,7 +116,7 @@ describe('un membre retiré ne revient pas tout seul', () => {
 });
 
 /** Des apps qui tiennent leur liste de membres. */
-function apps(etat: Record<string, string[]>, o: { sourd?: string; refuse?: string; dit?: Record<string, [number, string]>; sansLien?: string; muet?: string; cles?: Record<string, object>; comptes?: Record<string, string[]> } = {}) {
+function apps(etat: Record<string, string[]>, o: { sourd?: string; refuse?: string; dit?: Record<string, [number, string]>; sansLien?: string; muet?: string; cles?: Record<string, object>; comptes?: Record<string, string[]>; orphelins?: string[] } = {}) {
   const posts: { app: string; chemin: string; corps: L }[] = [];
   const f = vi.fn(async (u: string, init: RequestInit = {}) => {
     const url = new URL(u);
@@ -131,14 +131,16 @@ function apps(etat: Record<string, string[]>, o: { sourd?: string; refuse?: stri
       const ws = { notifuse: { workspace_id: 'esp' }, prospection: { workspace_id: 'wp', tenant_id: 'tp', hub_tenant_id: 'T' }, crm: { workspace_id: 'w-crm' }, academy: { workspace_id: 'wa', hub_tenant_id: 'T' }, analytics: { workspace_id: '9', hub_tenant_id: 'T' } }[app];
       // Un autre espace de la même personne, dans un autre tenant : jamais touché.
       const autre = { workspace_id: 'ailleurs', tenant_id: 'tz', hub_tenant_id: 'T-autre' };
-      return Response.json({ found: true, workspaces: [...((etat[app] ?? []).includes(email) ? [ws] : []), autre] });
+      const orphelin = (o.orphelins ?? []).includes(email) && app === 'analytics' ? [{ workspace_id: '77', hub_tenant_id: null }] : [];
+      return Response.json({ found: true, workspaces: [...((etat[app] ?? []).includes(email) ? [ws, ...(app === 'analytics' ? [{ ...ws, workspace_id: '10' }] : [])] : []), ...orphelin, autre] });
     }
     const corps = JSON.parse(String(init.body));
     posts.push({ app, chemin: url.pathname, corps });
     if (o.refuse === app) return new Response('', { status: 500 });
     if (o.dit?.[app]) return Response.json({ error: o.dit[app][1] }, { status: o.dit[app][0] });
+    const y = (etat[app] ?? []).includes(corps.email);
     if (o.sourd !== app && url.pathname.endsWith('/remove-member')) etat[app] = (etat[app] ?? []).filter((e) => e !== corps.email);
-    return Response.json({ removed: true, ...(o.cles?.[app] ?? {}) });
+    return Response.json({ removed: app === 'analytics' ? y : true, ...(o.cles?.[app] ?? {}) });
   });
   return { f: f as unknown as typeof fetch, posts };
 }
@@ -195,27 +197,61 @@ describe('retirer', () => {
   });
 
   it('une app en panne, muette, ou sans route : dite, les autres sont coupées', async () => {
-    const r = await retirerM(apps({ notifuse: ['m@x.fr'], prospection: ['m@x.fr'], academy: ['m@x.fr'] }, { refuse: 'prospection', muet: 'notifuse', comptes: { analytics: ['u-m'] } }).f, ['notifuse', 'prospection', 'crm', 'analytics', 'academy']);
+    const r = await retirerM(apps({ notifuse: ['m@x.fr'], prospection: ['m@x.fr'], academy: ['m@x.fr'] }, { refuse: 'prospection', muet: 'notifuse', comptes: { analytics: ['u-m'] }, dit: { analytics: [404, 'Not Found'] } }).f, ['notifuse', 'prospection', 'crm', 'analytics', 'academy']);
     expect(r.apps.map((x) => [x.app, x.etat])).toEqual([['notifuse', 'echec'], ['prospection', 'echec'], ['crm', 'absent'], ['analytics', 'non_gere'], ['academy', 'retire']]);
     expect(r.complet).toBe(false);
   });
 
-  it('Analytics, sans route ni espace relié : « non fermé » dès que la personne y a un compte, par l\'identifiant ou l\'adresse ; jamais tu', async () => {
+  const deAnalytics = async (etat: Record<string, string[]>, o: Parameters<typeof apps>[1]) => { const a = apps(etat, o); const r = await retirerM(a.f, ['analytics']); return { r, i: r.apps[0], posts: a.posts }; };
+
+  it('Analytics : un seul appel par organisation, par le tenant Hub, quel que soit le nombre de sites ; clés et liens dits', async () => {
+    const { r, i, posts } = await deAnalytics({ analytics: ['m@x.fr'] }, { comptes: { analytics: ['u-m'] }, cles: { analytics: { active_api_keys: 1, api_keys_url: 'https://analytics.app.veridian.site/settings/organization', liens: { publics: 1, prives: 2 } } } });
+    expect(posts.map((p) => p.chemin)).toEqual(['/api/tenants/T/remove-member']);
+    expect(posts[0].corps).toMatchObject({ hub_user_id: 'u-m', email: 'm@x.fr' });
+    expect(i).toMatchObject({ etat: 'retire', cles: { actives: 1, par: 'espace' }, liens: { publics: 1, prives: 2 } });
+    expect([r.complet, r.avis]).toEqual([true, expect.stringContaining('Liens de site encore ouverts à qui les connaît : analytics 1 public(s), 2 privé(s).')]);
+  });
+
+  it('Analytics : jamais membre, sans compte ou sans organisation reliée : absent', async () => {
+    expect((await deAnalytics({}, {})).i).toEqual({ app: 'analytics', etat: 'absent' });
+    for (const code of ['user_not_in_app', 'tenant_not_found']) expect((await deAnalytics({}, { dit: { analytics: [404, code] } })).i).toEqual({ app: 'analytics', etat: 'absent' });
+  });
+
+  it('Analytics : un espace sans organisation reste « NON FERMÉ », même quand le retrait a marché', async () => {
+    const o = { comptes: { analytics: ['u-m'] }, orphelins: ['m@x.fr'] };
+    const un = await deAnalytics({ analytics: ['m@x.fr'] }, o);
+    expect(un.i).toMatchObject({ etat: 'non_gere', detail: expect.stringMatching(/^retiré de l'organisation ; NON FERMÉ, 1 espace sans organisation reliée/) });
+    expect([un.r.complet, un.r.avis]).toEqual([false, expect.stringContaining('PAS coupé : analytics (retiré de l\'organisation ; NON FERMÉ')]);
+    expect((await deAnalytics({}, { ...o, dit: { analytics: [404, 'tenant_not_found'] } })).i.detail).toMatch(/^NON FERMÉ, 1 espace sans/);
+  });
+
+  it('Analytics : un compte sans lien avec le Hub, de cette adresse, n\'est jamais « absent » ; celui d\'un autre ne compte pas', async () => {
+    expect((await deAnalytics({}, { comptes: { analytics: ['M@x.fr'] }, dit: { analytics: [404, 'user_not_in_app'] } })).i).toMatchObject({ etat: 'non_gere', detail: expect.stringContaining('sans lien avec le Hub') });
+    expect((await deAnalytics({ analytics: ['m@x.fr'] }, { comptes: { analytics: ['M@x.fr'] }, dit: { analytics: [404, 'user_not_in_app'] } })).i).toMatchObject({ etat: 'echec', detail: expect.stringContaining('y est encore') });
+    expect((await deAnalytics({}, { comptes: { analytics: ['u-autre'] }, dit: { analytics: [404, 'user_not_in_app'] } })).i.etat).toBe('absent');
+  });
+
+  it('Analytics : encore vu, propriétaire, en panne ou muette : échec dit', async () => {
+    expect((await deAnalytics({ analytics: ['m@x.fr'] }, { sourd: 'analytics', comptes: { analytics: ['u-m'] } })).i).toMatchObject({ etat: 'echec', detail: 'l\'app le voit encore après le retrait' });
+    expect((await deAnalytics({}, { dit: { analytics: [409, 'cannot_remove_owner'] } })).i).toMatchObject({ etat: 'echec', detail: expect.stringMatching(/propriétaire.*cannot_remove_owner, http_409/) });
+    expect((await deAnalytics({}, { refuse: 'analytics' })).i).toMatchObject({ etat: 'echec', detail: '(http_500)' });
+    expect((await deAnalytics({}, { muet: 'analytics' })).i).toMatchObject({ etat: 'echec', detail: 'retiré, mais pas relu' });
+  });
+
+  it('Analytics d\'avant la route : « NON FERMÉ » dès que la personne y a un compte, par l\'identifiant ou l\'adresse', async () => {
+    const dit = { analytics: [404, 'Not Found'] as [number, string] };
     for (const c of ['u-m', 'M@x.fr']) {
-      const a = apps({}, { comptes: { analytics: [c, 'u-autre', 'z@x.fr'] } });
-      const r = await retirerM(a.f, ['analytics']);
-      expect(r.apps[0]).toMatchObject({ app: 'analytics', etat: 'non_gere', detail: expect.stringMatching(/^NON FERMÉ, aucune route de retrait.*1 compte y reste/) });
-      expect([r.complet, a.posts]).toEqual([false, []]);
-      expect(r.avis).toMatch(/PAS coupé : analytics \(NON FERMÉ/);
-      expect(audits.at(-1)!.payload.apps[0].etat).toBe('non_gere');
+      const { r, i } = await deAnalytics({}, { dit, comptes: { analytics: [c, 'u-autre', 'z@x.fr'] } });
+      expect(i).toMatchObject({ etat: 'non_gere', detail: expect.stringMatching(/^NON FERMÉ, aucune route de retrait.*1 compte y reste/) });
+      expect(r.complet).toBe(false);
     }
-    expect((await retirerM(apps({}, { comptes: { analytics: ['u-autre'] } }).f, ['analytics'])).apps).toEqual([{ app: 'analytics', etat: 'absent' }]);
-    expect((await retirerM(apps({}, { muet: 'analytics' }).f, ['analytics'])).apps[0]).toMatchObject({ etat: 'echec', detail: expect.stringContaining('non vérifié') });
+    expect((await deAnalytics({}, { dit, comptes: { analytics: ['u-autre'] } })).i).toEqual({ app: 'analytics', etat: 'absent' });
+    expect((await deAnalytics({}, { dit, muet: 'analytics' })).i).toMatchObject({ etat: 'echec', detail: expect.stringContaining('non vérifié') });
   });
 
   it('un compte dans une app sans route ne fait pas un membre', async () => {
     membres = [];
-    await expect(retirerM(apps({}, { comptes: { analytics: ['u-m'] } }).f, ['analytics', 'crm'])).rejects.toMatchObject({ code: 'pas_membre' });
+    await expect(retirerM(apps({}, { comptes: { analytics: ['u-m'] }, orphelins: ['m@x.fr'] }).f, ['analytics', 'crm'])).rejects.toMatchObject({ code: 'pas_membre' });
   });
 
   it('rejoué : les apps en retard suivent, le Hub dit déjà', async () => {
@@ -247,22 +283,36 @@ describe('suspension', () => {
     const etat = { notifuse: ['prop@x.fr'], prospection: ['prop@x.fr'], academy: ['prop@x.fr'], crm: ['prop@x.fr'] };
     await joindre();
     audits = [];
-    const a = apps(etat, { comptes: { analytics: ['u-prop', 'm@x.fr', 'u-autre'] } });
+    const a = apps(etat, { comptes: { analytics: ['u-prop', 'm@x.fr', 'u-autre'] }, dit: { analytics: [404, 'tenant_not_found'] } });
     const r = await basculer(true, a.f);
     expect(tenant!.status).toBe('suspended');
     expect(r.apps.map((x) => x.etat)).toEqual(['suspendu', 'suspendu', 'suspendu', 'suspendu', 'non_gere']);
     expect(r.complet).toBe(false);
-    expect(r.avis, 'celui qui suspend lit ce qui ne l\'est pas').toMatch(/analytics \(NON FERMÉ, aucune route de suspension.*2 comptes y restent/);
+    expect(r.avis, 'celui qui suspend lit ce qui ne l\'est pas').toMatch(/analytics \(NON FERMÉ, aucune organisation reliée à celle-ci ; 2 comptes y restent/);
     expect(a.posts.map((p) => [p.app, p.chemin, p.corps.tenant_id])).toEqual(expect.arrayContaining([['notifuse', '/api/tenants/suspend', 'esp'], ['prospection', '/api/tenants/suspend', 'tp'], ['academy', '/api/tenants/suspend', 'T'], ['crm', '/api/tenants/suspend', 'T']]));
     expect(org.suivre, 'suspendue : rien à émettre').not.toHaveBeenCalled();
     expect(audits[0]).toMatchObject({ action: 'tenant.suspendu' });
     expect(revoques, 'poignées du tenant').toEqual([{ tenantId: 'T', revoqueLe: null }]);
     expect(coupees[0][1], 'consentements retirés').toMatchObject({ etat: 'eteinte', consentiLe: null });
-    const b = apps(etat);
+    const b = apps(etat, { dit: { analytics: [404, 'tenant_not_found'] } });
     expect((await basculer(false, b.f)).apps.map((x) => x.etat)).toEqual(['repris', 'repris', 'repris', 'repris', 'absent']);
     expect(org.suivre.mock.calls.map((c) => c[1]), 'ce qu\'un 423 avait retenu').toEqual(['T']);
     expect(tenant!.status).toBe('active');
     expect(b.posts.every((p) => p.chemin === '/api/tenants/resume')).toBe(true);
+  });
+  it('Analytics : suspendue et reprise par le tenant, sans rien découvrir ; un espace sans organisation est dit ; une reprise ratée reste notée', async () => {
+    const basc = (suspendre: boolean, f: typeof fetch) => basculerSuspension(db, { tenantId: 'T', suspendre, acteur: 'test' }, { fetchImpl: f, apps: ['analytics'] as never });
+    const a = apps({});
+    expect((await basc(true, a.f)).apps).toEqual([{ app: 'analytics', etat: 'suspendu' }]);
+    expect(a.posts.map((p) => [p.chemin, p.corps.tenant_id])).toEqual([['/api/tenants/suspend', 'T']]);
+    expect((tenant!.metadata as L).hub_suspension.cibles.analytics).toEqual(['T']);
+    const orphelin = await basc(true, apps({}, { orphelins: ['prop@x.fr'] }).f);
+    expect([orphelin.complet, orphelin.avis]).toEqual([false, expect.stringContaining('analytics (organisation suspendue ; NON FERMÉ, 1 espace sans organisation')]);
+    expect((await basc(true, apps({}, { muet: 'analytics' }).f)).apps[0]).toMatchObject({ etat: 'echec', detail: expect.stringContaining('suspendue, mais') });
+    expect((await basc(false, apps({}, { refuse: 'analytics' }).f)).apps[0]).toEqual({ app: 'analytics', etat: 'echec', detail: 'http_500' });
+    expect((tenant!.metadata as L).hub_suspension.cibles.analytics).toEqual(['T']);
+    expect((await basc(false, apps({}).f)).apps).toEqual([{ app: 'analytics', etat: 'repris' }]);
+    expect((tenant!.metadata as L).hub_suspension).toBeUndefined();
   });
   it('une app qui cache l\'espace suspendu est quand même reprise, par la cible notée ; rien ne reste noté ensuite', async () => {
     const etat: Record<string, string[]> = { notifuse: ['prop@x.fr'], prospection: ['prop@x.fr'] };
@@ -271,7 +321,7 @@ describe('suspension', () => {
     etat.prospection = []; // Prospection ne montre plus un tenant suspendu.
     const b = apps(etat);
     expect((await basculer(false, b.f)).apps.slice(0, 2).map((x) => x.etat)).toEqual(['repris', 'repris']);
-    expect(b.posts.map((p) => p.corps.tenant_id).sort()).toEqual(['esp', 'tp']);
+    expect(b.posts.filter((p) => p.app !== 'analytics').map((p) => p.corps.tenant_id).sort()).toEqual(['esp', 'tp']);
     expect(tenant!.metadata).toEqual({ crm: { workspace_id: 'w-crm' } });
   });
 
@@ -296,7 +346,7 @@ describe('suspension', () => {
   it('propriétaire sans lien dans l\'app : son espace est fermé quand même, c\'est lui qu\'on vise', async () => {
     const a = apps({ notifuse: ['prop@x.fr'] }, { sansLien: 'notifuse' });
     expect((await basculer(true, a.f)).apps[0]).toEqual({ app: 'notifuse', etat: 'suspendu' });
-    expect(a.posts.map((p) => p.corps.tenant_id)).toEqual(['esp']);
+    expect(a.posts.filter((p) => p.app !== 'analytics').map((p) => p.corps.tenant_id)).toEqual(['esp']);
   });
   it('le CRM dit « pas suspendu par le Hub » : échec DIT, jamais avalé, et plus visé au prochain rejeu', async () => {
     const etat: Record<string, string[]> = { crm: ['prop@x.fr'] };
