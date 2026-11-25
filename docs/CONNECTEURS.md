@@ -4,7 +4,8 @@ Une personne relie un service qu'elle utilise déjà ; son IA en retrouve les ou
 
 - **Aucune application à créer** : chaque service du registre (`lib/connecteurs/registre.ts`) publie un serveur MCP protégé par OAuth et accepte qu'un
   client s'enregistre seul (RFC 7591). Mesuré le 25/11 : Notion, Linear, Canva, Webflow, Sentry, Atlassian, Intercom, Pennylane, Vercel, Stripe, PayPal,
-  Cloudflare. Coût nul. Pas d'enregistrement automatique : HubSpot, Asana.
+  Cloudflare. Coût nul. Pas d'enregistrement automatique : HubSpot, Asana. **Vus jusqu'à leur écran, en prod (cas 43)** :
+  Notion, Linear, Webflow, Sentry. Canva enregistre puis refuse notre adresse de retour (« Invalid redirect URI ») : retiré.
 - **Registre figé dans le code** : l'adresse n'est jamais reçue. N'y entre jamais un service qui déplace de l'argent.
 - **Échange** (`oauth.ts`) : découverte (RFC 9728, 8414), code, PKCE, `state`, jeton demandé pour CE service (`resource`, RFC 8707). Transaction scellée dans
   le navigateur, 10 min, finie par la seule personne qui l'a ouverte. Sortie : IP réellement jointe publique, HTTPS, sans redirection.

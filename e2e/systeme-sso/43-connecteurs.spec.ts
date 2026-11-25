@@ -15,7 +15,7 @@ import { obtenirJetonMcp, outil } from './lib/mcp';
 import { creerCompteProuve, type Compte } from './lib/parcours';
 import { RUN_DIR } from './lib/versions';
 
-const SERVICES = ['Notion', 'Linear', 'Canva', 'Webflow', 'Sentry'];
+const SERVICES = ['Notion', 'Linear', 'Webflow', 'Sentry'];
 
 cas(null, 'connexions : chaque service réel s\'ouvre sans application créée ; rien ne se branche sans consentement', async ({ browser }) => {
   if (/staging/.test(HUB_URL)) throw new NonAbouti('épreuve de prod (retour enregistré chez les services)');
@@ -30,7 +30,7 @@ cas(null, 'connexions : chaque service réel s\'ouvre sans application créée ;
     await page.goto(`${HUB_URL}/dashboard`, { waitUntil: 'networkidle' });
     await page.getByRole('link', { name: 'Connexions' }).click();
     await page.waitForURL(/\/dashboard\/connexions/);
-    await page.waitForLoadState('networkidle');
+    await page.getByRole('button', { name: 'Brancher Notion' }).waitFor();
     await page.screenshot({ path: join(RUN_DIR, 'captures', 'connexions.png'), fullPage: true });
     if (process.env.SSO_SABOTAGE === 'connecteur-session') await ctx.clearCookies();
 
@@ -47,7 +47,9 @@ cas(null, 'connexions : chaque service réel s\'ouvre sans application créée ;
       await page.waitForTimeout(4_000);
       // Sa page de connexion à lui, pas une erreur : notre client y est connu.
       const texte = (await page.locator('body').innerText().catch(() => '')).slice(0, 2_000);
-      expect(/invalid_client|invalid_redirect|unknown client|redirect_uri mismatch/i.test(texte), `${nom} refuse notre client : ${texte.slice(0, 200)}`).toBe(false);
+      // Canva (25/11) : « Invalid redirect URI. », en texte nu, passait pour un écran. Un vrai nous nomme, ou demande de se connecter.
+      expect(/Veridian|e-?mail|log ?in|connectez|sign in/i.test(texte), `${nom} : ni consentement ni connexion : ${texte.slice(0, 200)}`).toBe(true);
+      expect(/invalid.{0,3}(client|redirect)|unknown client|redirect_uri mismatch/i.test(texte), `${nom} refuse notre client : ${texte.slice(0, 200)}`).toBe(false);
       expect(new URL(page.url()).origin, `${nom} : toujours chez nous`).not.toBe(new URL(HUB_URL).origin);
       await page.screenshot({ path: join(RUN_DIR, 'captures', `connexion-${nom.toLowerCase()}.png`) });
       retour = `${HUB_URL}/api/connecteurs/retour`;
@@ -65,7 +67,7 @@ cas(null, 'connexions : chaque service réel s\'ouvre sans application créée ;
     const etranger = await autre.request.post(`${HUB_URL}/api/connecteurs`, { headers: { origin: 'https://pirate.test' }, form: { connecteur: 'notion', geste: 'brancher' }, maxRedirects: 0 });
     expect(etranger.status(), 'depuis une autre page').toBe(403);
     const apps = JSON.parse((await outil(await obtenirJetonMcp(browser, A, 'TEST CONNECTEURS'), 'chercher_outils', { besoin: 'page' })).texte) as { apps: string[] };
-    expect(apps.apps.filter((a) => ['notion', 'linear', 'canva', 'webflow', 'sentry'].includes(a)), 'aucun service sans consentement').toEqual([]);
+    expect(apps.apps.filter((a) => ['notion', 'linear', 'webflow', 'sentry'].includes(a)), 'aucun service sans consentement').toEqual([]);
     return Object.entries(arrives).map(([n, h]) => `${n} → ${h}`).join(' ; ');
   } finally {
     await ctx.close();
