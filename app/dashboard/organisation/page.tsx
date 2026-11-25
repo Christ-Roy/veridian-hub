@@ -31,7 +31,7 @@ const AVIS: Record<string, string> = {
   refus: 'Réglage refusé : vérifiez les couleurs (#RRGGBB) et le nom.',
 };
 const ATTENTE: Record<string, string> = { en_attente: 'attendue', joint: 'a rejoint', expiree: 'délai passé', annulee: 'annulée' };
-const APPS: Record<string, string> = { academy: 'Academy', notifuse: 'Mail', prospection: 'Prospection' };
+const APPS: Record<string, string> = { academy: 'Academy', notifuse: 'Mail', prospection: 'Prospection', crm: 'CRM' };
 
 export default async function Organisation({ searchParams }: { searchParams: Promise<{ avis?: string }> }) {
   const session = await auth();

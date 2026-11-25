@@ -10,7 +10,7 @@ import { roleOrg, type RoleOrg } from '@/lib/tenants/roles';
 
 export const TYPES = ['individuel', 'organisation'] as const;
 /** Apps qui savent recevoir le document. Rien ne part vers une app tant que l'organisation ne l'a pas cochée (Mail : cocher RENOMME l'espace). */
-export const MODULES = ['academy', 'notifuse', 'prospection'] as const;
+export const MODULES = ['academy', 'notifuse', 'prospection', 'crm'] as const;
 export type Module = (typeof MODULES)[number];
 export const COULEUR = /^#[0-9a-fA-F]{6}$/;
 
