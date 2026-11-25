@@ -7,13 +7,13 @@
 import type { PrismaClient } from '@prisma/client';
 
 import { writeAuditLog } from '@/lib/admin/audit-log';
-import { AppDebit } from '@/lib/mcp/client-app';
+import { AppDebit, AppInjoignable } from '@/lib/mcp/client-app';
 import { empreintePortees, evenementOuvert, paireEntre, porteesAccordees } from '@/lib/delegation/paires';
 import { estDeTest } from '@/lib/tenants/marque-test';
 
 import { lireAbonnement } from './abonnement';
 import { chaineAcceptable, disjoncteur, noterEcriture, objetDuLien } from './anti-boucle';
-import { ecrireReponseHumaine, PORTEE_CRM } from './crm';
+import { ecrireReponseHumaine, PORTEE_CRM, type IssueCrm } from './crm';
 import { liberer, reserver, terminer, type CleEvenement } from './dedoublonnage';
 import { analyserMessageRecu } from './filtre';
 import { verifierStandardWebhooks } from './signature';
@@ -66,19 +66,24 @@ export async function recevoirNotifuse(db: Db, h: Headers, brut: string, env: No
   if (r === 'deja') return ack('deja_traite');
   if (r === 'en_cours') return refus(503, 'en_cours', 30);
 
-  let jti: string;
+  let issue: IssueCrm;
   try {
-    ({ jti } = await ecrireReponseHumaine(db, { tenantId: abo.tenantId, reponse, chaine }, env, fetchImpl));
+    issue = (await ecrireReponseHumaine(db, { tenantId: abo.tenantId, reponse, chaine }, env, fetchImpl));
   } catch (err) {
     await liberer(db, cle).catch(() => undefined);
-    await db.integrationPaire.updateMany({ where: { tenantId: abo.tenantId, paire: p.cle }, data: { derniereErreur: 'crm_injoignable' } }).catch(() => undefined);
-    return err instanceof AppDebit ? refus(503, 'crm_rate_limited', Math.ceil(err.attenteMs / 1000)) : refus(502, 'crm_unreachable');
+    const code = err instanceof AppInjoignable ? err.code : undefined;
+    await db.integrationPaire.updateMany({ where: { tenantId: abo.tenantId, paire: p.cle }, data: { derniereErreur: code ? `crm_${code}` : 'crm_injoignable' } }).catch(() => undefined);
+    if (err instanceof AppDebit) return refus(503, 'crm_rate_limited', Math.ceil(err.attenteMs / 1000));
+    // L'app du CRM s'installe : passager. Le reste (désinstallée, espace non relié) demande un geste, la source garde son rythme de réessai.
+    if (code === 'app_installing' || code === 'app_install_failed') return refus(503, `crm_${code}`, 60);
+    return refus(502, code ? `crm_${code}` : 'crm_unreachable');
   }
   // Le CRM a répondu : plus rien ci-dessous ne doit rendre un 5xx (la source rejouerait une écriture faite).
-  await noterEcriture(db, { ...lien, evenementId: reponse.evenementId }, now).catch(() => undefined);
-  await terminer(db, cle, 'fait', undefined, now).catch(() => undefined);
+  // Le disjoncteur compte les écritures : une réponse que le CRM écarte ou a déjà n'en est pas une.
+  if (issue.effet === 'cree') await noterEcriture(db, { ...lien, evenementId: reponse.evenementId }, now).catch(() => undefined);
+  await terminer(db, cle, issue.effet === 'aucun' ? 'ignore' : 'fait', issue.raison, now).catch(() => undefined);
   await db.integrationPaire.updateMany({ where: { tenantId: abo.tenantId, paire: p.cle }, data: { dernierPassage: new Date(now), derniereErreur: null } }).catch(() => undefined);
   // Ni adresse ni contenu : l'événement, la paire, le jeton.
-  await writeAuditLog(db as PrismaClient, { action: 'evenement.recu', actor: `app:${SOURCE}`, targetType: 'tenant', targetId: abo.tenantId, payload: { paire: p.cle, evenement_id: reponse.evenementId, jti } }).catch(() => undefined);
-  return { statut: 200, corps: { ok: true, effet: 'cree' } };
+  await writeAuditLog(db as PrismaClient, { action: 'evenement.recu', actor: `app:${SOURCE}`, targetType: 'tenant', targetId: abo.tenantId, payload: { paire: p.cle, evenement_id: reponse.evenementId, jti: issue.jti, effet: issue.effet } }).catch(() => undefined);
+  return { statut: 200, corps: { ok: true, effet: issue.effet, ...(issue.raison ? { raison: `crm_${issue.raison}` } : {}) } };
 }

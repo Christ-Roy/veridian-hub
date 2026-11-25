@@ -17,7 +17,7 @@ let crm: ReturnType<typeof vi.fn>;
 beforeAll(async () => { env = { ...(await cleDeTest()), DELEGATION_EVENEMENTS: 'notifuse>crm' }; });
 beforeEach(async () => {
   db = base();
-  crm = vi.fn(async () => new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { content: [] } }), { headers: { 'content-type': 'application/json' } }));
+  crm = vi.fn(async () => new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: '{"ok":true,"rejoue":false}' }] } }), { headers: { 'content-type': 'application/json' } }));
   await db.tenant.create({ data: { id: 'T', userId: 'u', status: 'active', deletedAt: null, metadata: null } });
   await db.mcpApp.create({ data: { appKey: 'twenty', mcpUrl: 'https://crm.test/mcp', enabled: true } });
   await db.integrationPaire.create({ data: { tenantId: 'T', paire: 'notifuse>crm', etat: 'allumee', consentiLe: new Date(), portees: empreintePortees(paireEntre('notifuse', 'crm')!) } });
@@ -42,6 +42,33 @@ describe('recevoirNotifuse', () => {
     expect(crm).toHaveBeenCalledTimes(1);
     expect(db.integrationPaire.lignes[0]).toMatchObject({ derniereErreur: null });
     expect(db.integrationPaire.lignes[0].dernierPassage).toBeInstanceOf(Date);
+  });
+  it('le CRM n\'a rien à faire (ignore) ou l\'a déjà (rejoue) : succès, pas d\'écriture comptée, et l\'événement ne revient pas', async () => {
+    const rendre = (o: object) => crm.mockResolvedValueOnce(new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: JSON.stringify(o) }] } }), { headers: { 'content-type': 'application/json' } }));
+    rendre({ ok: true, ignore: true, raison: 'tache_deja_ouverte' });
+    expect(await envoyer(evt('i1'))).toMatchObject({ statut: 200, corps: { effet: 'aucun', raison: 'crm_tache_deja_ouverte' } });
+    expect(db.evenementRecu.lignes[0]).toMatchObject({ etat: 'ignore', raison: 'tache_deja_ouverte' });
+    rendre({ ok: true, rejoue: true });
+    expect(await envoyer(evt('i2'))).toMatchObject({ statut: 200, corps: { effet: 'rejoue' } });
+    expect(db.integrationLien.lignes).toHaveLength(0);
+    expect(await envoyer(evt('i1'))).toMatchObject({ corps: { raison: 'deja_traite' } });
+    expect(crm).toHaveBeenCalledTimes(2);
+  });
+  it.each([
+    [503, 'app_installing', 503, 60],
+    [503, 'app_install_failed', 503, 60],
+    [403, 'app_uninstalled', 502, undefined],
+    [403, 'app_not_available', 502, undefined],
+    [403, 'tenant_not_linked', 502, undefined],
+    [403, 'workspace_inactive', 502, undefined],
+  ])('refus %s %s : dit tel quel, la source réessaie avec un jeton neuf, la ligne est libérée', async (http, code, statut, retryAfterS) => {
+    crm.mockImplementation(async () => new Response(JSON.stringify({ statusCode: http, error: { code } }), { status: http }));
+    expect(await envoyer(evt('r'))).toEqual({ statut, corps: { error: `crm_${code}` }, retryAfterS });
+    expect(db.integrationPaire.lignes[0].derniereErreur).toBe(`crm_${code}`);
+    expect(db.evenementRecu.lignes).toHaveLength(0);
+    await envoyer(evt('r'));
+    const jetons = crm.mock.calls.map((c) => (c[1] as RequestInit & { headers: Record<string, string> }).headers.Authorization);
+    expect(new Set(jetons).size).toBe(2);
   });
   it('signature fausse, mauvais secret, hors fenêtre, abonnement inconnu : rien n\'arrive', async () => {
     expect((await envoyer(evt(), { secret: `whsec_${Buffer.from('autre-secret-de-test-32-octets!!').toString('base64')}` })).statut).toBe(401);

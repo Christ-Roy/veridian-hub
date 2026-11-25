@@ -11,7 +11,15 @@ export type OutilApp = {
   title?: string;
 };
 
-export class AppInjoignable extends Error {}
+export class AppInjoignable extends Error {
+  /** Code de refus rendu par l'app (`CODES_REFUS`), quand elle en donne un. */
+  constructor(message?: string, readonly code?: string) {
+    super(message);
+  }
+}
+
+/** Refus avant l'outil, que le Hub sait nommer (CRM, 25/11). Cherchés dans le corps : sa forme dépend de l'app. */
+const CODES_REFUS = /\b(app_not_available|app_uninstalled|app_installing|app_install_failed|tenant_not_linked|tenant_forbidden|workspace_inactive)\b/;
 
 /** L'app limite le débit (429) : rien n'a été joué, l'appel peut être refait après ce délai. */
 export class AppDebit extends AppInjoignable {
@@ -114,15 +122,19 @@ export class SessionApp {
       const corps = await res.text().catch(() => '');
       if (corps.includes('hub_user_unknown')) throw new CompteAbsent('compte absent dans l\'app');
       // Règle tenant_id du contrat : l'espace choisi n'est pas relié chez l'app, ou l'utilisateur n'en est pas membre.
-      if (corps.includes('tenant_not_linked')) throw new AppInjoignable('cet espace n\'est pas relié dans l\'app (tenant_not_linked)');
-      if (corps.includes('tenant_forbidden')) throw new AppInjoignable('ce compte n\'est pas membre de cet espace dans l\'app (tenant_forbidden)');
-      throw new AppInjoignable(`l'app refuse l'identité du Hub (HTTP ${res.status})`);
+      if (corps.includes('tenant_not_linked')) throw new AppInjoignable('cet espace n\'est pas relié dans l\'app (tenant_not_linked)', 'tenant_not_linked');
+      if (corps.includes('tenant_forbidden')) throw new AppInjoignable('ce compte n\'est pas membre de cet espace dans l\'app (tenant_forbidden)', 'tenant_forbidden');
+      const code = CODES_REFUS.exec(corps)?.[1];
+      throw new AppInjoignable(code ? `l'app refuse (HTTP ${res.status}, ${code})` : `l'app refuse l'identité du Hub (HTTP ${res.status})`, code);
     }
     if (res.status === 429) {
       const s = Number(res.headers.get('retry-after'));
       throw new AppDebit(Number.isFinite(s) && s > 0 ? Math.min(s * 1000, 60_000) : 2_000);
     }
-    if (!res.ok) throw new AppInjoignable(`HTTP ${res.status}`);
+    if (!res.ok) {
+      const code = CODES_REFUS.exec((await res.text().catch(() => '')).slice(0, 4_000))?.[1];
+      throw new AppInjoignable(code ? `HTTP ${res.status}, ${code}` : `HTTP ${res.status}`, code);
+    }
     const sid = res.headers.get('mcp-session-id');
     if (sid) this.session = sid;
     const msg = await lireReponse(res, id, this.options.maxOctets).catch((err) => {
