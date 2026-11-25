@@ -16,11 +16,11 @@
 import { createHmac } from 'node:crypto';
 
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
+import { estCompteDeTest } from '@/lib/email/compte-de-test';
 import { NotifuseClient } from '@/lib/notifuse/client';
 import { createProspectionClientFromEnv } from '@/lib/prospection/client';
 
 export const GRACE_JOURS = 90;
-const COMPTE_DE_TEST = /^e2e-sso-[a-z0-9-]+@veridian\.site$/;
 
 export type TenantADeprovisionner = {
   id: string;
@@ -66,7 +66,7 @@ export async function deprovisionnerCompte(
   const env = deps.env ?? process.env;
   const maintenant = (deps.maintenant ?? (() => new Date()))();
   const issues: IssueApp[] = [];
-  const test = COMPTE_DE_TEST.test(compte.email.toLowerCase());
+  const test = estCompteDeTest(compte.email);
 
   if (compte.tenants.some((t) => t.prospectionProvisionedAt)) {
     const client = createProspectionClientFromEnv();

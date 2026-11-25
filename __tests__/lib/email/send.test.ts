@@ -142,3 +142,26 @@ describe('adresses bloquées', () => {
     vi.unstubAllEnvs();
   });
 });
+
+describe('sendMail — comptes d\'épreuve (25/11 : 16 rebonds durs sur 64 envois)', () => {
+  const corps = async (to: string) => {
+    process.env.BREVO_API_KEY = 'brevo-key';
+    fetchMock.mockResolvedValueOnce(new Response('{}', { status: 201 }));
+    await sendMail({ ...PAYLOAD, to });
+    return JSON.parse(String(fetchMock.mock.calls.at(-1)![1].body));
+  };
+  it('part par le même chemin, en bac à sable', async () => {
+    for (const to of ['e2e-sso-mwv1-adra@veridian.site', ' E2E-SSO-X@Veridian.Site ']) expect((await corps(to)).headers, to).toEqual({ 'X-Sib-Sandbox': 'drop' });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+  it('une vraie adresse n\'y va JAMAIS, même qui y ressemble', async () => {
+    for (const to of ['client@exemple.fr', 'robert.brunon@veridian.site', 'r.brunon+e2e-sso@veridian.site', 'e2e-sso-x@client.fr', 'e2e-sso-x@veridian.site.client.fr', 'x-e2e-sso-x@veridian.site', 'e2e-sso-@veridian.site', 'e2e-sso-a b@veridian.site']) expect(await corps(to), to).not.toHaveProperty('headers');
+  });
+  it('le repli SMTP ne lui écrit pas ; à une vraie adresse, si', async () => {
+    Object.assign(process.env, { SMTP_HOST: 'h', SMTP_USER: 'u', SMTP_PASSWORD: 'p' });
+    await sendMail({ ...PAYLOAD, to: 'e2e-sso-x@veridian.site' });
+    expect(sendMailInner).not.toHaveBeenCalled();
+    await sendMail(PAYLOAD);
+    expect(sendMailInner).toHaveBeenCalledTimes(1);
+  });
+});
