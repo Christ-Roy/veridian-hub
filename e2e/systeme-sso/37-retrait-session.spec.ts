@@ -1,7 +1,7 @@
 /**
  * Retirer un membre ferme sa session DÉJÀ OUVERTE dans chaque app, en secondes (25/11 : le CRM retirait bien la personne, et sa session lisait encore).
  * Mail, CRM, Prospection ; NON MESURÉ : Academy, réservée à Robert, n'ouvre rien à un compte d'épreuve (son code relit l'appartenance à chaque requête).
- * Au CRM, deux portes : le cookie, et le jeton d'accès (30 min), que `revoke_sessions` ne coupe pas (CRM, 25/11 ; vu échouer sur crm v40).
+ * Au CRM, deux portes : le cookie, et le jeton d'accès (30 min) : vu lire encore à 39 s sur crm v41, coupé depuis v42.
  * La dernière lecture pendant 40 s (Prospection garde un contexte 30 s), le propriétaire témoin tout du long.
  * Épreuve : `SSO_SABOTAGE=retrait-session` ne retire pas : le cas doit échouer.
  */
@@ -35,7 +35,16 @@ cas(null, 'retrait : la session ouverte du membre se ferme dans chaque app, en s
     const entrer = async (c: Compte) => {
       const ctx = await browser.newContext({ storageState: c.etat as never });
       ouverts.push(ctx);
-      const crm = new URL((await ouvrirApp(ctx, 'twenty')).url).origin;
+      // Le front du CRM finit d'ouvrir sa session après l'arrivée (9 à 14 s sous charge) : on attend qu'elle lise, sinon rien ne serait mesuré.
+      let crm = '';
+      for (let i = 0, lu = false; i < 3 && !lu; i++) {
+        crm = new URL((await ouvrirApp(ctx, 'twenty')).url).origin;
+        for (let k = 0; k < 10 && !lu; k++) {
+          const r = await ctx.request.post(`${crm}/graphql`, { headers: { origin: crm, 'x-twenty-session-cookie': '1' }, data: { query: '{companies(first:1){edges{node{id}}}}' }, timeout: 15_000 }).catch(() => null);
+          lu = Boolean(((await r?.json().catch(() => null)) as { data?: { companies?: unknown } } | null)?.data?.companies);
+          if (!lu) await new Promise((ok) => setTimeout(ok, 2_000));
+        }
+      }
       await ouvrirApp(ctx, 'prospection');
       const page = await ctx.newPage();
       await page.goto(`${HUB_URL}/login?next=${encodeURIComponent(`${APP_URL.notifuse}/console/`)}`, { waitUntil: 'domcontentloaded' }).catch(() => undefined);
