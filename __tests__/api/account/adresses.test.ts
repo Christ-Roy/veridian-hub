@@ -94,12 +94,12 @@ describe('POST adresses', () => {
   });
   it('promouvoir : dit la nouvelle principale et qu\'il faut se reconnecter ; chaque refus a son code, l\'app est nommée ; débit', async () => {
     expect(await poster({ geste: 'promouvoir', email: 'Pro@client.fr' })).toEqual([200, { ok: true, principale: 'pro@client.fr', reconnect: true, apps_failed: [] }]);
-    for (const [refus, statut] of [['not_found', 404], ['domaine_federe', 403], ['preuve_perdue', 403], ['app_non_reliee', 409], ['app_indisponible', 503], ['app_refuse', 409], ['prise', 409], ['email_not_verified', 403]] as const) {
+    for (const [refus, statut] of [['not_found', 404], ['domaine_federe', 403], ['preuve_perdue', 403], ['app_refuse', 409], ['prise', 409], ['email_not_verified', 403]] as const) {
       m.promouvoir.mockResolvedValue({ refus });
       expect(await poster({ geste: 'promouvoir', email: 'a@x.fr' })).toEqual([statut, { error: refus }]);
     }
     m.promouvoir.mockResolvedValue({ refus: 'app_par_adresse', apps: ['crm'] });
-    expect(await poster({ geste: 'promouvoir', email: 'a@x.fr' })).toEqual([409, { error: 'app_par_adresse', apps: ['crm'] }]);
+    expect(await poster({ geste: 'promouvoir', email: 'a@x.fr' }), 'et dit pourquoi').toEqual([409, { error: 'app_par_adresse', apps: ['crm'], message: expect.stringMatching(/^Le CRM .*continue de marcher/) }]);
     vi.mocked(RateLimiter.prototype.enforce).mockReturnValue({ ok: false } as never);
     for (const g of ['promouvoir', 'federer']) expect(await poster({ geste: g, email: 'a@x.fr' })).toEqual([429, { error: 'rate_limited' }]);
   });

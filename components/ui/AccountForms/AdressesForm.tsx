@@ -22,9 +22,6 @@ const DIRE: Record<string, string> = {
   fournisseur_injoignable: 'Le service de connexion de votre organisation ne répond pas. Réessayez dans un instant.',
   domaine_federe: 'Seule l\'organisation qui gère ce domaine peut confirmer cette adresse.',
   preuve_perdue: 'L\'organisation qui avait confirmé cette adresse ne le fait plus. Détachez-la puis ajoutez-la par un code.',
-  app_par_adresse: 'Un de vos espaces (CRM ou Mail) ne suit pas encore un changement d\'adresse. Rien n\'a changé.',
-  app_non_reliee: 'Un de vos espaces ne vous connaît que par votre adresse actuelle : ouvrez-le une fois depuis le tableau de bord, puis réessayez. Rien n\'a changé.',
-  app_indisponible: 'Une application ne répond pas. Rien n\'a changé, réessayez plus tard.',
   app_refuse: 'Une application refuse cette adresse : elle y est déjà utilisée. Rien n\'a changé.',
 };
 
@@ -33,17 +30,19 @@ export default function AdressesForm() {
   const [liste, setListe] = useState<Liste | null>(null);
   const [attente, setAttente] = useState<string | null>(null);
   const [occupe, setOccupe] = useState(false);
+  const [arret, setArret] = useState<string | null>(null);
   const charger = () => fetch('/api/account/adresses').then((r) => (r.ok ? r.json() : null)).then(setListe).catch(() => undefined);
   useEffect(() => { void charger(); }, []);
 
   async function geste(corps: object, bien: string): Promise<{ url?: string; reconnect?: boolean } | null> {
     toast.dismiss();
+    setArret(null);
     setOccupe(true);
     try {
       const r = await fetch('/api/account/adresses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
       const j = await r.json().catch(() => ({}));
       if (redirectIfReauthRequired(j)) return null;
-      if (!r.ok) { toast.error(DIRE[j.error] ?? 'Adresse refusée.'); return null; }
+      if (!r.ok) { if (j.message) setArret(j.message); else toast.error(DIRE[j.error] ?? 'Adresse refusée.'); return null; }
       if (bien) toast.success(bien);
       if (!j.url && !j.reconnect) await charger();
       return j;
@@ -82,6 +81,7 @@ export default function AdressesForm() {
         <CardDescription>Une organisation peut vous reconnaître par l&apos;une d&apos;elles. Vous vous connectez toujours avec votre adresse principale.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
+        {arret ? <p role="alert" className="text-sm text-destructive">{arret}</p> : null}
         {liste?.secondaires.length ? (
           <ul className="flex flex-col gap-2">
             {liste.secondaires.map((e) => (

@@ -10,20 +10,13 @@ import { normaliserEmail } from '@/lib/auth/email-normalize';
 import { revokeAllSessions } from '@/lib/auth/session-revocation';
 import { pushUserToApps } from '@/lib/identity/push-user';
 import { suivreOrganisation } from '@/lib/organisations/emission';
-import { configuredSyncApps, discoverAppForEmail } from '@/lib/sync/discovery';
 import type { SyncApp } from '@/lib/sync/types';
 
 import { idpDuDomaine, membreVivant, preuveOrganisation, type Titulaire } from './federation';
+import { verifierApps, type RefusApp } from './garde';
 
-/**
- * Ces apps désignent encore quelqu'un par son ADRESSE. Mail : retirer, changer le rôle, rétablir un membre. CRM : retirer un membre, et le propriétaire
- * d'un espace noté par l'adresse du jour de la création. Tant qu'une personne y a un compte, son adresse principale ne change pas par ici.
- * Porte de sortie : l'app lit `hub_user_id` partout et sort d'ici. Pour Mail, `tenants.notifuseUserEmail` (entrée directe) devra suivre dans `echanger`.
- */
-export const APPS_PAR_ADRESSE: readonly SyncApp[] = ['notifuse', 'crm'];
-
-export type RefusPromotion = 'not_found' | 'email_not_verified' | 'domaine_federe' | 'preuve_perdue' | 'app_par_adresse' | 'app_non_reliee' | 'app_indisponible' | 'app_refuse' | 'prise';
-export type Promotion = { promue: string; appsEnEchec: string[] } | { refus: RefusPromotion; apps?: string[] };
+export type RefusPromotion = 'not_found' | 'email_not_verified' | 'domaine_federe' | 'preuve_perdue' | 'app_refuse' | 'prise' | RefusApp;
+export type Promotion = { promue: string; appsEnEchec: string[] } | { refus: RefusApp; apps: SyncApp[] } | { refus: Exclude<RefusPromotion, RefusApp>; apps?: SyncApp[] };
 type Deps = { fetchImpl?: typeof fetch; apps?: readonly SyncApp[]; now?: Date };
 type Ligne = { id: string; email: string; preuve: string; prouveeLe: Date };
 
@@ -33,22 +26,6 @@ async function refusDePreuve(db: PrismaClient, hubUserId: string, l: Ligne): Pro
   if (!i) return l.preuve.startsWith('org:') ? 'preuve_perdue' : null;
   if (l.preuve !== preuveOrganisation(i.tenantId) && l.preuve !== 'principale') return 'domaine_federe';
   return (await membreVivant(db, i.tenantId, hubUserId)) ? null : 'domaine_federe';
-}
-
-/**
- * Son compte dans chaque app : relié au Hub, connu par sa seule adresse (changer celle-ci le perdrait, et en ferait naître un double), ou absent. Une
- * app qui ne répond pas : on ne sait pas, donc on ne change rien.
- */
-async function presence(hubUserId: string, email: string, apps: readonly SyncApp[], fetchImpl?: typeof fetch) {
-  // Sans champ à écrire, `users/sync` ne change rien : il dit seulement si ce compte existe.
-  const relies = await pushUserToApps({ hubUserId }, { apps, fetchImpl });
-  const vus = await Promise.all(apps.map(async (app) => {
-    if (relies[app] === 'ok') return { app, etat: 'reliee' };
-    if (relies[app] !== 'not_in_app') return { app, etat: 'muette' };
-    const d = await discoverAppForEmail(app, email, { fetchImpl });
-    return { app, etat: 'error' in d ? 'muette' : d.found ? 'non_reliee' : 'absente' };
-  }));
-  return (...etats: string[]): SyncApp[] => vus.filter((x) => etats.includes(x.etat)).map((x) => x.app);
 }
 
 async function echanger(db: PrismaClient, u: Titulaire, l: Ligne, now: Date): Promise<string | null> {
@@ -88,12 +65,8 @@ export async function promouvoir(db: PrismaClient, u: Titulaire, brut: string, d
   if (!l) return { refus: 'not_found' };
   const preuve = await refusDePreuve(db, hubUserId, l);
   if (preuve) return { refus: preuve };
-  const apps = deps.apps ?? configuredSyncApps();
-  const chez = await presence(hubUserId, u.email, apps, deps.fetchImpl);
-  const parAdresse = chez('reliee', 'non_reliee').filter((a) => APPS_PAR_ADRESSE.includes(a));
-  if (parAdresse.length) return { refus: 'app_par_adresse', apps: parAdresse };
-  if (chez('non_reliee').length) return { refus: 'app_non_reliee', apps: chez('non_reliee') };
-  if (chez('muette').length) return { refus: 'app_indisponible', apps: chez('muette') };
+  const chez = await verifierApps({ hubUserId, email: u.email }, deps);
+  if ('refus' in chez) return chez;
 
   let aliasId: string | null;
   try {
@@ -104,7 +77,7 @@ export async function promouvoir(db: PrismaClient, u: Titulaire, brut: string, d
   }
   if (!aliasId) return { refus: 'not_found' };
 
-  const suivent = chez('reliee');
+  const suivent = chez.reliees;
   const issues = await pushUserToApps({ hubUserId, email: l.email }, { apps: suivent, fetchImpl: deps.fetchImpl });
   const refusent = suivent.filter((a) => issues[a] !== 'ok');
   if (refusent.length) {

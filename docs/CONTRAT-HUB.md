@@ -1861,9 +1861,8 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
   fournisseur de son organisation (elle se reconnecte devant lui, `prompt=login`, et il affirme exactement l'adresse demandée ; ni session ni lien n'en
   naissent). Le `hub_user_id` ne bouge pas, les apps suivent par `users/sync` ; l'ancienne devient un alias ; toutes les sessions tombent. Une app qui
   refuse l'adresse remet tout comme avant. Dans un domaine tenu par une organisation, elle seule prouve, à ses membres. Refusée, avant tout changement,
-  à qui a un compte chez **Mail ou le CRM** (`APPS_PAR_ADRESSE`) : Mail retire, change le rôle et rétablit un membre par l'adresse ; le CRM retire un
-  membre par l'adresse, et note le propriétaire d'un espace par celle de la création (`provision` répond 409 ensuite, `by-email` le dit « member »).
-  Ils en sortent quand ils lisent `hub_user_id`. Pas écrits : avis à l'ancienne adresse et annulation (mail).
+  à qui a un compte chez **Mail, le CRM ou Academy** (`APPS_PAR_ADRESSE`, `lib/adresses/garde.ts`) ; la MÊME garde tient les réglages (« Votre email »,
+  `PATCH /api/account/profile`, cas 33). Ils en sortent quand ils servent §5.19.7. Pas écrits : avis à l'ancienne adresse et annulation (mail).
 - **Une session ouverte par le fournisseur d'une organisation** ne fait AUCUN geste de compte (adresse, mot de passe, 2FA, fournisseurs) et n'administre
   pas la plateforme (25/11) : l'administrateur de ce fournisseur peut en ouvrir une. `denyUnlessRecentAuth(PREUVE_COMPTE_S)`, `isPlatformAdmin`.
 - **Apps ouvertes par l'organisation** (option A, parente 25/11, `lib/tenant-apps/organisation.ts`) : le CRM coché s'ouvre (tuile, IA, délégation) aux
@@ -1878,6 +1877,35 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
   `{ fait, premier, dernier, nombre }`. `prefixe` nomme l'app (`twenty.create_`), `depuis` ISO, 400 jours au plus. Compte les appels RÉUSSIS par la
   porte MCP, attribués à cette organisation : `espace` choisi, ou le seul espace du compte ; sinon attribué à aucun. Rien avant le 25/11/2026.
   404 `organisation_introuvable` (fermée, inconnue ou non cochée) ou `membre_introuvable`. Ouvert par organisation (`ACTIVITE_ORGANISATIONS`).
+
+#### 5.19.7 Désigner une personne : `hub_user_id` obligatoire, l'adresse n'est qu'informative (25/11/2026)
+
+Une adresse change (§5.19.6, « Changer d'adresse principale ») et se recycle : elle ne désigne personne. Mesuré le 25/11 : Mail cherche par l'adresse dans
+`sync-member`, `remove-member` et `restore-member` ; le CRM dans `remove-member` et pour le propriétaire d'un espace ; Academy pour les inscriptions.
+
+**Règle.** Toute route signée qui vise une personne reçoit `hub_user_id` (UUID, `users.supabase_user_id` du Hub). L'app retrouve le compte par lui SEUL. Absent
+ou mal formé : `400 invalid_payload`. `email` (et `user_email`, ancien nom, accepté) ne sert qu'à créer une copie absente ou à l'affichage : jamais à
+choisir un compte existant, même si `hub_user_id` est inconnu. Un compte trouvé par `hub_user_id` dont l'adresse diffère : c'est la bonne personne.
+
+| Route | Corps | Réponses |
+|---|---|---|
+| `POST /api/tenants/{id}/remove-member` | `{ hub_user_id, email?, reason? }` | `200 { tenant_id, hub_user_id, removed, removed_at, ... }` ; personne inconnue ou pas membre : `200 { removed: false }`, RIEN d'autre n'est touché ; `404 tenant_not_found` |
+| `POST /api/tenants/{id}/restore-member` | `{ hub_user_id, email? }` | `200 { restored }` ; inconnue : `404 user_not_in_app`, jamais de création |
+| `POST /api/tenants/{id}/sync-member`, `attach-member` | `{ hub_user_id, email, email_proven, role }` | copie absente : créée et reliée ; `email` déjà portée par un compte relié à un AUTRE `hub_user_id` : `409 hub_user_conflict` ; par un compte sans lien : reliée seulement si `email_proven: true`, sinon `409` |
+| `POST /api/tenants/{id}/freeze-member`, `unfreeze-member` | `{ hub_user_id, email?, reason? }` | inconnue : `404 user_not_in_app` |
+| `POST /api/tenants/{id}/transfer-owner` | `{ owner_hub_user_id, email? }` | inconnue : `404 user_not_in_app` ; pas membre : `409 not_a_member` |
+| `POST /api/hub/members/role` | `{ hub_tenant_id, hub_user_id, email?, role, version }` | inchangé, par `hub_user_id` |
+| `POST /api/hub/users/sync` | `{ hub_user_id, email?, name?, deleted?, revoke_sessions? }` | adresse portée par un autre compte : `409 email_conflict`, RIEN d'écrit (ni nom, ni sessions), jamais une 500 ; sans champ : `200`, ne change rien ; absente : `404 user_not_in_app` |
+| `POST /api/tenants/provision` | `{ tenant_id, owner_hub_user_id, owner_email, email_proven, ... }` | le propriétaire NOTÉ est `owner_hub_user_id`. Rejeu : même propriétaire et autre adresse = `200` ; autre `owner_hub_user_id` = `409 owner_mismatch`. Tant que le Hub ne l'envoie pas en tête, `metadata.hub_user_id` en tient lieu |
+| `POST /api/workspaces.generateMagicLink` (Mail, clé de l'espace) | `{ hub_user_id, user_email? }` | par `hub_user_id` ; inconnue ou pas membre : refus |
+| `GET /api/users/by-email` | `?hub_user_id=&email=` | `hub_user_id` d'abord ; `email` seulement s'il est absent. `role: owner` par `owner_hub_user_id` |
+
+**Données existantes.** Un propriétaire ou un membre noté par l'adresse se convertit par la copie locale reliée (`adresse -> hub_user_id`), une fois. Sans lien
+ou ambigu : la ligne reste et se compte, rien n'est deviné. Au 25/11 : aucune copie décalée, 5 propriétaires CRM sur 5 reconnus : la conversion est juste.
+
+**Éprouvé quand** : un membre dont l'adresse a changé au Hub est retiré, rétabli et change de rôle ; un compte NEUF qui a repris l'ancienne adresse n'est
+touché par aucun de ces gestes (vu échouer avant le correctif). Le Hub retire alors l'app de `APPS_PAR_ADRESSE` et lui envoie `hub_user_id` dans `by-email`
+(`HUB_USER_ID_APPS`). Les anciens champs restent envoyés pendant la bascule.
 
 ### 5.20 Restauration d'un membre
 

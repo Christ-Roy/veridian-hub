@@ -7,6 +7,7 @@ import { z } from 'zod';
 
 import { adressesProuvees, confirmerCode, demanderCode, detacher } from '@/lib/adresses';
 import { fournisseurPour } from '@/lib/adresses/federation';
+import { direArret } from '@/lib/adresses/garde';
 import { promouvoir, type RefusPromotion } from '@/lib/adresses/promotion';
 import { normaliserEmail } from '@/lib/auth/email-normalize';
 import { getCurrentUser } from '@/lib/auth/get-user';
@@ -79,7 +80,9 @@ export async function POST(request: NextRequest) {
   }
   if (d.geste === 'promouvoir') {
     const r = await promouvoir(prisma, u, d.email);
-    return 'refus' in r ? rendre({ error: r.refus, ...(r.apps ? { apps: r.apps } : {}) }, STATUT[r.refus]) : rendre({ ok: true, principale: r.promue, reconnect: true, apps_failed: r.appsEnEchec });
+    if (!('refus' in r)) return rendre({ ok: true, principale: r.promue, reconnect: true, apps_failed: r.appsEnEchec });
+    const arret = r.refus === 'app_par_adresse' || r.refus === 'app_non_reliee' || r.refus === 'app_indisponible' ? { message: direArret(r) } : {};
+    return rendre({ error: r.refus, ...(r.apps ? { apps: r.apps } : {}), ...arret }, STATUT[r.refus]);
   }
   return (await detacher(prisma, u, d.email)) ? rendre({ ok: true }) : rendre({ error: 'not_found' }, 404);
 }

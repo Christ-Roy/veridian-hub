@@ -54,11 +54,11 @@ describe('AdressesForm', () => {
   it('rend principale, puis renvoie se connecter ; un refus se dit et rien ne part', async () => {
     const aller = vi.fn();
     vi.stubGlobal('location', { ...window.location, assign: aller });
-    reponse = { status: 409, corps: { error: 'app_par_adresse', apps: ['crm'] } };
+    reponse = { status: 409, corps: { error: 'app_par_adresse', apps: ['crm'], message: 'Le CRM vous reconnaît encore par votre adresse.' } };
     render(<AdressesForm />);
     const bouton = await screen.findByRole('button', { name: 'Rendre principale pro@client.fr' });
     fireEvent.click(bouton);
-    await waitFor(() => expect(t.error.mock.calls[0][0]).toMatch(/CRM ou Mail/));
+    expect((await screen.findByRole('alert')).textContent).toBe('Le CRM vous reconnaît encore par votre adresse.');
     expect(aller).not.toHaveBeenCalled();
     reponse = { status: 200, corps: { ok: true, principale: 'pro@client.fr', reconnect: true } };
     await waitFor(() => expect((bouton as HTMLButtonElement).disabled).toBe(false));

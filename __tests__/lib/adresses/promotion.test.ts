@@ -10,7 +10,8 @@ vi.mock('@/lib/organisations/emission', () => ({ suivreOrganisation: m.suivre })
 vi.mock('@/lib/admin/audit-log', () => ({ writeAuditLog: async (_d: unknown, l: unknown) => { m.audits.push(l); } }));
 vi.mock('@/lib/adresses/federation', async (o) => ({ ...(await o<object>()), idpDuDomaine: (...a: unknown[]) => m.idp(...a), membreVivant: (...a: unknown[]) => m.membre(...a) }));
 
-import { APPS_PAR_ADRESSE, promouvoir } from '@/lib/adresses/promotion';
+import { APPS_PAR_ADRESSE } from '@/lib/adresses/garde';
+import { promouvoir } from '@/lib/adresses/promotion';
 
 const T0 = new Date('2026-11-25T10:00:00Z');
 const PROUVEE = new Date('2026-11-24T00:00:00Z');
@@ -100,7 +101,7 @@ describe('promouvoir', () => {
     expect(await aller()).toMatchObject({ promue: 'jean@neuf.test' });
     expect(await aller('jean@ancien.test', { ...U, email: 'jean@neuf.test' }), 'retour').toMatchObject({ promue: 'jean@ancien.test' });
   });
-  it.each(['notifuse', 'crm'])('un compte chez %s, qui désigne par l\'adresse : on s\'arrête avant', async (app) => {
+  it.each(['notifuse', 'crm', 'academy'])('un compte chez %s, qui désigne par l\'adresse : on s\'arrête avant', async (app) => {
     expect(APPS_PAR_ADRESSE).toContain(app);
     chez[app] = 'ok';
     expect(await aller()).toEqual({ refus: 'app_par_adresse', apps: [app] });
@@ -110,8 +111,9 @@ describe('promouvoir', () => {
     intact();
   });
   it('compte connu d\'une app par sa seule adresse (il en naîtrait un double), app muette : on s\'arrête avant', async () => {
-    m.decouvrir.mockImplementation(async (a: string) => ({ found: a === 'academy' }));
-    expect(await aller()).toEqual({ refus: 'app_non_reliee', apps: ['academy'] });
+    chez.analytics = 'not_in_app';
+    m.decouvrir.mockImplementation(async (a: string) => ({ found: a === 'analytics' }));
+    expect(await aller()).toEqual({ refus: 'app_non_reliee', apps: ['analytics'] });
     m.decouvrir.mockResolvedValue({ error: 'http_500' });
     expect(await aller()).toMatchObject({ refus: 'app_indisponible' });
     m.decouvrir.mockResolvedValue({ found: false });

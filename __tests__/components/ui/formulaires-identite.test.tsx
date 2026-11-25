@@ -1,6 +1,6 @@
 /** Coupure réseau : message français utile, jamais « Failed to fetch », bouton réactivé. */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { cleanup, render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 const toastError = vi.fn();
 vi.mock('sonner', () => ({ toast: { error: (...a: unknown[]) => toastError(...a), success: vi.fn(), dismiss: vi.fn() } }));
@@ -62,7 +62,8 @@ describe('session ouverte par une organisation', () => {
     render(<EmailForm userEmail="a@x.fr" />);
     fireEvent.change(screen.getByPlaceholderText('Votre email'), { target: { value: 'b@x.fr' } });
     fireEvent.submit(document.getElementById('emailForm')!);
-    await waitFor(() => expect(toastError).toHaveBeenCalledWith('Connectez-vous avec votre propre connexion.'));
+    await waitFor(() => expect(screen.getByRole('alert').textContent).toBe('Connectez-vous avec votre propre connexion.'));
+    cleanup();
     render(<PasswordForm />);
     fireEvent.change(screen.getByLabelText('Nouveau mot de passe'), { target: { value: 'motdepasse1' } });
     fireEvent.change(screen.getByLabelText('Confirmer le nouveau mot de passe'), { target: { value: 'motdepasse1' } });

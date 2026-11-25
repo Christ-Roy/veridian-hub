@@ -14,6 +14,7 @@
 import { denyIfImpersonated, denyUnlessRecentAuth, PREUVE_COMPTE_S } from '@/lib/auth/recent-auth';
 import { issueEmailProof } from '@/lib/auth/email-proof';
 import { normaliserEmail } from '@/lib/auth/email-normalize';
+import { direArret, verifierApps } from '@/lib/adresses/garde';
 import { pushUserToApps } from '@/lib/identity/push-user';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -71,6 +72,11 @@ export async function PATCH(req: Request) {
     if (interdite) return interdite;
     const denied = await denyUnlessRecentAuth(PREUVE_COMPTE_S);
     if (denied) return denied;
+    // Même garde que la promotion (AD-M3) : une app qui désigne encore par l'adresse perdrait son accès, ou en créerait un double.
+    const arret = await verifierApps({ hubUserId: user.supabaseUserId, email: user.email });
+    if ('refus' in arret) {
+      return NextResponse.json({ error: arret.refus, apps: arret.apps, message: direArret(arret) }, { status: arret.refus === 'app_indisponible' ? 503 : 409 });
+    }
   }
 
   const updateData: { name?: string; email?: string; emailVerified?: Date | null } = {};

@@ -1,7 +1,7 @@
 /**
  * Changer d'adresse principale (VER-227, AD-M3), sans boîte : la seconde adresse est prouvée par le fournisseur de l'organisation. La personne reste
  * la même dans chaque app (`hub_user_id`, aucun double), l'ancienne adresse n'ouvre plus rien et se détache. Refusés : non prouvée, celle d'un autre,
- * domaine tenu par une AUTRE organisation, rejouée, session ouverte par le fournisseur, compte chez une app qui désigne encore par l'adresse (Mail, CRM).
+ * domaine tenu par une AUTRE organisation, rejouée, session ouverte par le fournisseur, compte chez une app qui désigne encore par l'adresse (Mail, CRM, Academy).
  * NON PROUVÉ ici : la session trop ancienne (24 h, tests), l'ajout par code reçu (pas de boîte d'épreuve).
  * Épreuves : `SSO_SABOTAGE=promotion` (le fournisseur confirme une autre adresse) et `promotion-ailleurs` (l'organisation qui a prouvé reste la bonne)
  * doivent faire échouer le cas.
@@ -18,7 +18,7 @@ import { ouvrirIdp, type IdentiteDite } from './lib/idp-jetable';
 import { adresseDe, attendreSessionHub, connexionHub, creerCompteProuve, noter, noterEspaceTwenty, noterRybbit, ouvrirApp, sessionApp, type Compte } from './lib/parcours';
 
 const DOMAINE = 'veridian.site';
-const COPIES = { prospection: [APP_URL.prospection, 'PROSPECTION_TENANT_API_SECRET'], analytics: [APP_URL.analytics, 'ANALYTICS_HUB_API_SECRET'], academy: ['https://academy.app.veridian.site', 'ACADEMY_HUB_API_SECRET'] } as const;
+const COPIES = { prospection: [APP_URL.prospection, 'PROSPECTION_TENANT_API_SECRET'], analytics: [APP_URL.analytics, 'ANALYTICS_HUB_API_SECRET'] } as const;
 type App = keyof typeof COPIES;
 
 cas(null, 'adresse principale : promue si elle est prouvée, la même personne partout', async ({ browser }) => {
@@ -80,9 +80,6 @@ cas(null, 'adresse principale : promue si elle est prouvée, la même personne p
     [A.email, A2, A3].forEach(noterRybbit);
     rybbitCompte('creer', A.email);
     rybbitCompte('lier', A.email, A.hubUserId ?? undefined);
-    await adminOk('POST', 'tenants/app-access', { user_email: P.email, app: 'academy', enabled: true });
-    const ac = await appelAcademy(`/api/tenants/${T.id}/sync-member`, { hub_user_id: A.hubUserId, email: A.email, role: 'member', email_proven: true });
-    if (!ac.ok) throw new NonAbouti(`entrée à Academy : HTTP ${ac.status}`);
     const dans = (etat: unknown) => avec(etat, async (ctx) => { await ouvrirApp(ctx, 'prospection'); return sessionApp(ctx, 'prospection') as Promise<{ email?: string; id?: string } | null>; });
     const avant = await dans(A.etat);
     if (!avant?.id) throw new NonAbouti('A n\'est pas entrée dans Prospection');
@@ -142,13 +139,18 @@ cas(null, 'adresse principale : promue si elle est prouvée, la même personne p
     // Le domaine passe à une AUTRE organisation : ce que la première avait prouvé ne se promeut plus, même pour un membre de la seconde.
     const p3 = await prouver(neuve, A3, { sub: 'a-1', email: A3 });
     expect(p3.url, p3.texte).toContain('adresse=ajoutee');
+    // Academy rattache les inscriptions (des preuves de formation) par l'adresse : y entrer ferme la promotion.
+    await adminOk('POST', 'tenants/app-access', { user_email: P.email, app: 'academy', enabled: true });
+    const ac = await appelAcademy(`/api/tenants/${T.id}/sync-member`, { hub_user_id: A.hubUserId, email: A2, role: 'member', email_proven: true });
+    if (!ac.ok) throw new NonAbouti(`entrée à Academy : HTTP ${ac.status}`);
+    expect((await geste(neuve, { geste: 'promouvoir', email: A3 })).map((x) => (typeof x === 'number' ? x : [x?.error, x?.apps])), 'Academy').toEqual([409, ['app_par_adresse', ['academy']]]);
     // P a un compte chez Mail et au CRM, qui désignent encore par l'adresse : on s'arrête avant, rien ne bouge.
     await activerTwentyAuHub(P.email);
     noterEspaceTwenty(P.email, T.id);
     const pp = await prouver(P.etat, P2, { sub: 'p-1', email: P2 });
     expect(pp.url, pp.texte).toContain('adresse=ajoutee');
     const [s, j] = await geste(P.etat, { geste: 'promouvoir', email: P2 });
-    expect([s, j.error, [...(j.apps ?? [])].sort()]).toEqual([409, 'app_par_adresse', ['crm', 'notifuse']]);
+    expect([s, j.error, [...(j.apps ?? [])].sort()]).toEqual([409, 'app_par_adresse', ['academy', 'crm', 'notifuse']]);
     expect((await adresses(P.etat)).principale.toLowerCase(), 'rien n\'a changé').toBe(P.email.toLowerCase());
 
     if (sabotage !== 'promotion-ailleurs') {
@@ -160,7 +162,7 @@ cas(null, 'adresse principale : promue si elle est prouvée, la même personne p
     expect(await refus(neuve, A3), 'domaine tenu par une autre organisation').toEqual([403, 'domaine_federe']);
     expect((await geste(neuve, { geste: 'detacher', email: A1 }))[0], 'l\'ancienne se détache').toBe(200);
     expect(await adresses(neuve)).toMatchObject({ principale: A2, secondaires: [A3] });
-    return 'prouvée par le fournisseur puis promue à l\'écran ; même hub_user_id au Hub, dans Prospection, Analytics et Academy, aucun double ; ancienne : plus d\'entrée, détachée ; refusés : sans session, non prouvée, d\'un autre, autre adresse que demandée, session du fournisseur, rejouée, preuve perdue, autre organisation, Mail et CRM (encore par adresse)';
+    return 'prouvée par le fournisseur puis promue à l\'écran ; même hub_user_id au Hub, dans Prospection et Analytics, aucun double ; ancienne : plus d\'entrée, détachée ; refusés : sans session, non prouvée, d\'un autre, autre adresse que demandée, session du fournisseur, rejouée, preuve perdue, autre organisation, Mail, CRM et Academy (encore par adresse)';
   } finally {
     for (const t of [T, T2]) await admin('DELETE', `organisations/${t.id}/idp`).catch(() => undefined);
     await idp.fermer();
