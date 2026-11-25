@@ -1916,7 +1916,7 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
   (fournisseur, `sub`). Compte neuf : création ouverte ou adresse pré-inscrite. Compte existant prouvé : sa personne le relie, connectée, une fois. Jamais
   prouvé : première preuve, ce qui précédait tombe (M2). Retirée : ne revient pas. Session de 24 h. Une adresse privée en clair ne vaut que pour une
   organisation MARQUÉE de test, et n'y affirme que des comptes de batterie.
-- **Connexion obligatoire** (VER-261, 25/11, `lib/federation/{obligation,connexion,prouver}.ts`, cas 45) : une organisation est « libre » ou « obligatoire par son
+- **Connexion obligatoire** (VER-261, 25/11, `lib/federation/{obligation,connexion,prouver}.ts`, cas 46) : une organisation est « libre » ou « obligatoire par son
   fournisseur ». Obligatoire = une session qui n'y est pas passée n'ouvre AUCUNE de ses portes (écrans, rebond, porte MCP, liaisons, jetons d'IA, assistant,
   échange entre apps) ; les autres organisations de la personne restent ouvertes. UNE question, `fermees()`, et la preuve (`session`, `jeton`, `personne`) est un
   paramètre obligatoire d'`espacesDe` : une porte qui l'oublie ne compile pas. Sa session passe par le fournisseur et reste la sienne (`/auth/organisation`,

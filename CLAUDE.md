@@ -62,7 +62,7 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   clic du propriétaire ; jamais de jeton à `act` sans « garde servie ». Organisation unique (§5.19.6, `hub org`). Cas 21 à 26.
 - **Adresses** (§5.19.6 à 8) : changement fermé chez Academy et par compte non relié ; l'ancienne est prévenue et annule 72 h (`lib/adresses/annulation.ts`). 30 à 33, 42.
 - **Fournisseur d'une organisation** (§5.19.6) : OIDC ou SAML, posé par nous (`hub org idp`) ou par le propriétaire à l'écran (sans domaine, essai d'abord). Session bornée à l'organisation. 39, 41.
-- **Connexion obligatoire** (§5.19.6, VER-261) : `hub org connexion`. Toute lecture d'espaces prend une `Preuve` (`lib/federation/obligation.ts`). 45.
+- **Connexion obligatoire** (§5.19.6, VER-261) : `hub org connexion`. Toute lecture d'espaces prend une `Preuve` (`lib/federation/obligation.ts`). 46.
 - **Connexions extérieures** (`docs/CONNECTEURS.md`) : FERMÉES (Robert ouvre), aucun appel réel en épreuve. 43.
 - **Garde rapide** : `__tests__/contrat/` (révocation sans `iat`, `authAt`, cibles du rebond, origines) ; tout nouvel
   `encode(` de JWT de session s'y ajoute. Détail : `docs/PARCOURS-IDENTITE.md`.
@@ -76,7 +76,7 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
 Outil admin : `hub` (`hub doctor` d'abord : santé, secret, auth admin). Aucune de ces commandes n'affiche de secret.
 
 - **Un client ne peut plus se connecter** : `hub tenant <email>` (adresse prouvée ? apps liées ?), `hub audit --since <date>`.
-  Adresse non prouvée : aucun lien d'app, `hub invite <email>` renouvelle l'accès (`--no-email` : lien seul). Entrer chez lui : `/dashboard/admin/clients` ou `hub open <email>` (`docs/PARCOURS-IDENTITE.md`, cas 45).
+  Adresse non prouvée : aucun lien d'app, `hub invite <email>` renouvelle l'accès (`--no-email` : lien seul). Entrer chez lui : `/dashboard/admin/clients` ou `hub open <email>` (`docs/PARCOURS-IDENTITE.md`, cas 46).
 - **Un rebond échoue** : `/auth/bounce/error?code=` dit pourquoi (`not_configured` : variable `<APP>_API_URL` ou
   `<APP>_HUB_API_SECRET` absente du job ; `unreachable` : l'app ; refus d'identité : voir « Rebond refusé »).
   `nomad-v logs hub` (tag `[bounce][refus]`). 3 rebonds rapides : anti-boucle, 30 s.
