@@ -10,6 +10,7 @@ import { writeAuditLog } from '@/lib/admin/audit-log';
 import { readAppSecrets } from '@/lib/sync/discovery';
 import type { SyncApp } from '@/lib/sync/types';
 import { signerAction } from '@/lib/mcp/identite';
+import { appsParOrganisation } from '@/lib/tenant-apps/organisation';
 
 import { listerIntegrations } from './interrupteur';
 import { organisationDeTest } from './ouverture';
@@ -22,7 +23,7 @@ const PAR_MINUTE = 60;
 const APPS: readonly AppPaire[] = ['prospection', 'notifuse', 'crm'];
 
 export type Refus = { statut: number; error: string; retryAfterS?: number };
-export type Db = Pick<PrismaClient, 'delegationGrant' | 'delegationNonce' | 'tenant' | 'tenantMember' | 'user' | 'integrationPaire' | 'mcpApp' | 'tenantApp' | 'auditLog'>;
+export type Db = Pick<PrismaClient, 'delegationGrant' | 'delegationNonce' | 'tenant' | 'tenantMember' | 'user' | 'integrationPaire' | 'mcpApp' | 'tenantApp' | 'organisation' | 'auditLog'>;
 
 /** Signature de l'app : HMAC-SHA256 du secret de l'app sur `ts.nonce.corps`, fenêtre de 5 min, nonce à usage unique. */
 export async function verifierAppel<A extends SyncApp = AppPaire>(db: Pick<PrismaClient, 'delegationNonce'>, h: Headers, corps: string, now = Date.now(), apps: readonly A[] = APPS as unknown as readonly A[]): Promise<{ app: A } | Refus> {
@@ -90,7 +91,9 @@ export async function echanger(db: Db, app: AppPaire, d: Demande, env: NodeJS.Pr
   const cibleMcp = await db.mcpApp.findUnique({ where: { appKey: CLE_MCP[p.cible] }, select: { mcpUrl: true, enabled: true, acces: true } });
   if (!cibleMcp?.enabled) return { statut: 503, error: 'target_not_registered' };
   // Une app réservée, que l'utilisateur n'a pas : la délégation ne l'y fait pas entrer.
-  if (cibleMcp.acces !== 'tous' && !(await db.tenantApp.findFirst({ where: { userId: g.hubUserId, appKey: CLE_MCP[p.cible], enabled: true }, select: { appKey: true } }))) return refuser('app_not_open');
+  const aLui = async () => Boolean(await db.tenantApp.findFirst({ where: { userId: g.hubUserId, appKey: CLE_MCP[p.cible], enabled: true }, select: { appKey: true } }));
+  const parOrg = async () => (await appsParOrganisation(db, g.hubUserId, g.tenantId)).has(CLE_MCP[p.cible] as never);
+  if (cibleMcp.acces !== 'tous' && !(await aLui()) && !(await parOrg())) return refuser('app_not_open');
   const url = adresseAction(p.cible, cibleMcp.mcpUrl);
   const jti = randomUUID();
   const jeton = await signerAction({ audience: url, hubUserId: g.hubUserId, email: u.email, tenantId: g.tenantId, app, scope: portees, jti, ttlS: TTL_ACTION_S }, env);

@@ -11,7 +11,7 @@ import { APP_URL, HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
 import { activerTwentyAuHub, admin, adminOk, lookup } from './lib/hub-admin';
 import { obtenirJetonMcp, outil } from './lib/mcp';
-import { creerCompteProuve, noterEspaceTwenty, type Compte } from './lib/parcours';
+import { creerCompteProuve, noterEspaceTwenty, ouvrirApp, type Compte } from './lib/parcours';
 
 /** Un PNG rouge de 8 x 8 fabriqué ici (une image en base64 ressemble à un secret), avec un commentaire qui ne doit pas survivre au réencodage. */
 const bloc = (type: string, d: Buffer) => {
@@ -87,9 +87,7 @@ cas(null, 'organisation : réglée une fois au Hub, reçue et relue par l\'app, 
   expect(apres.document.version).toBeGreaterThan(d.document.version);
   expect(apres.document.membres.map((x) => x.hub_user_id).sort()).toEqual([P.hubUserId, M.hubUserId].sort());
   // Le membre ajouté est dans l'espace CRM, vu par LUI, par la porte MCP ; il y voit le propriétaire.
-  // L'accès du CRM par l'IA reste noté par personne (tenant_apps) : posé comme le ferait l'opérateur.
-  await activerTwentyAuHub(M.email);
-  if (M.tenantId) noterEspaceTwenty(M.email, M.tenantId);
+  // Le membre n'a JAMAIS été activé au CRM : c'est l'organisation, qui l'a coché, qui le lui ouvre (option A).
   const jetonM = await obtenirJetonMcp(browser, M, 'TEST ORGANISATION');
   const vusCrm = (await outil(jetonM, 'executer_outil', { nom: 'twenty.api_lire', arguments: { query: 'query { workspaceMembers(first: 10) { edges { node { id userEmail } } } }' }, espace: T.slug })).texte;
   expect([vusCrm.includes(M.email.toLowerCase()), vusCrm.includes(P.email.toLowerCase())], `${vusCrm.slice(0, 200)} ; outils : ${(await outil(jetonM, 'chercher_outils', { besoin: 'lire les sociétés', app: 'twenty' })).texte.slice(0, 500)}`).toEqual([true, true]);
@@ -122,5 +120,23 @@ cas(null, 'organisation : réglée une fois au Hub, reçue et relue par l\'app, 
     await ctxA.close();
   }
   expect(avec.c, `espace d'arrivée sans choix ${sans.c}, avec choix ${avec.c}, nom affiché ${avec.dedans}`).not.toBe(sans.c);
-  return `réglée à l'écran, logo servi en PNG, Prospection et CRM relus à la version ${apres.document.version}, membre parti avec, arrivée dans l'organisation choisie (nom affiché : ${avec.dedans})`;
+  // Le logo et le nom tels que le CRM les sert, sans session (CRM, 25/11).
+  const ctxCrm = await browser.newContext({ storageState: P.etat as never });
+  const hoteCrm = await ouvrirApp(ctxCrm, 'twenty').then((x) => new URL(x.url).origin).finally(() => ctxCrm.close());
+  const pub = (await (await fetch(`${hoteCrm}/metadata`, { method: 'POST', headers: { 'content-type': 'application/json', origin: hoteCrm }, body: JSON.stringify({ query: 'query($o:String!){getPublicWorkspaceDataByDomain(origin:$o){displayName logo}}', variables: { o: hoteCrm } }) })).json().catch(() => null)) as { data?: { getPublicWorkspaceDataByDomain?: { displayName?: string; logo?: string } } } | null;
+  const espaceCrm = pub?.data?.getPublicWorkspaceDataByDomain;
+  expect([espaceCrm?.displayName, Boolean(espaceCrm?.logo)], JSON.stringify(pub).slice(0, 300)).toEqual(['TEST organisation', true]);
+  const logoCrm = await fetch(new URL(espaceCrm!.logo!, hoteCrm));
+  expect([logoCrm.status, logoCrm.headers.get('content-type')], espaceCrm!.logo!.slice(0, 120)).toEqual([200, 'image/png']);
+
+  // Suspendue, reprise, puis retiré : l'ouverture suit, sans rien désactiver à la main.
+  const appsDeM = async () => (JSON.parse((await outil(jetonM, 'chercher_outils', { besoin: 'lire les sociétés', app: 'twenty' })).texte) as { apps: string[] }).apps.includes('twenty');
+  expect(await appsDeM(), 'contrôle positif').toBe(true);
+  await admin('POST', `tenants/${T.id}/suspension`, { suspendre: true, motif: 'TEST' });
+  expect(await appsDeM(), 'suspendue').toBe(false);
+  await admin('POST', `tenants/${T.id}/suspension`, { suspendre: false, motif: 'TEST' });
+  expect(await appsDeM(), 'reprise').toBe(true);
+  await admin('POST', `tenants/${T.id}/remove-member`, { hub_user_id: M.hubUserId });
+  expect(await appsDeM(), 'retiré').toBe(false);
+  return `réglée à l'écran, logo servi en PNG, Prospection et CRM relus à la version ${apres.document.version}, membre parti avec, arrivée dans l'organisation choisie (nom affiché : ${avec.dedans}) ; nom et logo servis par le CRM ; CRM ouvert au membre par l'organisation, refermé suspendue et retiré`;
 }, { timeout: 480_000 });

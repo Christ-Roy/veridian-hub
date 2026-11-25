@@ -11,9 +11,11 @@ import { signerPourApp } from './identite';
 import type { Appelant } from './oauth';
 import type { Provisionneur } from './provisionneurs';
 
+import { appsParOrganisation } from '@/lib/tenant-apps/organisation';
+
 export { viderCache } from './cache';
 
-export type Db = Pick<PrismaClient, 'mcpApp' | 'tenantApp' | 'tenant' | 'tenantTrial' | 'tenantMember'>;
+export type Db = Pick<PrismaClient, 'mcpApp' | 'tenantApp' | 'tenant' | 'tenantTrial' | 'tenantMember' | 'organisation'>;
 
 export type Outil = {
   nom: string;
@@ -57,6 +59,7 @@ export async function appsDe(db: Db, hubUserId: string): Promise<AppInscrite[]> 
         ).map((r) => r.appKey),
       )
     : new Set<string>();
+  for (const app of besoinActivation.length ? Array.from(await appsParOrganisation(db, hubUserId)) : []) actives.add(app);
   return apps
     .filter((a) => a.acces === 'tous' || actives.has(a.appKey))
     .map((a) => ({ appKey: a.appKey, label: a.label, mcpUrl: a.mcpUrl }));

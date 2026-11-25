@@ -21,7 +21,7 @@ import { signatureOutil } from './signature';
 import { AUTORISER_MAX, CODE_MAX_CAR, DELAI_MS, executerProgramme, exigeAutorisation, ETAT_MAX_CAR, prendrePlace, presenter, REPONSE_MAX_OCTETS, type Contenu } from './programme';
 import { ouvrirMoteur, programmeConfigure } from './programme-moteur';
 
-export type DbPorte = Pick<PrismaClient, 'integrationPaire' | 'integrationDemande' | 'evenementAbonnement' | 'user' | 'mcpApp' | 'tenantApp' | 'tenant' | 'tenantTrial' | 'tenantMember' | 'auditLog'>;
+export type DbPorte = Pick<PrismaClient, 'integrationPaire' | 'integrationDemande' | 'evenementAbonnement' | 'user' | 'mcpApp' | 'tenantApp' | 'tenant' | 'tenantTrial' | 'tenantMember' | 'organisation' | 'auditLog'>;
 
 type Rpc = { jsonrpc?: string; id?: string | number | null; method?: string; params?: Record<string, unknown> };
 

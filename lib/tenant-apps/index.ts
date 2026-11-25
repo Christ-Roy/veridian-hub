@@ -15,6 +15,8 @@
 
 import type { PrismaClient } from '@prisma/client';
 
+import { appsParOrganisation } from './organisation';
+
 /** Apps gérées par le système d'activation par tenant (gated, défaut OFF). */
 export const GATED_APP_KEYS = ['twenty', 'analytics', 'cms', 'academy'] as const;
 export type GatedAppKey = (typeof GATED_APP_KEYS)[number];
@@ -33,7 +35,7 @@ export function isGatedAppKey(key: string): key is GatedAppKey {
  * révèle JAMAIS une app par accident sur une erreur).
  */
 export async function getEnabledGatedApps(
-  prisma: Pick<PrismaClient, 'tenantApp'>,
+  prisma: Pick<PrismaClient, 'tenantApp' | 'tenant' | 'tenantMember' | 'organisation'>,
   userUuidValue: string,
 ): Promise<Set<GatedAppKey>> {
   try {
@@ -45,6 +47,7 @@ export async function getEnabledGatedApps(
     for (const row of rows) {
       if (isGatedAppKey(row.appKey)) enabled.add(row.appKey);
     }
+    for (const app of Array.from(await appsParOrganisation(prisma, userUuidValue))) enabled.add(app);
     return enabled;
   } catch {
     // Fail-safe : sur erreur DB, aucune app gated n'est révélée.
