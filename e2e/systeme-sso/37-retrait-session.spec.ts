@@ -78,7 +78,7 @@ cas(null, 'retrait : la session ouverte du membre se ferme dans chaque app, en s
         await new Promise((ok) => setTimeout(ok, 700));
       }
     }));
-    expect([APPS.filter((x) => dernier[x] >= BORNE), temoin], `retrait ${JSON.stringify(ret?.json.apps)} ; dernière lecture ${JSON.stringify(dernier)}`).toEqual([[], oui]);
+    expect([APPS.filter((x) => dernier[x] >= BORNE), temoin], `dernière lecture ${JSON.stringify(dernier)} ; retrait ${ret?.json.apps?.map((x) => `${x.app}=${x.etat}`).join(' ') ?? 'pas joué'}`).toEqual([[], oui]);
     return `dernière lecture après le retrait : ${APPS.map((x) => `${x} ${dernier[x]} ms`).join(', ')} ; le propriétaire lit tout du long`;
   } finally {
     for (const c of ouverts) await c.close().catch(() => undefined);
