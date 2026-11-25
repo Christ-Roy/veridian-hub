@@ -189,19 +189,23 @@ test.describe('Journey 22 — Auto-login Notifuse après `hub link`', () => {
     const workspaceId = uniqueWorkspaceId();
     const email = makeEmail(`autologin-${workspaceId}`);
 
-    // ─── 1. Workspace créé EN DIRECT côté Notifuse (hors Hub) ───────────
+    // ─── 1. User Hub (identité prouvée par `hub_user_id`, CONTRAT-HUB §5.19.7) ──
+    await signupCredentials(email);
+    const hubUserId = await resolveHubUserId(request, email);
+
+    // ─── 2. Workspace créé EN DIRECT côté Notifuse (hors Hub) ───────────
     // Reproduit le CLI `notifuse` : le Hub ne voit jamais passer la clé API.
+    // Mail désigne son propriétaire par `owner_hub_user_id`, jamais par l'adresse seule.
     const provision = await notifuseHmac('POST', '/api/tenants/provision', {
       tenant_id: workspaceId,
       owner_email: email,
+      owner_hub_user_id: hubUserId,
       workspace_name: `E2E autologin ${workspaceId}`,
       plan: 'free',
+      metadata: { hub_user_id: hubUserId },
     });
     expect(provision.status, `provision Notifuse: ${JSON.stringify(provision.json)}`).toBe(200);
     expect(provision.json.created, 'workspace fraîchement créé').toBe(true);
-
-    // ─── 2. User Hub + session client ───────────────────────────────────
-    await signupCredentials(email);
 
     // ─── 3. `hub link --app notifuse` ───────────────────────────────────
     const link = await hubLinkNotifuse(request, { email, workspaceId });
@@ -294,4 +298,13 @@ async function resolveTenantId(
   const tenantId = body.tenant?.id ?? body.tenants?.[0]?.id;
   expect(tenantId, `tenant Hub introuvable pour ${email}: ${JSON.stringify(body)}`).toBeTruthy();
   return tenantId!;
+}
+
+/** `hub_user_id` (`supabase_user_id`) du compte, par l'API admin. */
+async function resolveHubUserId(request: APIRequestContext, email: string): Promise<string> {
+  const res = await request.get(`${STAGING_URL}/api/admin/users/${encodeURIComponent(email)}`, { headers: adminHeaders(), failOnStatusCode: false });
+  expect(res.status(), `admin users lookup ${email}`).toBe(200);
+  const body = (await res.json()) as { user?: { supabase_user_id?: string | null } };
+  expect(body.user?.supabase_user_id, `hub_user_id introuvable pour ${email}`).toBeTruthy();
+  return body.user!.supabase_user_id!;
 }
