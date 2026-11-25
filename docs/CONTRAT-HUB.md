@@ -1789,9 +1789,17 @@ et `hub suspension` passent par lui.
 - **CRM** (VER-254, v37, 25/11) : `suspend` et `resume` ferment et rendent sessions, clés, MCP, tâches de fond et webhooks. Suspendu : `issue-magic-link`,
   `attach-member`, `organisations/sync` répondent `423 workspace_suspended` ; le rebond le dit (« Espace suspendu »), le Hub n'émet rien d'une organisation
   suspendue, et réémet à la reprise. `409 not_suspended_by_hub` (espace fermé par un autre chemin) est DIT et sort des cibles ; `410` : rien à fermer. Cas 34.
-- **Session ouverte d'un retiré** : `remove-member` la coupe, dans cet espace, AVANT de répondre. Mail et Prospection le faisaient ; le CRM depuis v42
-  (25/11 : jusque-là cookie, jeton d'accès de 30 min et flux en direct lisaient encore). Restent, dits : une clé API d'espace ; au CRM, un lien de fichier
-  signé, un jour au plus. Academy : réservée, non mesurée. Cas 37.
+- **Ce qu'un retiré tenait déjà** (25/11, cas 37 : 19 portes, 65 s chacune, propriétaire et autre membre témoins, chaque sonde vue lire jusqu'au bout
+  quand on ne retire pas). Jamais « fermé » sans la porte nommée :
+  - **Refusé dès la première lecture après la réponse** : porte IA (CRM, Mail, Prospection) ; CRM (v42) cookie, jeton (GraphQL, REST, identité, MCP),
+    rafraîchissement, flux en direct, lien de connexion non consommé ; Mail session, boîte unifiée, lien non consommé ; Prospection session, donnée de
+    l'espace, lien non consommé. Avant v42, cookie, jeton de 30 min et flux du CRM lisaient encore. Le Hub n'envoie plus `revoke_sessions` au retrait.
+  - **OUVERT, mesuré** : Mail, l'accès de boîte (IMAP) créé par la personne ; Mail, le flux `mail.events` (contrôlé à l'ouverture seulement, 5 min).
+    Posé à Notifuse. Le cas 37 reste rouge tant que c'est ouvert.
+  - **Ouvert, dit, non sondé** : clés API d'espace (convenu) ; CRM, lien de fichier signé, un jour au plus ; Analytics, aucune route de retrait (le
+    Hub rend `non_gere`), clé d'organisation et lien privé de site lus comme survivants.
+  - **Non mesurable par nous** : Academy, réservée (lu : sessions coupées et liens fermés au retrait, clés d'espace comptées) ; jetons que la personne
+    ne tient pas (JWT Hub vers app, 5 min).
 - **Qui ne sait pas** (25/11) : retrait et suspension, Analytics ; `attach-owner`, Academy.
 - **Clés API d'un retiré** : jamais coupées (des automatisations en vivent), toujours DITES. `remove-member` rend
   `active_api_keys` (toutes les clés actives de l'espace, hors clé du Hub) et `api_keys_url` (la page où les renouveler, en https sur

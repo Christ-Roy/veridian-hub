@@ -47,6 +47,8 @@ export const DOMAINE_COMPTE = 'veridian.site';
 /** Masque les jetons à usage unique avant tout affichage. */
 export function masquer(s: string): string {
   return s
-    .replace(/([?&](?:token|t|code)=)[^&\s"')]+/gi, '$1…')
+    .replace(/([?&#](?:token|t|code|[a-z_]*token)=)[^&\s"')]+/gi, '$1…')
+    // Tout JWT, même tronqué, où qu'il soit (25/11 : un loginToken du CRM est passé dans un message d'échec).
+    .replace(/eyJ[A-Za-z0-9_-]{8,}(?:\.[A-Za-z0-9_-]*){0,2}/g, 'jwt…')
     .replace(/\/onboard\/[A-Za-z0-9_-]+/g, '/onboard/…');
 }

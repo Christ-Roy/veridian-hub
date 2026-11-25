@@ -30,17 +30,32 @@ export async function outil(jeton: string, name: string, args: Record<string, un
   return { texte: String(r.json.result.content?.[0]?.text ?? ''), isError: Boolean(r.json.result.isError) };
 }
 
-/** Jeton MCP d'un compte : un vrai consentement, comme un client IA le ferait. */
-export async function obtenirJetonMcp(browser: Browser, E: { etat: unknown }, clientName = 'TEST SYSTEME SSO'): Promise<string> {
-  const prm = await (await fetch(`${HUB_URL}/.well-known/oauth-protected-resource`)).json();
-  const as = await (await fetch(`${HUB_URL}/.well-known/oauth-authorization-server`)).json();
-  const reg = await fetch(as.registration_endpoint, {
+/** `SSO_MCP_CLIENT` réutilise un client déjà enregistré, comme le fait un vrai client IA. Un seul enregistrement par nom et par exécution : le Hub les borne par adresse (429 vu le 25/11), et plusieurs personnes partagent un client. */
+const enregistres = new Map<string, string>();
+async function enregistrer(adresse: string, clientName: string): Promise<string> {
+  const demander = () => fetch(adresse, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ client_name: clientName, redirect_uris: [RETOUR], token_endpoint_auth_method: 'none' }),
   });
-  if (reg.status !== 201) throw new NonAbouti(`enregistrement MCP refusé : HTTP ${reg.status}`);
-  const client = (await reg.json()).client_id as string;
+  let reg = await demander();
+  // La borne du Hub n'est pas l'objet testé : on attend ce qu'elle annonce, une fois.
+  const attente = Number(reg.headers.get('retry-after') ?? 0);
+  if (reg.status === 429 && attente > 0 && attente <= 600) {
+    await new Promise((ok) => setTimeout(ok, (attente + 2) * 1000));
+    reg = await demander();
+  }
+  if (reg.status !== 201) throw new NonAbouti(`enregistrement MCP refusé : HTTP ${reg.status}${attente ? `, réessai dans ${attente} s` : ''}`);
+  const id = (await reg.json()).client_id as string;
+  enregistres.set(clientName, id);
+  return id;
+}
+
+/** Jeton MCP d'un compte : un vrai consentement, comme un client IA le ferait. */
+export async function obtenirJetonMcp(browser: Browser, E: { etat: unknown }, clientName = 'TEST SYSTEME SSO'): Promise<string> {
+  const prm = await (await fetch(`${HUB_URL}/.well-known/oauth-protected-resource`)).json();
+  const as = await (await fetch(`${HUB_URL}/.well-known/oauth-authorization-server`)).json();
+  const client = enregistres.get(clientName) ?? process.env.SSO_MCP_CLIENT ?? (await enregistrer(as.registration_endpoint as string, clientName));
 
   const verifier = randomBytes(32).toString('base64url');
   const state = randomBytes(8).toString('hex');
