@@ -40,6 +40,11 @@ export default async function SecuritySettingsPage() {
         title="Sécurité"
         description="Renforcez la protection de votre compte Veridian."
         icon={ShieldCheck}
+        action={
+          <Link href="/dashboard/settings" className="text-sm text-primary hover:underline">
+            Retour aux paramètres
+          </Link>
+        }
       />
 
       <Card className="p-6 space-y-4">

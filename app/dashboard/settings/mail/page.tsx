@@ -13,6 +13,7 @@
  * user) à des fins de feedback rapide après le test.
  */
 
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { Mail, AlertTriangle, CheckCircle2 } from 'lucide-react';
 
@@ -90,6 +91,11 @@ export default async function MailSettingsPage({
         title="Compte d'envoi mail"
         description="Connectez votre Gmail pour envoyer des emails depuis vos apps Veridian au nom de votre adresse."
         icon={Mail}
+        action={
+          <Link href="/dashboard/settings" className="text-sm text-primary hover:underline">
+            Retour aux paramètres
+          </Link>
+        }
       />
 
       {status === 'connected' && (

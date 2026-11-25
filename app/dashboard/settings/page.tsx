@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { Separator } from '@/components/ui/separator';
 import NameForm from '@/components/ui/AccountForms/NameForm';
@@ -76,8 +77,29 @@ export default async function SettingsPage() {
               Modifiez votre mot de passe
             </CardDescription>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
             <PasswordForm />
+            <Separator />
+            <p className="text-sm text-muted-foreground">
+              Validation par email à la connexion, déconnexion de tous vos appareils :{' '}
+              <Link href="/dashboard/settings/security" className="text-primary hover:underline">
+                Sécurité du compte
+              </Link>
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Envoi d&apos;emails depuis votre Gmail</CardTitle>
+            <CardDescription>
+              Connectez votre adresse Gmail pour que vos apps Veridian envoient des emails en votre nom.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link href="/dashboard/settings/mail" className="text-sm text-primary hover:underline">
+              Gérer mon compte d&apos;envoi
+            </Link>
           </CardContent>
         </Card>
 
