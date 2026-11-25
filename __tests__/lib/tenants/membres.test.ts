@@ -24,11 +24,12 @@ let secondaires: L[] = [];
 const trouve = (w: L) => membres.find((m) => m.tenantId === w.tenantId_userId.tenantId && m.userId === w.tenantId_userId.userId) ?? null;
 const db = {
   tenant: { findFirst: async ({ where }: L) => (tenant && tenant.id === where.id ? tenant : null), update: async ({ data }: L) => Object.assign(tenant!, data) },
-  user: { findFirst: async ({ where }: L) => users.find((u) => u.supabaseUserId === where.supabaseUserId) ?? null },
+  user: { findFirst: async ({ where }: L) => users.find((u) => u.supabaseUserId === where.supabaseUserId) ?? null, findMany: async ({ where }: L) => users.filter((u) => where.supabaseUserId.in.includes(u.supabaseUserId)) },
   tenantMember: {
     findUnique: async ({ where }: L) => { const l = trouve(where); return l && { ...l }; },
     upsert: async ({ where, create, update }: L) => { const l = trouve(where); if (l) Object.assign(l, update); else membres.push({ deletedAt: null, ...create }); },
     update: async ({ where, data }: L) => Object.assign(trouve(where)!, data),
+    findMany: async ({ where }: L) => membres.filter((m) => m.tenantId === where.tenantId && !m.deletedAt),
   },
   delegationGrant: { updateMany: async ({ where }: L) => { revoques.push(where); return { count: 1 }; } },
   integrationPaire: { updateMany: async ({ where, data }: L) => { coupees.push([where, data]); return { count: 1 }; } },
@@ -115,13 +116,15 @@ describe('un membre retiré ne revient pas tout seul', () => {
 });
 
 /** Des apps qui tiennent leur liste de membres. */
-function apps(etat: Record<string, string[]>, o: { sourd?: string; refuse?: string; dit?: Record<string, [number, string]>; sansLien?: string; muet?: string; cles?: Record<string, object> } = {}) {
+function apps(etat: Record<string, string[]>, o: { sourd?: string; refuse?: string; dit?: Record<string, [number, string]>; sansLien?: string; muet?: string; cles?: Record<string, object>; comptes?: Record<string, string[]> } = {}) {
   const posts: { app: string; chemin: string; corps: L }[] = [];
   const f = vi.fn(async (u: string, init: RequestInit = {}) => {
     const url = new URL(u);
     const app = url.hostname.split('.')[0];
     if ((init.method ?? 'GET') === 'GET') {
       if (o.muet === app) return new Response('', { status: 500 });
+      // Tous les comptes de l'app, espace relié ou non.
+      if (url.pathname === '/api/hub/users') return Response.json({ users: (o.comptes?.[app] ?? []).map((c) => (c.includes('@') ? { email: c } : { email: `autre-${c}@x.fr`, hub_user_id: c })) });
       const email = url.searchParams.get('email')!;
       // Une app qui lit hub_user_id ne voit pas un compte sans lien.
       if (o.sansLien === app && url.searchParams.has('hub_user_id')) return Response.json({ found: false });
@@ -192,9 +195,27 @@ describe('retirer', () => {
   });
 
   it('une app en panne, muette, ou sans route : dite, les autres sont coupées', async () => {
-    const r = await retirerM(apps({ notifuse: ['m@x.fr'], prospection: ['m@x.fr'], analytics: ['m@x.fr'], academy: ['m@x.fr'] }, { refuse: 'prospection', muet: 'notifuse' }).f, ['notifuse', 'prospection', 'crm', 'analytics', 'academy']);
+    const r = await retirerM(apps({ notifuse: ['m@x.fr'], prospection: ['m@x.fr'], academy: ['m@x.fr'] }, { refuse: 'prospection', muet: 'notifuse', comptes: { analytics: ['u-m'] } }).f, ['notifuse', 'prospection', 'crm', 'analytics', 'academy']);
     expect(r.apps.map((x) => [x.app, x.etat])).toEqual([['notifuse', 'echec'], ['prospection', 'echec'], ['crm', 'absent'], ['analytics', 'non_gere'], ['academy', 'retire']]);
     expect(r.complet).toBe(false);
+  });
+
+  it('Analytics, sans route ni espace relié : « non fermé » dès que la personne y a un compte, par l\'identifiant ou l\'adresse ; jamais tu', async () => {
+    for (const c of ['u-m', 'M@x.fr']) {
+      const a = apps({}, { comptes: { analytics: [c, 'u-autre', 'z@x.fr'] } });
+      const r = await retirerM(a.f, ['analytics']);
+      expect(r.apps[0]).toMatchObject({ app: 'analytics', etat: 'non_gere', detail: expect.stringMatching(/^NON FERMÉ, aucune route de retrait.*1 compte y reste/) });
+      expect([r.complet, a.posts]).toEqual([false, []]);
+      expect(r.avis).toMatch(/PAS coupé : analytics \(NON FERMÉ/);
+      expect(audits.at(-1)!.payload.apps[0].etat).toBe('non_gere');
+    }
+    expect((await retirerM(apps({}, { comptes: { analytics: ['u-autre'] } }).f, ['analytics'])).apps).toEqual([{ app: 'analytics', etat: 'absent' }]);
+    expect((await retirerM(apps({}, { muet: 'analytics' }).f, ['analytics'])).apps[0]).toMatchObject({ etat: 'echec', detail: expect.stringContaining('non vérifié') });
+  });
+
+  it('un compte dans une app sans route ne fait pas un membre', async () => {
+    membres = [];
+    await expect(retirerM(apps({}, { comptes: { analytics: ['u-m'] } }).f, ['analytics', 'crm'])).rejects.toMatchObject({ code: 'pas_membre' });
   });
 
   it('rejoué : les apps en retard suivent, le Hub dit déjà', async () => {
@@ -223,20 +244,22 @@ describe('suspension', () => {
   const basculer = (suspendre: boolean, f: typeof fetch) => basculerSuspension(db, { tenantId: 'T', suspendre, acteur: 'test' }, { fetchImpl: f, apps: ['notifuse', 'prospection', 'academy', 'crm', 'analytics'] as never });
   beforeEach(() => org.suivre.mockClear());
   it('au Hub d\'abord, puis les apps qui savent ; celle qui ne sait pas est dite ; reprise symétrique, l\'organisation repart', async () => {
-    const etat = { notifuse: ['prop@x.fr'], prospection: ['prop@x.fr'], academy: ['prop@x.fr'], crm: ['prop@x.fr'], analytics: ['prop@x.fr'] };
-    const a = apps(etat);
+    const etat = { notifuse: ['prop@x.fr'], prospection: ['prop@x.fr'], academy: ['prop@x.fr'], crm: ['prop@x.fr'] };
+    await joindre();
+    audits = [];
+    const a = apps(etat, { comptes: { analytics: ['u-prop', 'm@x.fr', 'u-autre'] } });
     const r = await basculer(true, a.f);
     expect(tenant!.status).toBe('suspended');
     expect(r.apps.map((x) => x.etat)).toEqual(['suspendu', 'suspendu', 'suspendu', 'suspendu', 'non_gere']);
     expect(r.complet).toBe(false);
-    expect(r.avis, 'celui qui suspend lit ce qui ne l\'est pas').toContain('analytics (aucune route de suspension');
+    expect(r.avis, 'celui qui suspend lit ce qui ne l\'est pas').toMatch(/analytics \(NON FERMÉ, aucune route de suspension.*2 comptes y restent/);
     expect(a.posts.map((p) => [p.app, p.chemin, p.corps.tenant_id])).toEqual(expect.arrayContaining([['notifuse', '/api/tenants/suspend', 'esp'], ['prospection', '/api/tenants/suspend', 'tp'], ['academy', '/api/tenants/suspend', 'T'], ['crm', '/api/tenants/suspend', 'T']]));
     expect(org.suivre, 'suspendue : rien à émettre').not.toHaveBeenCalled();
     expect(audits[0]).toMatchObject({ action: 'tenant.suspendu' });
     expect(revoques, 'poignées du tenant').toEqual([{ tenantId: 'T', revoqueLe: null }]);
     expect(coupees[0][1], 'consentements retirés').toMatchObject({ etat: 'eteinte', consentiLe: null });
     const b = apps(etat);
-    expect((await basculer(false, b.f)).apps.map((x) => x.etat)).toEqual(['repris', 'repris', 'repris', 'repris', 'non_gere']);
+    expect((await basculer(false, b.f)).apps.map((x) => x.etat)).toEqual(['repris', 'repris', 'repris', 'repris', 'absent']);
     expect(org.suivre.mock.calls.map((c) => c[1]), 'ce qu\'un 423 avait retenu').toEqual(['T']);
     expect(tenant!.status).toBe('active');
     expect(b.posts.every((p) => p.chemin === '/api/tenants/resume')).toBe(true);

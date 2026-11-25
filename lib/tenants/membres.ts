@@ -11,6 +11,7 @@ import type { PrismaClient } from '@prisma/client';
 
 import { writeAuditLog } from '@/lib/admin/audit-log';
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
+import { humainsDe } from '@/lib/sync/appartenance';
 import { configuredSyncApps, discoverAppForEmail } from '@/lib/sync/discovery';
 import { suivreOrganisation } from '@/lib/organisations/emission';
 import { couperIntegrations } from '@/lib/delegation/interrupteur';
@@ -139,12 +140,26 @@ const cible = (app: SyncApp, t: Tenant, s: TenantSnapshot): string => (app === '
 /** Décocher une app réservée (lib/organisations/decocher.ts) : le même retrait, d'une seule app ; l'appartenance au Hub ne bouge pas. */
 export const retirerDeLApp = (app: SyncApp, t: Tenant, email: string, hubUserId: string, deps: Deps = {}): Promise<IssueApp> => retirerChez(app, t, email, hubUserId, 'admin_action', deps);
 
+/**
+ * Une app sans route (Analytics) : « absent » ne se dit que si AUCUNE de ces personnes n'y a de compte. Ses espaces ne sont reliés à aucun tenant, donc
+ * chercher celui-ci répondait « absent » à quelqu'un qui y entrait encore (25/11). Par l'identifiant ou l'adresse : on ne touche à rien, on avertit.
+ */
+async function sansRoute(app: SyncApp, gens: { email: string; hubUserId: string }[], quoi: string, deps: Deps): Promise<IssueApp> {
+  const h = await humainsDe(app, deps.fetchImpl);
+  if ('raison' in h) return { app, etat: 'echec', detail: `non vérifié : ${h.raison}` };
+  const ids = new Set(gens.map((g) => g.hubUserId));
+  const adresses = new Set(gens.map((g) => g.email.trim().toLowerCase()));
+  const n = h.humains.filter((x) => (x?.hub_user_id && ids.has(x.hub_user_id)) || (typeof x?.email === 'string' && adresses.has(x.email.trim().toLowerCase()))).length;
+  return n === 0 ? { app, etat: 'absent' } : { app, etat: 'non_gere', detail: `NON FERMÉ, aucune route de ${quoi} dans cette app ; ${n} compte${n > 1 ? 's' : ''} y ${n > 1 ? 'restent' : 'reste'}, à fermer dans l'app` };
+}
+
 async function retirerChez(app: SyncApp, t: Tenant, email: string, hubUserId: string, motif: string, deps: Deps): Promise<IssueApp> {
+  if (!RETRAIT[app]) return sansRoute(app, [{ email, hubUserId }], 'retrait', deps);
   try {
     const espaces = await espacesChez(app, t, email, hubUserId, deps);
     if (espaces === null) return { app, etat: 'echec', detail: 'l\'app ne dit pas où est ce compte' };
     const notees = t.status === 'suspended' ? (ciblesNotees(t)[app] ?? []) : [];
-    if (espaces.length === 0 && notees.length && RETRAIT[app]) {
+    if (espaces.length === 0 && notees.length) {
       // Espace suspendu, que l'app cache : on retire quand même, et on dit que rien n'a pu être relu.
       for (const c of notees) {
         const res = await signer(app, 'POST', `/api/tenants/${encodeURIComponent(c)}/remove-member`, { user_email: email, email, hub_user_id: hubUserId, reason: motif }, deps);
@@ -158,7 +173,6 @@ async function retirerChez(app: SyncApp, t: Tenant, email: string, hubUserId: st
       if (sansLien === null) return { app, etat: 'echec', detail: 'l\'app ne dit pas où est ce compte' };
       return sansLien.length === 0 ? { app, etat: 'absent' } : { app, etat: 'echec', detail: 'un compte de cette adresse, sans lien avec le Hub, y est encore : à retirer dans l\'app' };
     }
-    if (!RETRAIT[app]) return { app, etat: 'non_gere', detail: 'aucune route de retrait dans cette app' };
     let cles: IssueApp['cles'];
     for (const s of espaces) {
       const res = await signer(app, 'POST', `/api/tenants/${encodeURIComponent(cible(app, t, s))}/remove-member`, { user_email: email, email, hub_user_id: hubUserId, reason: motif }, deps);
@@ -208,7 +222,8 @@ export async function retirer(db: DbMembres, d: { tenantId: string; hubUserId: s
   const secondaires = await db.userEmail.findMany({ where: { user: { supabaseUserId: d.hubUserId }, detacheeLe: null }, select: { email: true } });
   await db.tenantPreinscription.updateMany({ where: { tenantId: d.tenantId, email: { in: [u.email.trim().toLowerCase(), ...secondaires.map((x) => x.email)] }, consommeeLe: null, annuleeLe: null }, data: { annuleeLe: new Date() } });
   const apps = await Promise.all((deps.apps ?? configuredSyncApps()).map((app) => retirerChez(app, t, u.email, d.hubUserId, d.motif ?? 'admin_action', deps)));
-  if (!ligne && apps.every((a) => a.etat === 'absent')) throw new RefusMembre('pas_membre');
+  // Un compte dans une app sans route ne fait pas un membre.
+  if (!ligne && apps.every((a) => a.etat === 'absent' || a.etat === 'non_gere')) throw new RefusMembre('pas_membre');
   const complet = apps.every((a) => a.etat === 'retire' || a.etat === 'absent');
   await writeAuditLog(db as PrismaClient, { action: 'membre.retire', actor: d.acteur, targetType: 'tenant', targetId: d.tenantId, payload: { hub_user_id: d.hubUserId, deja, complet, apps, invitations } });
   return { deja, apps, complet, avis: [nonCoupees(apps), avisCles(apps)].filter(Boolean).join(' ') || null };
@@ -220,7 +235,9 @@ function ciblesNotees(t: Tenant): Partial<Record<SyncApp, string[]>> {
   return n && typeof n === 'object' ? n : {};
 }
 
-async function basculerChez(app: SyncApp, t: Tenant, proprietaire: { email: string }, suspendre: boolean, deps: Deps): Promise<{ issue: IssueApp; cibles: string[] }> {
+async function basculerChez(app: SyncApp, t: Tenant, proprietaire: { email: string }, gens: { email: string; hubUserId: string }[], suspendre: boolean, deps: Deps): Promise<{ issue: IssueApp; cibles: string[] }> {
+  // Rien n'y a été fermé : rien à y rouvrir.
+  if (!SUSPENSION[app]) return { issue: suspendre ? await sansRoute(app, gens, 'suspension', deps) : { app, etat: 'absent' }, cibles: [] };
   const notees = ciblesNotees(t)[app] ?? [];
   try {
     // La suspension vise un ESPACE de ce tenant : un propriétaire sans lien dans l'app n'empêche pas de le fermer.
@@ -229,7 +246,6 @@ async function basculerChez(app: SyncApp, t: Tenant, proprietaire: { email: stri
     if (espaces === null && notees.length === 0) return { issue: { app, etat: 'echec', detail: 'l\'app ne dit pas quel espace est relié' }, cibles: notees };
     const cibles = Array.from(new Set([...notees, ...(espaces ?? []).map((s) => cible(app, t, s))]));
     if (cibles.length === 0) return { issue: { app, etat: 'absent' }, cibles: [] };
-    if (!SUSPENSION[app]) return { issue: { app, etat: 'non_gere', detail: 'aucune route de suspension dans cette app' }, cibles: [] };
     const rate: string[] = [];
     const restent: string[] = [];
     for (const c of cibles) {
@@ -270,7 +286,10 @@ export async function basculerSuspension(db: DbMembres, d: { tenantId: string; s
     await couperIntegrations(db, t.id);
   }
   const liste = deps.apps ?? configuredSyncApps();
-  const res = await Promise.all(liste.map((app) => basculerChez(app, t, proprietaire, d.suspendre, deps)));
+  const lignes = d.suspendre ? await db.tenantMember.findMany({ where: { tenantId: t.id, deletedAt: null }, select: { userId: true } }) : [];
+  const membres = lignes.length ? await db.user.findMany({ where: { supabaseUserId: { in: lignes.map((l) => l.userId) } }, select: { email: true, supabaseUserId: true } }) : [];
+  const gens = [{ email: proprietaire.email, hubUserId: t.userId }, ...membres.flatMap((m) => (m.supabaseUserId ? [{ email: m.email, hubUserId: m.supabaseUserId }] : []))];
+  const res = await Promise.all(liste.map((app) => basculerChez(app, t, proprietaire, gens, d.suspendre, deps)));
   const cibles = { ...ciblesNotees(t) };
   res.forEach((r, i) => { if (r.cibles.length) cibles[liste[i]] = r.cibles; else delete cibles[liste[i]]; });
   const { hub_suspension: _avant, ...reste } = (t.metadata ?? {}) as Record<string, unknown>;

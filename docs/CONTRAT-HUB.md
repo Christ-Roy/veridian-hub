@@ -1800,7 +1800,9 @@ et `hub suspension` passent par lui.
     Hub rend `non_gere`), clé d'organisation et lien privé de site lus comme survivants.
   - **Non mesurable par nous** : Academy, réservée (lu : sessions coupées et liens fermés au retrait, clés d'espace comptées) ; jetons que la personne
     ne tient pas (JWT Hub vers app, 5 min).
-- **Qui ne sait pas** (25/11) : retrait et suspension, Analytics ; `attach-owner`, Academy.
+- **Qui ne sait pas** (25/11) : retrait et suspension, Analytics (VER-260) ; `attach-owner`, Academy. Une app sans route ne se dit « absente » que si
+  aucune des personnes visées n'y a de compte (`GET /api/hub/users`, espace relié ou non) ; sinon `non_gere`, « NON FERMÉ » dans `avis`, 207. Avant, ses
+  espaces n'étant reliés à aucun tenant, le retrait répondait « absent » à tort. Cas 21.
 - **Clés API d'un retiré** : jamais coupées (des automatisations en vivent), toujours DITES. `remove-member` rend
   `active_api_keys` (toutes les clés actives de l'espace, hors clé du Hub) et `api_keys_url` (la page où les renouveler, en https sur
   `veridian.site`) ; `avis` les cite app par app, « non comptées » si l'app se tait. État du 24/11, lu dans le code : Academy rend

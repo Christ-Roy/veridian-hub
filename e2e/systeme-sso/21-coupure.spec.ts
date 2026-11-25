@@ -2,15 +2,16 @@
  * Couper (VER-245) : un membre retiré et une organisation suspendue perdent la porte MCP en moins de 2 minutes, et le Hub dit, app
  * par app, ce qui a suivi. Comptes et espaces de test, retirés par la batterie ; staging ou prod.
  * Academy en prod seulement (le Hub de staging ne l'a pas) : retirée, relue, et une synchronisation rejouée ne rend pas l'accès.
- * Épreuve : `SSO_SABOTAGE=coupure-retrait` ne retire pas, `SSO_SABOTAGE=coupure-suspension` ne suspend pas : le cas doit échouer.
+ * Épreuve : `SSO_SABOTAGE=coupure-retrait` ne retire pas, `SSO_SABOTAGE=coupure-suspension` ne suspend pas,
+ * `SSO_SABOTAGE=coupure-analytics` ne crée pas le compte Analytics : le cas doit échouer.
  */
 import { expect } from '@playwright/test';
 
 import { HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
-import { activerTwentyAuHub, admin, adminOk, appelAcademy, appelTwenty, lookup } from './lib/hub-admin';
+import { activerTwentyAuHub, admin, adminOk, appelAcademy, appelTwenty, lookup, rybbitCompte } from './lib/hub-admin';
 import { obtenirJetonMcp, outil } from './lib/mcp';
-import { creerCompteProuve, noterEspaceTwenty, type Compte } from './lib/parcours';
+import { creerCompteProuve, noterEspaceTwenty, noterRybbit, type Compte } from './lib/parcours';
 
 type Vue = { espaces: { slug: string; role: string }[]; espaces_suspendus?: { slug: string }[] };
 const vue = async (jeton: string): Promise<Vue> => JSON.parse((await outil(jeton, 'executer_outil', { nom: 'hub.mon_compte' })).texte);
@@ -95,6 +96,12 @@ cas(null, 'coupure : membre retiré et organisation suspendue refusés par la po
     expect(await syncAcademy(rejoint.toISOString()), 'entrée à Academy').toEqual([200, undefined]);
   }
 
+  // M a un compte chez Analytics, qui n'a pas de route de retrait (VER-260) : le retrait doit le DIRE, jamais « absent ». P n'en a pas : témoin.
+  if (academy && process.env.SSO_SABOTAGE !== 'coupure-analytics') {
+    noterRybbit(M.email);
+    rybbitCompte('creer', M.email);
+  }
+
   // Le propriétaire ne se retire pas.
   expect((await admin<any>('POST', `tenants/${TENANT}/remove-member`, { hub_user_id: P.hubUserId })).json.error).toBe('cannot_remove_owner');
 
@@ -107,6 +114,7 @@ cas(null, 'coupure : membre retiré et organisation suspendue refusés par la po
   expect(coupe).toBeLessThan(120_000);
   expect((retrait.apps as { app: string; etat: string }[]).find((a) => a.app === 'crm')?.etat, `le CRM a retiré, et a été relu : ${apps(retrait)}`).toBe('retire');
   if (academy) {
+    expect([(retrait.apps as { app: string; etat: string; detail?: string }[]).filter((a) => a.app === 'analytics' && a.etat === 'non_gere' && /^NON FERMÉ/.test(a.detail ?? '')).length, /PAS coupé : analytics \(NON FERMÉ/.test(retrait.avis ?? ''), retrait.complet], `Analytics, dit non fermé : ${apps(retrait)} ; avis ${retrait.avis}`).toEqual([1, true, false]);
     expect((retrait.apps as { app: string; etat: string }[]).find((a) => a.app === 'academy')?.etat, `Academy a retiré, et a été relue : ${apps(retrait)}`).toBe('retire');
     expect([await syncAcademy(), await syncAcademy(rejoint.toISOString())], 'Academy : un rejeu ne rend pas l\'accès').toEqual([[409, 'member_removed'], [409, 'member_removed']]);
     expect(await syncAcademy(new Date().toISOString()), 'Academy : une adhésion postérieure, si').toEqual([200, undefined]);
@@ -131,6 +139,7 @@ cas(null, 'coupure : membre retiré et organisation suspendue refusés par la po
   }
   const coupeSusp = Date.now() - t1;
   expect(coupeSusp).toBeLessThan(120_000);
+  if (academy) expect((susp.apps as { app: string; etat: string }[]).find((a) => a.app === 'analytics')?.etat ?? 'absent', 'témoin : sans compte, Analytics est absent').toBe('absent');
   expect((await vue(jetonP)).espaces_suspendus?.map((e) => e.slug), 'mon_compte le dit').toEqual([slugP]);
   expect((await dansEspace(jetonM, slugM)).texte, 'un autre tenant n\'est pas touché').not.toContain('suspendu');
 

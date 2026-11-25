@@ -104,9 +104,14 @@ cas(null, 'retrait : tout ce que le membre tenait déjà se ferme dans chaque ap
           if (!lu) await pause(2_000);
         }
       }
-      await ouvrirApp(ctx, 'prospection');
+      // Même patience : sur un bastion saturé, le navigateur a abandonné au bout de 30 s un lien bien émis (25/11, 13:42).
+      let me: { workspaces?: { id: string }[] } | null = null;
+      for (let i = 0; i < 3 && !me?.workspaces?.length; i++) {
+        if (i) await pause(35_000); // anti-boucle du rebond : 30 s
+        await ouvrirApp(ctx, 'prospection');
+        me = await (await ctx.request.get(`${APP_URL.prospection}/api/me`)).json().catch(() => null);
+      }
       const jeton = await jetonMail(ctx, `${HUB_URL}/login?next=${encodeURIComponent(`${APP_URL.notifuse}/console/`)}`);
-      const me = (await (await ctx.request.get(`${APP_URL.prospection}/api/me`)).json().catch(() => null)) as { workspaces?: { id: string }[] } | null;
       const { acces, long } = await consommer(crm, await lienCrm(crm, c));
       if (!jeton || !acces || !long) throw new NonAbouti(`entrée incomplète : mail ${Boolean(jeton)}, jeton CRM ${Boolean(acces)}, rafraîchissement ${Boolean(long)}`);
       return { c, ctx, crm, jeton, acces, long, ia: await obtenirJetonMcp(browser, c, 'TEST RETRAIT'), espaces: (me?.workspaces ?? []).map((w) => w.id), boite: '', mail: { lignes: [] as { t: number; texte: string }[], ouvert: () => false }, direct: { lignes: [] as { t: number; texte: string }[], ouvert: () => false } };
