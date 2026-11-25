@@ -140,6 +140,13 @@ describe('catalogue fédéré', () => {
     const r = json(await appel('decrire_outil', { nom: 'analytics.visites_du_site' }, appFactice()));
     expect(r.parametres.properties.jours.type).toBe('number');
     expect(r.annotations).toEqual({ readOnlyHint: true });
+    expect(r.signature).toMatch(/^outil\("analytics\.visites_du_site", \{ .*jours\??: number.* \}\): Promise<unknown>$/);
+    expect(r.signature).not.toContain('autoriser'); // lecture seule déclarée
+  });
+  it('chercher_outils porte la signature des meilleurs résultats seulement', async () => {
+    const r = json(await appel('chercher_outils', { besoin: 'visites' }, appFactice()));
+    expect(r.outils[0].signature).toContain('outil("analytics.visites_du_site"');
+    expect(r.outils.filter((o: any) => o.signature).length).toBeLessThanOrEqual(3);
   });
   it('app en panne : signalée, sans casser les outils du Hub', async () => {
     const f = appFactice({ panne: true });
@@ -239,6 +246,13 @@ describe('espace (tenant_id signé)', () => {
     expect((await claims(f)).tenant_id).toBeUndefined();
     const r = json(await appel('executer_outil', { nom: 'hub.mon_compte' }, f));
     expect(r.espaces.map((e: any) => [e.slug, e.role])).toEqual([['mon-espace', 'proprietaire'], ['agence', 'admin']]);
+  });
+  it('journal : l\'espace choisi, ou le seul du compte ; plusieurs sans choix : aucun (jamais deviné)', async () => {
+    const note = async (args: object) => { await appel('executer_outil', { nom: 'analytics.visites_du_site', ...args }, appFactice()); return (db.auditLog.lignes.at(-1)!.payload as any).espace; };
+    expect(await note({})).toBe('t1');
+    await db.tenant.create({ data: { id: 't2', userId: 'autre', name: 'Agence', slug: 'agence', status: 'active', createdAt: new Date() } });
+    await db.tenantMember.create({ data: { tenantId: 't2', userId: HUB_USER, role: 'admin' } });
+    expect([await note({}), await note({ espace: 'agence' }), await note({ espace: 'mon-espace' })]).toEqual([undefined, 't2', 't1']);
   });
   it('espace d\'un autre compte : refusé, rien n\'est signé', async () => {
     await db.tenant.create({ data: { id: 't3', userId: 'autre', name: 'Pas à moi', slug: 'pas-a-moi', status: 'active', createdAt: new Date() } });
@@ -353,6 +367,8 @@ describe('espace suspendu ou membre retiré (VER-245)', () => {
 
 describe('liaisons entre apps (VER-245 b.2)', () => {
   const inter = vi.hoisted(() => ({ lister: vi.fn(), regler: vi.fn() }));
+  const abonner = vi.hoisted(() => vi.fn(async (..._a: unknown[]) => 'sans_objet'));
+  vi.mock('@/lib/evenements/allumage', () => ({ suivreAbonnement: (...a: unknown[]) => abonner(...a) }));
   vi.mock('@/lib/delegation/interrupteur', () => ({ listerIntegrations: (...a: unknown[]) => inter.lister(...a), reglerIntegration: (...a: unknown[]) => inter.regler(...a) }));
   beforeEach(() => { inter.lister.mockReset().mockResolvedValue([{ paire: 'prospection>crm', etat: 'eteinte' }]); inter.regler.mockReset().mockResolvedValue({ etat: 'eteinte' }); });
   const regler = (args: Record<string, unknown> = {}) => appel('executer_outil', { nom: 'hub.integrations_regler', arguments: { paire: 'prospection>crm', etat: 'eteinte' }, ...args }, appFactice()) as Promise<any>;
@@ -419,6 +435,22 @@ describe('executer_programme', () => {
   const LIRE = { nom: 'analytics.visites_du_site', args: { jours: 7, secret: 'x' } };
   beforeEach(() => oublierProgrammes());
 
+  it('outils qui administrent : jamais depuis un programme, même nommés ; un utilisateur ne se change pas non plus en direct', async () => {
+    const f = appFactice({ outils: [
+      { name: 'update_site_config', description: 'config', inputSchema: { type: 'object' }, annotations: { readOnlyHint: false } },
+      { name: 'add_member', description: 'membre', inputSchema: { type: 'object' }, annotations: { readOnlyHint: false } },
+      { name: 'creer_objectif', description: 'objectif', inputSchema: { type: 'object' }, annotations: { readOnlyHint: false } },
+    ] });
+    const noms = ['analytics.update_site_config', 'analytics.add_member', 'analytics.creer_objectif'];
+    await prog({ code: 'x', autoriser: noms }, noms.map((nom) => ({ nom })), f);
+    const joues = () => f.recus.filter((x) => x.corps.method === 'tools/call').map((x) => x.corps.params.name);
+    expect(joues(), 'le travail sur les données passe, nommé').toEqual(['creer_objectif']);
+    const direct = (nom: string) => appel('executer_outil', { nom, arguments: {} }, f) as Promise<any>;
+    const refus = await direct('analytics.add_member');
+    expect([refus.result.isError, /qu'au Hub/.test(refus.result.content[0].text)]).toEqual([true, true]);
+    expect((await direct('analytics.update_site_config')).result.isError ?? false, 'les réglages restent possibles en direct').toBe(false);
+    expect(joues()).toEqual(['creer_objectif', 'update_site_config']);
+  });
   it('offert seulement quand le moteur est configuré ; sinon trois outils et refus', async () => {
     const r: any = await traiter(db as never, QUI, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, { programme: true, ouvrirMoteur: moteur([]) });
     expect(r.result.tools.map((t: any) => t.name)).toEqual(['chercher_outils', 'decrire_outil', 'executer_outil', 'executer_programme']);
@@ -440,6 +472,8 @@ describe('executer_programme', () => {
       const r = json(await outilPorte('decrire_outil', { nom: 'hub.executer_programme' }, deps(appFactice(), [])));
       expect(r.description).toContain('sauver(etat)');
       expect(r.parametres.required).toEqual(['code']);
+      expect(r.signature).toContain('code: string');
+      expect(r.signature).toContain('// à nommer dans autoriser');
       expect(r.annotations.destructiveHint).toBe(true);
     });
 

@@ -59,10 +59,16 @@ cas(null, 'coupure : membre retiré et organisation suspendue refusés par la po
   }
   // Un programme n'écrit pas au CRM sans nommer l'outil : Twenty dit « non destructif » de toutes ses écritures (24/11). La lecture passe.
   if (!/staging/.test(HUB_URL)) {
-    const code = 'const r={}; for (const n of ["twenty.find_many_people","twenty.create_one_person","twenty.create_webhook"]) { try { await outil(n,{limit:1,select:["id"]}); r[n]="joue" } catch(e) { r[n]=/autoriser/.test(e.message) ? "a_nommer" : e.message.slice(0,120) } } return r';
-    const prog = JSON.parse((await outil(jetonP, 'executer_programme', { code })).texte);
-    if (prog.etat !== 'termine') throw new NonAbouti(`programme : ${JSON.stringify(prog).slice(0, 200)}`);
-    expect(prog.resultat).toEqual({ 'twenty.find_many_people': 'joue', 'twenty.create_one_person': 'a_nommer', 'twenty.create_webhook': 'a_nommer' });
+    const code = 'const r={}; for (const n of ["twenty.find_many_people","twenty.create_one_person","twenty.create_webhook"]) { try { await outil(n,{limit:1,select:["id"]}); r[n]="joue" } catch(e) { r[n]=/jamais depuis un programme, même nommé/.test(e.message) ? "reserve" : /autoriser/.test(e.message) ? "a_nommer" : e.message.slice(0,120) } } return r';
+    const jouer = async (autoriser?: string[]) => {
+      const prog = JSON.parse((await outil(jetonP, 'executer_programme', { code, ...(autoriser ? { autoriser } : {}) })).texte);
+      if (prog.etat !== 'termine') throw new NonAbouti(`programme : ${JSON.stringify(prog).slice(0, 200)}`);
+      return prog.resultat;
+    };
+    const attendu = { 'twenty.find_many_people': 'joue', 'twenty.create_one_person': 'a_nommer', 'twenty.create_webhook': 'reserve' };
+    expect(await jouer()).toEqual(attendu);
+    // Administrer (webhooks, clés, membres...) : jamais depuis un programme, MÊME nommé (VER-253).
+    expect(await jouer(['twenty.create_webhook']), 'nommé').toEqual(attendu);
   }
   const slugP = (await vue(jetonP)).espaces[0]?.slug;
   const slugM = (await vue(jetonM)).espaces[0]?.slug;

@@ -11,16 +11,22 @@ import { roleOrg } from '@/lib/tenants/roles';
 import { PLANNED_APPS, readAppPlan, tenantHasApp } from '@/lib/plans/app-plan';
 
 import { AppDebit, AppInjoignable, type SessionApp } from './client-app';
-import { listerIntegrations, reglerIntegration } from '@/lib/delegation/interrupteur';
+import { listerIntegrations } from '@/lib/delegation/interrupteur';
+import { reglerEtSuivre } from '@/lib/delegation/regler';
 
 import { hubIssuer, PROTOCOLES, SORTIE_MAX_CAR } from './config';
 import type { Appelant } from './oauth';
-import { AUTORISER_MAX, CODE_MAX_CAR, DELAI_MS, executerProgramme, ETAT_MAX_CAR, prendrePlace, presenter, REPONSE_MAX_OCTETS, type Contenu } from './programme';
+import { familleReservee, reserveAuHub } from './reserves';
+import { signatureOutil } from './signature';
+import { AUTORISER_MAX, CODE_MAX_CAR, DELAI_MS, executerProgramme, exigeAutorisation, ETAT_MAX_CAR, prendrePlace, presenter, REPONSE_MAX_OCTETS, type Contenu } from './programme';
 import { ouvrirMoteur, programmeConfigure } from './programme-moteur';
 
-export type DbPorte = Pick<PrismaClient, 'integrationPaire' | 'integrationDemande' | 'user' | 'mcpApp' | 'tenantApp' | 'tenant' | 'tenantTrial' | 'tenantMember' | 'auditLog'>;
+export type DbPorte = Pick<PrismaClient, 'integrationPaire' | 'integrationDemande' | 'evenementAbonnement' | 'user' | 'mcpApp' | 'tenantApp' | 'tenant' | 'tenantTrial' | 'tenantMember' | 'auditLog'>;
 
 type Rpc = { jsonrpc?: string; id?: string | number | null; method?: string; params?: Record<string, unknown> };
+
+/** Les meilleurs résultats de chercher_outils portent leur signature ; les autres s'obtiennent par decrire_outil. */
+const SIGNATURES_RECHERCHE = 3;
 
 const INSTRUCTIONS =
   "Veridian relie toutes les apps du compte (mail, prospection, CRM, analytics, et les suivantes). " +
@@ -75,7 +81,7 @@ export const OUTIL_PROGRAMME = {
     'Pour traiter beaucoup de lignes (extraire, filtrer, déplacer d\'une app à l\'autre) sans les lire une à une : exécute du JavaScript qui appelle les outils Veridian en boucle, et ne rend que la valeur de son return (16 000 caractères). ' +
     'Le code est le corps d\'une fonction async. Il dispose de : await outil("<app>.<outil>", {arguments}) qui rend la donnée de l\'outil ou lève une erreur ; sauver(etat) pour garder où on en est (petit, JSON) ; reprise, la valeur passée en paramètre ; journal(texte) ; await pause(ms). Ni réseau, ni fichiers, ni modules. ' +
     'Bornes : 45 s, 200 appels, 4 de front, 64 Mo, 1 Mo par réponse d\'outil (paginer). Au-delà de 45 s, le programme est arrêté et la réponse rend la dernière valeur sauvée : relancer le même code avec reprise. ' +
-    'Lire d\'abord les paramètres des outils avec decrire_outil. Un outil qui modifie des données doit être nommé dans autoriser. ' +
+    'Lire d\'abord les outils avec decrire_outil, qui rend aussi leur signature TypeScript (outil("<app>.<outil>", {…}), avec la mention « à nommer dans autoriser » quand il le faut). Un outil qui modifie des données doit être nommé dans autoriser. ' +
     'Exemple : let i = reprise?.page ?? 0, n = reprise?.n ?? 0; for (;;) { const p = await outil("prospection.lister_epingles", {page: i}); if (!p.lignes?.length) return {n}; n += p.lignes.length; i++; sauver({page: i, n}); }',
   inputSchema: {
     type: 'object',
@@ -202,10 +208,10 @@ export function borner(r: Contenu): Contenu {
   return { ...base, content, ...(coupe ? {} : structuredContent !== undefined ? { structuredContent } : {}) };
 }
 
-async function journal(db: DbPorte, qui: Appelant, outil: string, ok: boolean, ms: number, programme?: string) {
+async function journal(db: DbPorte, qui: Appelant, outil: string, ok: boolean, ms: number, programme?: string, espace?: string) {
   await db.auditLog
     .create({
-      data: { action: 'mcp.tool.call', actor: `oauth:${qui.clientId}`, targetType: 'user', targetId: qui.hubUserId, payload: { outil, ok, ms, ...(programme ? { programme } : {}) } },
+      data: { action: 'mcp.tool.call', actor: `oauth:${qui.clientId}`, targetType: 'user', targetId: qui.hubUserId, payload: { outil, ok, ms, ...(espace ? { espace } : {}), ...(programme ? { programme } : {}) } },
     })
     .catch((err) => console.error('[mcp] journal impossible', err));
 }
@@ -230,13 +236,16 @@ function espaceChoisi({ vivants, suspendus }: Espaces, demande: unknown): { tena
   return { refus: texte(vivants.length ? `Un de vos espaces est suspendu : préciser espace=<slug> parmi ${vivants.map((e) => e.slug).join(', ')}.` : 'Espace suspendu : aucun outil ne s\'exécute. Contacter Veridian.', true) };
 }
 
+/** Sans choix, un appel n'est attribué à un espace que si le compte n'en a qu'un. Plusieurs : attribué à aucun, jamais deviné. */
+const seulEspace = ({ vivants, suspendus }: Espaces): string | undefined => (vivants.length === 1 && suspendus.length === 0 ? vivants[0].id : undefined);
+
 /** Les liaisons se disent et se règlent dans UN espace : celui qu'on choisit, ou le seul qu'on a. */
 async function integrations(db: DbPorte, qui: Appelant, o: Outil, params: Record<string, unknown>, espaces: Espaces, tenantId?: string): Promise<Contenu> {
-  const id = tenantId ?? (espaces.vivants.length === 1 && espaces.suspendus.length === 0 ? espaces.vivants[0].id : undefined);
+  const id = tenantId ?? seulEspace(espaces);
   if (!id) return texte(`Préciser espace=<slug> parmi ${espaces.vivants.map((e) => e.slug).join(', ') || 'aucun'}.`, true);
   if (o.nom === HUB_LISTER.nom) return texte({ espace: espaces.vivants.find((e) => e.id === id)?.slug, liaisons: await listerIntegrations(db, id) });
   if (params.etat !== 'allumee' && params.etat !== 'eteinte') return texte('etat : allumee ou eteinte.', true);
-  const r = await reglerIntegration(db, { tenantId: id, paire: String(params.paire ?? ''), etat: params.etat, hubUserId: qui.hubUserId, client: qui.clientName ?? qui.clientId, origine: hubIssuer() });
+  const r = await reglerEtSuivre(db, { tenantId: id, paire: String(params.paire ?? ''), etat: params.etat, hubUserId: qui.hubUserId, client: qui.clientName ?? qui.clientId, origine: hubIssuer() });
   if ('refus' in r) return texte({ refus: r.refus }, true);
   return texte(r.etat === 'a_confirmer' ? { ...r, conseil: 'Donner ce lien au propriétaire de l\'espace : il l\'ouvre, connecté à Veridian, et confirme. Ensuite, allumer et éteindre sont directs.' } : r);
 }
@@ -254,6 +263,7 @@ async function jouer(
   p: { programme?: string; session?: (appKey: string) => Promise<SessionApp> } = {},
 ): Promise<Contenu> {
   const debut = Date.now();
+  const espace = tenantId ?? seulEspace(espaces);
   try {
     let r: Contenu;
     if (o.nom === 'hub.mon_compte') {
@@ -267,11 +277,11 @@ async function jouer(
       const s = p.session ? await p.session(o.app) : await sessionOuCreation(app, qui, deps, tenantId);
       r = (await s.appeler(o.local, params)) as Contenu;
     }
-    await journal(db, qui, o.nom, !r.isError, Date.now() - debut, p.programme);
+    await journal(db, qui, o.nom, !r.isError, Date.now() - debut, p.programme, espace);
     return r;
   } catch (err) {
     // Un 429 d'app dans un programme n'est pas un appel joué : il sera refait, et journalisé alors.
-    if (!(p.programme && err instanceof AppDebit)) await journal(db, qui, o.nom, false, Date.now() - debut, p.programme);
+    if (!(p.programme && err instanceof AppDebit)) await journal(db, qui, o.nom, false, Date.now() - debut, p.programme, espace);
     if (!(err instanceof AppInjoignable)) console.error('[mcp] appel', o.nom, err);
     throw err;
   }
@@ -319,6 +329,7 @@ async function programme(db: DbPorte, qui: Appelant, cat: Catalogue, args: Recor
         // Ouvrir un flux entre apps n'est pas un geste de programme (parente, 24/11).
         if (n === HUB_PROGRAMME.nom || n === HUB_REGLER.nom) return undefined;
         const o = cat.outils.find((x) => x.nom === n);
+        if (o && (familleReservee(o) || reserveAuHub(o))) return { injoignable: `${n} administre (membres, rôles, clés, webhooks, apps, réglages) : jamais depuis un programme, même nommé. ${reserveAuHub(o) ? 'Cela se fait au Hub.' : 'En appel direct, executer_outil.'}` };
         if (o) return o;
         const app = n.split('.')[0];
         const hs = cat.injoignables.find((i) => i.app === app);
@@ -374,7 +385,7 @@ async function appelerOutil(db: DbPorte, qui: Appelant, nom: string, args: Recor
     const app = typeof args.app === 'string' && args.app ? args.app : undefined;
     const trouves = chercher(cat.outils, besoin, app);
     return texte({
-      outils: trouves.map((o) => ({ nom: o.nom, description: o.description })),
+      outils: trouves.map((o, i) => ({ nom: o.nom, description: o.description, ...(i < SIGNATURES_RECHERCHE ? { signature: signatureOutil(o.nom, o.inputSchema, exigeAutorisation(o)) } : {}) })),
       apps: ['hub', ...cat.apps.map((a) => a.appKey)],
       ...(cat.injoignables.length ? { injoignables: cat.injoignables } : {}),
       ...(trouves.length === 0 ? { conseil: 'Aucun outil ne correspond : reformuler, ou chercher avec app=<cle>.' } : {}),
@@ -384,7 +395,7 @@ async function appelerOutil(db: DbPorte, qui: Appelant, nom: string, args: Recor
     const o = cat.outils.find((x) => x.nom === args.nom);
     if (!o) return texte(`Outil inconnu : ${String(args.nom)}. Utiliser chercher_outils.`, true);
     const description = o.nom === HUB_PROGRAMME.nom ? OUTIL_PROGRAMME.description : o.description;
-    return texte({ nom: o.nom, description, parametres: o.inputSchema, ...(o.annotations ? { annotations: o.annotations } : {}) });
+    return texte({ nom: o.nom, description, parametres: o.inputSchema, signature: signatureOutil(o.nom, o.inputSchema, exigeAutorisation(o)), ...(o.annotations ? { annotations: o.annotations } : {}) });
   }
   if (nom === 'executer_outil') {
     const cible = typeof args.nom === 'string' ? args.nom : '';
@@ -395,6 +406,7 @@ async function appelerOutil(db: DbPorte, qui: Appelant, nom: string, args: Recor
       const hs = cat.injoignables.find((i) => i.app === app);
       return texte(hs ? `L'app ${app} ne répond pas (${hs.raison}). Réessayer plus tard.` : `Outil inconnu : ${cible}. Utiliser chercher_outils.`, true);
     }
+    if (reserveAuHub(o)) return texte(`${o.nom} : un utilisateur et son appartenance ne se changent qu'au Hub (app.veridian.site). Rien n'a été fait.`, true);
     if (o.nom === HUB_PROGRAMME.nom) {
       // L'espace se dit à côté ou dans les paramètres ; deux espaces différents ne se devinent pas.
       if (args.espace && params.espace && args.espace !== params.espace) return texte('Deux espaces différents : en choisir un seul.', true);

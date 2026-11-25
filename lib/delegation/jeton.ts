@@ -49,12 +49,12 @@ export async function verifierAppel<A extends SyncApp = AppPaire>(db: Pick<Prism
 
 const fenetres = new Map<string, number[]>();
 export const oublierDebit = () => fenetres.clear();
-function deborde(cle: string, now: number): boolean {
+export function deborde(cle: string, now: number, max = PAR_MINUTE): boolean {
   const l = (fenetres.get(cle) ?? []).filter((t) => t > now - 60_000);
   l.push(now);
   fenetres.set(cle, l);
   if (fenetres.size > 5_000) fenetres.clear();
-  return l.length > PAR_MINUTE;
+  return l.length > max;
 }
 
 export type Demande = { subject_grant: string; audience: string; scope: string; motif?: string };

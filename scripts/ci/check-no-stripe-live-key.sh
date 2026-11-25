@@ -51,21 +51,23 @@ SELF="scripts/ci/check-no-stripe-live-key.sh"
 SELF_TEST="__tests__/scripts/ci/check-no-stripe-live-key.test.ts"
 
 HITS=""
-while IFS= read -r file; do
+# -z : sans lui, git rend un nom accentué ou spécial entre guillemets, et le fichier était sauté (infra, 25/11).
+while IFS= read -r -d '' file; do
   [ -f "$file" ] || continue
   case "$file" in
     "$SELF"|"$SELF_TEST"|pnpm-lock.yaml) continue ;;
   esac
   # grep -E sur le fichier ; -I ignore les binaires.
-  if MATCH=$(grep -EnI "$LIVE_KEY_PATTERN" "$file" 2>/dev/null); then
-    HITS="${HITS}${file}:\n${MATCH}\n"
+  if MATCH=$(grep -EnI -e "$LIVE_KEY_PATTERN" -- "$file" 2>/dev/null); then
+    # Le fichier et les lignes, jamais la valeur : cette sortie finit dans un journal de CI public.
+    HITS="${HITS}${file} (lignes $(cut -d: -f1 <<<"$MATCH" | paste -sd,))"$'\n'
   fi
-done < <(git ls-files)
+done < <(git ls-files -z)
 
 if [ -n "$HITS" ]; then
   echo "${RED}✗ Clé Stripe LIVE en clair détectée dans un fichier tracké${NC}"
   echo
-  printf '%b' "$HITS" | sed 's/^/    /'
+  printf '%s' "$HITS" | sed 's/^/    /'
   echo
   echo "  Les clés Stripe LIVE ne doivent JAMAIS être committées."
   echo "  Elles vivent uniquement comme ENV runtime (Dokploy prod)."

@@ -23,6 +23,8 @@ const ensureCrmMock = vi.hoisted(() => vi.fn());
 const orgs = vi.hoisted(() => vi.fn(async (..._a: unknown[]): Promise<unknown[]> => []));
 const poignees = vi.hoisted(() => vi.fn(async (..._a: unknown[]): Promise<unknown[]> => []));
 vi.mock('@/lib/delegation/poignee', () => ({ emettrePoignees: poignees }));
+const actif = vi.hoisted(() => vi.fn(async (..._a: unknown[]): Promise<string | null> => null));
+vi.mock('@/lib/tenants/actif', () => ({ COOKIE_ACTIF: 'veridian_org', organisationActive: actif }));
 vi.mock('@/lib/tenants/roles', () => ({ APPS_A_ROLE: ['crm'], organisationsPourRebond: orgs }));
 vi.mock('@/lib/crm/provision', () => ({ ensureCrmWorkspace: (...a: unknown[]) => ensureCrmMock(...a) }));
 const ensureAcademyMock = vi.hoisted(() => vi.fn());
@@ -222,6 +224,18 @@ describe('GET /api/auth/bounce/complete', () => {
     expect(refus).toHaveLength(1);
     expect(refus[0]).toMatchObject({ app: 'notifuse', code, hub_user_id: 'uuid-1', http_status: status });
     expect(lignes.join('\n')).not.toContain('secret@client.fr');
+  });
+
+  it('organisation active : dans le corps signé, revérifiée ; une lecture ratée n\'empêche jamais d\'entrer', async () => {
+    getCurrentUserMock.mockResolvedValue({ id: 'user-1', email: 'a@b.c', name: null, image: null, supabaseUserId: 'uuid-1' });
+    actif.mockResolvedValueOnce('T-1').mockRejectedValueOnce(new Error('base')).mockResolvedValueOnce(null);
+    const { GET } = await import('@/app/api/auth/bounce/complete/route');
+    for (const attendu of ['T-1', undefined, undefined]) {
+      fetchMock.mockReset();
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ magic_link_url: 'https://notifuse.veridian.site/x' }), { status: 200 }));
+      await GET(makeReq({ cookie: signNextCookie('https://notifuse.veridian.site/', TEST_SECRET) }));
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body).hub_tenant_id).toBe(attendu);
+    }
   });
 
   it('réussi : une ligne [bounce][reussi], la première ouverture se distingue, un refus n\'en laisse pas ; ni adresse ni lien', async () => {

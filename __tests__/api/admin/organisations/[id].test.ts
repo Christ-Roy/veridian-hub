@@ -42,6 +42,10 @@ describe('PUT', () => {
     expect((await put({ couleur_primaire: 'x' })).status).toBe(400);
     expect((await put({}, 'x')).status).toBe(400);
   });
+  it('aucune app cochée : 200, rien n\'est en retard', async () => {
+    m.regler.mockResolvedValue({ emissions: [] });
+    expect((await put({ nom_affiche: 'A' })).status).toBe(200);
+  });
   it('admin seulement', async () => {
     m.admin.mockResolvedValue(NextResponse.json({}, { status: 401 }));
     expect([(await put({})).status, (await get()).status]).toEqual([401, 401]);

@@ -16,13 +16,18 @@ import { NonAbouti } from './etat';
 let secret: string | null = null;
 
 /**
- * Un secret que SERT le Hub de staging, donné par l'environnement (`SSO_STAGING_<NOM>`), jamais affiché. Plus aucune lecture de Variable
- * Nomad ici : le chemin qui existe prend le jeton de management (24/11, suspendu jusqu'à la réponse de Robert). Sans lui, NON ABOUTI.
+ * Un secret que SERT le Hub de staging, lu en mémoire par le jeton étroit de staging (VER-250, lecture seule), jamais affiché. Jamais le
+ * mode `raw`, qui porte le jeton de management. Illisible : NON ABOUTI.
  */
 export function secretServiStaging(nom: string): string {
-  const s = process.env[`SSO_STAGING_${nom}`] ?? '';
-  if (s.length < 32) throw new NonAbouti(`SSO_STAGING_${nom} absent : la lecture des Variables Nomad est suspendue (jeton de management)`);
-  return s;
+  try {
+    const { NOMAD_TOKEN: _lecture, ...env } = process.env;
+    const s = execFileSync('nomad-v', ['var', 'staging', 'get', '-item', nom, 'nomad/jobs/hub-staging'], { env: env as NodeJS.ProcessEnv, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    if (s.length >= 32) return s;
+  } catch {
+    /* traité ci-dessous */
+  }
+  throw new NonAbouti(`${nom} de staging illisible (nomad-v var staging)`);
 }
 
 function lireSecret(): string {
@@ -56,7 +61,7 @@ function hubAbsent(r: Reponse): boolean {
 
 /** Le plafond de l'API admin et un Hub en déploiement ne sont pas des résultats : on attend. */
 export async function admin<T = any>(
-  methode: 'GET' | 'POST' | 'DELETE',
+  methode: 'GET' | 'POST' | 'PUT' | 'DELETE',
   route: string,
   corps?: unknown,
 ): Promise<Reponse<T>> {
@@ -74,7 +79,7 @@ export async function admin<T = any>(
 }
 
 async function appelAdmin<T>(
-  methode: 'GET' | 'POST' | 'DELETE',
+  methode: 'GET' | 'POST' | 'PUT' | 'DELETE',
   route: string,
   corps?: unknown,
 ): Promise<{ reponse: Reponse<T>; attente: number }> {
@@ -109,7 +114,7 @@ async function appelAdmin<T>(
 
 /** Appel admin qui doit réussir, sinon NON ABOUTI (ce n'est pas l'objet testé). */
 export async function adminOk<T = any>(
-  methode: 'GET' | 'POST' | 'DELETE',
+  methode: 'GET' | 'POST' | 'PUT' | 'DELETE',
   route: string,
   corps?: unknown,
 ): Promise<T> {

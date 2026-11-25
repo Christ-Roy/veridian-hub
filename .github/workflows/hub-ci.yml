@@ -26,8 +26,11 @@ on:
       - 'e2e/systeme-sso/**'
   workflow_dispatch:
 
+# Un push sur main n'annule plus un déploiement lancé (24/11/2026). Sur main, seuls `test` et `docker` d'un run dépassé
+# s'annulent (groupes de job, plus bas) : le run dépassé n'atteint donc pas le déploiement, et un run déjà en déploiement
+# finit ; le suivant attend derrière lui. Hors main, un push annule le run précédent, comme avant.
 concurrency:
-  group: hub-ci-${{ github.ref }}
+  group: hub-ci-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.run_id || 'unique' }}
   cancel-in-progress: true
 
 # Permissions par défaut au niveau workflow : nécessaire pour que les workflows
@@ -46,6 +49,9 @@ env:
 
 jobs:
   test:
+    concurrency:
+      group: hub-test-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -112,7 +118,9 @@ jobs:
         run: pnpm test
         env:
           NODE_ENV: test
+      # Sur main, le build est fait par le job docker (même commande), dont le déploiement dépend : pas deux fois.
       - name: Build check
+        if: github.ref != 'refs/heads/main'
         run: pnpm build
         env:
           # La vérification des types de Next plafonnait au tas par défaut (2 Go) : OOM le 22/11 et le 23/11 (VER-203), 16 Go sur le runner.
@@ -146,8 +154,11 @@ jobs:
       skip-license: false
       sarif-upload: true
 
+  # En parallèle des tests : l'image part au registre, mais `deploy-prod` exige test, audit et les deux Trivy verts.
   docker:
-    needs: [test, audit, trivy-fs]
+    concurrency:
+      group: hub-docker-${{ github.ref }}
+      cancel-in-progress: true
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     # GitHub-hosted depuis extraction polyrepo (2026-05-13). Le self-hosted
     # runner [self-hosted, veridian] n'est pas enregistré sur ce repo.
@@ -192,30 +203,53 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Wrapper retry pour palier les "context deadline exceeded / no active
-      # session" intermittents du push GHCR depuis self-hosted runner.
-      - name: Build and push (with retry)
-        uses: nick-fields/retry@v4
+      # site.veridian.migrations : lu par veridian-ci-deploy. Même liste que l'image servie = contrôle du PITR (4 s) au lieu
+      # d'une sauvegarde ; liste différente ou étiquette absente = sauvegarde avant de déployer.
+      # Pas de cache GitHub : essayé le 24/11, son export prenait 8 min pour une image faite en 3 min 40.
+      - name: Empreinte des migrations
+        id: prep
+        run: |
+          set -euo pipefail
+          MIG="$(ls prisma/migrations | grep -E '^[0-9]' | LC_ALL=C sort)"
+          echo "migrations=$(wc -l <<<"$MIG")-$(sha256sum <<<"$MIG" | cut -c1-64)" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Build and push
+        id: build1
+        continue-on-error: true
+        uses: docker/build-push-action@v6
         with:
-          timeout_minutes: 15
-          max_attempts: 3
-          retry_wait_seconds: 30
-          retry_on: error
-          command: |
-            docker buildx build \
-              --target runner \
-              --build-arg GIT_SHA=${{ github.sha }} \
-              --push \
-              -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }} \
-              -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
-              -f ./Dockerfile \
-              .
+          context: .
+          file: ./Dockerfile
+          target: runner
+          push: true
+          provenance: false
+          build-args: GIT_SHA=${{ github.sha }}
+          labels: site.veridian.migrations=${{ steps.prep.outputs.migrations }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+
+      # Échecs passagers du push GHCR (« context deadline exceeded »).
+      - name: Build and push (second essai)
+        if: steps.build1.outcome == 'failure'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          target: runner
+          push: true
+          provenance: false
+          build-args: GIT_SHA=${{ github.sha }}
+          labels: site.veridian.migrations=${{ steps.prep.outputs.migrations }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.version.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
 
   trivy:
     needs: docker
     uses: ./.github/workflows/_trivy-image.yml
     with:
-      image-ref: ghcr.io/christ-roy/veridian-hub:latest
+      image-ref: ghcr.io/christ-roy/veridian-hub:${{ needs.docker.outputs.version }}
       severity: 'CRITICAL,HIGH'
       ignore-unfixed: true
 
@@ -238,7 +272,11 @@ jobs:
   # main → re-deploy du SHA d'avant + monitoring). Cf deploy/README (canon §7).
   deploy-prod:
     name: Deploy Nomad prod (SSH bastion)
-    needs: [docker, trivy]
+    needs: [test, audit, trivy-fs, docker, trivy]
+    # Deux pushes rapprochés : le second attend la fin du premier, il ne l'annule pas.
+    concurrency:
+      group: hub-deploy-prod
+      cancel-in-progress: false
     if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     # Un groupe implaçable (rise éteint) laisse le déploiement « running » sans fin, alors que le Hub est déjà promu

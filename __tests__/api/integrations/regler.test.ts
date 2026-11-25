@@ -2,11 +2,12 @@
 import { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const m = vi.hoisted(() => ({ auth: vi.fn(), user: vi.fn(), regler: vi.fn(), emprunt: vi.fn() }));
+const m = vi.hoisted(() => ({ auth: vi.fn(), user: vi.fn(), regler: vi.fn(), emprunt: vi.fn(), abonner: vi.fn(async (..._a: unknown[]) => 'sans_objet') }));
 vi.mock('@/auth', () => ({ auth: () => m.auth() }));
 vi.mock('@/lib/auth/get-user', () => ({ getCurrentUser: () => m.user(), userUuid: (u: { supabaseUserId: string }) => u.supabaseUserId }));
 vi.mock('@/lib/auth/impersonation', () => ({ isImpersonatedSession: () => m.emprunt() }));
 vi.mock('@/lib/delegation/interrupteur', () => ({ reglerIntegration: (...a: unknown[]) => m.regler(...a) }));
+vi.mock('@/lib/evenements/allumage', () => ({ suivreAbonnement: (...a: unknown[]) => m.abonner(...a) }));
 vi.mock('@/lib/mail/oauth-cookies', () => ({ getHubBaseUrl: () => new URL('https://app.veridian.site') }));
 vi.mock('@/lib/prisma', () => ({ prisma: {} }));
 
@@ -35,6 +36,24 @@ describe('POST /api/integrations/regler', () => {
   it('première ouverture : rien n\'est allumé, on va à la page de confirmation', async () => {
     m.regler.mockResolvedValue({ etat: 'a_confirmer', lien: 'https://app.veridian.site/liaisons/confirmer/JJ', expire_le: '' });
     expect(await jouer()).toEqual([303, '/liaisons/confirmer/JJ']);
+  });
+  it('l\'abonnement suit l\'interrupteur ; une demande de clic ou un refus n\'abonne rien', async () => {
+    await jouer({ etat: 'eteinte' });
+    expect(m.abonner.mock.calls.at(-1)?.[1]).toEqual({ tenantId: T, paire: 'prospection>crm', actif: false });
+    m.abonner.mockClear();
+    m.regler.mockResolvedValue({ etat: 'a_confirmer', lien: 'https://app.veridian.site/liaisons/confirmer/J', expire_le: '' });
+    await jouer();
+    m.regler.mockResolvedValue({ refus: 'role_insuffisant' });
+    await jouer();
+    expect(m.abonner).not.toHaveBeenCalled();
+  });
+  it('rallumer sans que la source réponde : la liaison est éteinte aussitôt, et on le dit ; couper reste toujours possible', async () => {
+    m.abonner.mockResolvedValue('echec');
+    m.regler.mockImplementation(async (_d: unknown, x: unknown) => ({ etat: (x as { etat: string }).etat }));
+    expect(await jouer({ paire: 'notifuse>crm' })).toEqual([303, '/dashboard/liaisons?avis=source_injoignable']);
+    expect(m.regler.mock.calls.map((c) => (c[1] as { etat: string }).etat)).toEqual(['allumee', 'eteinte']);
+    expect(await jouer({ paire: 'notifuse>crm', etat: 'eteinte' })).toEqual([303, '/dashboard/liaisons?avis=eteinte']);
+    m.abonner.mockResolvedValue('sans_objet');
   });
   it('un refus est dit', async () => {
     m.regler.mockResolvedValue({ refus: 'role_insuffisant' });

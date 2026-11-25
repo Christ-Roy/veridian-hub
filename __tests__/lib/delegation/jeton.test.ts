@@ -64,6 +64,13 @@ describe('verifierAppel', () => {
       expect(await v(entetes('{}', { secret: 's-ancien', nonce: n(5) })), 'retiré').toEqual({ statut: 401, error: 'invalid_signature' });
     }
   });
+  it('la liste des apps est fermée par l\'appelant : une app hors liste est refusée, même bien signée', async () => {
+    vi.stubEnv('ACADEMY_HUB_API_SECRET', 's-acad');
+    const h = () => entetes('{}', { app: 'academy', secret: 's-acad' });
+    expect(await verifierAppel(db as never, h(), '{}')).toEqual({ statut: 400, error: 'invalid_headers' });
+    expect(await verifierAppel(db as never, h(), '{}', Date.now(), ['academy'] as const)).toEqual({ app: 'academy' });
+    expect(await verifierAppel(db as never, entetes('{}', { nonce: 'nonce-prospection-0001' }), '{}', Date.now(), ['academy'] as const)).toEqual({ statut: 400, error: 'invalid_headers' });
+  });
   it('app sans secret : 503, jamais ouverte', async () => {
     vi.stubEnv('PROSPECTION_HUB_API_SECRET', '');
     vi.stubEnv('PROSPECTION_TENANT_API_SECRET', '');

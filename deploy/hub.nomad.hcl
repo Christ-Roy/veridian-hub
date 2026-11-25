@@ -263,10 +263,16 @@ CRM_RETRAIT_FUSIBLE=0
 # Rôle d'organisation porté aux apps (lib/tenants/roles.ts, §5.22) : vide = fermé, sauf organisations marquées de test. Ids de tenants ou « tous ».
 # Ouvrir un vrai client : accord de Robert d'abord.
 ROLE_PORTE=
+# Lecture d'activité par Academy (§5.19.6) : organisations nommées, jamais « toutes ». Celle de Robert, qui l'a demandée (24/11).
+ACTIVITE_ORGANISATIONS=359b76d5-bab7-4773-a889-cf4cf0248869
 # Délégation entre apps (§5.23) : cibles qui ont dit « garde servie ». Vide = aucun jeton, aucune poignée.
 # Ouvert à toutes le 24/11 (Robert, relayé par la parente) : chaque liaison reste ÉTEINTE jusqu'au clic de son propriétaire, et se coupe
 # d'un clic. `<cible>@test` = organisations marquées de test. Refermer : vider, puis déployer.
 DELEGATION_CIBLES=crm,notifuse
+# Événements entre apps (F3) : `notifuse>crm` = tous, `notifuse>crm@<tenant>` = une organisation, `@test` = marquées de test. Vide = fermé. Ouvert ne
+# veut pas dire allumé : clic du propriétaire. Première à ouvrir : celle de Robert (359b76d5…),
+# quand le CRM sert sa garde pour ce jeton (25/11 : il le refuse encore).
+DELEGATION_EVENEMENTS=
 # Adresses à qui le Hub n'écrit jamais (lib/email/send.ts) : la boîte perso de Robert pour le compte « Préprod CRM » (24/11).
 MAILS_BLOQUES_SHA256=ff9b9ff3e94543f4
 {{ with nomadVar "nomad/jobs/hub" }}

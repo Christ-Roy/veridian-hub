@@ -17,6 +17,10 @@ describe('Reglage', () => {
     expect(Reglage.safeParse({ type: 'organisation', couleur_primaire: '#0b5FFF', modules: ['academy'], reglages: { academy: { mode_opco: true } } }).success).toBe(true);
   });
 });
+it('Reglage : une seule app suffit, les autres restent intactes ; les trois ensemble aussi', () => {
+  expect(Reglage.safeParse({ reglages: { notifuse: { x: 1 } } }).success).toBe(true);
+  expect(Reglage.safeParse({ modules: ['academy', 'notifuse', 'prospection'], reglages: { academy: {}, notifuse: {}, prospection: {} } }).success).toBe(true);
+});
 describe('reglerOrganisation', () => {
   it('n\'écrit que les champs donnés, et journalise sans le contenu du logo', async () => {
     await regler({ type: 'organisation', couleur_primaire: '#0B5FFF', modules: ['academy', 'academy'] });

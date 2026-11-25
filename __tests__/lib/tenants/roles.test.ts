@@ -18,11 +18,14 @@ const db = {
 } as never;
 const MARQUE = { organisation_de_test: { expire_le: new Date(Date.now() + 3_600_000).toISOString() } };
 const TOUS = { NODE_ENV: 'test', ROLE_PORTE: 'tous', CRM_API_URL: 'https://crm.test', CRM_HUB_API_SECRET: 's' } as NodeJS.ProcessEnv;
+const AVEC_ACADEMY = { ...TOUS, ACADEMY_API_URL: 'https://academy.test', ACADEMY_HUB_API_SECRET: 'sa' } as NodeJS.ProcessEnv;
 beforeEach(() => {
   tenants = [{ id: 'A', userId: 'u', status: 'active', createdAt: CREE }, { id: 'B', userId: 'p', status: 'active', createdAt: CREE }, { id: 'S', userId: 'u', status: 'suspended', createdAt: CREE }, { id: 'T', userId: 't', status: 'active', createdAt: CREE }];
   membres = [{ tenantId: 'B', userId: 'u', role: 'admin', roleLe: CHANGE, joinedAt: ENTRE }, { tenantId: 'T', userId: 'u', role: 'bizarre', roleLe: null, joinedAt: ENTRE }, { tenantId: 'A', userId: 'x', role: 'owner', joinedAt: ENTRE, deletedAt: CHANGE }];
   vi.stubEnv('CRM_API_URL', 'https://crm.test');
   vi.stubEnv('CRM_HUB_API_SECRET', 's');
+  vi.stubEnv('ACADEMY_API_URL', 'https://academy.test');
+  vi.stubEnv('ACADEMY_HUB_API_SECRET', 'sa');
 });
 
 describe('roleOrg', () => {
@@ -71,7 +74,19 @@ describe('pousserRole', () => {
     expect(c.posts).toHaveLength(1);
     expect(c.posts[0]).toMatchObject({ u: 'https://crm.test/api/hub/members/role', corps: { hub_tenant_id: 'B', hub_user_id: 'u', email: 'client@x.fr', role: 'admin', version: CHANGE.getTime() } });
     expect(c.posts[0].h['X-Veridian-Hub-Signature']).toMatch(/^[0-9a-f]{64}$/);
-    expect(APPS_A_ROLE).toEqual(['crm']);
+    expect(APPS_A_ROLE).toEqual(['crm', 'academy']);
+  });
+  it('Academy reçoit le même rôle, signé de SON secret, et est relue chez elle', async () => {
+    const c = crm(() => Response.json({ applied: true, native_role: 'admin' }));
+    expect(await pousserRole(db, { tenantId: 'B', hubUserId: 'u' }, { env: AVEC_ACADEMY, fetchImpl: c.f })).toEqual([{ app: 'crm', etat: 'applique' }, { app: 'academy', etat: 'applique' }]);
+    const [a, b] = ['crm', 'academy'].map((x) => c.posts.find((p) => p.u === `https://${x}.test/api/hub/members/role`)!);
+    expect(b.corps).toEqual(a.corps);
+    expect(b.h['X-Veridian-Hub-Signature']).not.toBe(a.h['X-Veridian-Hub-Signature']);
+  });
+  it('Academy absente de l\'environnement : dit, et rien ne lui part', async () => {
+    const c = crm(Response.json({ applied: true }));
+    expect((await pousserRole(db, { tenantId: 'B', hubUserId: 'u' }, { env: TOUS, fetchImpl: c.f }))[1]).toMatchObject({ app: 'academy', etat: 'sans_effet' });
+    expect(c.posts).toHaveLength(1);
   });
   it('oublie les outils en cache du compte : un promu voit les siens tout de suite, les autres comptes gardent les leurs', async () => {
     cacheOutils.set('twenty:u', { a: 1, outils: [] });

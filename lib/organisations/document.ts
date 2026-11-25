@@ -9,8 +9,8 @@ import type { Organisation, PrismaClient } from '@prisma/client';
 import { roleOrg, type RoleOrg } from '@/lib/tenants/roles';
 
 export const TYPES = ['individuel', 'organisation'] as const;
-/** Apps qui reçoivent le document : celles qui ont dit « récepteur servi ». */
-export const MODULES = ['academy'] as const;
+/** Apps qui savent recevoir le document. Rien ne part vers une app tant que l'organisation ne l'a pas cochée (Mail : cocher RENOMME l'espace). */
+export const MODULES = ['academy', 'notifuse', 'prospection'] as const;
 export type Module = (typeof MODULES)[number];
 export const COULEUR = /^#[0-9a-fA-F]{6}$/;
 
@@ -41,10 +41,10 @@ async function membresDe(db: Db, t: { id: string; userId: string; createdAt: Dat
 }
 
 /**
- * Le document courant, ou null si l'organisation n'est pas réglée au Hub (rien n'est alors émis) ou n'est plus vivante. La version ne
- * bouge que si le contenu bouge, et ne recule jamais.
+ * Le contenu tel qu'il serait émis AUJOURD'HUI, sans rien écrire (le relevé `hub reconcile` le lit ainsi). Null si l'organisation n'est pas
+ * réglée au Hub ou n'est plus vivante. `empreinteStockee` : celle de la dernière version posée ; différente = contenu non encore versionné.
  */
-export async function documentOrg(db: Db, tenantId: string, base: string): Promise<DocumentOrg | null> {
+export async function contenuOrg(db: Db, tenantId: string, base: string): Promise<{ contenu: Omit<DocumentOrg, 'version'>; empreinte: string; version: bigint; empreinteStockee: string | null } | null> {
   const o = await db.organisation.findUnique({ where: { tenantId } });
   const t = o ? await db.tenant.findFirst({ where: { id: tenantId, deletedAt: null }, select: { id: true, userId: true, name: true, status: true, createdAt: true } }) : null;
   if (!o || !t || t.status === 'suspended' || t.status === 'deleted') return null;
@@ -58,12 +58,21 @@ export async function documentOrg(db: Db, tenantId: string, base: string): Promi
     reglages: (o.reglages ?? {}) as Record<string, unknown>,
   };
   const empreinte = createHash('sha256').update(JSON.stringify(contenu)).digest('hex').slice(0, 32);
-  let version = Number(o.version);
-  if (empreinte !== o.empreinte) {
+  return { contenu, empreinte, version: o.version, empreinteStockee: o.empreinte };
+}
+
+/**
+ * Le document courant, ou null (voir `contenuOrg`). La version ne bouge que si le contenu bouge, et ne recule jamais.
+ */
+export async function documentOrg(db: Db, tenantId: string, base: string): Promise<DocumentOrg | null> {
+  const c = await contenuOrg(db, tenantId, base);
+  if (!c) return null;
+  let version = Number(c.version);
+  if (c.empreinte !== c.empreinteStockee) {
     version = Math.max(Date.now(), version + 1);
-    await db.organisation.update({ where: { tenantId }, data: { version: BigInt(version), empreinte } });
+    await db.organisation.update({ where: { tenantId }, data: { version: BigInt(version), empreinte: c.empreinte } });
   }
-  return { ...contenu, version };
+  return { ...c.contenu, version };
 }
 
 /** Le document tel qu'UNE app le reçoit : les réglages des autres ne la regardent pas. */

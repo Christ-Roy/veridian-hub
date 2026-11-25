@@ -8,7 +8,7 @@ import { z } from 'zod';
 import { auth } from '@/auth';
 import { isImpersonatedSession } from '@/lib/auth/impersonation';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
-import { reglerIntegration } from '@/lib/delegation/interrupteur';
+import { reglerEtSuivre } from '@/lib/delegation/regler';
 import { getHubBaseUrl } from '@/lib/mail/oauth-cookies';
 import { prisma } from '@/lib/prisma';
 
@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
   const form = await request.formData().catch(() => null);
   const c = Corps.safeParse(form ? Object.fromEntries(form) : null);
   if (!c.success) return vers('/dashboard/liaisons?avis=refus');
-  const r = await reglerIntegration(prisma, { tenantId: c.data.tenant, paire: c.data.paire, etat: c.data.etat, hubUserId: userUuid(user), client: 'Veridian, page Liaisons', origine: base.origin });
+  const r = await reglerEtSuivre(prisma, { tenantId: c.data.tenant, paire: c.data.paire, etat: c.data.etat, hubUserId: userUuid(user), client: 'Veridian, page Liaisons', origine: base.origin });
   if ('lien' in r) return vers(new URL(r.lien).pathname);
   return vers(`/dashboard/liaisons?avis=${'refus' in r ? r.refus : r.etat}`);
 }

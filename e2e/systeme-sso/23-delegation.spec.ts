@@ -1,8 +1,8 @@
 /**
  * Délégation entre apps (VER-245 b.2) : première ouverture confirmée par le propriétaire dans un vrai navigateur, échange d'une poignée
  * contre un jeton de 120 s, et la cible qui le reconnaît. Puis tout ce qui doit refuser : nonce rejoué, paire absente, liaison éteinte,
- * membre retiré, organisation suspendue. Staging, ou prod quand `crm@test` y est ouvert : l'organisation est alors marquée de test au Hub
- * (24 h), et le cas vérifie d'abord qu'elle reste fermée sans la marque. La poignée vient de la route admin des comptes de test.
+ * membre retiré, organisation suspendue. Staging et prod, organisation ordinaire (non marquée) : éteinte jusqu'au clic du propriétaire.
+ * La poignée vient de la route admin des comptes de test.
  * Épreuve : `SSO_SABOTAGE=delegation` ne confirme pas la liaison : le cas doit échouer.
  */
 import { createHmac, randomBytes } from 'node:crypto';
@@ -11,7 +11,7 @@ import { expect } from '@playwright/test';
 
 import { HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
-import { activerTwentyAuHub, admin, adminOk, lookup, marquerTest, secretDe, secretServiStaging } from './lib/hub-admin';
+import { activerTwentyAuHub, admin, adminOk, lookup, secretDe, secretServiStaging } from './lib/hub-admin';
 import { obtenirJetonMcp, outil } from './lib/mcp';
 import { creerCompteProuve, noterEspaceTwenty, type Compte } from './lib/parcours';
 
@@ -46,13 +46,8 @@ cas(null, 'délégation : le propriétaire ouvre une liaison, une app agit 120 s
       return { status: r.status, json: (await r.json().catch(() => null)) as any };
     };
 
-    if (!STAGING) {
-      // Prod : sans la marque, rien n'existe pour cette organisation, adresse de batterie ou pas.
-      expect((await etat()).etat, 'non marquée').toBe('indisponible');
-      expect(await poignee(P), 'non marquée : aucune poignée').toBeUndefined();
-      await marquerTest(T.id);
-      if ((await etat()).etat === 'indisponible') throw new NonAbouti('crm@test n\'est pas ouvert sur ce Hub (DELEGATION_CIBLES)');
-    }
+    // Ouvert à toutes les organisations (Robert, 24/11), sans marque de test : ÉTEINTE tant que le propriétaire n'a pas cliqué.
+    expect((await etat()).etat, 'avant tout clic').toBe('eteinte');
     const g = await poignee(P);
     if (!g) throw new NonAbouti('aucune poignée émise');
     expect((await echanger(g)).json, 'liaison éteinte').toEqual({ error: 'integration_off' });

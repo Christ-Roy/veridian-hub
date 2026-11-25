@@ -17,6 +17,10 @@ describe('GET logo public', () => {
     expect([r.status, r.headers.get('content-type'), r.headers.get('x-content-type-options')]).toEqual([200, 'image/png', 'nosniff']);
     expect(r.headers.get('cache-control')).toContain('immutable');
   });
+  it('sans empreinte dans l\'adresse : 404, jamais un logo qu\'un cache garderait sous la mauvaise version', async () => {
+    const r = await GET(new NextRequest('https://h/x'), { params: Promise.resolve({ id: T }) });
+    expect(r.status).toBe(404);
+  });
   it('autre empreinte, aucun logo, identifiant faux : 404', async () => {
     expect((await lire('vieux')).status).toBe(404);
     m.org.mockResolvedValue({ logo: null, logoEmpreinte: null });

@@ -1,4 +1,5 @@
 // /dashboard/organisation : un seul endroit pour régler son organisation, les apps la reçoivent (VER-252). Adresse stable : les apps y renvoient.
+import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 
 import { Building2Icon } from 'lucide-react';
@@ -15,10 +16,12 @@ import { espacesDe } from '@/lib/mcp/catalogue';
 import { hubPublicUrl } from '@/lib/organisations/base';
 import { urlLogo } from '@/lib/organisations/document';
 import { prisma } from '@/lib/prisma';
+import { COOKIE_ACTIF, organisationActive } from '@/lib/tenants/actif';
 
 export const dynamic = 'force-dynamic';
 
 const AVIS: Record<string, string> = {
+  active: 'Organisation active changée : vos apps ouvriront dans celle-ci.',
   enregistre: 'Enregistré, vos apps ont reçu le changement.',
   partiel: 'Enregistré ici. Une app n\'a pas encore suivi : elle le recevra au prochain changement.',
   role_insuffisant: 'Seul le propriétaire ou un administrateur règle cette organisation.',
@@ -26,7 +29,7 @@ const AVIS: Record<string, string> = {
   format_refuse: 'Logo refusé : PNG, JPEG ou WebP.',
   refus: 'Réglage refusé : vérifiez les couleurs (#RRGGBB) et le nom.',
 };
-const APPS: Record<string, string> = { academy: 'Academy' };
+const APPS: Record<string, string> = { academy: 'Academy', notifuse: 'Mail', prospection: 'Prospection' };
 
 export default async function Organisation({ searchParams }: { searchParams: Promise<{ avis?: string }> }) {
   const session = await auth();
@@ -39,11 +42,27 @@ export default async function Organisation({ searchParams }: { searchParams: Pro
     org: await prisma.organisation.findUnique({ where: { tenantId: e.id }, omit: { logo: true } }),
     emissions: await prisma.organisationEmission.findMany({ where: { tenantId: e.id } }),
   })));
+  const active = await organisationActive(prisma, userUuid(user), (await cookies()).get(COOKIE_ACTIF)?.value);
   const miens = espaces.filter((e) => e.au === 'owner' || e.au === 'admin');
   return (
     <div className="flex flex-col gap-6 p-4 md:p-8">
       <DashboardPageHeader title="Organisation" icon={Building2Icon} description="Réglée ici une fois, reprise par vos apps." />
       {avis ? <p role="status" className="text-sm">{avis}</p> : null}
+      {espaces.length > 1 ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Où ouvrir vos apps</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <form method="post" action="/api/organisations/active" className="flex flex-wrap items-center gap-3">
+              <select name="tenant" aria-label="Organisation active" defaultValue={active ?? espaces[0].id} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
+                {espaces.map((e) => <option key={e.id} value={e.id}>{e.nom}</option>)}
+              </select>
+              <Button type="submit" variant="outline">Choisir</Button>
+            </form>
+          </CardContent>
+        </Card>
+      ) : null}
       {miens.length === 0 ? <p className="text-muted-foreground">Seul le propriétaire ou un administrateur règle une organisation.</p> : null}
       {miens.map((e) => {
         const logo = e.org ? urlLogo(hubPublicUrl(), e.org) : null;

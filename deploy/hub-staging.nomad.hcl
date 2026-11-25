@@ -204,8 +204,12 @@ CRM_RETRAIT_FUSIBLE=0
 PROGRAMME_FICHIER=/local/programme
 # Rôle d'organisation porté aux apps (§5.22) : staging ouvert.
 ROLE_PORTE=tous
+# Lecture d'activité (§5.19.6) : fermée.
+ACTIVITE_ORGANISATIONS=
 # Cibles de la délégation qui ont dit « garde servie » (lib/delegation/paires.ts) : crm-staging, 24/11.
 DELEGATION_CIBLES=crm,notifuse
+# F3 (§2.3) : une réponse reçue dans Mail devient une tâche au CRM. Organisations MARQUÉES de test seulement ; garde du CRM servie en staging (25/11).
+DELEGATION_EVENEMENTS=notifuse>crm@test
 OAUTH_TEST_PROVIDER=true
 ADMIN_EMAILS=brunon5robert@gmail.com,robert.brunon@veridian.site
 

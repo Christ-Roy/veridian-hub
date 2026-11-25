@@ -91,6 +91,8 @@ revient (16 000 caractères).
 | `reprise` | la valeur passée en paramètre, `null` sinon |
 | `journal(…)`, `await pause(ms)` | trace courte, attente |
 
+**Signatures** (`lib/mcp/signature.ts`) : `decrire_outil` rend, en plus du schéma, `signature` (TypeScript compact tiré de l'`inputSchema`, 1 500 caractères au plus, `unknown` si le schéma est illisible, texte du schéma neutralisé), avec « // à nommer dans autoriser » si `exigeAutorisation` ; `chercher_outils` la porte pour ses 3 premiers résultats.
+
 **Bornes** : 45 s (catalogue compris), 200 appels, 4 de front, 64 Mo, 1 Mo par réponse d'outil, 100 000 caractères de
 code, un programme à la fois par utilisateur, 600 appels internes par minute (vérifiés avant de lancer, jamais à
 mi-course). Ces deux derniers comptes vivent en mémoire du Hub : une seule allocation sert la porte, deux pendant les 60 s
@@ -104,7 +106,9 @@ peut-être joués par l'app), `erreur`, `non_lance` (moteur plein ou muet). Repr
 **Droits** : chaque appel passe par le même chemin qu'`executer_outil` (identité, espace choisi à l'ouverture et signé,
 apps ouvertes au compte). Tout outil qui ne déclare pas `readOnlyHint: true`
 (ou qui se dit aussi destructif) est refusé s'il n'est pas nommé dans `autoriser` : une écriture se nomme, toujours.
-Un outil annoté lecture dont le nom porte un verbe d'écriture (`create`, `import`, `delete`…) se nomme aussi. Un programme n'appelle aucun outil de
+Un outil qui administre (membres, rôles, clés,
+webhooks, apps, réglages : `lib/mcp/reserves.ts`, par motif) est refusé dans un programme, MÊME nommé ; il reste possible en appel direct, sauf,
+chez Analytics, ce qui change un utilisateur ou son appartenance : au Hub seul. Un outil annoté lecture dont le nom porte un verbe d'écriture (`create`, `import`, `delete`…) se nomme aussi. Un programme n'appelle aucun outil de
 la porte. Journal : `mcp.tool.call` par appel avec l'identifiant du programme, `mcp.programme` (empreinte du code, noms
 autorisés, comptes) ; jamais le code ni les arguments. Mon IA n'offre pas cet outil.
 

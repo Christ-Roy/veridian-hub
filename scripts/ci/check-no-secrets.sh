@@ -80,53 +80,66 @@ BENIGN='CHANGE_ME|x0{6}|1x0{6}|dummy|example|placeholder|localhost|fake|not-real
 # instantanés forensiques déjà archivés.
 EXCLUDE='^scripts/ci/check-no-secrets(\.selftest)?\.sh$|\.example|\.md$|package-lock\.json|pnpm-lock\.yaml|^runbooks/services/hub/forensique-'
 
-hits=""
-while IFS= read -r f; do
-  echo "$f" | grep -qE "$EXCLUDE" && continue
-  [ -f "$f" ] || continue
+# Une seule passe, un seul processus (25/11/2026) : plusieurs grep par fichier suivi coûtaient 1 min 45 sur le bastion chargé, et
+# un push trop lent finit contourné. Mêmes règles, même périmètre : tout ce que git suit. Les noms sont lus bruts (-z) : avant,
+# git rendait un nom accentué entre guillemets et le fichier n'était jamais ouvert, en CI comme au push.
+# Un fichier illisible arrête le contrôle (code 2), il ne passe jamais pour sain.
+export PATTERNS HEX_RE B64_RE BENIGN EXCLUDE
+hits=$(git ls-files -z | python3 -I -c '
+import os, re, sys
+env = os.environ
+motifs, benin, exclu = re.compile(env["PATTERNS"]), re.compile(env["BENIGN"], re.I), re.compile(env["EXCLUDE"])
+hexa, b64 = re.compile(env["HEX_RE"]), re.compile(env["B64_RE"])
+hex_pur, digest = re.compile(r"[0-9a-fA-F]{48,}\Z"), re.compile(r"@sha256:[0-9a-f]{64}")
 
-  lines=""
+def jetons(ligne):
+    # Comme `grep -oE "HEX|B64"` : le plus à gauche, puis le plus long des deux.
+    i = 0
+    while True:
+        m, n = hexa.search(ligne, i), b64.search(ligne, i)
+        if not m and not n:
+            return
+        c = [x for x in (m, n) if x]
+        d = min(x.start() for x in c)
+        x = max((x for x in c if x.start() == d), key=lambda x: x.end())
+        yield x.group()
+        i = x.end()
 
-  # Lignes portant une dérogation explicite — exclues des deux règles.
-  # `|| true` obligatoire : sous `pipefail`, un grep sans résultat fait échouer
-  # la substitution, et `set -e` tuerait le script SANS message — un contrôle
-  # qui meurt en silence ne protège de rien.
-  allowed=" $( { grep -nI 'check-no-secrets:allow' "$f" 2>/dev/null || true; } | cut -d: -f1 | tr '\n' ' ')"
-
-  # Règle 1 — motifs fournisseurs, ligne par ligne.
-  r1=$(grep -EnI "$PATTERNS" "$f" 2>/dev/null | grep -vEi "$BENIGN" | cut -d: -f1 || true)
-  for ln in $r1; do
-    case "$allowed" in *" $ln "*) continue;; esac
-    lines="$lines $ln"
-  done
-  r1=
-
-  # Règle 2 — littéraux à forte entropie, où qu'ils soient dans le fichier.
-  while IFS=: read -r ln tok; do
-    [ -n "$tok" ] || continue
-    if ! echo "$tok" | grep -qE "^[0-9a-fA-F]{48,}$"; then
-      # Voie base64 : exiger une vraie diversité de caractères.
-      echo "$tok" | grep -q '[a-z]' || continue
-      echo "$tok" | grep -q '[A-Z]' || continue
-      echo "$tok" | grep -q '[0-9]' || continue
-    fi
-    case "$allowed" in *" $ln "*) continue;; esac
-    # Digest d'image épinglée : public par nature, et c'est le bon usage.
-    sed -n "${ln}p" "$f" | grep -qE '@sha256:[0-9a-f]{64}' && continue
-    lines="$lines $ln"
-  done < <(grep -oEnI "$HEX_RE|$B64_RE" "$f" 2>/dev/null | grep -vEi "$BENIGN" || true)
-
-  if [ -n "$(echo "$lines" | tr -d '[:space:]')" ]; then
-    # On affiche le fichier et la ligne, JAMAIS la valeur : cette sortie peut
-    # finir dans un log de CI public.
-    uniq_lines=$(echo "$lines" | tr ' ' '\n' | grep -E '^[0-9]+$' | sort -un | tr '\n' ',' | sed 's/,$//')
-    hits="$hits\n  $f (lignes $uniq_lines)"
-  fi
-done < <(git ls-files)
+lus = 0
+for nom in sys.stdin.buffer.read().split(b"\0"):
+    if not nom or exclu.search(nom.decode("utf-8", "surrogateescape")) or not os.path.isfile(nom):
+        continue
+    with open(nom, "rb") as f:
+        brut = f.read()
+    lus += 1
+    if b"\0" in brut:          # binaire, comme grep -I
+        continue
+    mauvaises = []
+    for n, ligne in enumerate(brut.decode("latin-1").split("\n"), 1):
+        if "check-no-secrets:allow" in ligne:
+            continue
+        pris = bool(motifs.search(ligne)) and not benin.search(ligne)
+        if not pris:
+            for j in jetons(ligne):
+                if benin.search(j):
+                    continue
+                if not hex_pur.match(j) and not all(re.search(x, j) for x in ("[a-z]", "[A-Z]", "[0-9]")):
+                    continue
+                if not digest.search(ligne):
+                    pris = True
+                    break
+        if pris:
+            mauvaises.append(n)
+    if mauvaises:
+        # Le fichier et la ligne, JAMAIS la valeur : cette sortie peut finir dans un log de CI public.
+        sys.stdout.buffer.write(b"  " + nom + b" (lignes " + ",".join(map(str, mauvaises)).encode() + b")\n")
+if not lus:
+    sys.exit("aucun fichier lu")
+') || { echo "✗ check-no-secrets.sh n'a pas abouti : à traiter comme un REFUS"; exit 2; }
 
 if [ -n "$hits" ]; then
   echo "✗ SECRET en clair détecté dans un fichier tracké :"
-  echo -e "$hits"
+  printf '%s\n' "$hits"
   echo ""
   echo "  Ce dépôt est PUBLIC. Committer ce fichier publie la valeur, et"
   echo "  l'historique la conserve : il faudrait ROTATIONNER le secret."

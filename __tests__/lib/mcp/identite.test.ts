@@ -64,6 +64,13 @@ describe('signerPourApp et la clé', () => {
     expect(p.exp! - p.iat!).toBe(120);
   });
 
+  it('un jeton d\'événement : sujet integration:<tenant>, ni adresse ni preuve d\'adresse', async () => {
+    const p = await lire(await signerAction({ audience: APP.audience, hubUserId: 'integration:t', tenantId: 't', app: 'notifuse', scope: 'crm:tache.ecrire', jti: 'j', ttlS: 120 }, env), APP.audience);
+    expect(p).toMatchObject({ sub: 'integration:t', act: { sub: 'app:notifuse' }, tenant_id: 't' });
+    expect(p).not.toHaveProperty('email');
+    expect(p).not.toHaveProperty('email_verified');
+  });
+
   it('le JWKS public ne rend jamais la partie privée', async () => {
     const { keys } = await jwksPublic(env);
     expect(keys).toHaveLength(1);

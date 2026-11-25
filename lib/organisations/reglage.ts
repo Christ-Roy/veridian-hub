@@ -15,7 +15,7 @@ export const Reglage = z.object({
   couleur_primaire: couleur.optional(),
   couleur_accent: couleur.optional(),
   modules: z.array(z.enum(MODULES)).max(20).optional(),
-  reglages: z.record(z.enum(MODULES), z.record(z.string().max(40), z.union([z.string().max(200), z.number(), z.boolean(), z.null()]))).optional(),
+  reglages: z.partialRecord(z.enum(MODULES), z.record(z.string().max(40), z.union([z.string().max(200), z.number(), z.boolean(), z.null()]))).optional(),
 }).strict();
 export type Reglage = z.infer<typeof Reglage>;
 

@@ -13,6 +13,9 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const orgs = vi.hoisted(() => ({ retard: vi.fn(async (): Promise<unknown[]> => []) }));
+vi.mock('@/lib/sync/organisations', () => ({ organisationsEnRetard: (...a: unknown[]) => orgs.retard(...a) }));
+
 import { diffTenantApp, measureNotWired, remediationFor, runReconcile } from '@/lib/sync/reconcile';
 import type {
   DiscoveryAppResult,
@@ -597,5 +600,23 @@ describe('lien au tenant Hub (hub_tenant_id, claim tenant_id du MCP)', () => {
   });
   it('simple membre du workspace d\'un autre : pas d\'écart', () => {
     expect(diffTenantApp(t, 'prospection', disc({ hubTenantLink: 'autre', role: 'member' }), 'now')).toHaveLength(0);
+  });
+});
+
+describe('runReconcile : bloc organisations (VER-252)', () => {
+  // Aucun tenant : seul le bloc organisations est en jeu, et il est mocké.
+  const sansTenant = { tenant: { findMany: async () => [] }, user: { findMany: async () => [] }, $queryRaw: async () => [{ reels: 0 }] };
+  it('rend les organisations en retard, sans rien écrire, et le compte part au log', async () => {
+    const retard = [{ hub_tenant_id: 'A', app: 'academy', raison: 'pas_d_emission' }];
+    orgs.retard.mockResolvedValueOnce(retard);
+    const summary = await runReconcile({ prisma: sansTenant as never, fetchImpl: vi.fn() as unknown as typeof fetch });
+    expect(summary.organisations).toEqual(retard);
+    expect(summary.mode).toBe('dry-run');
+  });
+  it('un relevé organisations en panne se dit dans errors, sans faire échouer le reste', async () => {
+    orgs.retard.mockRejectedValueOnce(new Error('base'));
+    const summary = await runReconcile({ prisma: sansTenant as never, fetchImpl: vi.fn() as unknown as typeof fetch });
+    expect(summary.organisations).toEqual([]);
+    expect(summary.errors).toContainEqual(expect.objectContaining({ message: expect.stringContaining('organisations') }));
   });
 });

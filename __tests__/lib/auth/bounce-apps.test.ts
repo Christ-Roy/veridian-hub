@@ -386,4 +386,14 @@ describe('organisations au rebond (§5.22)', () => {
     expect(await envoyer([])).not.toHaveProperty('organisations');
     expect(await envoyer()).not.toHaveProperty('organisations');
   });
+  it('organisation active : `hub_tenant_id` dans le corps signé ; sans choix, le champ n\'existe pas', async () => {
+    const corpsDe = async (hubTenantId?: string | null) => {
+      let corps = '';
+      await issueMagicLinkForApp({ app: 'crm', hubUserId: 'u', email: 'a@b.fr', hubTenantId }, { env: { NODE_ENV: 'test', CRM_API_URL: 'https://crm.test', CRM_HUB_API_SECRET: 's' } as NodeJS.ProcessEnv, fetchImpl: (async (_u: string, i: RequestInit) => { corps = String(i.body); return Response.json({ magic_link_url: 'https://crm.app.veridian.site/x' }); }) as unknown as typeof fetch });
+      return JSON.parse(corps);
+    };
+    expect((await corpsDe('T-1')).hub_tenant_id).toBe('T-1');
+    expect(await corpsDe(null)).not.toHaveProperty('hub_tenant_id');
+    expect(await corpsDe()).not.toHaveProperty('hub_tenant_id');
+  });
 });

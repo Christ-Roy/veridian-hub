@@ -10,6 +10,8 @@ vi.mock('@/lib/tenants/membres', async (o) => ({ ...(await o<object>()), rejoind
 import { POST } from '@/app/api/admin/tenants/[id]/members/route';
 const pousser = vi.hoisted(() => vi.fn(async (..._a: unknown[]): Promise<unknown[]> => [{ app: 'crm', etat: 'applique' }]));
 vi.mock('@/lib/tenants/roles', () => ({ pousserRole: pousser }));
+const suivre = vi.hoisted(() => vi.fn(async (..._a: unknown[]): Promise<unknown[]> => []));
+vi.mock('@/lib/organisations/emission', () => ({ suivreOrganisation: suivre }));
 
 import { RefusMembre } from '@/lib/tenants/membres';
 
@@ -37,6 +39,17 @@ describe('POST members', () => {
     expect(m.rejoindre.mock.calls[0][1]).toMatchObject({ tenantId: T, hubUserId: U, role: 'member', origine: 'operateur' });
     await jouer({ hub_user_id: U, role: 'owner' });
     expect(m.rejoindre.mock.calls[1][1]).toMatchObject({ role: 'owner' });
+  });
+  it('l\'organisation réglée au Hub suit, après l\'ajout ; non réglée, elle n\'apparaît pas', async () => {
+    expect(await (await jouer({ email: 'a@b.fr' })).json()).not.toHaveProperty('organisation');
+    suivre.mockResolvedValueOnce([{ app: 'academy', etat: 'applique' }]);
+    expect((await (await jouer({ email: 'a@b.fr' })).json()).organisation).toEqual([{ app: 'academy', etat: 'applique' }]);
+    expect(suivre.mock.calls.at(-1)?.[1]).toBe(T);
+  });
+  it('un refus n\'émet rien', async () => {
+    m.rejoindre.mockRejectedValue(new RefusMembre('adresse_non_prouvee'));
+    await jouer({ email: 'a@b.fr' });
+    expect(suivre).not.toHaveBeenCalled();
   });
   it('corps ou tenant invalide : 400 ; compte absent du Hub : 404 ; refus métier lisible', async () => {
     expect((await jouer({})).status).toBe(400);

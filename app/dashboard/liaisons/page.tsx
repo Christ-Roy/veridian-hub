@@ -21,6 +21,7 @@ const AVIS: Record<string, string> = {
   role_insuffisant: 'Seul le propriétaire ou un administrateur de cet espace règle ses liaisons.',
   cible_non_servie: 'Cette liaison n\'est pas encore disponible.',
   paire_inconnue: 'Cette liaison n\'existe pas.',
+  source_injoignable: 'L\'app source n\'a pas répondu : la liaison est restée éteinte. Réessayez dans quelques minutes.',
   refus: 'Réglage refusé. Rechargez la page.',
 };
 
@@ -35,6 +36,17 @@ function Reglage({ tenant, l }: { tenant: string; l: EtatPaire }) {
     </form>
   );
 }
+
+const ERREURS: Record<string, string> = {
+  crm_injoignable: 'le CRM ne répond pas, nouvel essai automatique',
+  crm_app_not_available: 'l\'app Liaisons n\'est pas disponible dans ce CRM',
+  crm_app_uninstalled: 'l\'app Liaisons a été désinstallée du CRM',
+  crm_app_installing: 'l\'app Liaisons s\'installe dans le CRM, nouvel essai automatique',
+  crm_app_install_failed: 'l\'app Liaisons n\'a pas pu s\'installer dans le CRM, nouvel essai automatique',
+  crm_tenant_not_linked: 'cet espace n\'est pas relié au CRM',
+  crm_workspace_inactive: 'l\'espace du CRM est inactif',
+  pause_disjoncteur: 'liaison en pause, trop d\'écritures sur un même contact',
+};
 
 export default async function Liaisons({ searchParams }: { searchParams: Promise<{ avis?: string }> }) {
   const session = await auth();
@@ -70,7 +82,7 @@ export default async function Liaisons({ searchParams }: { searchParams: Promise
                     <p className="text-sm text-muted-foreground">
                       {l.etat === 'allumee' ? 'Allumée' : 'Éteinte'}
                       {l.dernier_passage ? `, dernier passage le ${new Date(l.dernier_passage).toLocaleString('fr-FR', { timeZone: 'Europe/Paris' })}` : ''}
-                      {l.derniere_erreur ? `, dernière erreur : ${l.derniere_erreur}` : ''}
+                      {l.derniere_erreur ? `, dernière erreur : ${ERREURS[l.derniere_erreur] ?? l.derniere_erreur}` : ''}
                     </p>
                   </div>
                   {regle && (l.etat === 'allumee' || l.consentie || e.au === 'owner') ? <Reglage tenant={e.id} l={l} /> : <p className="text-sm text-muted-foreground">Le propriétaire peut l&apos;allumer</p>}

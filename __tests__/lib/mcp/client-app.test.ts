@@ -104,3 +104,22 @@ describe('les refus d\'une app', () => {
     expect(illisible).not.toBeInstanceOf(AppDebit);
   });
 });
+
+describe('le code de refus d\'une app', () => {
+  const refus = (status: number, corps: string) => erreurDe(new SessionApp('https://app.test/mcp', 'j', app(() => new Response(corps, { status }))).appeler('x', {})) as Promise<AppInjoignable>;
+  it.each([
+    [403, '{"statusCode":403,"error":"app_uninstalled"}', 'app_uninstalled'],
+    [503, '{"error":{"code":"app_installing"}}', 'app_installing'],
+    [403, '{"message":"tenant_not_linked"}', 'tenant_not_linked'],
+  ])('%s %s : gardé, quelle que soit la forme du corps', async (status, corps, code) => {
+    const e = await refus(status, corps);
+    expect([e.code, e.message.includes(code)]).toEqual([code, true]);
+  });
+  it('inconnu ou absent : aucun code inventé, et le corps de l\'app ne fuit pas dans le message', async () => {
+    for (const [status, corps] of [[403, '{"error":"secret_interne"}'], [503, ''], [500, 'trace interne']] as const) {
+      const e = await refus(status, corps);
+      expect(e.code).toBeUndefined();
+      expect(e.message).not.toMatch(/secret_interne|trace/);
+    }
+  });
+});

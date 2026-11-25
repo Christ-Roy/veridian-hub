@@ -90,6 +90,14 @@ describe('lister, lire, couper', () => {
   });
 });
 
+it('un événement ouvert pour UNE organisation : demandable là, indisponible ailleurs', async () => {
+  const E = { NODE_ENV: 'test', DELEGATION_EVENEMENTS: 'notifuse>crm@A' } as NodeJS.ProcessEnv;
+  const de = async (id: string) => (await listerIntegrations(db as never, id, E)).find((x) => x.paire === 'notifuse>crm')!.etat;
+  expect([await de('A'), await de('B')]).toEqual(['eteinte', 'indisponible']);
+  const r = await reglerIntegration(db as never, { tenantId: 'A', paire: 'notifuse>crm', etat: 'allumee', hubUserId: 'prop', client: 'x', origine: 'https://hub.test' }, E);
+  expect((await confirmerDemande(db as never, jetonDe(r), 'prop', E)).ok).toBe(true);
+});
+
 it('roleAuHub : relu au Hub ; retiré, étranger, rôle inconnu ou espace suspendu ne donnent jamais un droit', async () => {
   const role = (u: string) => roleAuHub(db as never, 'A', u);
   expect(await Promise.all(['prop', 'adm', 'mem', 'autre'].map(role))).toEqual(['owner', 'admin', 'member', null]);
