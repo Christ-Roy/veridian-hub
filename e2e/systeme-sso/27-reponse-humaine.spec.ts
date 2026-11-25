@@ -1,9 +1,11 @@
 /**
  * F3 (VER-245) : une réponse humaine reçue dans Mail crée une tâche au CRM, une seule fois, et plus rien quand la liaison est coupée. Staging :
  * l'organisation est marquée de test, les espaces naissent pour ce cas. Mail est joué par l'épreuve, avec le secret que Mail rend au Hub.
+ * `SSO_OUTIL_MAIL=<notifuse-veridian>/scripts/e2e/reponse-recue-staging.py` joue en plus la vraie émission de Mail.
  * `SSO_GARDER_MAIL=1` garde l'espace Mail, pour une vraie émission par la session Notifuse.
  * Épreuve : `SSO_SABOTAGE=reponse-humaine` ne confirme pas la liaison : le cas doit échouer.
  */
+import { execFileSync } from 'node:child_process';
 import { createHmac, randomUUID } from 'node:crypto';
 
 import { expect } from '@playwright/test';
@@ -52,10 +54,13 @@ cas(null, 'une réponse humaine reçue dans Mail devient une tâche au CRM, une 
     // Le propriétaire, dans un vrai navigateur : allumer, confirmer ; couper ; rallumer.
     const regler = async (bouton: 'Allumer' | 'Couper', confirmer = false) => {
       const ctx = await browser.newContext({ storageState: P.etat as never });
+      ctx.setDefaultTimeout(45_000);
       try {
         const page = await ctx.newPage();
         await page.goto(`${HUB_URL}/dashboard/liaisons`, { waitUntil: 'networkidle' });
-        await page.locator('form', { has: page.locator(`input[value="${PAIRE}"]`) }).getByRole('button', { name: bouton }).click();
+        const formulaire = page.locator('form', { has: page.locator(`input[value="${PAIRE}"]`) });
+        expect(await formulaire.count(), `liaison proposée : ${(await page.locator('main').innerText().catch(() => page.url())).slice(0, 400)}`).toBe(1);
+        await formulaire.getByRole('button', { name: bouton }).click();
         if (!confirmer) return void (await expect(page.getByRole('status')).toContainText(bouton === 'Couper' ? 'coupée' : 'allumée'));
         await page.waitForURL(/\/liaisons\/confirmer\//);
         if (process.env.SSO_SABOTAGE === 'reponse-humaine') return;
@@ -141,7 +146,35 @@ cas(null, 'une réponse humaine reçue dans Mail devient une tâche au CRM, une 
     const revit = await livrer(randomUUID(), { thread_id: `t4_${n}`, email: `d@reponse${n}.invalid` });
     // Rallumer recrée l'abonnement chez Mail, donc un secret neuf : l'ancien ne vaut plus rien.
     expect(revit[0], 'ancien secret après rallumage').toBe(401);
-    return `espace ${slug}${process.env.SSO_GARDER_MAIL === '1' ? ` (gardé, tenant ${T.id})` : ''} : une tâche, une personne, rejeu et suite du fil sans rien de plus, CRM fermé 502 puis rattrapée, coupée sans effet, ancien secret refusé`;
+
+    // La vraie émission de Mail (déclencheur, livreur, signature, HTTP, réessais), jouée par son outil : rien n'est signé par l'épreuve. Seule la
+    // lecture IMAP ne l'est pas. Le contact connu du CRM retrouve sa fiche, l'inconnu en reçoit une.
+    const outilMail = process.env.SSO_OUTIL_MAIL;
+    let vraie = 'vraie émission non jouée (SSO_OUTIL_MAIL absent)';
+    if (outilMail) {
+      const personnes = (await compter('people')).n;
+      const emettre = (email: string, ...x: string[]) => {
+        try {
+          return { code: 0, sortie: execFileSync('python3', ['-I', outilMail, abo.json.workspace_id, '--email', email, '--attendre', '240', ...x], { encoding: 'utf8', timeout: 270_000 }) };
+        } catch (e) {
+          const x2 = e as { status?: number; stdout?: string };
+          return { code: x2.status ?? 2, sortie: `${x2.stdout ?? ''}` };
+        }
+      };
+      for (const email of [`contact@reponse${n}.invalid`, `neuf@reponse${n}.invalid`]) {
+        const e = emettre(email);
+        if (e.code === 2) throw new NonAbouti(`vraie émission : ${e.sortie.slice(-300)}`);
+        expect(e.code, `vraie émission ${email.split('@')[0]} : ${e.sortie.slice(-400)}`).toBe(0);
+      }
+      const ignoree = emettre(`auto@reponse${n}.invalid`, '--kind', 'reply_auto');
+      expect(ignoree.code, `réponse automatique acquittée : ${ignoree.sortie.slice(-300)}`).toBe(0);
+      // La tâche peut finir juste après l'acquittement : le Hub répond avant 8 s et termine seul.
+      await expect.poll(async () => (await compter('tasks')).n, { timeout: 90_000, message: 'deux tâches de plus' }).toBe(apres.n + 3);
+      const p2 = await compter('people');
+      expect([p2.n - personnes, p2.t.includes(`neuf@reponse${n}.invalid`), p2.t.includes(`auto@reponse${n}.invalid`)], 'une personne de plus, l\'inconnue').toEqual([1, true, false]);
+      vraie = 'vraie émission de Mail livrée (contact connu, inconnu), réponse automatique sans effet';
+    }
+    return `espace ${slug}${process.env.SSO_GARDER_MAIL === '1' ? ` (gardé, tenant ${T.id})` : ''} : une tâche, une personne, rejeu et suite du fil sans rien de plus, CRM fermé 502 puis rattrapée, coupée sans effet, ancien secret refusé, ${vraie}`;
   } finally {
     for (const k of poses) await admin('DELETE', `mcp-apps?app_key=${k}`);
     if (cree && process.env.SSO_GARDER_MAIL !== '1') {
@@ -149,4 +182,4 @@ cas(null, 'une réponse humaine reçue dans Mail devient une tâche au CRM, une 
       if (d.status >= 300 && d.status !== 404) console.error(`espace Mail ${slug} non retiré : HTTP ${d.status}`);
     }
   }
-}, { timeout: 600_000 });
+}, { timeout: 1_500_000 });

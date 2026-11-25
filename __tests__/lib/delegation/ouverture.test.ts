@@ -33,6 +33,13 @@ describe('organisationDeTest', () => {
     const o = (id: string, cibles = 'crm@test') => organisationDeTest(db as never, id, { NODE_ENV: 'test', DELEGATION_CIBLES: cibles });
     expect(await Promise.all([o('T'), o('C'), o('R'), o('inconnu'), o('T', 'crm'), o('T', '')])).toEqual([true, false, false, false, false, false]);
   });
+  it('un événement `<paire>@test` s\'ouvre à la marquée seule, sans ouvrir aucune action', async () => {
+    const env = { ...ENV, DELEGATION_CIBLES: 'notifuse', DELEGATION_EVENEMENTS: 'notifuse>crm@test' };
+    const vu = async (id: string) => Object.fromEntries((await listerIntegrations(db as never, id, env)).map((x) => [x.paire, x.etat]));
+    expect([(await vu('T'))['notifuse>crm'], (await vu('C'))['notifuse>crm'], (await vu('T'))['prospection>crm']]).toEqual(['eteinte', 'indisponible', 'indisponible']);
+    const r = await reglerIntegration(db as never, { tenantId: 'T', paire: 'notifuse>crm', etat: 'allumee', hubUserId: 't', client: 'x', origine: 'https://hub.test' }, env) as { lien: string };
+    expect((await confirmerDemande(db as never, r.lien.split('/').pop()!, 't', env)).ok).toBe(true);
+  });
   it('un client ne voit, ne règle, ne reçoit et n\'échange rien ; le compte de test, si', async () => {
     expect([await etat('T'), await etat('C')]).toEqual(['eteinte', 'indisponible']);
     expect(await regler('C', 'c')).toEqual({ refus: 'cible_non_servie' });
