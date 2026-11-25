@@ -9,7 +9,7 @@ import type { PrismaClient } from '@prisma/client';
 import { writeAuditLog } from '@/lib/admin/audit-log';
 import { AppDebit, AppInjoignable } from '@/lib/mcp/client-app';
 import { liaisonActive, noterPassage } from '@/lib/delegation/etat';
-import { evenementOuvert, paireEntre, porteesAccordees } from '@/lib/delegation/paires';
+import { evenementOuvert, paire, porteesAccordees } from '@/lib/delegation/paires';
 import { estDeTest } from '@/lib/tenants/marque-test';
 
 import { lireAbonnement } from './abonnement';
@@ -50,7 +50,7 @@ export async function recevoirNotifuse(db: Db, h: Headers, brut: string, env: No
   if (a.statut === 'ignore') return ack(a.raison);
   const { reponse } = a;
 
-  const p = paireEntre('notifuse', 'crm');
+  const p = paire('notifuse>crm');
   const t = await db.tenant.findFirst({ where: { id: abo.tenantId, deletedAt: null }, select: { status: true, metadata: true } });
   if (!p || !t || t.status === 'suspended' || t.status === 'deleted') return ack('organisation_inactive');
   if (!evenementOuvert(p.cle, abo.tenantId, env, estDeTest(t.metadata, new Date(now)))) return ack('evenements_fermes');

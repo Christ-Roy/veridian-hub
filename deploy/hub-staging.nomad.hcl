@@ -208,6 +208,8 @@ ROLE_PORTE=tous
 ACTIVITE_ORGANISATIONS=
 # Cibles de la délégation qui ont dit « garde servie » (lib/delegation/paires.ts) : crm-staging, 24/11.
 DELEGATION_CIBLES=crm,notifuse
+# Le CRM agit lui-même dans Mail et Prospection (appelant en staging, 25/11).
+DELEGATION_SOURCES=crm
 # F3 (§2.3) : une réponse reçue dans Mail devient une tâche au CRM. Organisations MARQUÉES de test seulement ; garde du CRM servie en staging (25/11).
 DELEGATION_EVENEMENTS=notifuse>crm@test
 OAUTH_TEST_PROVIDER=true

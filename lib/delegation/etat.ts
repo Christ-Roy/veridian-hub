@@ -14,6 +14,8 @@ const PAR_DEFAUT: Record<string, string> = {
   'prospection>crm': 'crm:societe.ecrire crm:tache.ecrire',
   'prospection>notifuse': 'notifuse:contacts.ecrire',
   'notifuse>crm': 'crm:tache.ecrire',
+  'crm>notifuse': 'notifuse:contacts.ecrire notifuse:contacts.lire',
+  'crm>prospection': 'prospection:entreprise.lire',
 };
 
 export type LignePaire = { etat: string; consentiLe: Date | null; portees: string | null } | null | undefined;
@@ -36,8 +38,9 @@ export async function contexteDe(db: Pick<PrismaClient, 'tenant' | 'organisation
     db.organisation.findUnique({ where: { tenantId }, select: { modules: true } }),
   ]);
   if (!t) return { ouvertes: new Set(), neuve: false };
-  const crm = ((t.metadata ?? {}) as { crm?: { workspace_id?: unknown } }).crm?.workspace_id;
-  const a = { prospection: Boolean(t.prospectionProvisionedAt), notifuse: Boolean(t.notifuseWorkspaceSlug), crm: typeof crm === 'string' && crm !== '' };
+  const m = (t.metadata ?? {}) as Record<string, { workspace_id?: unknown } | undefined>;
+  const espace = (x: string): boolean => typeof m[x]?.workspace_id === 'string' && m[x]?.workspace_id !== '';
+  const a: Record<AppPaire, boolean> = { prospection: Boolean(t.prospectionProvisionedAt), notifuse: Boolean(t.notifuseWorkspaceSlug), crm: espace('crm'), academy: espace('academy') };
   const ouvertes = (Object.keys(a) as AppPaire[]).filter((x) => a[x] || o?.modules.includes(x));
   return { ouvertes: new Set(ouvertes), neuve: t.createdAt >= NEUVE_DEPUIS };
 }

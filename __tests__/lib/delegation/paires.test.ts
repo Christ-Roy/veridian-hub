@@ -1,23 +1,32 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 
-import { adresseAction, CLE_MCP, cibleServie, empreintePortees, evenementOuvert, paireReglable, paire, paireEntre, PAIRES, paireServie, pairesServies, porteesAccordees } from '@/lib/delegation/paires';
+import { adresseAction, CLE_MCP, cibleServie, empreintePortees, evenementOuvert, paireReglable, paire, pairePour, PAIRES, pairesEntre, paireServie, pairesServies, porteesAccordees, sourceServie } from '@/lib/delegation/paires';
 
 const env = (DELEGATION_CIBLES?: string) => ({ NODE_ENV: 'test', DELEGATION_CIBLES }) as NodeJS.ProcessEnv;
 
 describe('registre des paires', () => {
-  it('les cinq paires de départ, et aucune portée destructive ni complète', () => {
-    expect(PAIRES.map((p) => p.cle)).toEqual(['prospection>crm', 'prospection>notifuse', 'notifuse>crm', 'crm>notifuse', 'crm>prospection']);
-    for (const p of PAIRES) for (const x of p.portees) expect(x).toMatch(new RegExp(`^${p.cible}:[a-z]+\\.ecrire$`));
+  it('les paires, une clé chacune, et aucune portée destructive ni complète', () => {
+    expect(PAIRES.map((p) => p.cle)).toEqual(['prospection>crm', 'prospection>notifuse', 'notifuse>crm', 'crm>notifuse', 'crm>notifuse#sequences', 'crm>prospection', 'crm>academy', 'crm>prospection#exclusion']);
+    expect(new Set(PAIRES.map((p) => p.cle)).size).toBe(PAIRES.length);
+    for (const p of PAIRES) for (const x of p.portees) expect(x).toMatch(new RegExp(`^${p.cible}:[a-z]+\\.(ecrire|lire|inscrire)$`));
   });
   it('paire : par sa clé, sinon rien', () => {
     expect(paire('prospection>crm')?.nature).toBe('action');
     expect(paire('crm>crm')).toBeUndefined();
   });
-  it('paireEntre : seulement ce qui est inscrit, dans ce sens', () => {
-    expect(paireEntre('crm', 'crm')).toBeUndefined();
-    expect(paireEntre('notifuse', 'prospection')).toBeUndefined();
-    expect(paireEntre('prospection', 'crm')?.cle).toBe('prospection>crm');
+  it('pairesEntre : seulement ce qui est inscrit, dans ce sens, jamais un événement', () => {
+    expect([pairesEntre('crm', 'crm'), pairesEntre('notifuse', 'prospection'), pairesEntre('notifuse', 'crm')]).toEqual([[], [], []]);
+    expect(pairesEntre('crm', 'notifuse').map((p) => p.cle)).toEqual(['crm>notifuse', 'crm>notifuse#sequences']);
+  });
+  it('pairePour : celle qui porte TOUT ce qui est demandé ; deux interrupteurs ne se cumulent pas', () => {
+    const q = (s?: string) => pairePour('crm', 'notifuse', s)?.cle;
+    expect([q('notifuse:contacts.ecrire'), q('notifuse:contacts.lire notifuse:contacts.ecrire'), q('notifuse:sequences.inscrire'), q('notifuse:contacts.ecrire notifuse:sequences.inscrire'), q('notifuse:autre.ecrire'), q()]).toEqual(['crm>notifuse', 'crm>notifuse', 'crm>notifuse#sequences', undefined, undefined, undefined]);
+    expect([pairePour('crm', 'prospection', 'prospection:entreprise.lire')?.cle, pairePour('crm', 'prospection', 'prospection:exclusion.ecrire')]).toEqual(['crm>prospection', undefined]);
+  });
+  it('sourceServie : Prospection et Mail toujours ; le CRM et les autres, ouverts un à un', () => {
+    const s = (x: 'crm' | 'academy' | 'prospection', v?: string, test = false) => sourceServie(x, { NODE_ENV: 'test', DELEGATION_SOURCES: v } as NodeJS.ProcessEnv, test);
+    expect([s('prospection'), s('crm'), s('crm', 'crm'), s('crm', 'crm@test'), s('crm', 'crm@test', true), s('academy', 'crm')]).toEqual([true, false, true, false, true, false]);
   });
   it('cibleServie : fermé par défaut, nom exact', () => {
     expect([cibleServie('crm', env()), cibleServie('crm', env('')), cibleServie('crm', env('crm2')), cibleServie('crm', env('tous')), cibleServie('crm', env('notifuse, crm'))]).toEqual([false, false, false, false, true]);
@@ -25,9 +34,10 @@ describe('registre des paires', () => {
   it('paireServie : jamais un événement, même vers une cible ouverte', () => {
     const tout = env('crm,notifuse,prospection');
     expect(PAIRES.filter((p) => paireServie(p, tout)).map((p) => p.cle)).toEqual(['prospection>crm', 'prospection>notifuse']);
+    expect(PAIRES.filter((p) => paireServie(p, { ...tout, DELEGATION_SOURCES: 'crm' })).map((p) => p.cle)).toEqual(['prospection>crm', 'prospection>notifuse', 'crm>notifuse', 'crm>notifuse#sequences', 'crm>prospection']);
     expect(paireServie(paire('notifuse>crm')!, tout)).toBe(false);
   });
-  it('paireServie : « CRM vers Mail » n\'a pas d\'appelant, elle ne sert jamais, même cible ouverte ou organisation de test', () => {
+  it('paireServie : « CRM vers Mail » sans source servie ne sert jamais, même cible ouverte ou organisation de test', () => {
     const p = paire('crm>notifuse')!;
     expect([paireServie(p, env('notifuse')), paireServie(p, env('notifuse@test'), true), paireReglable(p, 'T', env('notifuse'))]).toEqual([false, false, false]);
     expect(paireServie(paire('prospection>notifuse')!, env('notifuse')), 'témoin : même cible, autre source').toBe(true);
@@ -66,5 +76,5 @@ describe('registre des paires', () => {
     expect(adresseAction('crm', 'https://crm.test/mcp')).toBe('https://crm.test/mcp');
     expect(adresseAction('notifuse', 'https://notifuse.app.veridian.site/api/mcp')).toBe('https://notifuse.app.veridian.site/api/veridian/actions');
   });
-  it('CLE_MCP : chaque app a son adresse au registre', () => expect(CLE_MCP).toEqual({ crm: 'twenty', notifuse: 'notifuse', prospection: 'prospection' }));
+  it('CLE_MCP : chaque app a son adresse au registre', () => expect(CLE_MCP).toEqual({ crm: 'twenty', notifuse: 'notifuse', prospection: 'prospection', academy: 'academy' }));
 });

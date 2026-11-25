@@ -111,7 +111,7 @@ describe('echanger', () => {
     ['portée hors paire', 'pair_not_allowed', () => {}, { scope: 'crm:societe.supprimer' }],
     ['portée complète', 'pair_not_allowed', () => {}, { scope: 'veridian' }],
     ['cible non servie', 'target_not_served', () => {}, { audience: 'notifuse', scope: 'notifuse:contacts.ecrire' }],
-    ['un événement n\'a pas de poignée d\'utilisateur', 'target_not_served', () => {}, { scope: 'crm:tache.ecrire' }, 'notifuse'],
+    ['un événement n\'a pas de poignée d\'utilisateur', 'pair_not_allowed', () => {}, { scope: 'crm:tache.ecrire' }, 'notifuse'],
     ['poignée d\'une autre app', 'grant_invalid', () => { db.delegationGrant.lignes[0].app = 'notifuse'; }],
     ['source sans appelant', 'target_not_served', () => { ENV = { ...ENV, DELEGATION_CIBLES: 'crm,notifuse' }; }, { audience: 'notifuse', scope: 'notifuse:contacts.ecrire' }, 'crm'],
     ['poignée inventée', 'grant_invalid', () => {}, { subject_grant: 'x'.repeat(43) }],

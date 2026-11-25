@@ -27,15 +27,16 @@ describe('etatDe', () => {
   it('consentie : allumée, et dite réglée, même une app fermée', () => expect(etatDe(GESTE, ligne(), c([]), true)).toEqual({ etat: 'allumee', consentie: true, parDefaut: false }));
   it('pas servie : indisponible', () => expect(etatDe(GESTE, null, TOUT, false).etat).toBe('indisponible'));
   it('une ligne qui ne garde que le passage ne règle rien', () => expect(etatDe(GESTE, { etat: 'defaut', consentiLe: null, portees: null }, TOUT, true).parDefaut).toBe(true));
-  it('une portée élargie, une paire nouvelle ou sans appelant : jamais par défaut', () => {
+  it('une portée élargie, celle qui fait partir du courrier, Academy : jamais par défaut', () => {
     expect(etatDe({ ...GESTE, portees: [...GESTE.portees, 'crm:tout.lire'] }, null, TOUT, true).etat).toBe('eteinte');
-    expect(PAIRES.filter((p) => etatDe(p, null, { ...TOUT, neuve: true }, true).parDefaut).map((p) => p.cle)).toEqual(['prospection>crm', 'prospection>notifuse', 'notifuse>crm']);
+    expect(PAIRES.filter((p) => etatDe(p, null, { ...TOUT, neuve: true }, true).parDefaut).map((p) => p.cle)).toEqual(['prospection>crm', 'prospection>notifuse', 'notifuse>crm', 'crm>notifuse', 'crm>prospection']);
   });
 });
 
 describe('contexteDe', () => {
   const db = (t: object | null, modules?: string[]) => ({ tenant: { findFirst: async () => t }, organisation: { findUnique: async () => (modules ? { modules } : null) } }) as never;
   const T = { prospectionProvisionedAt: null, notifuseWorkspaceSlug: null, metadata: {}, createdAt: new Date('2026-06-01') };
+  it('Academy : son espace existe', async () => expect((await contexteDe(db({ ...T, metadata: { academy: { workspace_id: 'a' } } }), 'T')).ouvertes.has('academy')).toBe(true));
   it('un espace qui existe, ou une app cochée', async () => {
     expect(Array.from((await contexteDe(db({ ...T, prospectionProvisionedAt: new Date(), metadata: { crm: { workspace_id: 'w' } } }, ['notifuse']), 'T')).ouvertes).sort()).toEqual(['crm', 'notifuse', 'prospection']);
     expect((await contexteDe(db(T), 'T')).ouvertes.size).toBe(0);

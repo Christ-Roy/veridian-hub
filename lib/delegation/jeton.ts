@@ -15,7 +15,7 @@ import { appsParOrganisation } from '@/lib/tenant-apps/organisation';
 import { liaisonActive, noterPassage } from './etat';
 import { listerIntegrations } from './interrupteur';
 import { organisationDeTest } from './ouverture';
-import { adresseAction, CLE_MCP, paireServie, paireEntre, porteesAccordees, type AppPaire } from './paires';
+import { adresseAction, CLE_MCP, pairePour, paireServie, porteesAccordees, paire as trouverPaire, type AppPaire } from './paires';
 import { empreinte } from './poignee';
 
 export const FENETRE_MS = 5 * 60_000;
@@ -62,7 +62,7 @@ export function deborde(cle: string, now: number, max = PAR_MINUTE): boolean {
 export type Demande = { subject_grant: string; audience: string; scope: string; motif?: string };
 
 export async function echanger(db: Db, app: AppPaire, d: Demande, env: NodeJS.ProcessEnv = process.env): Promise<{ jeton: string; tenantId: string; expiresIn: number; url: string } | Refus> {
-  const p = paireEntre(app, d.audience);
+  const p = pairePour(app, d.audience, d.scope);
   const portees = p ? porteesAccordees(p, d.scope) : null;
   if (!p || !portees) return { statut: 403, error: 'pair_not_allowed' };
   if (!paireServie(p, env, true)) return { statut: 403, error: 'target_not_served' };
@@ -108,5 +108,5 @@ export async function etatDesPaires(db: Db, app: AppPaire, grant: string, env: N
   const g = await db.delegationGrant.findUnique({ where: { empreinte: empreinte(grant) } });
   if (!g || g.app !== app || g.revoqueLe || g.expireLe <= new Date()) return { statut: 403, error: 'grant_invalid' };
   const l = await listerIntegrations(db, g.tenantId, env);
-  return { tenantId: g.tenantId, paires: l.filter((x) => x.source === app).map((x) => ({ audience: x.cible, etat: x.etat, portees: paireEntre(app, x.cible)!.portees })) };
+  return { tenantId: g.tenantId, paires: l.filter((x) => x.source === app).map((x) => ({ audience: x.cible, etat: x.etat, portees: trouverPaire(x.paire)!.portees })) };
 }
