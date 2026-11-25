@@ -77,6 +77,8 @@ describe('POST adresses', () => {
     expect(await poster({ geste: 'confirmer', email: 'a@x.fr', code: '123456' })).toEqual([400, { error: 'code_invalide' }]);
     m.confirmer.mockResolvedValue('prise');
     expect(await poster({ geste: 'confirmer', email: 'a@x.fr', code: '123456' })).toEqual([409, { error: 'prise' }]);
+    m.detacher.mockResolvedValue('annulation_ouverte');
+    expect((await poster({ geste: 'detacher', email: 'a@x.fr' }))[0]).toBe(409);
     m.detacher.mockResolvedValue(false);
     expect((await poster({ geste: 'detacher', email: 'a@x.fr' }))[0]).toBe(404);
   });

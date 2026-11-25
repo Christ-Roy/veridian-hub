@@ -1899,7 +1899,10 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
   refuse l'adresse remet tout comme avant. Dans un domaine tenu par une organisation, elle seule prouve, à ses membres. Refusée, avant tout changement,
   à qui a un compte chez **Academy** (`APPS_PAR_ADRESSE`, `lib/adresses/garde.ts`), et PAR COMPTE ailleurs : un compte que l'app ne connaît que par son
   adresse (il en naîtrait un double), ou une app muette. La MÊME garde tient les réglages (« Votre email », `PATCH /api/account/profile`, cas 33).
-  Mail (f1a2d839) et le CRM (v38) servent §5.19.7 depuis le 25/11. Pas écrits : avis à l'ancienne adresse et annulation (mail).
+  Mail (f1a2d839) et le CRM (v38) servent §5.19.7 depuis le 25/11. **L'ancienne adresse est prévenue et
+  peut annuler 72 h** (`lib/adresses/annulation.ts`, promotion ET réglages) : lien parti à elle seule, une fois, sur un bouton (`/auth/adresse`). Annuler lui
+  rend l'adresse, retire celles venues avec le changement, le mot de passe, les fournisseurs, les sessions et les IA. Pendant ces 72 h elle ne se détache pas.
+  NON PROUVÉ : le lien suivi depuis une vraie boîte (pas de boîte d'épreuve).
 - **Une session ouverte par le fournisseur d'une organisation** ne fait AUCUN geste de compte (adresse, mot de passe, 2FA, fournisseurs) et n'administre
   pas la plateforme (25/11) : l'administrateur de ce fournisseur peut en ouvrir une. `denyUnlessRecentAuth(PREUVE_COMPTE_S)`, `isPlatformAdmin`.
 - **Apps ouvertes par l'organisation** (option A, parente 25/11, `lib/tenant-apps/organisation.ts`) : le CRM coché s'ouvre (tuile, IA, délégation) aux

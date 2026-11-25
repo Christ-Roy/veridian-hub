@@ -2,7 +2,8 @@
 /** AD-M3 : rendre principale une adresse PROUVÉE. Tout ou rien, jamais par une app qui désigne encore quelqu'un par son adresse. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const m = vi.hoisted(() => ({ push: vi.fn(), decouvrir: vi.fn(), revoquer: vi.fn(), suivre: vi.fn(async (..._a: unknown[]) => []), idp: vi.fn(), membre: vi.fn(), mail: vi.fn(async (..._a: unknown[]) => 1), audits: [] as any[] }));
+const m = vi.hoisted(() => ({ push: vi.fn(), decouvrir: vi.fn(), revoquer: vi.fn(), suivre: vi.fn(async (..._a: unknown[]) => []), idp: vi.fn(), membre: vi.fn(), mail: vi.fn(async (..._a: unknown[]) => 1), audits: [] as any[], prevenir: vi.fn(async (..._a: unknown[]) => undefined) }));
+vi.mock('@/lib/adresses/annulation', () => ({ prevenirAncienne: (...a: unknown[]) => m.prevenir(...a) }));
 vi.mock('@/lib/identity/push-user', () => ({ pushUserToApps: (...a: unknown[]) => m.push(...a) }));
 vi.mock('@/lib/sync/discovery', () => ({ configuredSyncApps: () => ['notifuse', 'prospection', 'analytics', 'crm', 'academy'] }));
 vi.mock('@/lib/sync/appartenance', () => ({ humainsDe: async (app: string) => { const r = await m.decouvrir(app); return 'error' in r ? { raison: r.error } : { humains: [{ email: 'autre@x.fr', hub_user_id: null }, { email: 'A@x.fr', hub_user_id: 'un-autre' }, ...(r.found ? [{ email: 'a@X.fr', hub_user_id: null }, { email: 'jean@ancien.test', hub_user_id: null }, { email: 'moi@x.fr' }] : [])] }; } }));
@@ -65,6 +66,20 @@ describe('promouvoir', () => {
     expect(pousses()).toEqual([[{ hubUserId: 'h1', email: 'jean@neuf.test' }, ['prospection', 'analytics']]]);
     expect([m.revoquer.mock.calls[0][1], m.suivre.mock.calls[0][1]]).toEqual([{ id: 'U', supabaseUserId: 'h1' }, 'T']);
     expect(JSON.stringify(m.audits)).not.toMatch(/neuf|ancien/);
+  });
+  it('l\'ancienne adresse est prévenue, une fois, et seulement si le changement a eu lieu ; un mail perdu ne défait rien', async () => {
+    await aller();
+    expect(m.prevenir.mock.calls.map((c) => c[1])).toEqual([{ userId: 'U', ancienne: 'jean@ancien.test', aliasId: 'a2' }]);
+  });
+  it('avis perdu : le changement tient, l\'erreur est dite ; changement refusé par une app : aucun avis', async () => {
+    m.prevenir.mockRejectedValueOnce(new Error('brevo'));
+    expect(await aller()).toEqual({ promue: 'jean@neuf.test', appsEnEchec: [] });
+    expect(console.error).toHaveBeenCalled();
+  });
+  it('une app refuse : aucun avis ne part', async () => {
+    refuse = ['analytics'];
+    expect((await aller() as any).refus).toBe('app_refuse');
+    expect(m.prevenir).not.toHaveBeenCalled();
   });
   it('rejouée, celle d\'un autre, jamais prouvée, détachée : not_found', async () => {
     expect((await aller('sec@x.test') as any).refus, 'secondaire d\'un autre').toBe('not_found');

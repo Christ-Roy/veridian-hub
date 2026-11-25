@@ -13,6 +13,8 @@ import { RateLimiter } from '@/lib/auth/rate-limit';
 import { sendMail } from '@/lib/email/send';
 import { renderAdresseCodeEmail } from '@/lib/email/templates/adresse-code';
 
+import { annulationOuverte } from './annulation';
+
 export const CODE_MIN = 10;
 export const ESSAIS_MAX = 5;
 export const ADRESSES_MAX = 5;
@@ -80,7 +82,10 @@ export async function confirmerCode(db: Db, u: Personne, brut: string, code: str
 }
 
 /** La principale ne se détache pas : elle n'est pas ici. La ligne reste, datée. */
-export async function detacher(db: Db, u: Personne, brut: string, now = new Date()): Promise<boolean> {
+export async function detacher(db: Db & Pick<PrismaClient, 'verificationToken'>, u: Personne, brut: string, now = new Date()): Promise<boolean | 'annulation_ouverte'> {
+  const l = await db.userEmail.findFirst({ where: { userId: u.id, email: normaliserEmail(brut), detacheeLe: null }, select: { id: true } });
+  // L'ancienne principale garde 72 h pour annuler : la détacher fermerait la sortie de secours de qui on a pris la session.
+  if (l && (await annulationOuverte(db, u.id, l.id, now))) return 'annulation_ouverte';
   const { count } = await db.userEmail.updateMany({ where: { userId: u.id, email: normaliserEmail(brut), detacheeLe: null }, data: { detacheeLe: now, detacheePar: 'user' } });
   if (count) await writeAuditLog(db as PrismaClient, { action: 'adresse.detachee', actor: `user:${u.id}`, targetType: 'user', targetId: u.id });
   return count > 0;

@@ -2,6 +2,9 @@
 /** Ajouter une adresse (S1b) : seule une preuve l'ajoute, rien ne dit si elle existe chez nous, jamais volée à un autre. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const ouverte = vi.hoisted(() => ({ ids: [] as string[] }));
+vi.mock('@/lib/adresses/annulation', () => ({ annulationOuverte: async (_d: unknown, _u: string, id: string) => ouverte.ids.includes(id) }));
+
 import { ADRESSES_MAX, adressesProuvees, CODE_MIN, codesParAdresse, codesParCompte, confirmerCode, demanderCode, detacher, ESSAIS_MAX, titulaireSecondaire } from '@/lib/adresses';
 
 const T0 = new Date('2026-11-25T10:00:00Z');
@@ -120,6 +123,14 @@ it('adressesProuvees, titulaireSecondaire, detacher : une principale non prouvé
   expect([await titulaireSecondaire(db, 'PRO@client.fr'), await titulaireSecondaire(db, 'vieille@x.fr')]).toEqual(['u', null]);
   expect([await detacher(db, U, 'sec@x.fr', T0), await detacher(db, U, 'jean@gmail.com', T0), await detacher(db, U, 'Pro@client.fr', T0), await detacher(db, U, 'pro@client.fr', T0)]).toEqual([false, false, true, false]);
   expect(await titulaireSecondaire(db, 'pro@client.fr')).toBeNull();
+});
+
+it('l\'ancienne principale ne se détache pas tant qu\'elle peut annuler', async () => {
+  emails.push({ id: 'a1', userId: 'u', email: 'ancienne@x.fr', detacheeLe: null });
+  ouverte.ids = ['a1'];
+  expect([await detacher(db, U, 'ancienne@x.fr', T0), emails[0].detacheeLe]).toEqual(['annulation_ouverte', null]);
+  ouverte.ids = [];
+  expect(await detacher(db, U, 'ancienne@x.fr', T0)).toBe(true);
 });
 
 it('les bornes annoncées : 10 min, cinq essais, cinq adresses ; une détachée libère sa place', async () => {

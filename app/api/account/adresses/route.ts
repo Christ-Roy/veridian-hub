@@ -84,5 +84,7 @@ export async function POST(request: NextRequest) {
     const arret = r.refus === 'app_par_adresse' || r.refus === 'app_non_reliee' || r.refus === 'app_indisponible' ? { message: direArret(r) } : {};
     return rendre({ error: r.refus, ...(r.apps ? { apps: r.apps } : {}), ...arret }, STATUT[r.refus]);
   }
-  return (await detacher(prisma, u, d.email)) ? rendre({ ok: true }) : rendre({ error: 'not_found' }, 404);
+  const r = await detacher(prisma, u, d.email);
+  if (r === 'annulation_ouverte') return rendre({ error: r, message: 'Votre ancienne adresse peut encore annuler le changement pendant 72 heures. Vous pourrez la détacher ensuite.' }, 409);
+  return r ? rendre({ ok: true }) : rendre({ error: 'not_found' }, 404);
 }
