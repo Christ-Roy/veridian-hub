@@ -14,6 +14,9 @@
 import { denyIfImpersonated, denyUnlessRecentAuth, PREUVE_COMPTE_S } from '@/lib/auth/recent-auth';
 import { issueEmailProof } from '@/lib/auth/email-proof';
 import { normaliserEmail } from '@/lib/auth/email-normalize';
+import { writeAuditLog } from '@/lib/admin/audit-log';
+import { prevenirAncienne } from '@/lib/adresses/annulation';
+import { direArret, verifierApps } from '@/lib/adresses/garde';
 import { pushUserToApps } from '@/lib/identity/push-user';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -71,6 +74,11 @@ export async function PATCH(req: Request) {
     if (interdite) return interdite;
     const denied = await denyUnlessRecentAuth(PREUVE_COMPTE_S);
     if (denied) return denied;
+    // Même garde que la promotion (AD-M3) : une app qui désigne encore par l'adresse perdrait son accès, ou en créerait un double.
+    const arret = await verifierApps({ hubUserId: user.supabaseUserId, email: user.email });
+    if ('refus' in arret) {
+      return NextResponse.json({ error: arret.refus, apps: arret.apps, message: direArret(arret) }, { status: arret.refus === 'app_indisponible' ? 503 : 409 });
+    }
   }
 
   const updateData: { name?: string; email?: string; emailVerified?: Date | null } = {};
@@ -80,19 +88,34 @@ export async function PATCH(req: Request) {
     updateData.emailVerified = null; // Re-verification needed
   }
 
-  await prisma.user.update({
-    where: { id: user.id },
-    data: updateData,
-  });
-
-  // Si email change, on update aussi le providerAccountId du compte credentials
+  let aliasId: string | null = null;
   if (email && email !== user.email) {
-    await prisma.account
-      .updateMany({
-        where: { userId: user.id, provider: 'credentials' },
-        data: { providerAccountId: email },
-      })
-      .catch(() => { /* non bloquant */ });
+    const ancienne = normaliserEmail(user.email);
+    const prouveeLe = (await prisma.user.findUnique({ where: { id: user.id }, select: { emailVerified: true } }))?.emailVerified ?? null;
+    try {
+      aliasId = await prisma.$transaction(async (tx) => {
+        // Elle reprend une adresse qu'elle avait déjà : la ligne secondaire laisse la place.
+        await tx.userEmail.updateMany({ where: { userId: user.id, email, detacheeLe: null }, data: { detacheeLe: new Date(), detacheePar: 'reglages' } });
+        await tx.user.update({ where: { id: user.id }, data: updateData });
+        await tx.account.updateMany({ where: { userId: user.id, provider: 'credentials' }, data: { providerAccountId: email } });
+        if (!prouveeLe) return null;
+        // Même filet que la promotion (AD-M3) : l'ancienne, prouvée, reste à elle et peut annuler 72 h.
+        return (await tx.userEmail.create({ data: { userId: user.id, email: ancienne, preuve: 'principale', prouveeLe }, select: { id: true } })).id;
+      });
+    } catch (err) {
+      if ((err as { code?: string }).code !== 'P2002') throw err;
+      return NextResponse.json({ error: 'Email already in use' }, { status: 409 });
+    }
+  } else {
+    await prisma.user.update({ where: { id: user.id }, data: updateData });
+  }
+
+  // Sans cette trace, on ne savait pas dire si ce geste avait déjà servi (25/11). Ni l'ancienne ni la nouvelle adresse au journal.
+  if (email && email !== user.email) {
+    if (aliasId) {
+      await prevenirAncienne(prisma, { userId: user.id, ancienne: normaliserEmail(user.email), aliasId }).catch((err) => console.error('[account/profile] avis à l\'ancienne adresse', err instanceof Error ? err.message.slice(0, 160) : 'erreur'));
+    }
+    await writeAuditLog(prisma, { action: 'adresse.changee', actor: `user:${user.id}`, targetType: 'user', targetId: user.id });
   }
 
   // Une nouvelle adresse reçoit son lien de preuve et n'atteint les apps qu'une fois

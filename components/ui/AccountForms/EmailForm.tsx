@@ -22,6 +22,7 @@ export default function EmailForm({
 }) {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [arret, setArret] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -31,6 +32,7 @@ export default function EmailForm({
     if (!newEmail || newEmail === userEmail) return;
 
     toast.dismiss(); // un seul message à la fois
+    setArret(null);
     setIsSubmitting(true);
     try {
       const res = await fetch('/api/account/profile', {
@@ -41,7 +43,9 @@ export default function EmailForm({
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         if (redirectIfReauthRequired(data)) return;
-        toast.error(data.error || "Échec de la mise à jour de l'email");
+        // Un arrêt s'explique : il reste à l'écran, un message qui s'efface ne se relit pas.
+        if (data.message) setArret(data.message);
+        else toast.error(data.error || "Échec de la mise à jour de l'email");
         return;
       }
       toast.success('Email mis à jour. Vérifiez votre boîte de réception pour confirmer.');
@@ -74,6 +78,7 @@ export default function EmailForm({
       }
     >
       <div className="mt-8 mb-4">
+        {arret ? <p role="alert" className="mb-4 text-sm text-destructive">{arret}</p> : null}
         <form id="emailForm" onSubmit={handleSubmit}>
           <Input
             type="email"

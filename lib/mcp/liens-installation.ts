@@ -4,8 +4,8 @@
  *
  * - Claude (claude.ai, Desktop, mobile) : lien officiel qui ouvre « Ajouter un connecteur personnalisé »
  *   prérempli, l'utilisateur confirme (claude.com/docs/connectors/building/directory-vs-custom).
- * - ChatGPT : aucun lien de préremplissage n'existe (09/11/2026) ; on ouvre Paramètres → Plugins et on
- *   donne l'adresse à coller.
+ * - ChatGPT : aucun lien de préremplissage n'existe ; on ouvre la page Plugins et on donne l'adresse à coller. Chemin lu le 25/11/2026 sur
+ *   developers.openai.com/apps-sdk/deploy/connect-chatgpt, developer-mode et help.openai.com 12584461 ; pas vu sur un vrai compte.
  * - Cursor : lien d'installation officiel, configuration en JSON base64 (cursor.com/docs/mcp/install-links).
  * - VS Code : lien `vscode:mcp/install`, configuration en JSON encodé dans l'URL.
  * - Claude Code : une commande.
@@ -28,9 +28,9 @@ export type LiensInstallation = {
 
 /** ChatGPT n'a pas de lien qui préremplit : ce texte accompagne le bouton, dans le Hub comme dans les apps. */
 export const INSTRUCTIONS_CHATGPT =
-  "Dans ChatGPT (Paramètres, Plugins) : ajoutez un serveur MCP, collez l'adresse Veridian et choisissez " +
-  "l'authentification OAuth. Si l'option n'apparaît pas, activez le mode développeur dans Paramètres, " +
-  'Sécurité et connexion.';
+  'Dans ChatGPT sur le web, page Plugins (chatgpt.com/plugins) : bouton +, puis « Add custom MCP server » ; collez l\'adresse Veridian, ' +
+  'choisissez l\'authentification OAuth, acceptez l\'avertissement, puis « Create as a plugin » et installez le plugin. ' +
+  'Selon votre offre, un administrateur de votre espace ChatGPT peut devoir l\'autoriser.';
 
 export function liensInstallation(env: NodeJS.ProcessEnv = process.env): LiensInstallation {
   const url = mcpResource(env);
@@ -45,8 +45,8 @@ export function liensInstallation(env: NodeJS.ProcessEnv = process.env): LiensIn
   return {
     url,
     claude,
-    // Mène à Paramètres → Plugins (vérifié dans un navigateur le 09/11) ; /plugins seul n'ouvrait rien.
-    chatgpt: 'https://chatgpt.com/#settings/Connectors',
+    // La doc d'OpenAI part de cette page (25/11). Le 09/11, /plugins n'ouvrait rien : l'étape nomme aussi l'adresse et les boutons.
+    chatgpt: 'https://chatgpt.com/plugins',
     cursor,
     vscode,
     claudeCode: `claude mcp add --transport http ${NOM_CONNECTEUR.toLowerCase()} ${url}`,

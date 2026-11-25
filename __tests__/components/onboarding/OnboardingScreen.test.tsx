@@ -293,4 +293,9 @@ describe('OnboardingScreen — panneau de marque', () => {
       unmount();
     }
   });
+
+  it('lien expiré : le message du renvoi atteint l\'écran', () => {
+    render(<OnboardingScreen state="token-expire" invite={INVITE} steps={[]} error="Nouveau lien envoyé" />);
+    expect(screen.getByRole('status')).toHaveTextContent('Nouveau lien envoyé');
+  });
 });

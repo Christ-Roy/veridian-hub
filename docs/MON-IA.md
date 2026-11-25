@@ -8,6 +8,10 @@ dans le Hub** : pas de microservice (un service séparé a été lancé puis ret
 Cadre légal, tranché sur sources primaires : `veridian-academy/docs/CLAUDE-DANS-LA-PLATEFORME.md`, section « Décision et
 architecture » (786b547). Ce fichier n'en recopie rien : il porte l'architecture et les menaces côté Hub.
 
+**Le connecteur d'abord (Robert, 25/11)** : l'écran `/dashboard/ia` propose de relier son IA sans clé ; reliée une fois, elle travaille dans
+toutes les apps ouvertes au compte. Une clé d'API ne sert qu'à la fenêtre de discussion **dans** le CRM : choix avancé, replié, jamais
+proposé à qui n'a pas le CRM. Une app ne renvoie jamais quelqu'un vers une clé quand le connecteur suffit.
+
 ## Qui garde quoi (Robert, 22/11 : « les sessions devraient être stockées dans les apps avec les chats »)
 
 - **Le Hub** : le branchement de l'IA (clé chiffrée, ou référence du bac à sable), les interrupteurs par app et tenant, le

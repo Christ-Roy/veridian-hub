@@ -18,9 +18,11 @@ import { createSignInCallback } from '@/lib/auth/sign-in-callback';
 import { createCreateUserEvent } from '@/lib/auth/create-user-event';
 import { buildMockOauthProvider } from '@/lib/auth/mock-oauth-provider';
 import { buildGoogleOneTapProvider } from '@/lib/auth/google-one-tap-provider';
-import { consommerTicket, federationExpiree, FOURNISSEUR_FEDERATION } from '@/lib/federation/ticket';
+import { horsDeSaBorne } from '@/lib/federation/borne';
+import { federationExpiree, glisser, joursValables } from '@/lib/federation/duree';
+import { consommerTicket, FOURNISSEUR_FEDERATION } from '@/lib/federation/ticket';
 import { createOauthEventLogger } from '@/lib/auth/oauth-event-log';
-import { impersonationExpiree } from '@/lib/auth/impersonation';
+import { empruntRetire, impersonationExpiree } from '@/lib/auth/emprunt-bornes';
 import { normaliserEmail } from '@/lib/auth/email-normalize';
 import { verifierMotDePasse } from '@/lib/auth/plafond-compte';
 
@@ -135,8 +137,10 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       name: 'Organisation',
       credentials: { ticket: {} },
       async authorize(credentials) {
-        const id = await consommerTicket(prisma, credentials?.ticket);
-        return id ? prisma.user.findUnique({ where: { id }, select: { id: true, email: true, name: true, image: true } }) : null;
+        const t = await consommerTicket(prisma, credentials?.ticket);
+        const u = t ? await prisma.user.findUnique({ where: { id: t.userId }, select: { id: true, email: true, name: true, image: true } }) : null;
+        const i = t ? await prisma.tenantIdp.findUnique({ where: { tenantId: t.tenantId }, select: { sessionJours: true } }) : null;
+        return t && u ? { ...u, federeOrg: t.tenantId, federeJours: joursValables(i?.sessionJours) ?? undefined } : null;
       },
     }),
     Credentials({
@@ -193,15 +197,22 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
     signIn: createSignInCallback({ prisma, issueAndSendMfaCode, applyProviderEmailProof }),
     async jwt({ token, user, account }) {
       if (user) {
-        if (account?.provider === FOURNISSEUR_FEDERATION) token.federe = true;
+        if (account?.provider === FOURNISSEUR_FEDERATION) {
+          token.federe = true;
+          token.federeOrg = user.federeOrg;
+          token.federeJours = user.federeJours;
+          token.federeVu = Math.floor(Date.now() / 1000);
+        }
         token.uid = user.id;
         token.authAt = Math.floor(Date.now() / 1000);
         return token;
       }
       // Impersonation : une heure après son début réel, quoi que dise la durée re-signée (D5).
-      if (impersonationExpiree(token)) return null;
-      // Session ouverte par le fournisseur d'une organisation : 24 h (D6).
+      if (impersonationExpiree(token) || empruntRetire(token)) return null;
+      // Session ouverte par le fournisseur d'une organisation : 24 h, ou la durée qu'elle a réglée (lib/federation/duree.ts).
       if (federationExpiree(token)) return null;
+      // Et seulement tant que la personne n'appartient qu'à cette organisation.
+      if (await horsDeSaBorne(prisma, token)) return null;
       // Session d'un an : la révocation doit se lire ici, à chaque lecture de session, sinon un
       // jeton volé ou un compte supprimé resterait valable jusqu'à son expiration.
       if (typeof token.uid === 'string' && (await isSessionRevoked(prisma, token))) {
@@ -211,7 +222,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       // dans le JWT par /api/auth/impersonate-callback (encode @auth/core).
       // Ils ne transitent jamais par l'objet `user` — on les laisse vivre
       // tels quels dans le token : ce `return token` les préserve au refresh.
-      return token;
+      return glisser(token);
     },
     async session({ session, token }) {
       if (token?.uid && session.user) {
@@ -220,6 +231,10 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       if (typeof token?.authAt === 'number' && session.user) {
         session.user.authAt = token.authAt;
       }
+      if (token?.federe === true && session.user) {
+        session.user.federe = true;
+        session.user.federeOrg = typeof token.federeOrg === 'string' ? token.federeOrg : undefined;
+      }
       // Expose le marqueur d'impersonation côté session pour que les Server
       // Components / routes admin puissent (a) afficher une bannière et
       // (b) refuser la ré-impersonation via isImpersonatedSession().
@@ -227,6 +242,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
         session.user.impersonated = true;
         session.user.impersonatedBy =
           typeof token.impersonatedBy === 'string' ? token.impersonatedBy : null;
+        session.user.empruntId = typeof token.empruntId === 'string' ? token.empruntId : null;
       }
       return session;
     },

@@ -1,22 +1,25 @@
 /**
- * Admin authorization helper for Hub admin pages.
- * Whitelist-based: only users in ADMIN_EMAILS can access /dashboard/admin/*.
- *
- * Post-migration : on ne dépend plus du type User Supabase. On accepte tout
- * objet ayant un champ `email` (User Auth.js, AuthUser, etc.).
+ * La session est-elle celle d'un administrateur de plateforme ? La personne se lit en base à chaque fois : compte vivant, adresse prouvée, session à elle (ni
+ * empruntée, ni ouverte par le fournisseur d'une organisation). La liste : `lib/admin/liste-admins.ts`. Base illisible : personne.
  */
+import { isPlatformAdminId } from '@/lib/admin/liste-admins';
+import { prisma } from '@/lib/prisma';
 
-const ADMIN_EMAILS_ENV = process.env.ADMIN_EMAILS || "";
-const DEFAULT_ADMINS = ["brunon5robert@gmail.com"];
+export { estAdresseOperateur, isPlatformAdminId } from '@/lib/admin/liste-admins';
 
-export const ADMIN_EMAILS: string[] =
-  ADMIN_EMAILS_ENV
-    ? ADMIN_EMAILS_ENV.split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)
-    : DEFAULT_ADMINS.map((s) => s.toLowerCase());
+type SessionLue = { impersonated?: unknown; user?: { id?: string; federe?: boolean; impersonated?: boolean } | null } | null | undefined;
+export type Administrateur = { userId: string; hubUserId: string; email: string };
 
-type EmailHolder = { email?: string | null } | null | undefined;
-
-export function isPlatformAdmin(user: EmailHolder): boolean {
-  if (!user?.email) return false;
-  return ADMIN_EMAILS.includes(user.email.toLowerCase());
+export async function administrateurDe(session: SessionLue): Promise<Administrateur | null> {
+  const s = session?.user;
+  if (!s?.id || s.federe === true || s.impersonated === true || session?.impersonated === true) return null;
+  try {
+    const u = await prisma.user.findUnique({ where: { id: s.id }, select: { email: true, supabaseUserId: true, emailVerified: true } });
+    return u?.emailVerified && u.supabaseUserId && isPlatformAdminId(u.supabaseUserId) ? { userId: s.id, hubUserId: u.supabaseUserId, email: u.email } : null;
+  } catch (err) {
+    console.error('[admin] identité illisible', err instanceof Error ? err.message.slice(0, 160) : 'erreur');
+    return null;
+  }
 }
+
+export const isPlatformAdmin = async (session: SessionLue): Promise<boolean> => (await administrateurDe(session)) !== null;

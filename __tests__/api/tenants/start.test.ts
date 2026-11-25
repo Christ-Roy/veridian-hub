@@ -25,6 +25,9 @@ const provisionTenantsMock = vi.fn(async () => ({
   prospection: { success: true, tenantId: 't-prosp', loginUrl: 'https://pr/auto' },
 }));
 
+const seul = vi.hoisted(() => ({ oui: false }));
+vi.mock('@/lib/tenants/membre-seul', () => ({ membreSeul: async () => seul.oui }));
+
 vi.mock('@/utils/tenants/provision', () => ({
   provisionTenants: (...args: any[]) => provisionTenantsMock(...args),
 }));
@@ -196,5 +199,21 @@ describe('POST /api/tenants/start — goal app_started tunnel', () => {
 
     const apps = trackGoalMock.mock.calls.map((c: any[]) => c[0].properties.app);
     expect(apps).toEqual(['prospection']);
+  });
+
+  it('Prospection : aucun lien de connexion dans la réponse, l\'app s\'ouvre par le rebond (VER-106)', async () => {
+    tenantRow = null;
+    const { POST } = await import('@/app/api/tenants/start/route');
+    expect((await (await POST(makeReq({ app: 'prospection' }))).json()).prospection).not.toHaveProperty('login_url');
+  });
+
+  it('un salarié, sans espace à lui : refusé, rien de provisionné', async () => {
+    tenantRow = null;
+    seul.oui = true;
+    provisionTenantsMock.mockClear();
+    const { POST } = await import('@/app/api/tenants/start/route');
+    const r = await POST(makeReq({ app: 'prospection' }));
+    seul.oui = false;
+    expect([r.status, (await r.json()).error, provisionTenantsMock.mock.calls.length]).toEqual([403, 'membre_organisation', 0]);
   });
 });

@@ -71,6 +71,15 @@ export default async function AutoriserPage({ searchParams }: Props) {
       </Ecran>
     );
   }
+  if (session?.user?.federe === true) {
+    return (
+      <Ecran titre="Connectez-vous avec votre propre connexion">
+        <p className="text-sm text-muted-foreground">
+          Brancher une IA se fait avec votre mot de passe, votre lien ou Google, pas par la connexion de votre organisation.
+        </p>
+      </Ecran>
+    );
+  }
   if (!(await isEmailProvenForSession(user.id))) {
     return (
       <Ecran titre="Confirmez d'abord votre adresse">

@@ -4,8 +4,8 @@
  *
  * Comportement vérifié :
  *  - rend les 5 apps de l'écosystème (mail, prospection, analytics, crm, cms)
- *  - les apps live (mail, prospection, analytics) n'ont PAS le badge "Bientôt"
- *  - les apps à venir (crm, cms) affichent le badge "Bientôt"
+ *  - les apps live (mail, prospection, analytics, crm) n'ont PAS le badge "Bientôt"
+ *  - l'app à venir (cms) affiche le badge "Bientôt"
  *  - chaque app est préfixée "veridian"
  */
 import React from 'react';
@@ -27,11 +27,12 @@ describe('AppTree', () => {
     expect(screen.getAllByText('veridian')).toHaveLength(5);
   });
 
-  it('marque exactement les apps à venir (crm, cms) avec le badge "Bientôt"', () => {
+  it('marque exactement les apps à venir (cms) avec le badge "Bientôt"', () => {
     render(<AppTree />);
     const soonBadges = screen.getAllByText('Bientôt');
-    // crm + cms = 2 apps "prochainement"
-    expect(soonBadges).toHaveLength(2);
+    // Le CRM est ouvert à tout compte (25/11 : l'écran d'accueil le disait encore « bientôt »).
+    expect(soonBadges).toHaveLength(1);
+    expect(screen.getByText('.crm').closest('li')?.textContent).not.toContain('Bientôt');
   });
 
   it('les apps live (mail/prospection/analytics) n\'ont pas de badge "Bientôt"', () => {

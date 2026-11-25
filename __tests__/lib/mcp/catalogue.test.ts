@@ -1,7 +1,7 @@
 // @vitest-environment node
 /** Catalogue : à qui chaque app est ouverte, quels espaces, et ce que transporte une session d'app. */
 import { exportJWK, generateKeyPair } from 'jose';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { appsDe, catalogue, espacesDe, sessionPour, tousEspaces, viderCache, type Db } from '@/lib/mcp/catalogue';
 
@@ -20,6 +20,18 @@ describe('appsDe et espacesDe', () => {
     }) as unknown as Db;
     expect((await appsDe(base([]), 'u')).map((a) => a.appKey)).toEqual(['notifuse']);
     expect((await appsDe(base(['academy']), 'u')).map((a) => a.appKey)).toEqual(['academy', 'notifuse']);
+  });
+
+  it('le CRM coché par une organisation s\'ouvre à son membre vivant ; retiré, il se referme ; Academy non', async () => {
+    const base = (membre: boolean) => ({
+      mcpApp: { findMany: async () => ['academy', 'twenty'].map((appKey) => ({ appKey, label: appKey, mcpUrl: 'x', acces: 'tenant_app' })) },
+      tenantApp: { findMany: async () => [] },
+      tenantMember: { findMany: async () => (membre ? [{ tenantId: 'T' }] : []) },
+      tenant: { findMany: async ({ where }: { where: { OR: { id?: { in: string[] } }[] } }) => where.OR.flatMap((o) => o.id?.in ?? []).map((id) => ({ id })) },
+      organisation: { findMany: async ({ where }: { where: { tenantId: { in: string[] } } }) => where.tenantId.in.map(() => ({ modules: ['crm', 'academy'] })) },
+    }) as unknown as Db;
+    expect((await appsDe(base(true), 'u')).map((a) => a.appKey)).toEqual(['twenty']);
+    expect(await appsDe(base(false), 'u')).toEqual([]);
   });
 
   it('un propriétaire aussi inscrit comme membre ne voit son espace qu\'une fois, en propriétaire', async () => {
@@ -68,6 +80,20 @@ describe('sessionPour', () => {
     expect(p).not.toHaveProperty('org_role');
     const [r] = await envois({ orgRole: 'owner' });
     expect(JSON.parse(Buffer.from(r.Authorization.split('.')[1], 'base64url').toString()).org_role).toBe('owner');
+  });
+});
+
+describe('catalogue et services extérieurs', () => {
+  beforeEach(() => { vi.stubEnv('CONNECTEURS_OUVERTS', '1'); });
+  it('reliés par la personne, ils sont dans ses apps ; à rebrancher, dits ; une lecture ratée n\'emporte rien', async () => {
+    viderCache();
+    const base = { mcpApp: { findMany: async () => [] }, tenantApp: { findMany: async () => [] } };
+    const avec = { ...base, connexionExterne: { findMany: async () => [{ connecteur: 'notion' }], findUnique: async () => null } } as unknown as Db;
+    const c = await catalogue(avec, QUI as never, []);
+    expect([c.apps.map((a) => [a.appKey, a.externe]), c.injoignables[0]?.raison]).toEqual([[['notion', true]], expect.stringContaining('à rebrancher')]);
+    vi.spyOn(console, 'error').mockReturnValue();
+    const casse = { ...base, connexionExterne: { findMany: async () => { throw new Error('base'); } } } as unknown as Db;
+    expect((await catalogue(casse, QUI as never, [])).apps).toEqual([]);
   });
 });
 

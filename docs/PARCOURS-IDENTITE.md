@@ -258,11 +258,15 @@ Les trois niveaux de preuve :
 
 ## Impersonation (support)
 
-- **Voit** : l'admin ouvre le compte d'un client pendant une heure, bandeau visible.
+- **Voit** : `/dashboard/admin/clients` (lien « Administration ») : chercher, état réel des six apps, « Entrer » par app, bandeau, « Sortir » rend sa session.
+  `hub open <email> [--app] [--raison]` : les mêmes apps, le même jugement (`lib/emprunt/entrees.ts`).
+- **Qui** : administrateur par `hub_user_id` (`PLATFORM_ADMINS`), connexion réelle de moins de 24 h, ni session fédérée ni emprunt. Double
+  authentification : celle du compte, si elle est allumée ; l'emprunt n'en redemande pas. Jamais chez un autre administrateur.
+- **Gestes** : au Hub, aucun (garde du middleware) ; dans les apps, ceux du client, que l'app doit tracer (CONTRAT-HUB §6bis.8.3).
 - **Protège** : jeton d'impersonation haché, usage unique, 10 min ; session d'une heure à partir de son début réel ;
-  hors « déconnecter partout » et hors changement d'email ou de mot de passe ; `authAt` posé.
-- **Preuve** : `__tests__/lib/auth/impersonation.test.ts`, `__tests__/api/auth/impersonate-callback.test.ts`.
-- **État** : PROUVÉ. ÉCART : `impersonatedBy` porte la chaîne `admin`, pas l'identité de l'admin.
+  `authAt` posé. Journal avant l'entrée : sans trace, pas d'entrée. Retour lié à un emprunt vivant : déconnecté ou expiré, il ne rend rien.
+- **Preuve** : `__tests__/api/emprunt`, `__tests__/lib/emprunt`, `__tests__/lib/auth/emprunt-bornes.test.ts`, cas 45.
+- **État** : aucune app ne lit encore `emprunt` ; la session ouverte dans une app y dure ce que l'app veut.
 
 ## Comptes de test et restes
 

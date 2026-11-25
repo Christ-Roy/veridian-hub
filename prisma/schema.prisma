@@ -50,6 +50,9 @@ model User {
   // checkout via /api/billing/checkout, ou backfillé depuis Subscription.
   stripeCustomerId String? @unique @map("stripe_customer_id")
 
+  adresses    UserEmail[]
+  codeAdresse UserEmailCode?
+
   accounts   Account[]
   sessions   Session[]
   mfaCodes   MfaCode[]
@@ -604,6 +607,37 @@ model WebhookDedup {
   @@schema("hub_app")
 }
 
+/// Adresse SECONDAIRE prouvée d'une personne (VER-227 S1b, lib/adresses). Active = une seule personne, tenu par la base (déclencheurs).
+model UserEmail {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  email       String
+  preuve      String
+  prouveeLe   DateTime  @map("prouvee_le")
+  detacheeLe  DateTime? @map("detachee_le")
+  detacheePar String?   @map("detachee_par")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_emails")
+  @@schema("hub_app")
+}
+
+/// Le code en attente d'une personne : un seul à la fois, empreinte seulement.
+model UserEmailCode {
+  userId        String   @id @map("user_id")
+  email         String
+  codeEmpreinte String   @map("code_empreinte")
+  essais        Int      @default(0)
+  expireLe      DateTime @map("expire_le")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_email_codes")
+  @@schema("hub_app")
+}
+
 /// Adresse pré-inscrite dans une organisation (VER-227 S1, lib/tenants/preinscription.ts) : jointe au premier passage avec l'adresse PROUVÉE.
 model TenantPreinscription {
   id          String    @id @default(cuid())
@@ -635,8 +669,50 @@ model TenantIdp {
   actif         Boolean  @default(true)
   posePar       String   @map("pose_par")
   poseLe        DateTime @default(now()) @map("pose_le")
+  /// oidc | saml
+  protocole      String    @default("oidc")
+  samlSsoUrl     String?   @map("saml_sso_url")
+  samlCertificat String?   @map("saml_certificat")
+  /// Posé par le propriétaire lui-même : n'affirme aucune adresse, et ne s'active qu'après un essai réussi.
+  libreService   Boolean   @default(false) @map("libre_service")
+  essaiLe        DateTime? @map("essai_le")
+  /// Session glissante de N jours (2 à 30) ; vide : 24 h.
+  sessionJours   Int?      @map("session_jours")
+  /// /connexion/<alias>, posé par un opérateur.
+  alias          String?   @unique
 
   @@map("tenant_idps")
+  @@schema("hub_app")
+}
+
+/// Notre client OAuth chez un service extérieur, enregistré automatiquement (VER-119, lib/connecteurs).
+model ConnecteurClient {
+  connecteur    String
+  retour        String
+  clientId      String   @map("client_id")
+  secretChiffre String?  @map("secret_chiffre")
+  creeLe        DateTime @default(now()) @map("cree_le")
+
+  @@id([connecteur, retour])
+  @@map("connecteur_clients")
+  @@schema("hub_app")
+}
+
+/// Connexion d'une personne à un service extérieur : jetons chiffrés, jamais rendus.
+model ConnexionExterne {
+  id             String    @id @default(cuid())
+  hubUserId      String    @map("hub_user_id")
+  connecteur     String
+  accesChiffre   String    @map("acces_chiffre")
+  refreshChiffre String?   @map("refresh_chiffre")
+  expireLe       DateTime? @map("expire_le")
+  /// active | a_rebrancher
+  etat           String    @default("active")
+  creeLe         DateTime  @default(now()) @map("cree_le")
+  renouveleLe    DateTime  @default(now()) @map("renouvele_le")
+
+  @@unique([hubUserId, connecteur])
+  @@map("connexions_externes")
   @@schema("hub_app")
 }
 
@@ -644,6 +720,8 @@ model TenantIdp {
 model FederationTicket {
   empreinte String   @id
   userId    String   @map("user_id")
+  /// L'organisation dont la session ne sortira pas (lib/federation/borne.ts)
+  tenantId  String?  @map("tenant_id")
   expireLe  DateTime @map("expire_le")
 
   @@map("federation_tickets")
@@ -685,6 +763,23 @@ model OrganisationEmission {
 
   @@id([tenantId, app])
   @@map("organisation_emissions")
+  @@schema("hub_app")
+}
+
+/// Qui est entré dans une app réservée par l'organisation (lib/organisations/acces.ts).
+model OrganisationAcces {
+  tenantId  String    @map("tenant_id")
+  app       String
+  hubUserId String    @map("hub_user_id")
+  /// organisation | main
+  origine   String
+  poseLe    DateTime  @default(now()) @map("pose_le")
+  retireLe  DateTime? @map("retire_le")
+  rejointLe DateTime? @map("rejoint_le")
+
+  @@id([tenantId, app, hubUserId])
+  @@index([hubUserId])
+  @@map("organisation_acces")
   @@schema("hub_app")
 }
 

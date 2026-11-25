@@ -5,6 +5,7 @@
  */
 import type { PrismaClient } from '@prisma/client';
 
+import { adressesProuvees } from '@/lib/adresses';
 import { normaliserEmail } from '@/lib/auth/email-normalize';
 import { suivreOrganisation } from '@/lib/organisations/emission';
 
@@ -12,7 +13,7 @@ import { RefusMembre, rejoindre, type DbMembres } from './membres';
 import { pousserRole } from './roles';
 
 export const DUREE_PREINSCRIPTION_J = 30;
-type Db = DbMembres & Pick<PrismaClient, 'tenantPreinscription' | 'organisation' | 'organisationEmission'>;
+type Db = DbMembres & Pick<PrismaClient, 'tenantPreinscription' | 'organisation' | 'organisationEmission' | 'userEmail'>;
 type DbListe = Pick<PrismaClient, 'tenantPreinscription'>;
 type Deps = { env?: NodeJS.ProcessEnv; fetchImpl?: typeof fetch };
 
@@ -46,9 +47,10 @@ export async function listerPreinscriptions(db: DbListe, tenantId: string, now =
  * la ligne n'est consommée qu'une fois l'appartenance écrite et l'app prévenue. Rend les organisations rejointes.
  */
 export async function consommerPreinscriptions(db: Db, hubUserId: string, deps: Deps = {}, now = new Date()): Promise<string[]> {
-  const u = await db.user.findFirst({ where: { supabaseUserId: hubUserId }, select: { email: true, emailVerified: true } });
+  const u = await db.user.findFirst({ where: { supabaseUserId: hubUserId }, select: { id: true, email: true, emailVerified: true } });
   if (!u?.emailVerified) return [];
-  const attente = await db.tenantPreinscription.findMany({ where: { email: normaliserEmail(u.email), consommeeLe: null, annuleeLe: null, expireLe: { gt: now } } });
+  // N'importe laquelle de ses adresses PROUVÉES (S1b) : celle que l'organisation connaît n'est pas toujours la principale.
+  const attente = await db.tenantPreinscription.findMany({ where: { email: { in: await adressesProuvees(db, u) }, consommeeLe: null, annuleeLe: null, expireLe: { gt: now } } });
   const jointes: string[] = [];
   for (const p of attente) {
     try {

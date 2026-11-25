@@ -8,6 +8,7 @@ import type { PrismaClient } from '@prisma/client';
 import { discoverAppForEmail } from '@/lib/sync/discovery';
 import { SYNC_APPS, type SyncApp } from '@/lib/sync/types';
 import { RefusMembre, rejoindre } from '@/lib/tenants/membres';
+import { noterInvite } from '@/lib/organisations/acces';
 import { suivreOrganisation } from '@/lib/organisations/emission';
 
 export type Jonction = { etat: 'joint' | 'deja' | 'espace_non_relie' | 'inviteur_non_habilite' | 'refus' | 'echec'; tenantId?: string; detail?: string };
@@ -49,6 +50,8 @@ export async function joindreParInvitation(
     const v = await tenantDeLInvitation(db, inv, deps);
     if (v.refus) return { etat: v.refus, ...(v.tenantId ? { tenantId: v.tenantId } : {}), ...(v.detail ? { detail: v.detail } : {}) };
     const r = await rejoindre(db as never, { tenantId: v.tenantId, hubUserId, origine: 'invitation', acteur: `invitation:${inv.id}`, emiseLe: inv.createdAt });
+    // Invité à la main dans une app réservée : décocher ne l'en sortira pas.
+    await noterInvite(db as never, v.tenantId, inv.targetApp, hubUserId);
     await suivreOrganisation(db as never, v.tenantId);
     return { etat: r.cree ? 'joint' : 'deja', tenantId: v.tenantId };
   } catch (err) {

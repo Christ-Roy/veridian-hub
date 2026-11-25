@@ -25,7 +25,7 @@ beforeEach(() => {
   m.user.mockResolvedValue({ supabaseUserId: 'u' });
   m.emprunt.mockReturnValue(false);
   m.role.mockResolvedValue('owner');
-  m.regler.mockResolvedValue({ emissions: [{ etat: 'applique' }] });
+  m.regler.mockResolvedValue({ emissions: [{ etat: 'applique' }], retraits: [] });
 });
 
 describe('POST régler', () => {
@@ -33,7 +33,7 @@ describe('POST régler', () => {
     expect(await jouer({ modules: 'academy', reglages: '{}' })).toEqual([303, '/dashboard/organisation?avis=enregistre']);
     expect(m.regler.mock.calls[0][1]).toMatchObject({ tenantId: T, acteur: 'user:u', reglage: { type: 'organisation', nom_affiche: 'Atelier', couleur_primaire: '#0B5FFF', couleur_accent: null } });
     expect(m.regler.mock.calls[0][1].reglage).not.toHaveProperty('modules');
-    m.regler.mockResolvedValue({ emissions: [{ etat: 'echec' }] });
+    m.regler.mockResolvedValue({ emissions: [], retraits: [{ etat: 'echec' }] });
     expect((await jouer())[1]).toContain('partiel');
   });
   it('logo : reçu, retiré, ou inchangé', async () => {

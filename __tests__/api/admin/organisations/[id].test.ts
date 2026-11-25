@@ -17,7 +17,7 @@ const get = () => GET(new NextRequest('https://h/x'), ctx());
 beforeEach(() => {
   vi.clearAllMocks();
   m.admin.mockResolvedValue(null);
-  m.regler.mockResolvedValue({ emissions: [{ app: 'academy', etat: 'applique' }] });
+  m.regler.mockResolvedValue({ emissions: [{ app: 'academy', etat: 'applique' }], retraits: [] });
   m.doc.mockResolvedValue({ version: 5 });
   m.emissions.mockResolvedValue([{ app: 'academy', version: BigInt(5), etat: 'applique', detail: null, le: new Date(0) }]);
 });
@@ -35,15 +35,17 @@ describe('PUT', () => {
   it('200 tout appliqué, 207 une app en retard, 404 tenant, 400 corps ou identifiant', async () => {
     expect((await put({ type: 'organisation' })).status).toBe(200);
     expect(m.regler.mock.calls[0][1]).toMatchObject({ tenantId: T, reglage: { type: 'organisation' } });
-    m.regler.mockResolvedValue({ emissions: [{ app: 'academy', etat: 'non_relu' }] });
+    m.regler.mockResolvedValue({ emissions: [{ app: 'academy', etat: 'non_relu' }], retraits: [] });
     expect((await put({})).status).toBe(207);
+    m.regler.mockResolvedValue({ emissions: [], retraits: [{ app: 'crm', hub_user_id: 'u', etat: 'echec' }] });
+    expect((await put({})).status, 'décochée, mais quelqu\'un y est encore').toBe(207);
     m.regler.mockResolvedValue({ refus: 'tenant_introuvable' });
     expect((await put({})).status).toBe(404);
     expect((await put({ couleur_primaire: 'x' })).status).toBe(400);
     expect((await put({}, 'x')).status).toBe(400);
   });
   it('aucune app cochée : 200, rien n\'est en retard', async () => {
-    m.regler.mockResolvedValue({ emissions: [] });
+    m.regler.mockResolvedValue({ emissions: [], retraits: [] });
     expect((await put({ nom_affiche: 'A' })).status).toBe(200);
   });
   it('admin seulement', async () => {

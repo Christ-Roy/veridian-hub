@@ -9,17 +9,20 @@ import type { Appelant } from './oauth';
 export type Provisionneur = (qui: Appelant) => Promise<boolean>;
 
 export async function provisionneursParDefaut(): Promise<Record<string, Provisionneur>> {
-  const [{ prisma }, { ensureCrmWorkspace }, { ensureAcademyWorkspace }] = await Promise.all([
+  const [{ prisma }, { ensureCrmWorkspace }, { ensureAcademyWorkspace }, { membreSeul }] = await Promise.all([
+
     import('@/lib/prisma'),
     import('@/lib/crm/provision'),
     import('@/lib/academy/provision'),
+    import('@/lib/tenants/membre-seul'),
   ]);
   return {
+    // Un salarié n'a pas d'espace à lui : sa première question à une IA n'en crée pas un.
     twenty: async (qui) =>
-      (await ensureCrmWorkspace(prisma, { hubUserId: qui.hubUserId, email: qui.email, name: qui.name }, { actorEmail: `mcp:${qui.clientId}` })).ok,
+      !(await membreSeul(prisma, qui.hubUserId)) && (await ensureCrmWorkspace(prisma, { hubUserId: qui.hubUserId, email: qui.email, name: qui.name }, { actorEmail: `mcp:${qui.clientId}` })).ok,
     // Le catalogue n'offre Academy qu'aux comptes activés (`acces: tenant_app`) : la porte ne crée
     // donc un espace que pour eux.
     academy: async (qui) =>
-      (await ensureAcademyWorkspace(prisma, { hubUserId: qui.hubUserId, email: qui.email, name: qui.name }, { actorEmail: `mcp:${qui.clientId}` })).ok,
+      !(await membreSeul(prisma, qui.hubUserId)) && (await ensureAcademyWorkspace(prisma, { hubUserId: qui.hubUserId, email: qui.email, name: qui.name }, { actorEmail: `mcp:${qui.clientId}` })).ok,
   };
 }

@@ -30,7 +30,6 @@ describe('routes menant à une session d\'app', () => {
   it('la détection voit bien les routes connues (la mesure ne tourne pas à vide)', () => {
     const flagged = routes.filter((p) => PRODUCERS.test(readFileSync(p, 'utf8')));
     for (const known of [
-      'app/api/prospection/regenerate-login/route.ts',
       'app/api/auth/bounce/complete/route.ts',
       'app/api/admin/notifuse/magic-link/route.ts',
     ]) {

@@ -37,7 +37,7 @@ const isPlatformAdminMock = vi.fn();
 
 vi.mock('@/auth', () => ({ auth: (...a: unknown[]) => authMock(...a) }));
 vi.mock('@/lib/admin/check-admin', () => ({
-  isPlatformAdmin: (...a: unknown[]) => isPlatformAdminMock(...a),
+  administrateurDe: async (s: { user: { email: string } }) => ((await isPlatformAdminMock(s)) ? { userId: 'u1', hubUserId: 'h1', email: s.user.email } : null),
 }));
 
 import { requireAdmin } from '@/lib/admin/require-admin';
@@ -101,7 +101,7 @@ describe('requireAdmin — chemin session Auth.js', () => {
   });
   it('admin dont la dernière connexion est trop ancienne : 403, preuve récente exigée', async () => {
     recente.ok = false;
-    authMock.mockResolvedValueOnce({ user: { email: 'admin@x' } });
+    authMock.mockResolvedValueOnce({ user: { email: 'admin@x', id: 'u1' } });
     isPlatformAdminMock.mockReturnValueOnce(true);
     const res = await requireAdmin(new NextRequest('https://app.veridian.site/api/admin/x'));
     recente.ok = true;
@@ -109,6 +109,12 @@ describe('requireAdmin — chemin session Auth.js', () => {
     expect(await res?.json()).toMatchObject({ error: 'recent_auth_required' });
   });
 
+
+  it('session d\'emprunt : 403, même chez un administrateur (VER-263 : cette garde-là l\'acceptait)', async () => {
+    authMock.mockResolvedValueOnce({ user: { email: 'admin@x', id: 'u1', impersonated: true } });
+    isPlatformAdminMock.mockReturnValue(true);
+    expect((await requireAdmin(makeReq()))?.status).toBe(403);
+  });
 
   it('autorise (null) quand session user est admin', async () => {
     authMock.mockResolvedValueOnce({ user: { email: 'admin@x', id: 'u1' } });

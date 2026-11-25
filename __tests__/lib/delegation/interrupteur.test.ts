@@ -31,6 +31,21 @@ describe('régler', () => {
     expect(await regler('adm', 'allumee')).toEqual({ etat: 'allumee' });
     expect((await etat()).change_par).toBe('adm@x.fr via ChatGPT');
   });
+  it('par défaut : active sans rien écrire ni confirmer ; une coupure tient et seul le propriétaire la lève ; jamais dite consentie', async () => {
+    Object.assign(db.tenant.lignes[0], { prospectionProvisionedAt: new Date(), metadata: { crm: { workspace_id: 'w' } }, createdAt: new Date('2026-06-01') });
+    expect(await etat()).toMatchObject({ etat: 'allumee', par_defaut: true, consentie: false, change_par: null, change_le: null });
+    expect(await regler('adm', 'allumee')).toEqual({ etat: 'allumee' });
+    expect([db.integrationPaire.lignes, db.integrationDemande.lignes]).toEqual([[], []]);
+    expect(await regler('mem', 'eteinte'), 'un membre ne coupe pas').toEqual({ refus: 'role_insuffisant' });
+    expect(await regler('adm', 'eteinte')).toEqual({ etat: 'eteinte' });
+    expect(await etat()).toMatchObject({ etat: 'eteinte', par_defaut: false, change_par: 'adm@x.fr via ChatGPT' });
+    expect((await regler('adm', 'allumee') as any).etat, 'rallumer ce que personne n\'a consenti').toBe('a_confirmer');
+  });
+  it('suspendue puis reprise : ce qui était par défaut ne se rallume pas tout seul', async () => {
+    Object.assign(db.tenant.lignes[0], { prospectionProvisionedAt: new Date(), metadata: { crm: { workspace_id: 'w' } }, createdAt: new Date('2026-06-01') });
+    await couperIntegrations(db as never, 'A');
+    expect(await etat()).toMatchObject({ etat: 'eteinte', par_defaut: false });
+  });
   it('le clic : usage unique, propriétaire seulement, quinze minutes', async () => {
     const j = jetonDe(await regler('adm', 'allumee'));
     for (const u of ['adm', 'mem', 'autre', 'inconnu']) expect(await confirmerDemande(db as never, j, u, ENV), u).toEqual({ ok: false });
@@ -74,7 +89,7 @@ describe('lister, lire, couper', () => {
   it('toutes les paires, l\'état vrai, aucune donnée d\'un autre tenant', async () => {
     db.integrationPaire.lignes.push({ tenantId: 'B', paire: P, etat: 'allumee', consentiLe: new Date(), portees: empreintePortees(paire(P)!), changePar: 'autre', changeLe: new Date() });
     const l = await listerIntegrations(db as never, 'A', ENV);
-    expect(l.map((x) => [x.paire, x.etat])).toEqual([[P, 'eteinte'], ['prospection>notifuse', 'indisponible'], ['notifuse>crm', 'indisponible'], ['crm>notifuse', 'indisponible'], ['crm>prospection', 'indisponible']]);
+    expect(l.map((x) => [x.paire, x.etat])).toEqual([[P, 'eteinte'], ['prospection>notifuse', 'indisponible'], ['notifuse>crm', 'indisponible'], ['crm>notifuse', 'indisponible'], ['crm>notifuse#sequences', 'indisponible'], ['crm>prospection', 'indisponible'], ['crm>academy', 'indisponible'], ['crm>prospection#exclusion', 'indisponible']]);
     expect(JSON.stringify(l)).not.toContain('autre@x.fr');
   });
   it('la page montre qui, quoi, où', async () => {

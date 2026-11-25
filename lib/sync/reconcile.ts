@@ -30,7 +30,7 @@
 import type { PrismaClient } from '@prisma/client';
 
 import { prisma as defaultPrisma } from '@/lib/prisma';
-import { configuredSyncApps, discoverUserApps } from '@/lib/sync/discovery';
+import { configuredSyncApps, discoverAppForEmail, discoverUserApps, HUB_USER_ID_APPS } from '@/lib/sync/discovery';
 import { buildNotifuseClient } from '@/lib/notifuse/admin-helpers';
 import { NotifuseClient } from '@/lib/notifuse/client';
 import { auditIdentity, identityCounts } from '@/lib/sync/identity-audit';
@@ -410,7 +410,12 @@ export async function runReconcile(
           if (r.snapshots.some((s) => s.trialStatus !== undefined)) v.avecEssai += 1;
           vu.set(app, v);
         }
-        const tenantDrifts = diffTenantApp(t, app, discovery, startedAt);
+        let tenantDrifts = diffTenantApp(t, app, discovery, startedAt);
+        // Une app qui lit `hub_user_id` ne montre pas un compte sans lien : dit « à relier » par l'audit d'identité, ce n'est pas un espace disparu.
+        if (tenantDrifts.some((d) => d.kind === 'tenant_missing_app') && HUB_USER_ID_APPS.includes(app)) {
+          const sansLien = await discoverAppForEmail(app, t.userEmail, { fetchImpl: options.fetchImpl, timeoutMs: options.timeoutMs });
+          if ('found' in sansLien && sansLien.found) tenantDrifts = diffTenantApp(t, app, { ...discovery, apps: { ...discovery.apps, [app]: sansLien } }, startedAt);
+        }
         drifts.push(...tenantDrifts.map((d) => ({ ...d, remediation: remediationFor(d) })));
       }
     } catch (err) {

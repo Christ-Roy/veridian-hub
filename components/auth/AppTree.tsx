@@ -11,7 +11,8 @@ import { Mail, Search, BarChart3, Users, FileText } from 'lucide-react';
  *   - Mail        → violet Notifuse (#7763f1 → #6553d9)
  *   - Prospection → noir (Vercel / Next.js)
  *   - Analytics   → violet foncé
- *   - CRM / CMS   → grisés (« Bientôt »)
+ *   - CRM         → rouge, ouvert à tout compte
+ *   - CMS         → grisé (« Bientôt »)
  */
 
 type App = {
@@ -38,7 +39,11 @@ const APPS: App[] = [
     pillClass:
       'text-white bg-[linear-gradient(135deg,oklch(0.42_0.17_300),oklch(0.26_0.13_295))] border-transparent',
   },
-  { label: 'crm', icon: Users, pillClass: '', soon: true },
+  {
+    label: 'crm',
+    icon: Users,
+    pillClass: 'text-white bg-[linear-gradient(135deg,oklch(0.62_0.2_25),oklch(0.42_0.17_22))] border-transparent',
+  },
   { label: 'cms', icon: FileText, pillClass: '', soon: true },
 ];
 

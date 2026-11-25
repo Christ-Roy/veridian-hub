@@ -5,21 +5,25 @@
  */
 import { createHash } from 'node:crypto';
 
-export type AppPaire = 'prospection' | 'notifuse' | 'crm';
+export type AppPaire = 'prospection' | 'notifuse' | 'crm' | 'academy';
 export type Paire = { cle: string; source: AppPaire; cible: AppPaire; portees: readonly string[]; libelle: string; nature: 'action' | 'evenement' };
 
-const P = (source: AppPaire, cible: AppPaire, portees: readonly string[], libelle: string, nature: Paire['nature'] = 'action'): Paire => ({ cle: `${source}>${cible}`, source, cible, portees, libelle, nature });
+const P = (source: AppPaire, cible: AppPaire, portees: readonly string[], libelle: string, nature: Paire['nature'] = 'action', suffixe = ''): Paire => ({ cle: `${source}>${cible}${suffixe}`, source, cible, portees, libelle, nature });
 
 export const PAIRES: readonly Paire[] = [
   P('prospection', 'crm', ['crm:societe.ecrire', 'crm:tache.ecrire'], 'Prospection vers CRM : envoyer une fiche au CRM'),
   P('prospection', 'notifuse', ['notifuse:contacts.ecrire'], 'Prospection vers Mail : verser des contacts dans une liste, sans envoi'),
   P('notifuse', 'crm', ['crm:tache.ecrire'], 'Mail vers CRM : une réponse humaine crée une fiche et une tâche', 'evenement'),
-  P('crm', 'notifuse', ['notifuse:contacts.ecrire'], 'CRM vers Mail : ajouter des contacts à une liste, sans envoi'),
-  P('crm', 'prospection', ['prospection:exclusion.ecrire'], 'CRM vers Prospection : gagné, on ne prospecte plus', 'evenement'),
+  P('crm', 'notifuse', ['notifuse:contacts.ecrire', 'notifuse:contacts.lire'], 'CRM vers Mail : ajouter des contacts à une liste et lire leur état, sans envoi'),
+  // À part : elle fait partir du courrier plus tard. Jamais par défaut, le clic du propriétaire le dit.
+  P('crm', 'notifuse', ['notifuse:sequences.inscrire'], 'CRM vers Mail : inscrire un contact dans une séquence, qui lui enverra des mails', 'action', '#sequences'),
+  P('crm', 'prospection', ['prospection:entreprise.lire'], 'CRM vers Prospection : chercher et enrichir une société, en lecture seule'),
+  P('crm', 'academy', ['academy:avancement.lire'], 'CRM vers Academy : lire l\'avancement d\'une formation, en lecture seule'),
+  P('crm', 'prospection', ['prospection:exclusion.ecrire'], 'CRM vers Prospection : gagné, on ne prospecte plus', 'evenement', '#exclusion'),
 ];
 
 /** Clé au registre MCP (mcp_apps), qui porte l'adresse de la cible. */
-export const CLE_MCP: Record<AppPaire, string> = { crm: 'twenty', notifuse: 'notifuse', prospection: 'prospection' };
+export const CLE_MCP: Record<AppPaire, string> = { crm: 'twenty', notifuse: 'notifuse', prospection: 'prospection', academy: 'academy' };
 
 /**
  * L'adresse d'action d'une cible, donc l'`aud` de son jeton : le CRM sert ses actions sur son MCP, les autres sur leur route dédiée (un
@@ -28,20 +32,30 @@ export const CLE_MCP: Record<AppPaire, string> = { crm: 'twenty', notifuse: 'not
 export const adresseAction = (cible: AppPaire, mcpUrl: string): string => (cible === 'crm' ? mcpUrl : new URL('/api/veridian/actions', mcpUrl).toString());
 
 export const paire = (cle: string): Paire | undefined => PAIRES.find((p) => p.cle === cle);
-export const paireEntre = (source: string, cible: string): Paire | undefined => PAIRES.find((p) => p.source === source && p.cible === cible);
+/** Les ACTIONS d'une source vers une cible : il peut y en avoir deux, chacune avec son interrupteur. */
+export const pairesEntre = (source: string, cible: string): Paire[] => PAIRES.filter((p) => p.source === source && p.cible === cible && p.nature === 'action');
+/** La seule qui porte TOUT ce qui est demandé : deux interrupteurs ne se cumulent pas dans un jeton. */
+export const pairePour = (source: string, cible: string, scope: string | undefined): Paire | undefined => pairesEntre(source, cible).find((p) => porteesAccordees(p, scope) !== null);
 
 /** `DELEGATION_CIBLES` : `crm` ouvre à tous ; `crm@test` n'ouvre qu'aux organisations d'un compte de test (preuve en prod sans client). */
 export const cibleServie = (cible: AppPaire, env: NodeJS.ProcessEnv = process.env, test = false): boolean => {
   const l = (env.DELEGATION_CIBLES ?? '').split(',').map((x) => x.trim());
   return l.includes(cible) || (test && l.includes(`${cible}@test`));
 };
-/** Paires dont la SOURCE n'a encore ni bouton ni appelant (CRM, 25/11) : l'allumer ne ferait rien, donc elle ne se propose pas. */
-const SANS_APPELANT = new Set(['crm>notifuse']);
+/**
+ * Sources dont l'appelant est servi : `DELEGATION_SOURCES`, `crm` pour tous, `crm@test` pour les organisations de test. Les deux premières le sont depuis
+ * toujours. Une source absente n'a ni bouton ni appelant : allumer sa liaison ne ferait rien, donc elle ne se propose pas.
+ */
+const SOURCES_SERVIES: readonly AppPaire[] = ['prospection', 'notifuse'];
+export const sourceServie = (source: AppPaire, env: NodeJS.ProcessEnv = process.env, test = false): boolean => {
+  const l = (env.DELEGATION_SOURCES ?? '').split(',').map((x) => x.trim());
+  return SOURCES_SERVIES.includes(source) || l.includes(source) || (test && l.includes(`${source}@test`));
+};
 /**
  * Une liaison qui peut servir : cible ouverte, et une ACTION. Un événement n'a pas d'utilisateur (son sujet est l'intégration, ADR-037
  * D1) : tant que son chemin n'existe pas, il ne s'allume pas et ne s'échange pas contre la poignée de quelqu'un.
  */
-export const paireServie = (p: Paire, env: NodeJS.ProcessEnv = process.env, test = false): boolean => p.nature === 'action' && !SANS_APPELANT.has(p.cle) && cibleServie(p.cible, env, test);
+export const paireServie = (p: Paire, env: NodeJS.ProcessEnv = process.env, test = false): boolean => p.nature === 'action' && sourceServie(p.source, env, test) && cibleServie(p.cible, env, test);
 /**
  * Un événement se règle à part (`DELEGATION_EVENEMENTS`, vide par défaut) : `notifuse>crm` pour tous, `notifuse>crm@<tenant>` pour une seule
  * organisation, `notifuse>crm@test` pour celles marquées de test. Ouvert ne veut pas dire allumé : le clic du propriétaire reste dû.

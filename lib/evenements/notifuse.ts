@@ -8,7 +8,8 @@ import type { PrismaClient } from '@prisma/client';
 
 import { writeAuditLog } from '@/lib/admin/audit-log';
 import { AppDebit, AppInjoignable } from '@/lib/mcp/client-app';
-import { empreintePortees, evenementOuvert, paireEntre, porteesAccordees } from '@/lib/delegation/paires';
+import { liaisonActive, noterPassage } from '@/lib/delegation/etat';
+import { evenementOuvert, paire, porteesAccordees } from '@/lib/delegation/paires';
 import { estDeTest } from '@/lib/tenants/marque-test';
 
 import { lireAbonnement } from './abonnement';
@@ -19,7 +20,7 @@ import { analyserMessageRecu } from './filtre';
 import { verifierStandardWebhooks } from './signature';
 
 const SOURCE = 'notifuse';
-type Db = Pick<PrismaClient, 'evenementAbonnement' | 'evenementRecu' | 'integrationLien' | 'integrationPause' | 'integrationPaire' | 'tenant' | 'tenantMember' | 'mcpApp' | 'auditLog'>;
+type Db = Pick<PrismaClient, 'evenementAbonnement' | 'evenementRecu' | 'integrationLien' | 'integrationPause' | 'integrationPaire' | 'organisation' | 'tenant' | 'tenantMember' | 'mcpApp' | 'auditLog'>;
 export type Reception = { statut: number; corps: Record<string, unknown>; retryAfterS?: number };
 const ack = (raison: string): Reception => ({ statut: 200, corps: { ok: true, effet: 'aucun', raison } });
 const refus = (statut: number, error: string, retryAfterS?: number): Reception => ({ statut, corps: { error }, retryAfterS });
@@ -49,12 +50,11 @@ export async function recevoirNotifuse(db: Db, h: Headers, brut: string, env: No
   if (a.statut === 'ignore') return ack(a.raison);
   const { reponse } = a;
 
-  const p = paireEntre('notifuse', 'crm');
+  const p = paire('notifuse>crm');
   const t = await db.tenant.findFirst({ where: { id: abo.tenantId, deletedAt: null }, select: { status: true, metadata: true } });
   if (!p || !t || t.status === 'suspended' || t.status === 'deleted') return ack('organisation_inactive');
   if (!evenementOuvert(p.cle, abo.tenantId, env, estDeTest(t.metadata, new Date(now)))) return ack('evenements_fermes');
-  const i = await db.integrationPaire.findUnique({ where: { tenantId_paire: { tenantId: abo.tenantId, paire: p.cle } } });
-  if (!i || i.etat !== 'allumee' || !i.consentiLe || i.portees !== empreintePortees(p) || !porteesAccordees(p, PORTEE_CRM)) return ack('paire_eteinte');
+  if (!porteesAccordees(p, PORTEE_CRM) || !(await liaisonActive(db, p, abo.tenantId))) return ack('paire_eteinte');
 
   const chaine: string[] = [];
   if (!chaineAcceptable(chaine, p.cle)) return ack('chaine_refusee');
@@ -82,7 +82,7 @@ export async function recevoirNotifuse(db: Db, h: Headers, brut: string, env: No
   // Le disjoncteur compte les écritures : une réponse que le CRM écarte ou a déjà n'en est pas une.
   if (issue.effet === 'cree') await noterEcriture(db, { ...lien, evenementId: reponse.evenementId }, now).catch(() => undefined);
   await terminer(db, cle, issue.effet === 'aucun' ? 'ignore' : 'fait', issue.raison, now).catch(() => undefined);
-  await db.integrationPaire.updateMany({ where: { tenantId: abo.tenantId, paire: p.cle }, data: { dernierPassage: new Date(now), derniereErreur: null } }).catch(() => undefined);
+  await noterPassage(db, p, abo.tenantId, new Date(now)).catch(() => undefined);
   // Ni adresse ni contenu : l'événement, la paire, le jeton.
   await writeAuditLog(db as PrismaClient, { action: 'evenement.recu', actor: `app:${SOURCE}`, targetType: 'tenant', targetId: abo.tenantId, payload: { paire: p.cle, evenement_id: reponse.evenementId, jti: issue.jti, effet: issue.effet } }).catch(() => undefined);
   return { statut: 200, corps: { ok: true, effet: issue.effet, ...(issue.raison ? { raison: `crm_${issue.raison}` } : {}) } };

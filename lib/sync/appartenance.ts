@@ -7,7 +7,7 @@
  */
 import type { PrismaClient } from '@prisma/client';
 
-import { isPlatformAdmin } from '@/lib/admin/check-admin';
+import { estAdresseOperateur, isPlatformAdminId } from '@/lib/admin/check-admin';
 import { discoverAppForEmail, HUB_USER_ID_APPS, readAppSecret, readAppUrl, signGet } from '@/lib/sync/discovery';
 import { horsPerimetre } from '@/lib/sync/identity-audit';
 import { isTestAccount } from '@/lib/sync/test-residue';
@@ -105,7 +105,7 @@ export function classer(app: SyncApp, lus: Lu[], hub: { users: HubUser[]; tenant
       const homonyme = parEmail.get(email);
       const u = relie ?? (homonyme?.emailVerified ? homonyme : undefined);
       const hubUserId = u?.supabaseUserId ?? null;
-      const raison = horsPerimetre(app, email) ?? (isPlatformAdmin({ email: u?.email ?? email }) ? 'opérateur de Veridian' : null);
+      const raison = horsPerimetre(app, email) ?? (isPlatformAdminId(hubUserId) || estAdresseOperateur(u?.email ?? email) ? 'opérateur de Veridian' : null);
       let cas: Cas;
       if (!e.hubTenantId) cas = 'espace_non_relie';
       else if (hubUserId && appartient(e.hubTenantId, hubUserId)) cas = 'dans_les_deux';
@@ -134,7 +134,8 @@ export function classer(app: SyncApp, lus: Lu[], hub: { users: HubUser[]; tenant
   return { espaces: liste.sort((a, b) => b.membres.length - a.membres.length || a.espace.localeCompare(b.espace)), comptes, absents, sansEspace };
 }
 
-async function humainsDe(app: SyncApp, fetchImpl: typeof fetch): Promise<{ humains: Partial<Humain>[] } | { raison: string }> {
+/** Tous les humains de l'app, reliés ou non, même sans espace. Une raison : pas lu, jamais « aucun ». */
+export async function humainsDe(app: SyncApp, fetchImpl: typeof fetch = fetch): Promise<{ humains: Partial<Humain>[] } | { raison: string }> {
   const url = readAppUrl(app);
   const secret = readAppSecret(app);
   if (!url || !secret) return { raison: 'app non configurée au Hub' };

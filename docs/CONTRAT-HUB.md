@@ -750,6 +750,10 @@ versionné `/api/v1/tenants/*` à partir du jour où on bumpe v2).
 
 ### 5.1 `POST /api/tenants/provision`
 
+> **Identifiant d'espace Mail (25/11)** : choisi par le Hub, tiré de l'id du tenant (`workspaceIdDuTenant`), jamais de l'adresse ; un espace déjà noté garde le
+> sien. Avant : le début de l'adresse coupé à 20 caractères, `contact@a.fr` et `contact@b.fr` visaient le même. Mesuré le 25/11 : 0 client touché, 0 début
+> partagé, 0 entrée chez un autre. `POST /api/notifuse/create-tenant` (identifiant choisi par l'appelant, sans appelant) est retiré. Cas 36.
+
 **Idempotent.** Si appelé 2× avec le même `tenant_id` + `owner_email`, retourne
 `created: false` mais reste fonctionnel (magic_link régénéré).
 
@@ -1782,12 +1786,37 @@ et `hub suspension` passent par lui.
 - **Il tient** : ni une reprise ni une invitation d'avant le retrait ne ramènent la personne ; ses invitations en attente
   expirent. Le Hub n'appelle jamais `sync-member`. Encore dans l'app : le relevé dit `retire_au_hub`, jamais `jonction`.
 - **Suspension** : la porte MCP refuse tout outil d'app et tout programme, et exige un espace nommé si un autre est suspendu.
-- **Qui ne sait pas** (24/11) : retrait, Analytics ; suspension, CRM et Analytics ; `attach-owner`, Academy.
+- **CRM** (VER-254, v37, 25/11) : `suspend` et `resume` ferment et rendent sessions, clés, MCP, tâches de fond et webhooks. Suspendu : `issue-magic-link`,
+  `attach-member`, `organisations/sync` répondent `423 workspace_suspended` ; le rebond le dit (« Espace suspendu »), le Hub n'émet rien d'une organisation
+  suspendue, et réémet à la reprise. `409 not_suspended_by_hub` (espace fermé par un autre chemin) est DIT et sort des cibles ; `410` : rien à fermer. Cas 34.
+- **Ce qu'un retiré tenait déjà** (25/11, cas 37 : 19 portes, 65 s chacune, propriétaire et autre membre témoins, chaque sonde vue lire jusqu'au bout
+  quand on ne retire pas). Jamais « fermé » sans la porte nommée :
+  - **Refusé dès la première lecture après la réponse** : porte IA (CRM, Mail, Prospection) ; CRM (v42) cookie, jeton (GraphQL, REST, identité, MCP),
+    rafraîchissement, flux en direct, lien de connexion non consommé ; Mail session, boîte unifiée, lien non consommé ; Prospection session, donnée de
+    l'espace, lien non consommé. Avant v42, cookie, jeton de 30 min et flux du CRM lisaient encore. Le Hub n'envoie plus `revoke_sessions` au retrait.
+  - **Mail, fermés depuis 4539f91a** (25/11) : accès de boîte (IMAP) créé par la personne, flux `mail.events`. 19 portes sur 19, dernière lecture 0 ms.
+  - **Ouvert, dit, non sondé** : clés API d'espace (convenu) ; CRM, lien de fichier signé, un jour au plus ; Analytics,
+    clé d'organisation et liens de site (comptés, dits dans `avis`).
+  - **Non mesurable par nous** : Academy, réservée (lu : sessions coupées et liens fermés au retrait, clés d'espace comptées) ; jetons que la personne
+    ne tient pas (JWT Hub vers app, 5 min).
+- **Analytics** (VER-260, 25/11) : `POST /api/tenants/:hubTenantId/remove-member` et `/api/tenants/suspend|resume`, par le TENANT Hub, jamais par un site : un
+  seul appel, sans découverte (`by-email` ne montre que les sites visibles). `tenant_not_found` ou `user_not_in_app` : absent, sauf compte de cette adresse
+  sans lien (`user_not_in_app` alors qu'il y entre encore) et sauf espace sans organisation reliée : `non_gere`, « NON FERMÉ » dans `avis`, 207. Il rend aussi
+  les liens de site, dits dans `avis`, jamais coupés. Hors modules d'organisation : rien à décocher. Cas 38, en prod (25/11) : session, clé personnelle (REST, MCP), porte IA et lien non
+  consommé refusés dès la réponse, 65 s, témoin intact ; suspendue, tout se ferme et les visites envoyées pendant sont comptées après la reprise.
+- **Qui ne sait pas** (25/11) : `attach-owner`, Academy. Une app sans route ne se dit « absente » que si aucune des personnes visées n'y a de compte.
 - **Clés API d'un retiré** : jamais coupées (des automatisations en vivent), toujours DITES. `remove-member` rend
   `active_api_keys` (toutes les clés actives de l'espace, hors clé du Hub) et `api_keys_url` (la page où les renouveler, en https sur
   `veridian.site`) ; `avis` les cite app par app, « non comptées » si l'app se tait. État du 24/11, lu dans le code : Academy rend
   `active_api_keys_created_by_member` (clés par auteur) ; Notifuse et CRM, clés d'espace sans auteur noté, pas encore rendues ;
   Prospection, une clé par espace tenue par le Hub ; Analytics, pas de retrait. Au Hub, connexions IA et poignées meurent au retrait.
+- **Session d'organisation bornée** (VER-261, 25/11, cas 39) : ouverte par le fournisseur d'une organisation, elle n'ouvre QU'ELLE. La personne appartient aussi
+  ailleurs (son propre espace compris) : refusée, et celle qui vit tombe à la lecture suivante (`lib/federation/borne.ts`). Elle ne branche pas d'IA, ne change
+  pas le compte, ne fait rejoindre rien. Reste : une session d'APP ouverte par elle vit sa durée dans l'app ; un retrait la ferme.
+- **Fournisseur sans domaine** (Infomaniak : `email_verified` faux) : `domaines: []`, portée `openid`, aucune adresse crue, aucun compte créé. Chacun relie
+  (fournisseur, `sub`) dans Paramètres, par sa propre connexion récente ; un `sub` = une personne ; il se délie.
+- **Salarié** (`lib/tenants/membre-seul.ts`) : membre d'une organisation réglée, sans espace à lui. Il voit les apps cochées, et ni un clic ni une IA ne lui créent
+  un espace personnel (`user_not_in_app`, `membre_organisation`).
 - **Invitation acceptée** : membre au Hub (rôle `member`, toujours) si l'espace est relié et si l'inviteur est propriétaire ou
   admin AU HUB ; 20 invitations par espace et par jour ; le propriétaire voit les arrivées dans le Hub. `inviter_user_id` =
   `hub_user_id`.
@@ -1815,6 +1844,9 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
 
 #### 5.19.5 Délégation entre apps (VER-245 b.2)
 
+- **Par défaut** (Robert, 25/11, `lib/delegation/etat.ts`, règle de lecture : rien n'est écrit chez personne) : un GESTE (Prospection vers CRM ou Mail) est
+  actif dans toute organisation où les deux apps sont ouvertes ; un ÉVÉNEMENT (Mail vers CRM) l'est chez les organisations nées depuis le 26/11, et se
+  propose aux autres. Toute coupure tient, suspension comprise. « Par défaut » n'est jamais dit consenti ; une portée élargie en sort. Cas 23.
 - **Poignée** : au rebond, `issue-magic-link` porte `delegations: [{ hub_tenant_id, grant, expire_le }]` (30 jours, une par organisation)
   pour une app source d'une paire servie. L'app la garde dans sa session SERVEUR, jamais dans le navigateur ni dans un journal.
 - **Échange** : `POST /api/delegation/jeton` `{ grant_type, subject_grant, audience, scope, motif? }`, en-têtes `X-Veridian-App`,
@@ -1854,6 +1886,31 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
   (30 jours). Aucun mail. Au premier passage avec cette adresse exacte, PROUVÉE (tableau de bord, ou rebond vers une app), la personne rejoint
   l'organisation en `member`, et les apps cochées l'apprennent avant qu'elle y arrive. Un retrait annule ; seul un geste neuf la rouvre.
   Jamais depuis une session d'emprunt. `hub org preinscrits|annuler`, liste à l'écran.
+- **Plusieurs adresses** (VER-227 S1b, `lib/adresses`) : une personne ajoute une adresse en prouvant, par un code reçu, qu'elle la tient. Une secondaire
+  ne connecte pas, ne reçoit aucun lien : elle fait reconnaître (pré-inscription, fédération). Une adresse active n'appartient qu'à une personne, tenu
+  par la BASE pour tous les chemins. Le code reçu dans une vraie boîte : NON PROUVÉ (pas de boîte d'épreuve).
+- **Décocher une app réservée** (parente 25/11, `lib/organisations/{acces,decocher}.ts`, table `organisation_acces`, CRM et Academy) : ceux venus PAR
+  l'organisation en sortent par `remove-member`, session ouverte comprise ; recocher les remet (l'émission porte une `joined_at` datée de la recoche).
+  L'origine se note à l'émission qui fait entrer : déjà dans l'espace avant, invité à la main, app muette, ou membre d'avant cette note = « à la main »,
+  gardé. Jamais le propriétaire. Rien n'est effacé. Un retrait refusé se refait au réglage suivant, réponse 207. Cas 35.
+- **Changer d'adresse principale** (AD-M3, 25/11, `lib/adresses/{federation,promotion}.ts`, cas 32) : une secondaire PROUVÉE, par un code ou par le
+  fournisseur de son organisation (elle se reconnecte devant lui, `prompt=login`, et il affirme exactement l'adresse demandée ; ni session ni lien n'en
+  naissent). Le `hub_user_id` ne bouge pas, les apps suivent par `users/sync` ; l'ancienne devient un alias ; toutes les sessions tombent. Une app qui
+  refuse l'adresse remet tout comme avant. Dans un domaine tenu par une organisation, elle seule prouve, à ses membres. Refusée, avant tout changement,
+  à qui a un compte chez **Academy** (`APPS_PAR_ADRESSE`, `lib/adresses/garde.ts`), et PAR COMPTE ailleurs : un compte que l'app ne connaît que par son
+  adresse (il en naîtrait un double), ou une app muette. La MÊME garde tient les réglages (« Votre email », `PATCH /api/account/profile`, cas 33).
+  Mail (f1a2d839) et le CRM (v38) servent §5.19.7 depuis le 25/11. **L'ancienne adresse est prévenue et
+  peut annuler 72 h** (`lib/adresses/annulation.ts`, promotion ET réglages) : lien parti à elle seule, une fois, sur un bouton (`/auth/adresse`). Annuler lui
+  rend l'adresse, retire celles venues avec le changement, le mot de passe, les fournisseurs, les sessions et les IA. Pendant ces 72 h elle ne se détache pas.
+  NON PROUVÉ : le lien suivi depuis une vraie boîte (pas de boîte d'épreuve).
+- **Une session ouverte par le fournisseur d'une organisation** ne fait AUCUN geste de compte (adresse, mot de passe, 2FA, fournisseurs) et n'administre
+  pas la plateforme (25/11) : l'administrateur de ce fournisseur peut en ouvrir une. `denyUnlessRecentAuth(PREUVE_COMPTE_S)`, `isPlatformAdmin`.
+- **Apps ouvertes par l'organisation** (option A, parente 25/11, `lib/tenant-apps/organisation.ts`) : le CRM coché s'ouvre (tuile, IA, délégation) aux
+  membres VIVANTS, lu à chaque fois : retrait, suspension ou case décochée referment. L'app garde ses droits. Academy garde sa réserve.
+- **SAML et libre-service** (VER-227, 25/11, `lib/federation/{saml,sortie,depart,conclure}.ts`, cas 41) : même garde que l'OIDC et même conclusion (session bornée).
+  SAML n'affirme aucune adresse (`domaines` vide, toujours), l'audience est propre à l'organisation (`/saml/<tenant>`), la réponse doit répondre à la demande du
+  navigateur, l'identifiant doit durer (ni adresse, ni éphémère). Le PROPRIÉTAIRE pose son fournisseur : aucun domaine, aucun compte créé, inactif jusqu'à SON
+  essai, tout changement redemande l'essai ; ce qu'un opérateur a posé ne se change pas là. Sortie vers le fournisseur : IP réellement jointe publique.
 - **Fédération OIDC** (VER-227 S2, `lib/federation`) : `hub org idp poser` déclare le fournisseur ET les domaines qu'il peut affirmer (un domaine, une
   organisation ; ni public, ni le nôtre). Entrée par `/connexion/<slug>` : code, PKCE, `state`, `nonce`, `iss`, `aud` et SIGNATURE vérifiés. Clé durable :
   (fournisseur, `sub`). Compte neuf : création ouverte ou adresse pré-inscrite. Compte existant prouvé : sa personne le relie, connectée, une fois. Jamais
@@ -1864,6 +1921,54 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
   `{ fait, premier, dernier, nombre }`. `prefixe` nomme l'app (`twenty.create_`), `depuis` ISO, 400 jours au plus. Compte les appels RÉUSSIS par la
   porte MCP, attribués à cette organisation : `espace` choisi, ou le seul espace du compte ; sinon attribué à aucun. Rien avant le 25/11/2026.
   404 `organisation_introuvable` (fermée, inconnue ou non cochée) ou `membre_introuvable`. Ouvert par organisation (`ACTIVITE_ORGANISATIONS`).
+
+#### 5.19.7 Désigner une personne : `hub_user_id` obligatoire, l'adresse n'est qu'informative (25/11/2026)
+
+Une adresse change (§5.19.6, « Changer d'adresse principale ») et se recycle : elle ne désigne personne. Mesuré le 25/11 : Mail cherche par l'adresse dans
+`sync-member`, `remove-member` et `restore-member` ; le CRM dans `remove-member` et pour le propriétaire d'un espace ; Academy pour les inscriptions.
+
+**Règle.** Toute route signée qui vise une personne reçoit `hub_user_id` (UUID, `users.supabase_user_id` du Hub). L'app retrouve le compte par lui SEUL. Absent
+ou mal formé : `400 invalid_payload`. `email` (et `user_email`, ancien nom, accepté) ne sert qu'à créer une copie absente ou à l'affichage : jamais à
+choisir un compte existant, même si `hub_user_id` est inconnu. Un compte trouvé par `hub_user_id` dont l'adresse diffère : c'est la bonne personne.
+
+| Route | Corps | Réponses |
+|---|---|---|
+| `POST /api/tenants/{id}/remove-member` | `{ hub_user_id, email?, reason? }` | `200 { tenant_id, hub_user_id, removed, removed_at, ... }` ; personne inconnue ou pas membre : `200 { removed: false }`, RIEN d'autre n'est touché ; `404 tenant_not_found` |
+| `POST /api/tenants/{id}/restore-member` | `{ hub_user_id, email? }` | `200 { restored }` ; inconnue : `404 user_not_in_app`, jamais de création |
+| `POST /api/tenants/{id}/sync-member`, `attach-member` | `{ hub_user_id, email, email_proven, role }` | copie absente : créée et reliée ; `email` déjà portée par un compte relié à un AUTRE `hub_user_id` : `409 hub_user_conflict` ; par un compte sans lien : reliée seulement si `email_proven: true`, sinon `409` |
+| `POST /api/tenants/{id}/freeze-member`, `unfreeze-member` | `{ hub_user_id, email?, reason? }` | inconnue : `404 user_not_in_app` |
+| `POST /api/tenants/{id}/transfer-owner` | `{ owner_hub_user_id, email? }` | inconnue : `404 user_not_in_app` ; pas membre : `409 not_a_member` |
+| `POST /api/hub/members/role` | `{ hub_tenant_id, hub_user_id, email?, role, version }` | inchangé, par `hub_user_id` |
+| `POST /api/hub/users/sync` | `{ hub_user_id, email?, name?, deleted?, revoke_sessions? }` | adresse portée par un autre compte : `409 email_conflict`, RIEN d'écrit (ni nom, ni sessions), jamais une 500 ; sans champ : `200`, ne change rien ; absente : `404 user_not_in_app` |
+| `POST /api/tenants/provision` | `{ tenant_id, owner_hub_user_id, owner_email, email_proven, ... }` | le propriétaire NOTÉ est `owner_hub_user_id`. Rejeu : même propriétaire et autre adresse = `200` ; autre `owner_hub_user_id` = `409 owner_mismatch`. Tant que le Hub ne l'envoie pas en tête, `metadata.hub_user_id` en tient lieu |
+| `POST /api/workspaces.generateMagicLink` (Mail, clé de l'espace) | `{ hub_user_id, user_email? }` | par `hub_user_id` ; inconnue ou pas membre : refus |
+| `GET /api/users/by-email` | `?hub_user_id=&email=` | `hub_user_id` d'abord ; `email` seulement s'il est absent. `role: owner` par `owner_hub_user_id` |
+
+**Un compte sans lien** ne se relie que par `issue-magic-link` ou `sync-member` avec `email_proven`. Tant qu'il ne l'est pas, un retrait le dit en échec
+(« sans lien avec le Hub »), jamais « absent », et rien ne part par l'adresse ; la suspension, qui vise un espace, le ferme quand même.
+
+**Données existantes.** Un propriétaire ou un membre noté par l'adresse se convertit par la copie locale reliée (`adresse -> hub_user_id`), une fois. Sans lien
+ou ambigu : la ligne reste et se compte, rien n'est deviné. Au 25/11 : aucune copie décalée, 5 propriétaires CRM sur 5 reconnus : la conversion est juste.
+
+**Éprouvé quand** : un membre dont l'adresse a changé au Hub est retiré, rétabli et change de rôle ; un compte NEUF qui a repris l'ancienne adresse n'est
+touché par aucun de ces gestes (vu échouer avant le correctif). Le Hub retire alors l'app de `APPS_PAR_ADRESSE` et lui envoie `hub_user_id` dans `by-email`
+(`HUB_USER_ID_APPS`). Les anciens champs restent envoyés pendant la bascule.
+
+#### 5.19.8 Une adresse libérée ressert, sans rien hériter (VER-256, 25/11/2026)
+
+Une adresse se recycle : boîte d'entreprise réattribuée, compte supprimé puis recréé. Mesuré le 25/11 : M supprimée au Hub, un compte NEUF à la même adresse
+(autre `hub_user_id`) est refusé par le CRM (`409 hub_user_conflict` à la création de son espace) : la copie de M y garde l'adresse.
+
+**Règle.** À `POST /api/hub/users/sync { hub_user_id, deleted: true }`, l'app :
+1. ferme tout ce que cette personne tient : sessions, jetons, clés créées par elle, liens non consommés ; la sort de tous ses espaces ;
+2. LIBÈRE l'adresse : la copie garde son `hub_user_id` et son historique (auteur), mais ne porte plus l'adresse ; invitations en attente à cette adresse : annulées ;
+3. répond `200`, rejouable.
+
+Ensuite, la même adresse avec un AUTRE `hub_user_id` (`issue-magic-link`, `sync-member`, `provision`) : une copie NEUVE est créée. Elle n'hérite de rien : ni
+espace, ni rôle, ni clé, ni brouillon, ni lien, ni historique d'un autre. `409 hub_user_conflict` reste réservé à une copie VIVANTE d'un autre `hub_user_id`.
+Un compte suspendu (pas supprimé) garde son adresse. Au Hub : `oublierCompte` et la cascade ne laissent ni membre, ni pré-inscription, ni invitation.
+
+**Éprouvé quand** le cas 42 passe : un compte neuf à l'adresse d'un compte supprimé entre partout, chez lui seulement.
 
 ### 5.20 Restauration d'un membre
 
@@ -2722,6 +2827,23 @@ gère la redirection signup-app §6bis.8.2 point 5.)
 **Ce que l'app NE fait PAS** : pas de provider OAuth local, pas de
 callback Google/Microsoft, pas de gestion de scope OAuth. Tout reste
 au Hub.
+
+**Emprunt (assistance, VER-263).** Quand un administrateur de plateforme entre chez un client depuis le Hub, le corps signé porte :
+
+```json
+"emprunt": { "id": "<ligne du journal du Hub>", "par": "<hub_user_id de l'administrateur | cle:ADMIN_SECRET>", "expire_le": "<ISO 8601>" }
+```
+
+- Champ absent : une entrée ordinaire. Champ présent : `hub_user_id` et `email` restent ceux du CLIENT, l'humain devant l'écran est `par`.
+  Jamais l'adresse de l'emprunteur ni la raison : elles restent au journal du Hub, que le client ne lit pas.
+- L'app **ouvre la session du client sans rien changer** : ni rôle, ni espace, ni dernière connexion présentée au client comme la sienne.
+- L'app **garde trace** de l'entrée (`emprunt.id`, `emprunt.par`, client, heure), et l'attache à ce qui s'écrit pendant la session. Elle répond alors
+  `"emprunt_journalise": true` à côté de `magic_link_url`. Sans ce champ, le Hub note `app_journalise: false` et ne suppose rien.
+- L'app **borne la session à `expire_le`** et l'affiche. `expire_le` illisible ou passé : refuser (400 `emprunt_expire`).
+- Côté Hub, pendant un emprunt : une heure au plus, aucun geste au Hub (403 `impersonation_interdite`, garde du middleware), ni `organisations`,
+  ni `delegations`, ni espace créé à la première ouverture, ni pré-inscription consommée.
+- Journal du Hub : `admin.impersonate.start` (avant l'entrée, sans trace pas d'entrée), `.consume`, `.app` (app, résultat, `app_journalise`), `.end`.
+- **État (25/11)** : servi par le Hub, lu par aucune app. Chacune accepte le champ sans le connaître.
 
 #### 6bis.8.4 Cas particuliers
 

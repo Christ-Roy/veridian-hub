@@ -387,6 +387,12 @@ describe('attachMemberDownstream', () => {
     });
   });
 
+  it('l\'adresse prouvée part, et seulement elle : sans preuve, l\'app ne relie aucun compte sans lien', async () => {
+    fetchMock.mockImplementation(async () => jsonResponse(201, { attached: true, already_member: false }));
+    for (const emailProven of [true, false, undefined]) await attachMemberDownstream({ ...baseInput, emailProven, fetchImpl: fetchMock as unknown as typeof fetch });
+    expect(fetchMock.mock.calls.map(([, i]) => JSON.parse(i.body).email_proven)).toEqual([true, undefined, undefined]);
+  });
+
   it('uses /api/tenants path for notifuse', async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(201, { attached: true, already_member: false }),

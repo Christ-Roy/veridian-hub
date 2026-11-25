@@ -77,6 +77,16 @@ describe('AppSidebar', () => {
     expect(screen.queryByText('Bientôt')).not.toBeInTheDocument();
   });
 
+  it('« Organisation » se trouve sans connaître son adresse', () => {
+    renderSidebar();
+    expect(screen.getByText('Organisation').closest('a')).toHaveAttribute('href', '/dashboard/organisation');
+  });
+
+  it('« Connexions » n\'est pas au menu tant que la fonction est fermée', () => {
+    renderSidebar();
+    expect(screen.queryByText('Connexions')).toBeNull();
+  });
+
   it('n\'affiche plus de lien "Aide" (NavSecondary retiré — refonte DA 2026-05-29)', () => {
     // La refonte a retiré la nav secondaire (lien "Aide" placeholder #).
     renderSidebar();

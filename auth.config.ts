@@ -9,6 +9,8 @@ import type { NextAuthConfig } from 'next-auth';
 import Google from 'next-auth/providers/google';
 import MicrosoftEntraID from 'next-auth/providers/microsoft-entra-id';
 
+import { gesteRefuseEnEmprunt, impersonationExpiree } from '@/lib/auth/emprunt-bornes';
+import { federationExpiree, glisser } from '@/lib/federation/duree';
 import { isDevHarnessEnabled } from '@/lib/dev/harness-guard';
 
 export const authConfig = {
@@ -62,10 +64,24 @@ export const authConfig = {
     // dans auth.ts (Node runtime) parce qu'il a besoin de Prisma + bcrypt.
   ],
   callbacks: {
+    // Le middleware réécrit le jeton à chaque passage : une session d'organisation finie y finit, celle qui sert y glisse. Sans base (edge).
+    jwt({ token }) {
+      return federationExpiree(token) || impersonationExpiree(token) ? null : glisser(token);
+    },
+    // `auth.ts` a la sienne (base comprise) ; celle-ci ne sert qu'au garde ci-dessous.
+    session({ session, token }) {
+      if (token?.impersonated === true && session.user) session.user.impersonated = true;
+      return session;
+    },
     // Gate d'autorisation edge-safe — utilisé par le middleware Auth.js pour
     // décider si la requête passe. Pas de Prisma ici.
     authorized({ auth, request }) {
       const { pathname } = request.nextUrl;
+
+      // Emprunt (VER-263) : on regarde et on entre dans les apps, on ne fait aucun geste au nom du client. La classe entière, pas une liste de routes.
+      if (auth?.user?.impersonated === true && gesteRefuseEnEmprunt(request.method, pathname)) {
+        return Response.json({ error: 'impersonation_interdite', message: "Ce geste n'est pas permis pendant une session d'assistance." }, { status: 403 });
+      }
 
       // ── Ateliers UI (`/dev/**`) ────────────────────────────────────────
       // Troisième et dernier verrou de l'atelier, celui qui tient même si

@@ -7,7 +7,7 @@ vi.mock('@/lib/organisations/emission', () => ({ suivreOrganisation: m.suivre })
 vi.mock('@/lib/tenants/roles', () => ({ pousserRole: m.role }));
 vi.mock('@/lib/workspace/provision', () => ({ provisionDefaultWorkspace: m.ws }));
 
-import { fournisseur, resoudreIdentite, type Connecte } from '@/lib/federation/identite';
+import { adresseAffirmee, entrer, fournisseur, relier, resoudreIdentite, type Connecte } from '@/lib/federation/identite';
 
 import { base, table } from '../delegation/fausse';
 
@@ -39,6 +39,20 @@ const aller = (x: object = {}, i: object = {}, connecte: Connecte = null) => res
 const liens = (userId: string) => db.account.lignes.filter((a: any) => a.userId === userId).map((a: any) => a.provider);
 const membres = () => db.tenantMember.lignes.map((x: any) => [x.userId, x.role, x.origine]);
 
+describe('adresseAffirmee', () => {
+  it('ce que le fournisseur a le droit de dire', () => {
+    const x = { sub: 's', email: 'a@client.test', emailNie: false, nom: null };
+    expect([adresseAffirmee(I, x), adresseAffirmee(I, { ...x, email: 'a@ailleurs.test' }), adresseAffirmee({ ...I, test: true }, x), adresseAffirmee(I, { ...x, emailNie: true })]).toEqual([{ email: 'a@client.test' }, { refus: 'domaine_refuse' }, { refus: 'domaine_refuse' }, { refus: 'adresse_non_verifiee' }]);
+  });
+});
+
+it('sans domaine déclaré (Infomaniak) : aucune adresse n\'est crue, rien n\'est créé, seule une identité déjà reliée entre', async () => {
+  const i = { domaines: [] as string[] };
+  for (const x of [{}, { emailNie: true }, { email: null }, { email: 'jean@client.test' }]) expect(await aller(x, i, { userId: 'U1', email: 'jean@client.test' })).toEqual({ refus: 'non_relie' });
+  expect([db.user.lignes.length, db.tenantMember.lignes.length, liens('U1')]).toEqual([3, 0, []]);
+  db.account.lignes.push({ id: 'a9', userId: 'U1', type: 'oidc', provider: fournisseur(I), providerAccountId: 's1' });
+  expect(await aller({ email: 'perso@gmail.com', emailNie: true }, i)).toEqual({ userId: 'U1', hubUserId: 'h1', neuf: false });
+});
 describe('resoudreIdentite : qui entre', () => {
   it('attendue (création ouverte, ou pré-inscrite) : compte neuf, prouvé, relié, membre ; puis la même identité le retrouve, quelle que soit son adresse', async () => {
     expect(await aller({}, { creationAuto: true })).toMatchObject({ neuf: true });
@@ -49,6 +63,9 @@ describe('resoudreIdentite : qui entre', () => {
     db.tenantPreinscription.lignes.push({ tenantId: 'T', email: 'pre@client.test', consommeeLe: null, annuleeLe: null, expireLe: new Date(Date.now() + 1000) });
     expect(await aller({ sub: 's2', email: 'pre@client.test' })).toMatchObject({ neuf: true });
     expect(m.suivre).toHaveBeenCalledTimes(2);
+  });
+  it('Google Workspace : le domaine gère le compte, il entre', async () => {
+    expect(await aller({ hd: 'client.test' }, { creationAuto: true, issuer: 'https://accounts.google.com' })).toMatchObject({ neuf: true });
   });
   it('M2 : compte jamais prouvé, ouvert par un autre : le fournisseur du domaine est la première preuve, ce qui précédait tombe', async () => {
     expect(await aller({ email: 'flou@client.test' })).toMatchObject({ userId: 'U2', neuf: false });
@@ -66,6 +83,21 @@ describe('resoudreIdentite : qui entre', () => {
   });
 });
 
+describe('resoudreIdentite : adresse secondaire (S1b)', () => {
+  it('c\'est un compte existant : jamais repris, jamais un second compte ; sa personne connectée le relie', async () => {
+    db.userEmail.lignes.push({ userId: 'U3', email: 'pro@client.test', detacheeLe: null });
+    expect(await aller({ email: 'pro@client.test' }, { creationAuto: true })).toEqual({ refus: 'compte_existant' });
+    expect(await aller({ email: 'pro@client.test' }, { creationAuto: true }, { userId: 'U1', email: 'jean@client.test' })).toEqual({ refus: 'compte_existant' });
+    expect(db.user.lignes).toHaveLength(3);
+    expect(await aller({ email: 'pro@client.test' }, {}, { userId: 'U3', email: 'ext@ailleurs.test' })).toMatchObject({ userId: 'U3' });
+  });
+  it('M2 ne s\'y applique pas : un compte non prouvé ne se purge pas par une secondaire', async () => {
+    db.userEmail.lignes.push({ userId: 'U2', email: 'sec@client.test', detacheeLe: null });
+    expect(await aller({ email: 'sec@client.test' })).toEqual({ refus: 'compte_existant' });
+    expect(liens('U2')).toEqual(['credentials', 'google']);
+  });
+});
+
 describe('resoudreIdentite : qui n\'entre pas', () => {
   it.each<[string, object, object, string]>([
     ['hors domaine', { email: 'ext@ailleurs.test' }, { creationAuto: true }, 'domaine_refuse'],
@@ -75,6 +107,8 @@ describe('resoudreIdentite : qui n\'entre pas', () => {
     ['sans adresse', { email: null }, { creationAuto: true }, 'adresse_absente'],
     ['adresse niée', { emailNie: true }, { creationAuto: true }, 'adresse_non_verifiee'],
     ['pas attendue', {}, {}, 'non_attendu'],
+    ['Google, compte personnel à adresse d\'entreprise', { hd: null }, { creationAuto: true, issuer: 'https://accounts.google.com' }, 'domaine_refuse'],
+    ['Google, autre Workspace', { hd: 'autre.test' }, { creationAuto: true, issuer: 'https://accounts.google.com' }, 'domaine_refuse'],
     ['organisation de test, vraie personne', { email: 'neuf@client.test' }, { creationAuto: true, test: true }, 'domaine_refuse'],
   ])('%s', async (_n, x, i, refus) => {
     expect(await aller(x, i)).toEqual({ refus });
@@ -84,6 +118,15 @@ describe('resoudreIdentite : qui n\'entre pas', () => {
     await aller({ email: 'flou@client.test' });
     expect(await aller({ sub: 'un-autre', email: 'flou@client.test' })).toEqual({ refus: 'autre_identite' });
     expect(liens('U2')).toEqual([fournisseur(I)]);
+  });
+  it('relier : le lien, et sa trace', async () => {
+    await relier(db, I as never, 'U1', 's9');
+    expect(liens('U1')).toEqual([fournisseur(I)]);
+  });
+  it('entrer : membre, une fois ; rejouée, rien de neuf', async () => {
+    const qui = { userId: 'U1', hubUserId: 'h1', neuf: false };
+    expect([await entrer(db, I as never, qui, {}), await entrer(db, I as never, qui, {})]).toEqual([qui, qui]);
+    expect(membres()).toEqual([['h1', 'member', 'federation']]);
   });
   it('le `sub` d\'un autre fournisseur ne vaut rien ici', async () => {
     db.account.lignes.push({ id: 'a3', userId: 'U1', type: 'oidc', provider: 'org:autre', providerAccountId: 's1' });

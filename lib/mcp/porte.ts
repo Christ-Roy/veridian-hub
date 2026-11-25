@@ -21,7 +21,7 @@ import { signatureOutil } from './signature';
 import { AUTORISER_MAX, CODE_MAX_CAR, DELAI_MS, executerProgramme, exigeAutorisation, ETAT_MAX_CAR, prendrePlace, presenter, REPONSE_MAX_OCTETS, type Contenu } from './programme';
 import { ouvrirMoteur, programmeConfigure } from './programme-moteur';
 
-export type DbPorte = Pick<PrismaClient, 'integrationPaire' | 'integrationDemande' | 'evenementAbonnement' | 'user' | 'mcpApp' | 'tenantApp' | 'tenant' | 'tenantTrial' | 'tenantMember' | 'auditLog'>;
+export type DbPorte = Pick<PrismaClient, 'integrationPaire' | 'integrationDemande' | 'evenementAbonnement' | 'user' | 'mcpApp' | 'tenantApp' | 'tenant' | 'tenantTrial' | 'tenantMember' | 'organisation' | 'auditLog'>;
 
 type Rpc = { jsonrpc?: string; id?: string | number | null; method?: string; params?: Record<string, unknown> };
 
@@ -113,13 +113,13 @@ const HUB_PROGRAMME: Outil = {
 /** Les liaisons entre apps (VER-245 b.2) : même code et mêmes droits que l'écran du Hub. */
 const HUB_LISTER: Outil = {
   nom: 'hub.integrations_lister', app: 'hub', local: 'integrations_lister',
-  description: 'Liaisons entre les apps de mon organisation (Prospection vers CRM, Mail vers CRM…) : sens, allumée ou éteinte, qui l\'a changée et quand, dernier passage, dernière erreur.',
+  description: 'Liaisons entre les apps de mon organisation (Prospection vers CRM, Mail vers CRM…) : sens, allumée (par défaut ou réglée) ou éteinte, qui l\'a changée et quand, dernier passage, dernière erreur.',
   inputSchema: { type: 'object', properties: {} },
   annotations: { readOnlyHint: true },
 };
 const HUB_REGLER: Outil = {
   nom: 'hub.integrations_regler', app: 'hub', local: 'integrations_regler',
-  description: 'Allumer ou éteindre une liaison entre deux apps de mon organisation. Éteindre et rallumer : direct. La première ouverture rend un lien que le propriétaire confirme dans Veridian. Propriétaire ou admin seulement.',
+  description: 'Allumer ou éteindre une liaison entre deux apps de mon organisation. Actives par défaut entre les apps ouvertes. Éteindre : direct, et cela tient. Rallumer une liaison jamais confirmée rend un lien que le propriétaire confirme dans Veridian. Propriétaire ou admin seulement.',
   inputSchema: { type: 'object', properties: { paire: { type: 'string', description: 'La paire rendue par hub.integrations_lister, ex. « prospection>crm ».' }, etat: { type: 'string', enum: ['allumee', 'eteinte'] } }, required: ['paire', 'etat'] } as unknown as Outil['inputSchema'],
   annotations: { destructiveHint: true, idempotentHint: true, openWorldHint: false },
 };
@@ -274,7 +274,7 @@ async function jouer(
       throw new AppInjoignable(`${o.nom} ne se joue pas ici`);
     } else {
       const app = cat.apps.find((a) => a.appKey === o.app)!;
-      const s = p.session ? await p.session(o.app) : await sessionOuCreation(app, qui, deps, tenantId);
+      const s = p.session ? await p.session(o.app) : await sessionOuCreation(app, qui, { ...deps, db }, tenantId);
       r = (await s.appeler(o.local, params)) as Contenu;
     }
     await journal(db, qui, o.nom, !r.isError, Date.now() - debut, p.programme, espace);
@@ -329,6 +329,8 @@ async function programme(db: DbPorte, qui: Appelant, cat: Catalogue, args: Recor
         // Ouvrir un flux entre apps n'est pas un geste de programme (parente, 24/11).
         if (n === HUB_PROGRAMME.nom || n === HUB_REGLER.nom) return undefined;
         const o = cat.outils.find((x) => x.nom === n);
+        // Le jeton d'un service extérieur reste hors d'un programme : un geste, un appel direct.
+        if (o && cat.apps.find((a) => a.appKey === o.app)?.externe) return { injoignable: `${n} : service extérieur, en appel direct par executer_outil.` };
         if (o && (familleReservee(o) || reserveAuHub(o))) return { injoignable: `${n} administre (membres, rôles, clés, webhooks, apps, réglages) : jamais depuis un programme, même nommé. ${reserveAuHub(o) ? 'Cela se fait au Hub.' : 'En appel direct, executer_outil.'}` };
         if (o) return o;
         const app = n.split('.')[0];

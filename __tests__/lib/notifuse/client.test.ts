@@ -132,6 +132,15 @@ describe('NotifuseClient HMAC requests', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it('désigne la personne par hub_user_id (CONTRAT-HUB §5.19.7), au lien direct comme au provisionnement', async () => {
+    const corps: Record<string, unknown>[] = [];
+    const fetchImpl = vi.fn(async (_u: string, init?: RequestInit) => { corps.push(JSON.parse(String(init!.body))); return jsonResponse(200, { magic_link: 'https://notifuse.example.com/m' }); });
+    const client = new NotifuseClient({ apiUrl: API_URL, hubSecret: SECRET, fetchImpl });
+    await client.generateMagicLink({ apiKey: 'k', hubUserId: 'h-1', userEmail: 'o@x.fr' });
+    await client.provisionWorkspace({ tenantId: 't', ownerEmail: 'o@x.fr', hubUserId: 'h-1' });
+    expect(corps).toEqual([{ hub_user_id: 'h-1', user_email: 'o@x.fr' }, expect.objectContaining({ owner_hub_user_id: 'h-1', metadata: { hub_user_id: 'h-1' } })]);
+  });
+
   it('throws NotifuseError with code 0 on timeout', async () => {
     const fetchImpl = vi.fn(
       (_url: string, init?: RequestInit) =>

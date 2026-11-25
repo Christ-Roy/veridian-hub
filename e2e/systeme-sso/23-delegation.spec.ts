@@ -1,9 +1,9 @@
 /**
- * Délégation entre apps (VER-245 b.2) : première ouverture confirmée par le propriétaire dans un vrai navigateur, échange d'une poignée
+ * Délégation entre apps (VER-245 b.2) : active par défaut entre apps ouvertes, coupée par le propriétaire, rallumée par son clic dans un vrai navigateur, échange d'une poignée
  * contre un jeton de 120 s, et la cible qui le reconnaît. Puis tout ce qui doit refuser : nonce rejoué, paire absente, liaison éteinte,
- * membre retiré, organisation suspendue. Staging et prod, organisation ordinaire (non marquée) : éteinte jusqu'au clic du propriétaire.
+ * membre retiré, organisation suspendue. Staging et prod, organisation ordinaire (non marquée).
  * La poignée vient de la route admin des comptes de test.
- * Épreuve : `SSO_SABOTAGE=delegation` ne confirme pas la liaison : le cas doit échouer.
+ * Épreuve : `SSO_SABOTAGE=delegation` ne coupe pas la liaison : le cas doit échouer.
  */
 import { createHmac, randomBytes } from 'node:crypto';
 
@@ -46,21 +46,32 @@ cas(null, 'délégation : le propriétaire ouvre une liaison, une app agit 120 s
       return { status: r.status, json: (await r.json().catch(() => null)) as any };
     };
 
-    // Ouvert à toutes les organisations (Robert, 24/11), sans marque de test : ÉTEINTE tant que le propriétaire n'a pas cliqué.
-    expect((await etat()).etat, 'avant tout clic').toBe('eteinte');
-    // Les événements, eux, s'ouvrent organisation par organisation : pas celle-ci, et un clic n'y peut rien.
-    expect((await etat('notifuse>crm')).etat, 'événement non ouvert ici').toBe('indisponible');
-    const force = JSON.parse((await outil(jetonP, 'executer_outil', { nom: 'hub.integrations_regler', arguments: { paire: 'notifuse>crm', etat: 'allumee' }, espace: T.slug })).texte);
-    expect(force, 'événement non ouvert : le réglage direct refuse').toEqual({ refus: 'cible_non_servie' });
+    // Active par défaut (Robert, 25/11) : les deux apps sont ouvertes, personne n'a rien réglé ; elle ne se dit pas consentie. L'échange marche sans un clic.
     const g = await poignee(P);
     if (!g) throw new NonAbouti('aucune poignée émise');
-    expect((await echanger(g)).json, 'liaison éteinte').toEqual({ error: 'integration_off' });
+    expect(await etat(), 'avant tout clic').toMatchObject({ etat: 'allumee', par_defaut: true, consentie: false, change_par: null });
+    expect((await echanger(g)).status, 'sans un clic').toBe(200);
+    expect(await etat(), 'le passage se garde, rien n\'est réglé').toMatchObject({ etat: 'allumee', par_defaut: true, consentie: false, dernier_passage: expect.any(String) });
+    expect(await regler('allumee'), 'déjà active : rien à confirmer').toEqual({ etat: 'allumee' });
+    // Une app pas ouverte dans l'organisation : sa liaison n'est pas active.
+    const N: Compte = await creerCompteProuve(browser, 'delseule');
+    const TN = (await lookup(N.email)).json?.tenants?.[0];
+    const jetonN = await obtenirJetonMcp(browser, N, 'TEST DELEGATION');
+    expect(JSON.parse((await outil(jetonN, 'executer_outil', { nom: 'hub.integrations_lister', espace: TN?.slug })).texte).liaisons.find((l: { paire: string }) => l.paire === PAIRE), 'sans CRM ouvert').toMatchObject({ etat: 'eteinte', par_defaut: false });
+    // Les événements, eux, s'ouvrent à part : pas ici tant que le drapeau ne les ouvre pas.
+    const evenement = await etat('notifuse>crm');
+    expect(['indisponible', 'eteinte', 'allumee'], JSON.stringify(evenement)).toContain(evenement.etat);
+
+    // Le propriétaire coupe : cela tient. Rallumer ce qui n'a jamais été consenti demande son clic.
+    if (process.env.SSO_SABOTAGE !== 'delegation') expect(await regler('eteinte'), 'coupée').toEqual({ etat: 'eteinte' });
+    expect((await echanger(g)).json, 'coupée').toEqual({ error: 'integration_off' });
+    expect(await etat(), 'une coupure n\'est pas un défaut').toMatchObject({ etat: 'eteinte', par_defaut: false });
     const demande = await regler('allumee');
     expect(demande.etat).toBe('a_confirmer');
     expect((await etat()).etat, 'un lien n\'allume rien').toBe('eteinte');
 
     // Un autre compte n'y peut rien ; le propriétaire clique, dans un vrai navigateur.
-    for (const [c, confirme] of [[M, false], [P, process.env.SSO_SABOTAGE !== 'delegation']] as const) {
+    for (const [c, confirme] of [[M, false], [P, true]] as const) {
       const ctx = await browser.newContext({ storageState: c.etat as never });
       try {
         const page = await ctx.newPage();
@@ -68,7 +79,8 @@ cas(null, 'délégation : le propriétaire ouvre une liaison, une app agit 120 s
         const bouton = page.getByRole('button', { name: 'Allumer' });
         if (c === M) expect(await bouton.count(), 'un étranger ne voit pas le bouton').toBe(0);
         else if (confirme) {
-          await expect(page.getByText('TEST DELEGATION', { exact: false }).first()).toBeVisible();
+          // Client MCP réemprunté (enregistrements bornés à 10/h) : son nom n'est pas celui de ce cas.
+          if (!process.env.SSO_MCP_CLIENT) await expect(page.getByText('TEST DELEGATION', { exact: false }).first()).toBeVisible();
           await bouton.click();
           await expect(page.getByText('Liaison allumée')).toBeVisible();
         }
@@ -76,7 +88,7 @@ cas(null, 'délégation : le propriétaire ouvre une liaison, une app agit 120 s
         await ctx.close();
       }
     }
-    expect((await etat()).etat, 'confirmée').toBe('allumee');
+    expect(await etat(), 'confirmée').toMatchObject({ etat: 'allumee', consentie: true, par_defaut: false });
 
     const nonce = randomBytes(18).toString('base64url');
     const r = await echanger(g, { nonce });
@@ -92,7 +104,7 @@ cas(null, 'délégation : le propriétaire ouvre une liaison, une app agit 120 s
     expect([c1.status, /delegation_forbidden/.test(t1)], t1.slice(0, 200)).toEqual([403, true]);
 
     expect((await echanger(g, { nonce })).json, 'nonce rejoué').toEqual({ error: 'nonce_replayed' });
-    expect((await echanger(g, { corps: { audience: 'notifuse', scope: 'notifuse:contacts.ecrire' } })).json, 'autre liaison, éteinte ou fermée').toEqual({ error: expect.stringMatching(/^(integration_off|target_not_served)$/) });
+    expect((await echanger(g, { corps: { audience: 'notifuse', scope: 'notifuse:contacts.ecrire' } })).json, 'autre liaison, active par défaut elle aussi').toMatchObject({ tenant_id: T.id });
     expect((await echanger(g, { corps: { scope: 'veridian' } })).json, 'portée hors paire').toEqual({ error: 'pair_not_allowed' });
     expect(await regler('eteinte'), 'éteinte').toEqual({ etat: 'eteinte' });
     expect((await echanger(g)).json, 'éteinte par l\'IA').toEqual({ error: 'integration_off' });
@@ -104,7 +116,7 @@ cas(null, 'délégation : le propriétaire ouvre une liaison, une app agit 120 s
       const page = await ctxP.newPage();
       await page.goto(`${HUB_URL}/dashboard/liaisons`, { waitUntil: 'networkidle' });
       await expect(page.getByText('Prospection vers CRM', { exact: false })).toBeVisible();
-      expect(await page.getByText('Mail vers CRM', { exact: false }).count(), 'un événement ne s\'offre pas').toBe(0);
+      await expect(page.getByText('Active par défaut').first(), 'Prospection vers Mail : le dit').toBeVisible();
       const reglage = page.locator('form', { has: page.locator(`input[value="${PAIRE}"]`) });
       await reglage.getByRole('button', { name: 'Couper' }).click();
       await expect(page.getByText('Liaison coupée.')).toBeVisible();
@@ -129,11 +141,12 @@ cas(null, 'délégation : le propriétaire ouvre une liaison, une app agit 120 s
     const t0 = Date.now();
     expect((await echanger(gm!)).json, 'retiré').toEqual({ error: 'grant_invalid' });
     const coupe = Date.now() - t0;
-    await admin('POST', `tenants/${T.id}/suspension`, { suspendre: true });
+    const chezCrm = async (suspendre: boolean) => (await admin<{ apps: { app: string; etat: string; detail?: string }[] }>('POST', `tenants/${T.id}/suspension`, { suspendre })).json.apps?.find((x) => x.app === 'crm');
+    expect(await chezCrm(true), 'fermé DANS le CRM (session et clé : cas 34)').toEqual({ app: 'crm', etat: 'suspendu' });
     expect((await echanger(g)).json, 'suspendue').toEqual({ error: 'grant_invalid' });
-    await admin('POST', `tenants/${T.id}/suspension`, { suspendre: false });
+    expect(await chezCrm(false), 'rouvert dans le CRM').toEqual({ app: 'crm', etat: 'repris' });
     expect((await regler('allumee')).etat, 'la reprise redemande le clic').toBe('a_confirmer');
-    return `jeton de 120 s reconnu par le CRM (403 delegation_forbidden hors portée), retiré refusé en ${coupe} ms, suspension, nonce, paire, éteinte : refusés`;
+    return `jeton de 120 s reconnu par le CRM (403 delegation_forbidden hors portée), retiré refusé en ${coupe} ms, suspension fermée dans le CRM puis reprise, nonce, paire, éteinte : refusés`;
   } finally {
     if (!avant) await admin('DELETE', 'mcp-apps?app_key=twenty');
   }

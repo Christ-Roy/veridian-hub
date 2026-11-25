@@ -44,6 +44,7 @@ const DEFAULT_TIMEOUT_MS = 10_000;
  *                     app. Le Hub redirige vers `/dashboard?app=<app>&hint=signup`.
  * `hub_user_conflict` : 400 propre — le compte de l'app est déjà relié à un AUTRE compte Hub
  *                       (une personne qui a plusieurs comptes Hub). Défini, jamais deviné.
+ * `workspace_suspended` : 423, tous les espaces de la personne dans cette app sont suspendus (ou celui qu'elle demande).
  * `invalid_response` : réponse 200 mais sans `magic_link_url` parseable.
  * `not_configured` : ENV var manquante côté Hub (URL ou secret) — l'app n'est
  *                    pas câblée.
@@ -52,6 +53,7 @@ export type BounceErrorCode =
   | 'unreachable'
   | 'user_not_in_app'
   | 'hub_user_conflict'
+  | 'workspace_suspended'
   | 'invalid_response'
   | 'not_configured';
 
@@ -80,10 +82,14 @@ export interface IssueMagicLinkInput {
   organisations?: { hub_tenant_id: string; role: string; version: number }[];
   /** Organisation active choisie au Hub, revérifiée (VER-252) : où arriver. Absente : l'app garde son choix. */
   hubTenantId?: string | null;
+  /** Session d'emprunt (VER-263) : qui est vraiment devant l'écran, et jusqu'à quand. L'app le garde dans son journal. */
+  emprunt?: { id: string; par: string; expire_le: string } | null;
 }
 
 export interface IssueMagicLinkSuccess {
   magicLinkUrl: string;
+  /** L'app a dit avoir gardé trace de l'emprunt (`emprunt_journalise: true`). */
+  empruntJournalise?: boolean;
 }
 
 /** Résolu de l'ENV : config réseau pour bouncer vers une app. */
@@ -213,6 +219,7 @@ export async function issueMagicLinkForApp(
     ...(input.delegations?.length ? { delegations: input.delegations } : {}),
     ...(input.hubTenantId ? { hub_tenant_id: input.hubTenantId } : {}),
     ...(input.organisations?.length ? { organisations: input.organisations } : {}),
+    ...(input.emprunt ? { emprunt: input.emprunt } : {}),
   });
 
   const timestamp = String(nowMs());
@@ -296,6 +303,10 @@ export async function issueMagicLinkForApp(
     );
   }
 
+  if (response.status === 423) {
+    throw new BounceError('workspace_suspended', `bounce: ${input.app} workspace suspended`, 423);
+  }
+
   if (response.status === 401 || response.status === 403) {
     // HMAC mismatch / secret désync — sévère, log comme unreachable
     throw new BounceError(
@@ -337,7 +348,7 @@ export async function issueMagicLinkForApp(
     );
   }
 
-  return { magicLinkUrl };
+  return { magicLinkUrl, empruntJournalise: (parsed as { emprunt_journalise?: unknown }).emprunt_journalise === true };
 }
 
 /** Vérifie que l'URL est en https et sur un host *.veridian.site (prod ou staging). */

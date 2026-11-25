@@ -47,6 +47,7 @@ import { z } from 'zod';
 
 import { prisma } from '@/lib/prisma';
 import {
+  ouChercher,
   verifyGoogleIdToken,
   resolveGoogleClientId,
   isGoogleOneTapEnabled,
@@ -157,8 +158,12 @@ export async function POST(request: NextRequest) {
   const providerAccountId = typeof claims.sub === 'string' ? claims.sub : email;
 
   // ─── Bootstrap user (réutilise le pattern provider) ────────────────────
+  const ou = await ouChercher(prisma, providerAccountId, email);
+  if (!ou) {
+    return NextResponse.json({ ok: false, error: 'adresse_secondaire' }, { status: 409, headers: corsHeaders });
+  }
   let user = await prisma.user.findUnique({
-    where: { email },
+    where: ou,
     select: { id: true, email: true, name: true, image: true, supabaseUserId: true, mfaEnabled: true },
   });
 
@@ -190,7 +195,7 @@ export async function POST(request: NextRequest) {
       data: { supabaseUserId: randomUUID() },
     });
   }
-  if (!freshlyCreated) {
+  if (!freshlyCreated && user.email.toLowerCase() === email.toLowerCase()) {
     // Le fournisseur qui prouve garde sa propre ligne `account` (D1).
     await applyProviderEmailProof(prisma, user.id, 'google', { providerAccountId, sessions: 'toujours' });
   }

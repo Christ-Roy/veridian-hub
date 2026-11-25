@@ -2,6 +2,8 @@ import { redirect } from 'next/navigation';
 import { Separator } from '@/components/ui/separator';
 import NameForm from '@/components/ui/AccountForms/NameForm';
 import EmailForm from '@/components/ui/AccountForms/EmailForm';
+import AdressesForm from '@/components/ui/AccountForms/AdressesForm';
+import FederationForm from '@/components/ui/AccountForms/FederationForm';
 import PasswordForm from '@/components/ui/AccountForms/PasswordForm';
 import ConnectedProvidersList from '@/components/account/ConnectedProvidersList';
 import {
@@ -63,6 +65,8 @@ export default async function SettingsPage() {
         {/* Chaque formulaire porte sa carte : imbriquées, elles retiraient 50 px aux champs. */}
         <NameForm userName={dbUser?.name ?? user.name ?? ''} />
         <EmailForm userEmail={user.email ?? ''} />
+        <AdressesForm />
+        <FederationForm />
 
         {/* Security Settings */}
         <Card>

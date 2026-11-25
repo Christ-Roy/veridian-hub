@@ -28,6 +28,7 @@ const {
   userCreateMock,
   userUpdateMock,
   accountFindUniqueMock,
+  userEmailFindFirstMock,
   accountCreateMock,
   provisionWorkspaceMock,
   verifyGoogleIdTokenMock,
@@ -36,6 +37,7 @@ const {
   userCreateMock: vi.fn(),
   userUpdateMock: vi.fn(),
   accountFindUniqueMock: vi.fn(),
+  userEmailFindFirstMock: vi.fn(async (): Promise<unknown> => null),
   accountCreateMock: vi.fn(),
   provisionWorkspaceMock: vi.fn(),
   verifyGoogleIdTokenMock: vi.fn(),
@@ -48,6 +50,7 @@ vi.mock('@/lib/prisma', () => ({
       create: userCreateMock,
       update: userUpdateMock,
     },
+    userEmail: { findFirst: userEmailFindFirstMock },
     account: {
       findUnique: accountFindUniqueMock,
       create: accountCreateMock,
@@ -262,6 +265,24 @@ describe('POST /api/auth/callback/google-one-tap — happy path', () => {
     expect(userCreateMock).not.toHaveBeenCalled();
     expect(accountCreateMock).not.toHaveBeenCalled();
     expect(provisionWorkspaceMock).not.toHaveBeenCalled();
+  });
+
+  it('adresse principale changée depuis : la même personne, et l\'adresse Google ne prouve pas la principale', async () => {
+    verifyGoogleIdTokenMock.mockResolvedValue({ sub: 'google-sub-99', email: 'ancienne@example.com', email_verified: true });
+    userFindUniqueMock.mockResolvedValue({ id: 'u-existing', email: 'neuve@example.com', name: null, image: null, supabaseUserId: 'uuid' });
+    accountFindUniqueMock.mockResolvedValue({ id: 'acc', user: { id: 'u-existing', emailVerified: new Date() } });
+    expect((await POST(makeReq({ credential: 'valid-jwt' }))).status).toBe(200);
+    expect(userFindUniqueMock.mock.calls.map(([x]) => x.where)).toEqual([{ id: 'u-existing' }]);
+    expect(userCreateMock).not.toHaveBeenCalled();
+  });
+
+  it('adresse secondaire de quelqu\'un, identité Google inconnue : refusé, aucun compte', async () => {
+    verifyGoogleIdTokenMock.mockResolvedValue({ sub: 'inconnu', email: 'secondaire@example.com', email_verified: true });
+    accountFindUniqueMock.mockResolvedValue(null);
+    userEmailFindFirstMock.mockResolvedValueOnce({ id: 's' });
+    const res = await POST(makeReq({ credential: 'valid-jwt' }));
+    expect([res.status, (await res.json()).error, res.headers.get('set-cookie')]).toEqual([409, 'adresse_secondaire', null]);
+    expect(userCreateMock).not.toHaveBeenCalled();
   });
 
   it('backfill supabaseUserId si user existant sans pont UUID', async () => {

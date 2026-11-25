@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Users } from "lucide-react";
@@ -91,29 +92,6 @@ export default function AdminTenantsPage() {
   useEffect(() => {
     fetchTenants();
   }, []);
-
-  async function impersonate(email: string) {
-    try {
-      const res = await fetch("/api/admin/impersonate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || `status ${res.status}`);
-      }
-      const data = await res.json();
-      toast.success(`Magic links générés pour ${email}`);
-      const urls: string[] = [];
-      if (data.hub_url) urls.push(data.hub_url);
-      if (data.prospection_url) urls.push(data.prospection_url);
-      if (data.notifuse_url) urls.push(data.notifuse_url);
-      for (const u of urls) window.open(u, "_blank", "noopener");
-    } catch (e) {
-      toast.error(`Impersonate échoué : ${e instanceof Error ? e.message : "?"}`);
-    }
-  }
 
   async function setPlan(
     tenantId: string,
@@ -333,13 +311,8 @@ export default function AdminTenantsPage() {
                     </TableCell>
 
                     <TableCell className="text-right">
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="text-xs"
-                        onClick={() => impersonate(t.email ?? "")}
-                      >
-                        Impersonate
+                      <Button asChild variant="secondary" size="sm" className="text-xs">
+                        <Link href={`/dashboard/admin/clients?q=${encodeURIComponent(t.email ?? "")}`}>Entrer</Link>
                       </Button>
                     </TableCell>
                   </TableRow>

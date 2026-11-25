@@ -38,10 +38,32 @@ describe('demarrer', () => {
   });
 });
 
+describe('demarrer, pour de vrai et pour un essai', () => {
+  it('hors épreuve, l\'adresse jointe doit être publique : la nôtre n\'est jamais appelée', async () => {
+    const avant = idp.demandes();
+    await expect(demarrer({ ...i, test: false }, RETOUR)).rejects.toThrow();
+    expect(idp.demandes()).toBe(avant);
+  });
+  it('l\'essai est scellé, et lui seul le dit', async () => {
+    const d = await demarrer(i, RETOUR, undefined, undefined, undefined, { userId: 'P' });
+    expect([ouvrir(d.cookie)?.essai, (await aller()).t.essai]).toEqual([{ userId: 'P' }, undefined]);
+  });
+});
+
+describe('demarrer pour un ajout d\'adresse', () => {
+  it('le fournisseur redemande la connexion, pour l\'adresse nommée ; qui l\'a demandé est scellé ; une connexion ordinaire n\'en dit rien', async () => {
+    const d = await demarrer(i, RETOUR, undefined, { userId: 'U', email: 'jean@client.test' });
+    const p = new URL(d.url).searchParams;
+    expect([p.get('prompt'), p.get('login_hint'), ouvrir(d.cookie)?.ajout]).toEqual(['login', 'jean@client.test', { userId: 'U', email: 'jean@client.test' }]);
+    const o = await aller();
+    expect([o.url.searchParams.get('prompt'), o.t.ajout]).toEqual([null, undefined]);
+  });
+});
+
 describe('terminer', () => {
   it('témoin : l\'identité dite, adresse en minuscules', async () => {
     const x = await aller();
-    expect(await terminer(i, x.t, x.retour)).toEqual({ sub: 'u-1', email: 'jean@client.test', emailNie: false, nom: 'Jean' });
+    expect(await terminer(i, x.t, x.retour)).toEqual({ sub: 'u-1', email: 'jean@client.test', emailNie: false, nom: 'Jean', hd: null });
   });
   it.each<[Mensonge]>([['nonce'], ['audience'], ['emetteur'], ['signature'], ['expire']])('jeton faux (%s) : refusé', async (m) => {
     idp.mentir(m);
@@ -83,4 +105,25 @@ describe('terminer', () => {
 
 it('ce que le client configure chez lui ne bouge pas : adresse de retour, cookie, 10 min', () => {
   expect([CHEMIN_RETOUR, COOKIE_FEDERATION, TRANSACTION_S]).toEqual(['/api/auth/federation/callback', 'veridian-federation', 600]);
+});
+
+describe('réglé comme Infomaniak : RS256 seul, sub numérique, adresse personnelle non vérifiée, aucun domaine déclaré', () => {
+  let rs: Awaited<ReturnType<typeof ouvrirIdp>>;
+  beforeAll(async () => { rs = await ouvrirIdp('127.0.0.1', 'RS256'); });
+  afterAll(() => rs.fermer());
+  const passer = async (mensonge: Mensonge = null) => {
+    const j: IdpPret = { ...i, issuer: rs.issuer, clientId: rs.client.id, secret: rs.client.secret, domaines: [] };
+    rs.dire({ sub: '4815162342', email: 'perso@gmail.com', email_verified: false });
+    rs.mentir(mensonge);
+    const d = await demarrer(j, RETOUR, undefined, undefined, { userId: 'U' });
+    const r = await fetch(d.url, { redirect: 'manual' });
+    return { t: ouvrir(d.cookie)!, x: terminer(j, ouvrir(d.cookie)!, new URL(r.headers.get('location')!)) };
+  };
+  it('portée openid seule ; l\'identifiant revient, l\'adresse est dite niée ; qui relie est scellé', async () => {
+    const { t, x } = await passer();
+    expect([await x, rs.portee(), t.relier, t.ajout]).toEqual([expect.objectContaining({ sub: '4815162342', emailNie: true }), 'openid', { userId: 'U' }, undefined]);
+  });
+  it.each(['signature', 'nonce', 'audience', 'emetteur', 'expire'] as const)('jeton faux (%s) : refusé', async (m) => {
+    await expect((await passer(m)).x).rejects.toThrow();
+  });
 });

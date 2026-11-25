@@ -17,12 +17,12 @@ import { code, parcourir } from './source';
 const FACULTATIVES: Record<string, string> = {
   // ── Manque réel, à câbler (08/11) ──
   // ── Reste du moteur G2 arrêté ──
-  ANALYTICS_ADMIN_KEY: 'client admin du moteur G2 (panneau admin Analytics) : aucune route équivalente dans Rybbit',
   // ── Repli codé, rien ne casse ──
   ANALYTICS_TRACK_URL: 'défaut : Rybbit prod (objectifs du Hub, lib/analytics/track-event.ts)',
   ANALYTICS_TRACK_URL_STAGING: 'staging seulement',
   ANALYTICS_TRACK_SITE_ID: 'défaut : site veridian.site (2) en prod, rien hors prod',
   AUTH_DEBUG: 'débogage local',
+  CONNECTEURS_OUVERTS: 'absente = fermé, voulu : services extérieurs en attente de relecture et de Robert (25/11)',
   DASHBOARD_GTM_ID: 'repli NEXT_PUBLIC_GTM_ID',
   DASHBOARD_NOTIFUSE_API_URL: 'repli NEXT_PUBLIC_NOTIFUSE_API_URL',
   DASHBOARD_NOTIFUSE_URL: 'repli NEXT_PUBLIC_NOTIFUSE_URL',

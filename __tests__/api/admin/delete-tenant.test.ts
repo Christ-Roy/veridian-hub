@@ -17,6 +17,9 @@ vi.mock('@/lib/admin/require-admin', () => ({
 
 const deprovisionMock = vi.fn(async () => [{ app: 'prospection', cible: 'proprietaire', ok: true, detail: 'soft-delete' }]);
 const oubli = vi.hoisted(() => vi.fn(async (..._a: any[]) => ({ membres: 1, invitations: 2 })));
+const couper = vi.hoisted(() => vi.fn(async (..._a: any[]) => 2));
+vi.mock('@/lib/connecteurs/coffre', () => ({ couperToutes: couper }));
+vi.mock('@/lib/connecteurs/porte', () => ({ retourConnecteur: () => 'https://hub.test/r' }));
 vi.mock('@/lib/tenants/membres', () => ({ oublierCompte: oubli }));
 vi.mock('@/lib/apps/deprovision', () => ({ deprovisionnerCompte: (...a: any[]) => deprovisionMock(...a) }));
 
@@ -121,6 +124,16 @@ describe('DELETE /api/admin/delete-tenant', () => {
     // L'espace Notifuse n'est plus « à nettoyer à la main » : il part avec le déprovisionnement.
     expect(JSON.stringify(body.actions)).not.toContain('manual cleanup');
     expect(deprovisionMock).toHaveBeenCalled();
+  });
+
+  it('ses connexions extérieures partent avec le compte ; une panne de révocation n\'empêche pas la suppression', async () => {
+    const { DELETE } = await import('@/app/api/admin/delete-tenant/route');
+    userStore.set('a@test', { id: 'auth-1', supabaseUserId: 'uuid-1' });
+    const body = await (await DELETE(makeReq({ email: 'a@test', confirm: true }))).json();
+    expect([couper.mock.calls[0][1], JSON.stringify(body.actions).includes('2 connexion(s) extérieure(s)')]).toEqual(['uuid-1', true]);
+    couper.mockRejectedValueOnce(new Error('base'));
+    userStore.set('b@test', { id: 'auth-2', supabaseUserId: 'uuid-2' });
+    expect((await (await DELETE(makeReq({ email: 'b@test', confirm: true }))).json()).ok).toBe(true);
   });
 
   it('N+1 regression guard: 3 tenants → 1 updateMany, not 3 updates', async () => {

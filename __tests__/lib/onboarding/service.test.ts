@@ -7,6 +7,7 @@ import {
   createOnboardingInvitation,
   getOnboardingInviteByToken,
   getUserOnboardingRecord,
+  renouvelerLienActivation,
   saveOnboardingQualification,
 } from '@/lib/onboarding/service';
 import {
@@ -279,7 +280,7 @@ describe('onboarding service', () => {
     }
   });
 
-  it('supprime et signale expired quand le token onboarding a dépassé sa date', async () => {
+  it('signale expired et garde la trace, pour que la personne demande le suivant', async () => {
     const token = 'expired-token';
     const tokenHash = hashOnboardingToken(token);
     prisma.__tokens.set(tokenHash, {
@@ -292,7 +293,36 @@ describe('onboarding service', () => {
       ok: false,
       code: 'expired',
     });
-    expect(prisma.__tokens.size).toBe(0);
+    expect(prisma.__tokens.size).toBe(1);
+    await expect(activateOnboarding(prisma, { token, password: 'Motdepasse10' })).rejects.toMatchObject({ code: 'expired' });
+    expect([prisma.__tokens.size, prisma.__accountCreates.length]).toEqual([1, 0]);
+  });
+
+  describe('renouveler un lien expiré (VER-104)', () => {
+    const poser = (token: string, ms: number) => prisma.__tokens.set(hashOnboardingToken(token), { identifier: onboardingIdentifier('u_1'), token: hashOnboardingToken(token), expires: new Date(Date.now() + ms) });
+    it('part à l\'adresse du compte, avec les apps d\'origine, et l\'ancien ne vaut plus rien', async () => {
+      poser('vieux', -1000);
+      prisma.__onboarding.set('u_1', { userId: 'u_1', metadata: { apps: ['crm'], invitedBy: 'ACME' } });
+      expect(await renouvelerLienActivation(prisma, 'vieux')).toEqual({ issue: 'envoye', userId: 'u_1' });
+      expect(sendMailMock).toHaveBeenCalledTimes(1);
+      expect((sendMailMock.mock.calls[0] as unknown[])[0]).toMatchObject({ to: 'client@example.com' });
+      expect(prisma.__onboarding.get('u_1').metadata).toMatchObject({ apps: ['crm'], invitedBy: 'ACME', invitationActor: 'system:lien-expire' });
+      expect(prisma.__tokens.has(hashOnboardingToken('vieux'))).toBe(false);
+      expect((await renouvelerLienActivation(prisma, 'vieux')).issue).toBe('invalide');
+    });
+    it('un lien encore bon, un compte actif, un inconnu : aucun mail', async () => {
+      poser('bon', 60_000);
+      expect((await renouvelerLienActivation(prisma, 'bon')).issue).toBe('encore_valable');
+      expect((await renouvelerLienActivation(prisma, 'jamais-vu')).issue).toBe('invalide');
+      poser('tard', -1000);
+      prisma.__onboarding.set('u_1', { userId: 'u_1', activatedAt: new Date() });
+      expect((await renouvelerLienActivation(prisma, 'tard')).issue).toBe('actif');
+      expect(sendMailMock).not.toHaveBeenCalled();
+    });
+    it('une durée choisie est respectée', async () => {
+      const r = await createOnboardingInvitation(prisma, { email: 'client@example.com', actor: 'admin:t', sendEmail: false, validiteMinutes: 1 });
+      expect(r.expiresAt.getTime() - Date.now()).toBeLessThanOrEqual(60_000);
+    });
   });
 
   it('renvoie activated si le user a déjà un compte credentials', async () => {

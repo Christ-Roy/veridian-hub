@@ -47,6 +47,7 @@ const linkedTenant = {
 /** Tenant provisionné par le Hub : credentials complets. */
 const provisionedTenant = {
   id: 'tenant-2',
+  userId: 'h-proprietaire',
   notifuseWorkspaceSlug: 'acme',
   notifuseApiKey: 'key-123',
   notifuseUserEmail: 'owner@acme.test',
@@ -89,6 +90,7 @@ describe('chemin nominal (clé API tenant présente)', () => {
     expect(result).toMatchObject({ ok: true, autoLoginUrl: AUTO_LOGIN, source: 'api_key' });
     expect(generateMagicLink).toHaveBeenCalledWith({
       apiKey: 'key-123',
+      hubUserId: 'h-proprietaire',
       userEmail: 'owner@acme.test',
     });
     expect(getHealth).not.toHaveBeenCalled();

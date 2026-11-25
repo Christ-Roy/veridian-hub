@@ -3,6 +3,7 @@ import { SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/app-sidebar';
 import { FreemiumBanner } from '@/components/dashboard/FreemiumBanner';
 import { MobileTopbar } from '@/components/dashboard/MobileTopbar';
+import { BandeauEmprunt } from '@/components/emprunt/BandeauEmprunt';
 import { Suspense } from 'react';
 import { AuthTracker } from '@/components/analytics/auth-tracker';
 import { PurchaseTracker } from '@/components/analytics/purchase-tracker';
@@ -56,7 +57,8 @@ export default async function DashboardLayout({
 
   // Pré-inscrit par une organisation : il la rejoint à son premier passage prouvé. Sans attente en base, une lecture indexée.
   // Jamais depuis une session d'emprunt : rejoindre est le geste de la personne, pas de qui regarde son compte.
-  if (user.supabaseUserId && !isImpersonatedSession(await auth())) await consommerPreinscriptions(prisma, user.supabaseUserId).catch((err) => console.error('[preinscription]', err instanceof Error ? err.message.slice(0, 160) : 'erreur'));
+  const session = await auth();
+  if (user.supabaseUserId && !isImpersonatedSession(session) && session?.user?.federe !== true) await consommerPreinscriptions(prisma, user.supabaseUserId).catch((err) => console.error('[preinscription]', err instanceof Error ? err.message.slice(0, 160) : 'erreur'));
 
   // PERF (fix N+1 du 2026-05-21, étendu 2026-05-22) : reads indépendants
   // parallélisés via Promise.all. `fetchTrialRows` fait lui-même 2 reads
@@ -105,11 +107,9 @@ export default async function DashboardLayout({
   // révélation du trial (state machine en `trial_active`+).
   const trialBanner = resolveTrialBannerState(trialRows, hasActiveSubscription);
 
-  // initialIsAdmin sera passé en prop dès que AppSidebar/NavUser l'acceptent
-  // (LOT C). Pour l'instant on calcule la valeur côté serveur — utile à terme
-  // pour passer au sidebar et éviter qu'il refasse un fetch côté client.
-  const _initialIsAdmin = isPlatformAdmin(user);
-  void _initialIsAdmin;
+  // Le lien d'administration, jamais depuis un emprunt ni une session fédérée. Le garde, lui, est dans le layout de /dashboard/admin.
+  const enEmprunt = isImpersonatedSession(session);
+  const estAdmin = await isPlatformAdmin(session);
 
   return (
     <SidebarProvider>
@@ -131,8 +131,10 @@ export default async function DashboardLayout({
             avatar: dbUser?.image || user.image || '/avatars/default.svg',
           }}
           workspaceName={currentWorkspaceName}
+          admin={estAdmin}
         />
         <main className="flex-1 flex flex-col overflow-hidden w-full min-w-0">
+          {enEmprunt && <BandeauEmprunt email={user.email} debutS={session?.user?.authAt} />}
           {/* Barre mobile : hamburger (ouvre la sidebar en drawer) + logo.
               Cachée sur desktop où la sidebar est toujours visible. */}
           <MobileTopbar />

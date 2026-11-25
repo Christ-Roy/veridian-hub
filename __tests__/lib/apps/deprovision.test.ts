@@ -58,6 +58,13 @@ describe('deprovisionnerCompte', () => {
     expect((softDeleteTenant.mock.calls[0] as unknown as [string, { purgeEligibleAt: string }])[1].purgeEligibleAt).toBe(MAINTENANT.toISOString());
   });
 
+  it('une adresse de client qui RESSEMBLE à une adresse d\'épreuve garde ses 90 jours (motif partagé avec l\'envoi de mails)', async () => {
+    for (const email of ['e2e-sso-x@client.fr', 'e2e-sso-x@veridian.site.client.fr']) {
+      softDeleteTenant.mockClear();
+      await deprovisionnerCompte({ email, tenants: [tenant] }, { env, fetchImpl: fetchOk() as never, maintenant: () => MAINTENANT });
+      expect((softDeleteTenant.mock.calls[0] as unknown as [string, { purgeEligibleAt: string }])[1].purgeEligibleAt, email).toBe(new Date(MAINTENANT.getTime() + 90 * 86_400_000).toISOString());
+    }
+  });
   it('Twenty : DELETE signé HMAC sur `${ts}.` (corps vide)', async () => {
     const f = fetchOk();
     await deprovisionnerCompte({ email: 'c@d.e', tenants: [{ ...tenant, notifuseWorkspaceSlug: null, prospectionProvisionedAt: null }] }, { env, fetchImpl: f as never, maintenant: () => MAINTENANT });

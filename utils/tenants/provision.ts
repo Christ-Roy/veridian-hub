@@ -9,11 +9,12 @@ import { isEmailProvenInDb } from '@/lib/auth/email-proof-provider';
 import { logProvisionStart, logProvisionEnd, logStep, logError } from './debug';
 import { NotifuseClient } from '@/lib/notifuse/client';
 import { NotifuseError } from '@/lib/notifuse/types';
-import { workspaceIdFromEmail } from '@/lib/notifuse/workspace-id';
+import { workspaceIdDuTenant } from '@/lib/notifuse/workspace-id';
 import {
   createProspectionClientFromEnv,
   ProspectionError,
 } from '@/lib/prospection/client';
+import { abonnerParDefaut } from '@/lib/evenements/naissance';
 import { prisma } from '@/lib/prisma';
 import { assurerTenantHub as assurerTenantHubDb } from '@/lib/tenants/assurer';
 
@@ -52,11 +53,13 @@ export async function provisionNotifuseTenant(
 
     logStep('NOTIFUSE', 'Starting provisioning', { email, userId });
 
-    const workspaceId = workspaceIdFromEmail(email);
     const workspaceName = email.split('@')[0].slice(0, 32);
 
     const client = new NotifuseClient({ apiUrl, hubSecret });
     const hubTenantId = await assurerTenantHub(email, userId);
+    const avant = await prisma.tenant.findUnique({ where: { id: hubTenantId }, select: { notifuseWorkspaceSlug: true, metadata: true } });
+    // Un espace déjà noté garde son identifiant, quel qu'il soit ; sinon le Hub le tire de l'id du tenant, le même à chaque rejeu.
+    const workspaceId = avant?.notifuseWorkspaceSlug ?? workspaceIdDuTenant(hubTenantId, email);
     const result = await client.provisionWorkspace({
       tenantId: workspaceId,
       ownerEmail: email,
@@ -76,63 +79,16 @@ export async function provisionNotifuseTenant(
         .catch((err: unknown) => logStep('NOTIFUSE', 'Lien tenant Hub non posé', { error: err instanceof Error ? err.message : 'erreur' }));
     }
 
-    const tenantData = {
-      notifuseWorkspaceSlug: result.workspace_id,
-      notifuseApiKey: result.api_key,
-      notifuseUserEmail: email,
-      metadata: {
-        api_key_email: result.api_key_email,
-        workspace_created_at: new Date().toISOString(),
-      } as any,
-    };
-
-    const existingTenant = await prisma.tenant.findFirst({
-      where: { userId, deletedAt: null },
-      orderBy: { createdAt: 'asc' },
-      select: { id: true, metadata: true },
+    const tenantId = hubTenantId;
+    await prisma.tenant.update({
+      where: { id: tenantId },
+      data: {
+        notifuseWorkspaceSlug: result.workspace_id,
+        notifuseUserEmail: email,
+        // Un rejeu ne rend pas la clé : celle qu'on a reste, jamais remplacée par du vide.
+        ...(result.api_key ? { notifuseApiKey: result.api_key, metadata: { ...((avant?.metadata as Record<string, unknown>) ?? {}), api_key_email: result.api_key_email, workspace_created_at: new Date().toISOString() } as never } : {}),
+      },
     });
-
-    let tenantId: string;
-
-    if (existingTenant) {
-      const mergedMetadata = {
-        ...((existingTenant.metadata as Record<string, unknown>) || {}),
-        ...tenantData.metadata,
-      };
-      const updated = await prisma.tenant.update({
-        where: { id: existingTenant.id },
-        data: { ...tenantData, metadata: mergedMetadata },
-        select: { id: true },
-      });
-      tenantId = updated.id;
-    } else {
-      const slug = slugify(email);
-      const trialEndsAt = new Date();
-      trialEndsAt.setDate(trialEndsAt.getDate() + 15);
-
-      let finalSlug = slug;
-      const slugTaken = await prisma.tenant.findUnique({
-        where: { slug: finalSlug },
-        select: { id: true },
-      });
-      if (slugTaken) {
-        finalSlug = `${slug}-${Math.random().toString(36).slice(2, 7)}`;
-      }
-
-      const created = await prisma.tenant.create({
-        data: {
-          userId,
-          name: workspaceName,
-          slug: finalSlug,
-          status: 'active',
-          ...tenantData,
-          provisionedAt: new Date(),
-          trialEndsAt,
-        },
-        select: { id: true },
-      });
-      tenantId = created.id;
-    }
 
     try {
       await prisma.provisioningLog.create({
@@ -147,6 +103,9 @@ export async function provisionNotifuseTenant(
     } catch (logErr) {
       console.warn('[NOTIFUSE] provisioning_log create failed:', logErr);
     }
+
+    // Une organisation neuve dont Mail et le CRM sont ouverts : sa liaison par défaut. Jamais bloquant.
+    void abonnerParDefaut(prisma, tenantId);
 
     logStep('NOTIFUSE', 'Stored in DB');
 
@@ -180,7 +139,6 @@ export async function provisionProspectionTenant(
 ): Promise<{
   success: boolean;
   tenantId?: string;
-  loginUrl?: string;
   apiKey?: string;
   error?: string;
 }> {
@@ -207,8 +165,8 @@ export async function provisionProspectionTenant(
 
     const prospectionData = {
       prospectionApiKey: data.api_key,
-      prospectionLoginToken: data.login_url?.split('t=')[1] ?? null,
-      prospectionLoginTokenCreatedAt: new Date(),
+      // VER-106 : plus aucun jeton de connexion gardé au Hub, l'app s'ouvre par le rebond signé.
+      prospectionLoginToken: null,
       prospectionPlan: 'freemium',
       prospectionProvisionedAt: new Date(),
     };
@@ -234,7 +192,6 @@ export async function provisionProspectionTenant(
     return {
       success: true,
       tenantId: data.tenant_id,
-      loginUrl: data.login_url,
       apiKey: data.api_key,
     };
   } catch (error: any) {

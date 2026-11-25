@@ -10,10 +10,12 @@ import { writeAuditLog } from '@/lib/admin/audit-log';
 import { readAppSecrets } from '@/lib/sync/discovery';
 import type { SyncApp } from '@/lib/sync/types';
 import { signerAction } from '@/lib/mcp/identite';
+import { appsParOrganisation } from '@/lib/tenant-apps/organisation';
 
+import { liaisonActive, noterPassage } from './etat';
 import { listerIntegrations } from './interrupteur';
 import { organisationDeTest } from './ouverture';
-import { adresseAction, CLE_MCP, paireServie, empreintePortees, paireEntre, porteesAccordees, type AppPaire } from './paires';
+import { adresseAction, CLE_MCP, pairePour, paireServie, porteesAccordees, paire as trouverPaire, type AppPaire } from './paires';
 import { empreinte } from './poignee';
 
 export const FENETRE_MS = 5 * 60_000;
@@ -22,7 +24,7 @@ const PAR_MINUTE = 60;
 const APPS: readonly AppPaire[] = ['prospection', 'notifuse', 'crm'];
 
 export type Refus = { statut: number; error: string; retryAfterS?: number };
-export type Db = Pick<PrismaClient, 'delegationGrant' | 'delegationNonce' | 'tenant' | 'tenantMember' | 'user' | 'integrationPaire' | 'mcpApp' | 'tenantApp' | 'auditLog'>;
+export type Db = Pick<PrismaClient, 'delegationGrant' | 'delegationNonce' | 'tenant' | 'tenantMember' | 'user' | 'integrationPaire' | 'mcpApp' | 'tenantApp' | 'organisation' | 'auditLog'>;
 
 /** Signature de l'app : HMAC-SHA256 du secret de l'app sur `ts.nonce.corps`, fenêtre de 5 min, nonce à usage unique. */
 export async function verifierAppel<A extends SyncApp = AppPaire>(db: Pick<PrismaClient, 'delegationNonce'>, h: Headers, corps: string, now = Date.now(), apps: readonly A[] = APPS as unknown as readonly A[]): Promise<{ app: A } | Refus> {
@@ -60,7 +62,7 @@ export function deborde(cle: string, now: number, max = PAR_MINUTE): boolean {
 export type Demande = { subject_grant: string; audience: string; scope: string; motif?: string };
 
 export async function echanger(db: Db, app: AppPaire, d: Demande, env: NodeJS.ProcessEnv = process.env): Promise<{ jeton: string; tenantId: string; expiresIn: number; url: string } | Refus> {
-  const p = paireEntre(app, d.audience);
+  const p = pairePour(app, d.audience, d.scope);
   const portees = p ? porteesAccordees(p, d.scope) : null;
   if (!p || !portees) return { statut: 403, error: 'pair_not_allowed' };
   if (!paireServie(p, env, true)) return { statut: 403, error: 'target_not_served' };
@@ -83,18 +85,19 @@ export async function echanger(db: Db, app: AppPaire, d: Demande, env: NodeJS.Pr
     if (!m || m.deletedAt) return refuser('not_member');
   }
   if (t.status === 'suspended' || t.status === 'deleted') return refuser('tenant_suspended');
-  const i = await db.integrationPaire.findUnique({ where: { tenantId_paire: { tenantId: g.tenantId, paire: p.cle } } });
-  if (!i || i.etat !== 'allumee' || !i.consentiLe || i.portees !== empreintePortees(p)) return refuser('integration_off');
+  if (!(await liaisonActive(db, p, g.tenantId))) return refuser('integration_off');
   if (deborde(`${app}:${g.tenantId}`, Date.now())) return { statut: 429, error: 'rate_limited', retryAfterS: 60 };
 
   const cibleMcp = await db.mcpApp.findUnique({ where: { appKey: CLE_MCP[p.cible] }, select: { mcpUrl: true, enabled: true, acces: true } });
   if (!cibleMcp?.enabled) return { statut: 503, error: 'target_not_registered' };
   // Une app réservée, que l'utilisateur n'a pas : la délégation ne l'y fait pas entrer.
-  if (cibleMcp.acces !== 'tous' && !(await db.tenantApp.findFirst({ where: { userId: g.hubUserId, appKey: CLE_MCP[p.cible], enabled: true }, select: { appKey: true } }))) return refuser('app_not_open');
+  const aLui = async () => Boolean(await db.tenantApp.findFirst({ where: { userId: g.hubUserId, appKey: CLE_MCP[p.cible], enabled: true }, select: { appKey: true } }));
+  const parOrg = async () => (await appsParOrganisation(db, g.hubUserId, g.tenantId)).has(CLE_MCP[p.cible] as never);
+  if (cibleMcp.acces !== 'tous' && !(await aLui()) && !(await parOrg())) return refuser('app_not_open');
   const url = adresseAction(p.cible, cibleMcp.mcpUrl);
   const jti = randomUUID();
   const jeton = await signerAction({ audience: url, hubUserId: g.hubUserId, email: u.email, tenantId: g.tenantId, app, scope: portees, jti, ttlS: TTL_ACTION_S }, env);
-  await db.integrationPaire.updateMany({ where: { tenantId: g.tenantId, paire: p.cle }, data: { dernierPassage: new Date(), derniereErreur: null } }).catch(() => undefined);
+  await noterPassage(db, p, g.tenantId).catch(() => undefined);
   // Ni données ni poignée : qui, quelle paire, quel jeton, pourquoi.
   await writeAuditLog(db as PrismaClient, { action: 'delegation.jeton', actor: `app:${app}`, targetType: 'tenant', targetId: g.tenantId, payload: { hub_user_id: g.hubUserId, paire: p.cle, scope: portees, jti, motif: (d.motif ?? '').slice(0, 80) } });
   return { jeton, tenantId: g.tenantId, expiresIn: TTL_ACTION_S, url };
@@ -105,5 +108,5 @@ export async function etatDesPaires(db: Db, app: AppPaire, grant: string, env: N
   const g = await db.delegationGrant.findUnique({ where: { empreinte: empreinte(grant) } });
   if (!g || g.app !== app || g.revoqueLe || g.expireLe <= new Date()) return { statut: 403, error: 'grant_invalid' };
   const l = await listerIntegrations(db, g.tenantId, env);
-  return { tenantId: g.tenantId, paires: l.filter((x) => x.source === app).map((x) => ({ audience: x.cible, etat: x.etat, portees: paireEntre(app, x.cible)!.portees })) };
+  return { tenantId: g.tenantId, paires: l.filter((x) => x.source === app).map((x) => ({ audience: x.cible, etat: x.etat, portees: trouverPaire(x.paire)!.portees })) };
 }

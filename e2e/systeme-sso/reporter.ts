@@ -7,6 +7,8 @@ import path from 'node:path';
 
 import type { FullResult, Reporter, TestCase, TestResult } from '@playwright/test/reporter';
 
+import { masquer } from './lib/cibles';
+
 type Ligne = { etat: string; app: string; cas: string; detail: string; version: string; ms: number };
 
 const ICONE: Record<string, string> = {
@@ -32,7 +34,7 @@ class TroisEtats implements Reporter {
       etat,
       app: a('app')[0] ?? 'hub',
       cas: a('cas')[0] ?? test.title,
-      detail: brut.replace(/\u001b\[[0-9;]*m/g, '').slice(0, 400),
+      detail: masquer(brut).replace(/\u001b\[[0-9;]*m/g, '').slice(0, 400),
       version: a('version')[0] ?? '',
       ms: result.duration,
     });

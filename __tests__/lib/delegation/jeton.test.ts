@@ -111,7 +111,7 @@ describe('echanger', () => {
     ['portée hors paire', 'pair_not_allowed', () => {}, { scope: 'crm:societe.supprimer' }],
     ['portée complète', 'pair_not_allowed', () => {}, { scope: 'veridian' }],
     ['cible non servie', 'target_not_served', () => {}, { audience: 'notifuse', scope: 'notifuse:contacts.ecrire' }],
-    ['un événement n\'a pas de poignée d\'utilisateur', 'target_not_served', () => {}, { scope: 'crm:tache.ecrire' }, 'notifuse'],
+    ['un événement n\'a pas de poignée d\'utilisateur', 'pair_not_allowed', () => {}, { scope: 'crm:tache.ecrire' }, 'notifuse'],
     ['poignée d\'une autre app', 'grant_invalid', () => { db.delegationGrant.lignes[0].app = 'notifuse'; }],
     ['source sans appelant', 'target_not_served', () => { ENV = { ...ENV, DELEGATION_CIBLES: 'crm,notifuse' }; }, { audience: 'notifuse', scope: 'notifuse:contacts.ecrire' }, 'crm'],
     ['poignée inventée', 'grant_invalid', () => {}, { subject_grant: 'x'.repeat(43) }],
@@ -140,6 +140,15 @@ describe('echanger', () => {
     expect(await demander()).toEqual({ statut: 403, error: 'app_not_open' });
     db.tenantApp.lignes[0].enabled = true;
     expect('jeton' in (await demander())).toBe(true);
+  });
+  it('app réservée ouverte par CETTE organisation (option A) : la délégation y entre ; par une autre seulement : non', async () => {
+    db.mcpApp.lignes[0].acces = 'tenant_app';
+    const t = db.delegationGrant.lignes[0].tenantId;
+    const d = db as any;
+    d.organisation = { findUnique: async () => null, findMany: async ({ where }: any) => (where.tenantId.in.includes(t) ? [{ modules: ['crm'] }] : []) };
+    expect('jeton' in (await demander())).toBe(true);
+    d.organisation = { findUnique: async () => null, findMany: async ({ where }: any) => (where.tenantId.in.includes('une-autre') ? [{ modules: ['crm'] }] : []) };
+    expect(await demander()).toEqual({ statut: 403, error: 'app_not_open' });
   });
   it('cible absente du registre MCP : 503', async () => {
     db.mcpApp.lignes[0].enabled = false;

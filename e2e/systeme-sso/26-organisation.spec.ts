@@ -9,8 +9,9 @@ import { expect } from '@playwright/test';
 
 import { APP_URL, HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
-import { admin, adminOk, lookup } from './lib/hub-admin';
-import { creerCompteProuve, type Compte } from './lib/parcours';
+import { activerTwentyAuHub, admin, adminOk, lookup } from './lib/hub-admin';
+import { obtenirJetonMcp, outil } from './lib/mcp';
+import { creerCompteProuve, noterEspaceTwenty, ouvrirApp, type Compte } from './lib/parcours';
 
 /** Un PNG rouge de 8 x 8 fabriqué ici (une image en base64 ressemble à un secret), avec un commentaire qui ne doit pas survivre au réencodage. */
 const bloc = (type: string, d: Buffer) => {
@@ -34,6 +35,9 @@ cas(null, 'organisation : réglée une fois au Hub, reçue et relue par l\'app, 
   const M: Compte = await creerCompteProuve(browser, 'orgmembre');
   const T = (await lookup(P.email)).json?.tenants?.[0];
   if (!T) throw new NonAbouti('compte de test sans tenant');
+  // L'espace CRM du propriétaire : le récepteur du CRM ne crée rien, il règle un espace ouvert (VER-252).
+  await activerTwentyAuHub(P.email);
+  noterEspaceTwenty(P.email, T.id);
 
   // 1. L'écran, par le propriétaire.
   const ctx = await browser.newContext({ storageState: P.etat as never });
@@ -69,19 +73,25 @@ cas(null, 'organisation : réglée une fois au Hub, reçue et relue par l\'app, 
   }
 
   // 3. Une app cochée reçoit et relit.
-  const modules = process.env.SSO_SABOTAGE === 'organisation' ? [] : ['prospection'];
+  const modules = process.env.SSO_SABOTAGE === 'organisation' ? [] : ['prospection', 'crm'];
   const coche = await admin<{ emissions: Emission[] }>('PUT', `organisations/${T.id}`, { modules });
-  expect([coche.status, coche.json.emissions.map((e) => [e.app, e.etat])], JSON.stringify(coche.json).slice(0, 300)).toEqual([200, [['prospection', 'applique']]]);
+  expect([coche.status, coche.json.emissions.map((e) => [e.app, e.etat])], JSON.stringify(coche.json).slice(0, 300)).toEqual([200, [['prospection', 'applique'], ['crm', 'applique']]]);
   const d = await adminOk<{ document: { version: number; nom: string; type: string; marque: { couleur_primaire: string } }; emissions: Emission[] }>('GET', `organisations/${T.id}`);
   expect([d.document.nom, d.document.type, d.document.marque.couleur_primaire], 'rien de « pirate »').toEqual(['TEST organisation', 'organisation', '#0B5FFF']);
-  expect(d.emissions.map((e) => e.a_jour)).toEqual([true]);
+  expect(d.emissions.map((e) => [e.app, e.a_jour]).sort(), 'chaque app sert la version du Hub, logo compris').toEqual([['crm', true], ['prospection', true]]);
 
   // 4. Un membre ajouté au Hub part aussitôt, la version monte.
   const ajout = await admin<{ organisation?: Emission[] }>('POST', `tenants/${T.id}/members`, { hub_user_id: M.hubUserId });
-  expect(ajout.json.organisation?.map((e) => [e.app, e.etat]), JSON.stringify(ajout.json).slice(0, 300)).toEqual([['prospection', 'applique']]);
+  expect(ajout.json.organisation?.map((e) => [e.app, e.etat]), JSON.stringify(ajout.json).slice(0, 300)).toEqual([['prospection', 'applique'], ['crm', 'applique']]);
   const apres = await adminOk<{ document: { version: number; membres: { hub_user_id: string }[] } }>('GET', `organisations/${T.id}`);
   expect(apres.document.version).toBeGreaterThan(d.document.version);
   expect(apres.document.membres.map((x) => x.hub_user_id).sort()).toEqual([P.hubUserId, M.hubUserId].sort());
+  // Le membre ajouté est dans l'espace CRM, vu par LUI, par la porte MCP ; il y voit le propriétaire.
+  // Le membre n'a JAMAIS été activé au CRM : c'est l'organisation, qui l'a coché, qui le lui ouvre (option A).
+  const jetonM = await obtenirJetonMcp(browser, M, 'TEST ORGANISATION');
+  const vusCrm = (await outil(jetonM, 'executer_outil', { nom: 'twenty.api_lire', arguments: { query: 'query { workspaceMembers(first: 10) { edges { node { id userEmail } } } }' }, espace: T.slug })).texte;
+  expect([vusCrm.includes(M.email.toLowerCase()), vusCrm.includes(P.email.toLowerCase())], `${vusCrm.slice(0, 200)} ; outils : ${(await outil(jetonM, 'chercher_outils', { besoin: 'lire les sociétés', app: 'twenty' })).texte.slice(0, 500)}`).toEqual([true, true]);
+
   // 5. Le membre, qui a aussi son propre espace, choisit l'organisation au Hub et arrive DEDANS dans l'app. La preuve d'arrivée : le cookie
   // d'espace que l'app pose (veridian-espace), différent avec et sans le choix.
   const ctxA = await browser.newContext({ storageState: M.etat as never });
@@ -110,5 +120,24 @@ cas(null, 'organisation : réglée une fois au Hub, reçue et relue par l\'app, 
     await ctxA.close();
   }
   expect(avec.c, `espace d'arrivée sans choix ${sans.c}, avec choix ${avec.c}, nom affiché ${avec.dedans}`).not.toBe(sans.c);
-  return `réglée à l'écran, logo servi en PNG, Prospection relue à la version ${apres.document.version}, membre parti avec, arrivée dans l'organisation choisie (nom affiché : ${avec.dedans})`;
-}, { timeout: 300_000 });
+  // Le logo et le nom tels que le CRM les sert, sans session (CRM, 25/11).
+  const ctxCrm = await browser.newContext({ storageState: P.etat as never });
+  const hoteCrm = await ouvrirApp(ctxCrm, 'twenty').then((x) => new URL(x.url).origin).finally(() => ctxCrm.close());
+  const pub = (await (await fetch(`${hoteCrm}/metadata`, { method: 'POST', headers: { 'content-type': 'application/json', origin: hoteCrm }, body: JSON.stringify({ query: 'query($o:String!){getPublicWorkspaceDataByDomain(origin:$o){displayName logo}}', variables: { o: hoteCrm } }) })).json().catch(() => null)) as { data?: { getPublicWorkspaceDataByDomain?: { displayName?: string; logo?: string } } } | null;
+  const espaceCrm = pub?.data?.getPublicWorkspaceDataByDomain;
+  expect([espaceCrm?.displayName, Boolean(espaceCrm?.logo)], JSON.stringify(pub).slice(0, 300)).toEqual(['TEST organisation', true]);
+  const logoCrm = await fetch(new URL(espaceCrm!.logo!, hoteCrm));
+  expect([logoCrm.status, logoCrm.headers.get('content-type')], espaceCrm!.logo!.slice(0, 120)).toEqual([200, 'image/png']);
+
+  // Suspendue, reprise, puis retiré : fermé au Hub (porte MCP, rebond, jetons) ET dans le CRM (VER-254). La session et la clé : cas 34.
+  const appsDeM = async () => (JSON.parse((await outil(jetonM, 'chercher_outils', { besoin: 'lire les sociétés', app: 'twenty' })).texte) as { apps: string[] }).apps.includes('twenty');
+  expect(await appsDeM(), 'contrôle positif').toBe(true);
+  const crm = async (suspendre: boolean) => (await admin<{ apps: { app: string; etat: string }[] }>('POST', `tenants/${T.id}/suspension`, { suspendre, motif: 'TEST' })).json.apps?.find((x) => x.app === 'crm')?.etat;
+  expect(await crm(true), 'fermé dans le CRM').toBe('suspendu');
+  expect(await appsDeM(), 'suspendue : fermé au Hub').toBe(false);
+  expect(await crm(false), 'rouvert dans le CRM').toBe('repris');
+  expect(await appsDeM(), 'reprise').toBe(true);
+  await admin('POST', `tenants/${T.id}/remove-member`, { hub_user_id: M.hubUserId });
+  expect(await appsDeM(), 'retiré').toBe(false);
+  return `réglée à l'écran, logo servi en PNG, Prospection et CRM relus à la version ${apres.document.version}, membre parti avec, arrivée dans l'organisation choisie (nom affiché : ${avec.dedans}) ; nom et logo servis par le CRM ; CRM ouvert au membre par l'organisation, refermé au Hub et dans le CRM suspendue, au Hub retiré`;
+}, { timeout: 480_000 });

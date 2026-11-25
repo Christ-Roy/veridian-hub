@@ -17,6 +17,7 @@
 
 import type { PrismaClient } from '@prisma/client';
 
+import { normaliserEmail } from '@/lib/auth/email-normalize';
 import { providerProvesEmail } from '@/lib/auth/email-proof-provider';
 
 /** Page qui explique en français pourquoi la connexion OAuth est refusée (D1). */
@@ -28,6 +29,9 @@ export const PREUVE_REQUISE_PATH = '/auth/preuve-requise';
 /** Fournisseurs OAuth dont la ligne `account` peut être liée à un compte existant. */
 const FOURNISSEURS_OAUTH_LIENS = new Set(['google', 'microsoft-entra-id', 'mock-oauth']);
 
+/** Page qui explique qu'on se connecte par l'adresse principale (S1b). */
+export const ADRESSE_SECONDAIRE_PATH = '/auth/adresse-secondaire';
+
 type SignInUser = {
   id?: string | null;
   email?: string | null;
@@ -37,7 +41,7 @@ type SignInUser = {
 
 export type SignInDeps = {
   /** Prisma client minimal (mockable) */
-  prisma: Pick<PrismaClient, 'user' | 'account'>;
+  prisma: Pick<PrismaClient, 'user' | 'account'> & Partial<Pick<PrismaClient, 'userEmail'>>;
   /** Sender MFA email (mockable) */
   issueAndSendMfaCode: (input: { id: string; email: string }) => Promise<unknown>;
   /** Enregistre une preuve fournisseur (annule un mot de passe non prouvé). */
@@ -93,6 +97,8 @@ export function createSignInCallback({
         logger.error('[auth] création de compte refusée : adresse non prouvée par le fournisseur', { provider });
         return PREUVE_REQUISE_PATH;
       }
+      // L'adresse secondaire de quelqu'un (S1b) : ni compte neuf, ni entrée dans le sien. Il se connecte par son adresse principale.
+      if (await prisma.userEmail?.findFirst({ where: { email: normaliserEmail(user.email), detacheeLe: null }, select: { userId: true } })) return ADRESSE_SECONDAIRE_PATH;
       // Fournisseur qui prouve (Google vérifié, Entra xms_edov, One Tap) : le PrismaAdapter crée le compte.
       return true;
     }

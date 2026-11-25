@@ -4,6 +4,8 @@ import { z } from 'zod';
 
 import { writeAuditLog } from '@/lib/admin/audit-log';
 
+import { RESERVEES, rouvrir } from './acces';
+import { retirerVenus, type Retrait } from './decocher';
 import { COULEUR, MODULES, TYPES } from './document';
 import { emettreOrganisation, type Emission } from './emission';
 import { reencoderLogo } from './logo';
@@ -19,9 +21,9 @@ export const Reglage = z.object({
 }).strict();
 export type Reglage = z.infer<typeof Reglage>;
 
-type Db = Pick<PrismaClient, 'organisation' | 'organisationEmission' | 'tenant' | 'tenantMember' | 'user' | 'auditLog'>;
+type Db = Pick<PrismaClient, 'organisation' | 'organisationEmission' | 'organisationAcces' | 'tenant' | 'tenantMember' | 'user' | 'auditLog'>;
 type Deps = Parameters<typeof emettreOrganisation>[2];
-export type Issue = { emissions: Emission[] } | { refus: 'tenant_introuvable' | 'trop_gros' | 'format_refuse' };
+export type Issue = { emissions: Emission[]; /** Sortis d'une app réservée décochée (decocher.ts). */ retraits: Retrait[] } | { refus: 'tenant_introuvable' | 'trop_gros' | 'format_refuse' };
 
 export async function reglerOrganisation(db: Db, d: { tenantId: string; reglage: Reglage; logo?: Buffer | null; acteur: string }, deps: Deps = {}): Promise<Issue> {
   const t = await db.tenant.findFirst({ where: { id: d.tenantId, deletedAt: null }, select: { id: true } });
@@ -40,7 +42,11 @@ export async function reglerOrganisation(db: Db, d: { tenantId: string; reglage:
     majLe: new Date(),
     majPar: d.acteur.slice(0, 200),
   };
+  const avant = (await db.organisation.findUnique({ where: { tenantId: d.tenantId }, select: { modules: true } }))?.modules ?? [];
   await db.organisation.upsert({ where: { tenantId: d.tenantId }, create: { tenantId: d.tenantId, ...data }, update: data });
   await writeAuditLog(db as PrismaClient, { action: 'organisation.reglee', actor: d.acteur, targetType: 'tenant', targetId: d.tenantId, payload: { champs: Object.keys(r), logo: l ? l.empreinte : d.logo === null ? 'retire' : undefined } });
-  return { emissions: await emettreOrganisation(db, d.tenantId, deps) };
+  const modules = data.modules ?? avant;
+  for (const app of RESERVEES) if (modules.includes(app) && !avant.includes(app)) await rouvrir(db, d.tenantId, app);
+  const retraits = await retirerVenus(db, d.tenantId, modules, d.acteur, deps);
+  return { emissions: await emettreOrganisation(db, d.tenantId, deps), retraits };
 }

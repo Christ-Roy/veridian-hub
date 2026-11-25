@@ -226,6 +226,17 @@ const claims = async (f: ReturnType<typeof appFactice>) => {
 };
 
 describe('espace (tenant_id signé)', () => {
+  it('une app réservée cochée par une organisation s\'appelle par la porte, pour son membre vivant seulement', async () => {
+    db.tenantApp.lignes.length = 0;
+    (db as any).mcpApp.lignes[0].appKey = 'twenty';
+    const lire = (db as any).tenant.findMany;
+    (db as any).tenant.findMany = async (q: any) => (q.where.OR ? [{ id: 't1' }] : lire(q));
+    (db as any).organisation = { findMany: async ({ where }: any) => (where.tenantId.in.includes('t1') ? [{ modules: ['crm'] }] : []) };
+    const apps = async () => json(await appel('chercher_outils', { besoin: 'visites' }, appFactice())).apps;
+    expect(await apps()).toContain('twenty');
+    (db as any).organisation.findMany = async () => [{ modules: ['prospection'] }];
+    expect(await apps()).not.toContain('twenty');
+  });
   it('un seul espace, non choisi : rien n\'est signé (l\'app prend son espace par défaut)', async () => {
     const f = appFactice();
     await appel('executer_outil', { nom: 'analytics.visites_du_site' }, f);
@@ -377,6 +388,10 @@ describe('liaisons entre apps (VER-245 b.2)', () => {
     await (db as any).tenantMember.create({ data: { tenantId: 't6', userId: HUB_USER, role, deletedAt: null } });
   };
 
+  it('l\'IA sait qu\'elles sont actives par défaut, et qu\'une coupure tient', async () => {
+    const t = JSON.stringify(await appel('chercher_outils', { besoin: 'liaisons entre apps', app: 'hub' }, appFactice()));
+    expect(t).toContain('Actives par défaut');
+  });
   it('lister : le seul espace qu\'on a, ou celui qu\'on nomme ; jamais un espace étranger', async () => {
     expect(json(await appel('executer_outil', { nom: 'hub.integrations_lister' }, appFactice())).espace).toBe('mon-espace');
     await autre('member');
@@ -450,6 +465,13 @@ describe('executer_programme', () => {
     expect([refus.result.isError, /qu'au Hub/.test(refus.result.content[0].text)]).toEqual([true, true]);
     expect((await direct('analytics.update_site_config')).result.isError ?? false, 'les réglages restent possibles en direct').toBe(false);
     expect(joues()).toEqual(['creer_objectif', 'update_site_config']);
+  });
+  it('un service extérieur ne se joue jamais depuis un programme, même nommé', async () => {
+    const f = appFactice({ outils: [{ name: 'chercher', description: 'x', inputSchema: { type: 'object' }, annotations: { readOnlyHint: true } }] });
+    const avec = { ...db, connexionExterne: { findMany: async () => [{ connecteur: 'notion' }], findUnique: async () => null } };
+    const r: any = await traiter(avec as never, QUI, { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'executer_programme', arguments: { code: 'x', autoriser: ['notion.chercher'] } } }, { fetchImpl: f.fetchImpl, programme: true, ouvrirMoteur: moteur([{ nom: 'notion.chercher' }]) });
+    expect(f.recus.filter((x) => x.corps.method === 'tools/call')).toEqual([]);
+    expect(JSON.stringify(r)).toMatch(/recues/);
   });
   it('offert seulement quand le moteur est configuré ; sinon trois outils et refus', async () => {
     const r: any = await traiter(db as never, QUI, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, { programme: true, ouvrirMoteur: moteur([]) });

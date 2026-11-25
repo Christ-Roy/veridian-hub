@@ -2,7 +2,8 @@
 import { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const m = vi.hoisted(() => ({ pret: vi.fn(), demarrer: vi.fn() }));
+const m = vi.hoisted(() => ({ pret: vi.fn(), demarrer: vi.fn(), auth: vi.fn() }));
+vi.mock('@/auth', () => ({ auth: () => m.auth() }));
 vi.mock('@/lib/prisma', () => ({ prisma: {} }));
 vi.mock('@/lib/federation/idp', () => ({ idpPret: (...a: unknown[]) => m.pret(...a) }));
 vi.mock('@/lib/federation/oidc', async (o) => ({ ...(await o<object>()), demarrer: (...a: unknown[]) => m.demarrer(...a) }));
@@ -12,12 +13,13 @@ import { GET } from '@/app/connexion/[slug]/route';
 
 let ip = 0;
 const aller = (slug: string, meme?: string) => GET(new NextRequest('https://0.0.0.0/x', { headers: { 'x-forwarded-for': meme ?? `203.0.113.${++ip}` } }), { params: Promise.resolve({ slug }) });
-beforeEach(() => { vi.clearAllMocks(); m.pret.mockResolvedValue({ id: 'i1' }); m.demarrer.mockResolvedValue({ url: 'https://idp.client.fr/authorize?x=1', cookie: 'scelle' }); });
+beforeEach(() => { vi.clearAllMocks(); m.auth.mockResolvedValue(null); m.pret.mockResolvedValue({ id: 'i1', tenantId: 'T' }); m.demarrer.mockResolvedValue({ url: 'https://idp.client.fr/authorize?x=1', cookie: 'scelle' }); });
 
 describe('GET /connexion/[slug]', () => {
   it('vers le fournisseur, transaction dans un cookie HttpOnly, Secure, Lax, borné au retour et à 10 min', async () => {
     const r = await aller('client');
     expect([r.status, r.headers.get('location'), m.demarrer.mock.calls[0][1]]).toEqual([303, 'https://idp.client.fr/authorize?x=1', 'https://app.veridian.site/api/auth/federation/callback']);
+    expect(r.headers.get('set-cookie')).toMatch(/veridian-porte-pause=1;/);
     expect(r.headers.get('set-cookie')).toMatch(/veridian-federation=scelle; Path=\/api\/auth\/federation\/callback;.*Max-Age=600;.*Secure; HttpOnly; SameSite=lax/i);
   });
   it('sans fournisseur, inconnue ou slug invalide : la connexion habituelle, même réponse, aucun cookie', async () => {
@@ -31,6 +33,14 @@ describe('GET /connexion/[slug]', () => {
     m.demarrer.mockRejectedValue(new Error('ECONNREFUSED 10.0.0.1'));
     const l = (await aller('client')).headers.get('location');
     expect(l).toBe('https://app.veridian.site/auth/federation?code=fournisseur_injoignable');
+  });
+  it('déjà entrée par CETTE organisation : droit au tableau de bord ; par une autre, ou session ordinaire : chez le fournisseur', async () => {
+    m.auth.mockResolvedValue({ user: { federe: true, federeOrg: 'T' } });
+    expect((await aller('client')).headers.get('location')).toBe('https://app.veridian.site/dashboard');
+    for (const user of [{ federe: true, federeOrg: 'AUTRE' }, {}]) {
+      m.auth.mockResolvedValue({ user });
+      expect((await aller('client')).headers.get('location')).toContain('idp.client.fr');
+    }
   });
   it('débit borné par adresse', async () => {
     const s: number[] = [];

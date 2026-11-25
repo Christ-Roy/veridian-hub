@@ -2,7 +2,7 @@ import { createHmac } from 'node:crypto';
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { empreintePortees, paireEntre } from '@/lib/delegation/paires';
+import { empreintePortees, paire } from '@/lib/delegation/paires';
 import { poserAbonnement } from '@/lib/evenements/abonnement';
 import { recevoirNotifuse } from '@/lib/evenements/notifuse';
 
@@ -20,7 +20,7 @@ beforeEach(async () => {
   crm = vi.fn(async () => new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: '{"ok":true,"rejoue":false}' }] } }), { headers: { 'content-type': 'application/json' } }));
   await db.tenant.create({ data: { id: 'T', userId: 'u', status: 'active', deletedAt: null, metadata: null } });
   await db.mcpApp.create({ data: { appKey: 'twenty', mcpUrl: 'https://crm.test/mcp', enabled: true } });
-  await db.integrationPaire.create({ data: { tenantId: 'T', paire: 'notifuse>crm', etat: 'allumee', consentiLe: new Date(), portees: empreintePortees(paireEntre('notifuse', 'crm')!) } });
+  await db.integrationPaire.create({ data: { tenantId: 'T', paire: 'notifuse>crm', etat: 'allumee', consentiLe: new Date(), portees: empreintePortees(paire('notifuse>crm')!) } });
   await poserAbonnement(db as never, { tenantId: 'T', source: 'notifuse', cleExterne: 'ws1', secret: SECRET }, env);
 });
 
@@ -42,6 +42,14 @@ describe('recevoirNotifuse', () => {
     expect(crm).toHaveBeenCalledTimes(1);
     expect(db.integrationPaire.lignes[0]).toMatchObject({ derniereErreur: null });
     expect(db.integrationPaire.lignes[0].dernierPassage).toBeInstanceOf(Date);
+  });
+  it('organisation neuve, sans réglage : active par défaut, le passage se garde ; existante : rien', async () => {
+    db.integrationPaire.lignes.length = 0;
+    Object.assign(db.tenant.lignes[0], { notifuseWorkspaceSlug: 'ws1', metadata: { crm: { workspace_id: 'w' } }, createdAt: new Date('2026-06-01') });
+    expect(await envoyer(evt('d0'))).toMatchObject({ corps: { raison: 'paire_eteinte' } });
+    db.tenant.lignes[0].createdAt = new Date('2026-11-26T08:00:00Z');
+    expect(await envoyer(evt('d1'))).toMatchObject({ statut: 200, corps: { effet: 'cree' } });
+    expect(db.integrationPaire.lignes[0]).toMatchObject({ etat: 'defaut', dernierPassage: expect.any(Date) });
   });
   it('le CRM n\'a rien à faire (ignore) ou l\'a déjà (rejoue) : succès, pas d\'écriture comptée, et l\'événement ne revient pas', async () => {
     const rendre = (o: object) => crm.mockResolvedValueOnce(new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: JSON.stringify(o) }] } }), { headers: { 'content-type': 'application/json' } }));
@@ -91,7 +99,7 @@ describe('recevoirNotifuse', () => {
     db.integrationPaire.lignes[0].etat = 'allumee';
     db.integrationPaire.lignes[0].portees = 'ancienne';
     expect(await envoyer(evt('d'))).toMatchObject({ corps: { raison: 'paire_eteinte' } });
-    db.integrationPaire.lignes[0].portees = empreintePortees(paireEntre('notifuse', 'crm')!);
+    db.integrationPaire.lignes[0].portees = empreintePortees(paire('notifuse>crm')!);
     db.tenant.lignes[0].status = 'suspended';
     expect(await envoyer(evt('e'))).toMatchObject({ corps: { raison: 'organisation_inactive' } });
     db.tenant.lignes[0].status = 'active';

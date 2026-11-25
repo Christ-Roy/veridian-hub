@@ -19,6 +19,8 @@ import type {
   UserOnboardingRecord
 } from '@/components/onboarding/qualification/types';
 
+import { LienExpire } from './LienExpire';
+
 type Phase = 'activation' | 'qualification';
 
 const INITIAL_STEPS: OnboardingStep[] = [
@@ -236,6 +238,8 @@ export function OnboardClient({
       />
     );
   }
+
+  if (state === 'token-expire') return <LienExpire token={token} />;
 
   return (
     <OnboardingScreen

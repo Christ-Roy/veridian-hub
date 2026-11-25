@@ -481,10 +481,20 @@ describe('POST /api/invitations/[token]/accept', () => {
     let capturedHubUserId: string | undefined;
     attachStub = async (input: any) => {
       capturedHubUserId = input.hubUserId;
+      expect(input.emailProven, 'adresse non prouvée en base').toBe(false);
       return { status: 'pending', reason: 'endpoint_not_found', httpStatus: 404 };
     };
     await callRoute(validToken, makeReq());
     expect(capturedHubUserId).toBe(realUuid);
     expect(capturedHubUserId).not.toBe(sessionUser?.id);
+  });
+
+  it('adresse prouvée en base : dite à l\'app, qui ne relie un compte sans lien que sur elle', async () => {
+    const { prisma } = await import('@/lib/prisma');
+    (prisma.user.findUnique as any).mockResolvedValueOnce({ supabaseUserId: '22222222-2222-4222-8222-222222222222', emailVerified: new Date() });
+    let vu: unknown;
+    attachStub = async (input: any) => { vu = input.emailProven; return { status: 'pending', reason: 'endpoint_not_found', httpStatus: 404 }; };
+    await callRoute(validToken, makeReq());
+    expect(vu).toBe(true);
   });
 });

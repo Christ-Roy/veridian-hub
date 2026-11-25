@@ -13,7 +13,7 @@
  *     (encode/@auth/core), donc indistinguable d'un login normal côté
  *     middleware — sauf qu'elle porte deux claims supplémentaires :
  *       - `impersonated: true`
- *       - `impersonatedBy: <email admin>`
+ *       - `impersonatedBy: <hub_user_id de l'administrateur>` et `empruntId` (la ligne du journal)
  *  4. Anti-ré-impersonation : `isImpersonatedSession()` lit ces claims.
  *     Les routes admin (impersonate-set, /api/admin/*) refusent toute
  *     session marquée `impersonated` → un user impersoné ne peut pas
@@ -41,21 +41,17 @@ export const IMPERSONATION_IDENTIFIER_PREFIX = 'impersonate:';
 /** TTL du token impersonate à usage unique : 10 minutes. */
 export const IMPERSONATION_TOKEN_TTL_MS = 10 * 60 * 1000;
 
-/**
- * Durée de vie de la session JWT issue d'une impersonation : 1 heure.
- *
- * Volontairement BIEN plus courte que la session normale (90j, cf.
- * auth.config.ts). Une impersonation est une action de support ponctuelle ;
- * une session admin-as-user ne doit pas traîner indéfiniment.
- */
-export const IMPERSONATION_SESSION_TTL_S = 60 * 60;
+export { IMPERSONATION_SESSION_TTL_S, impersonationExpiree, empruntRetire } from './emprunt-bornes';
+import { IMPERSONATION_SESSION_TTL_S } from './emprunt-bornes';
 
 /** Claims ajoutés au JWT d'une session impersonée. */
 export type ImpersonationClaims = {
   /** Toujours `true` sur une session issue d'une impersonation. */
   impersonated: true;
-  /** Email du platform admin qui a déclenché l'impersonation (audit + UI bannière). */
+  /** Qui emprunte : `hub_user_id` de l'administrateur, ou `PAR_CLE` (outil `hub`, sans personne connue). */
   impersonatedBy: string;
+  /** Ligne du journal qui porte cet emprunt (qui, chez qui, pourquoi). */
+  empruntId: string;
 };
 
 /**
@@ -114,10 +110,12 @@ export type CreatedImpersonationToken = {
  *
  * @param prisma  Client Prisma.
  * @param targetUserId  `User.id` (cuid) de l'utilisateur à impersoner.
+ * @param empruntId  Ligne du journal écrite AVANT : sans trace, pas de lien.
  */
 export async function createImpersonationToken(
   prisma: PrismaClient,
-  targetUserId: string
+  targetUserId: string,
+  empruntId: string
 ): Promise<CreatedImpersonationToken> {
   const rawToken = randomBytes(32).toString('hex');
   const tokenHash = hashImpersonationToken(rawToken);
@@ -125,7 +123,7 @@ export async function createImpersonationToken(
 
   await prisma.verificationToken.create({
     data: {
-      identifier: `${IMPERSONATION_IDENTIFIER_PREFIX}${targetUserId}`,
+      identifier: `${IMPERSONATION_IDENTIFIER_PREFIX}${targetUserId}:${empruntId}`,
       token: tokenHash,
       expires,
     },
@@ -135,7 +133,7 @@ export async function createImpersonationToken(
 }
 
 export type ConsumeResult =
-  | { ok: true; targetUserId: string }
+  | { ok: true; targetUserId: string; empruntId: string }
   | { ok: false; reason: 'not_found' | 'expired' };
 
 /**
@@ -178,8 +176,9 @@ export async function consumeImpersonationToken(
     return { ok: false, reason: 'expired' };
   }
 
-  const targetUserId = row.identifier.slice(IMPERSONATION_IDENTIFIER_PREFIX.length);
-  return { ok: true, targetUserId };
+  const [targetUserId, empruntId] = row.identifier.slice(IMPERSONATION_IDENTIFIER_PREFIX.length).split(':');
+  // Un lien d'avant VER-263 n'a pas de journal : il ne s'ouvre plus (il vivait dix minutes).
+  return targetUserId && empruntId ? { ok: true, targetUserId, empruntId } : { ok: false, reason: 'not_found' };
 }
 
 export type ImpersonationJwtUser = {
@@ -200,23 +199,10 @@ export type ImpersonationJwtUser = {
  *
  * @throws si `AUTH_SECRET` est absent — refus catégorique, pas de fallback.
  */
-/**
- * Une session impersonée tombe une heure après son début réel (`authAt`), même si Auth.js
- * re-signe le jeton à chaque lecture avec une durée d'un an (D5). Sans `authAt` : expirée
- * (échec fermé).
- */
-export function impersonationExpiree(
-  token: { impersonated?: unknown; authAt?: unknown },
-  nowS: number = Math.floor(Date.now() / 1000),
-): boolean {
-  if (token.impersonated !== true) return false;
-  if (typeof token.authAt !== 'number') return true;
-  return nowS - token.authAt > IMPERSONATION_SESSION_TTL_S;
-}
-
 export async function encodeImpersonationSessionJwt(params: {
   user: ImpersonationJwtUser;
   impersonatedBy: string;
+  empruntId: string;
   secret?: string;
   secure?: boolean;
 }): Promise<string> {
@@ -242,6 +228,7 @@ export async function encodeImpersonationSessionJwt(params: {
       picture: params.user.image ?? null,
       impersonated: true,
       impersonatedBy: params.impersonatedBy,
+      empruntId: params.empruntId,
     },
   });
 }

@@ -34,10 +34,19 @@ export async function denyIfImpersonated(): Promise<NextResponse | null> {
   );
 }
 
-/** Réponse de refus si la dernière connexion réelle est trop ancienne, sinon `null`. */
+/**
+ * Réponse de refus si la dernière connexion réelle est trop ancienne, sinon `null`. Un geste de COMPTE (mot de passe, adresse, 2FA) est aussi refusé à
+ * une session ouverte par le fournisseur d'une organisation (25/11) : son administrateur peut en ouvrir une, il prendrait le compte entier pour de bon.
+ */
 export async function denyUnlessRecentAuth(maxAgeS: number): Promise<NextResponse | null> {
   const session = await auth();
   if (session?.user?.impersonated === true) return null;
+  if (maxAgeS === PREUVE_COMPTE_S && session?.user?.federe === true) {
+    return NextResponse.json(
+      { error: 'session_federee', message: 'Pour cette action, connectez-vous avec votre propre connexion (mot de passe ou Google), pas par votre organisation.' },
+      { status: 403 },
+    );
+  }
   if (isAuthRecent(session?.user?.authAt, maxAgeS)) return null;
   return NextResponse.json(
     {

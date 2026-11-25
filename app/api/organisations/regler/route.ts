@@ -36,5 +36,5 @@ export async function POST(request: NextRequest) {
   const logo = fichier instanceof File && fichier.size > 0 ? Buffer.from(await fichier.arrayBuffer()) : f.get('retirer_logo') === '1' ? null : undefined;
   const r = await reglerOrganisation(prisma, { tenantId: id.data, reglage: c.data, logo, acteur: `user:${userUuid(user)}` });
   if ('refus' in r) return vers(r.refus);
-  return vers(r.emissions.every((e) => e.etat === 'applique') ? 'enregistre' : 'partiel');
+  return vers(r.emissions.every((e) => e.etat === 'applique') && r.retraits.every((x) => x.etat === 'retire' || x.etat === 'absent') ? 'enregistre' : 'partiel');
 }

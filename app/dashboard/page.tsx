@@ -5,6 +5,7 @@ import { TenantCard } from './components/TenantCard';
 import { ProspectionCard } from './components/ProspectionCard';
 import { ServiceCard } from './components/ServiceCard';
 import { ShadowAppCard } from './components/ShadowAppCard';
+import { OutilsOrganisation } from './components/OutilsOrganisation';
 import { OnboardingChecklist } from './components/OnboardingChecklist';
 import { DashboardPageHeader } from '@/components/dashboard/PageHeader';
 import { LayoutDashboard } from 'lucide-react';
@@ -12,6 +13,9 @@ import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
 import { APPS } from '@/lib/pricing/plans';
 import { getEnabledGatedApps } from '@/lib/tenant-apps';
+import { lienApp } from '@/lib/apps/lien-app';
+import { montrerInclusAvecSite } from '@/lib/apps/inclus-avec-site';
+import { organisationsSeules } from '@/lib/tenants/membre-seul';
 import { resolveAnalyticsCardTarget } from '@/lib/analytics/dashboard-target';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
@@ -25,7 +29,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
  *    -> reload + auto-open dans nouvel onglet.
  * 4. Clic "Open" sur une app déjà provisionnée :
  *    - Notifuse : magic link auto-login Hub→Notifuse
- *    - Prospection : login token one-shot
+ *    - Prospection : rebond signé du Hub
  */
 
 export default async function DashboardPage({
@@ -55,6 +59,18 @@ export default async function DashboardPage({
   const academyUrl = process.env.ACADEMY_API_URL;
   const isAcademyEnabled = enabledApps.has('academy') && !!academyUrl;
 
+  // Un salarié, sans espace à lui : les apps de son organisation, aucun essai à démarrer.
+  const organisations = await organisationsSeules(prisma, userUuid(user)).catch(() => []);
+  if (organisations.length > 0) {
+    return (
+      <div className="container mx-auto p-4 sm:p-6 lg:p-8 max-w-6xl">
+        <DashboardPageHeader title="Vos outils" description="Les applications ouvertes par votre organisation" icon={LayoutDashboard} className="mb-8" />
+        {!(await isEmailProvenForSession(user.id)) && user.email && <EmailProofBanner email={user.email} />}
+        <OutilsOrganisation organisations={organisations} academyActivee={isAcademyEnabled} />
+      </div>
+    );
+  }
+
   const tenant = await prisma.tenant.findFirst({
     where: { userId: userUuid(user), deletedAt: null },
     select: {
@@ -65,8 +81,6 @@ export default async function DashboardPage({
       notifuseInvitationSentAt: true,
       notifusePlan: true,
       prospectionProvisionedAt: true,
-      prospectionLoginToken: true,
-      prospectionLoginTokenCreatedAt: true,
       prospectionPlan: true,
       metadata: true,
     },
@@ -132,23 +146,7 @@ export default async function DashboardPage({
     isAnalyticsEnabled || hasLifetimeSiteVitrine || hasServiceAnalytics;
   const showActiveCms = isCmsEnabled || hasLifetimeSiteVitrine || hasServiceCms;
 
-  let prospectionTokenValid = false;
-  if (tenant?.prospectionLoginToken && tenant?.prospectionLoginTokenCreatedAt) {
-    const tokenAge =
-      new Date().getTime() -
-      new Date(tenant.prospectionLoginTokenCreatedAt).getTime();
-    const maxAge = 23 * 60 * 60 * 1000;
-    prospectionTokenValid = tokenAge < maxAge;
-  }
-
-  const prospectionBaseUrl =
-    process.env.NEXT_PUBLIC_PROSPECTION_URL ||
-    'https://saas-prospection.staging.veridian.site';
   const emailProven = await isEmailProvenForSession(user.id);
-  const prospectionLoginUrl = emailProven && tenant?.prospectionLoginToken
-    ? `${prospectionBaseUrl}/api/auth/token?t=${tenant.prospectionLoginToken}`
-    : null;
-
   // Cible de la carte Analytics. On demande à l'app d'analytics quels sites
   // CET email peut ouvrir, plutôt que de relire une URL figée au provisioning.
   // Un seul site → on y emmène le client directement ; plusieurs → la racine.
@@ -187,7 +185,6 @@ export default async function DashboardPage({
               <div>Tenant ID: {tenant.id}</div>
               <div>Notifuse workspace: {tenant.notifuseWorkspaceSlug || 'not configured'}</div>
               <div>Prospection: {tenant.prospectionProvisionedAt ? 'provisioned' : 'not provisioned'}</div>
-              <div>Prospection token valid: {prospectionTokenValid ? 'yes' : 'no/expired'}</div>
             </>
           )}
         </div>
@@ -210,8 +207,7 @@ export default async function DashboardPage({
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           <ProspectionCard
             configured={!!tenant?.prospectionProvisionedAt}
-            loginUrl={prospectionLoginUrl}
-            tokenValid={prospectionTokenValid}
+            url={lienApp('prospection')}
             plan={tenant?.prospectionPlan || 'freemium'}
           />
 
@@ -302,8 +298,8 @@ export default async function DashboardPage({
 
       {/* Section "Inclus avec votre site web" : uniquement les services pas
           encore activés (les actifs ont remonté dans "Vos outils"). Masquée
-          si tout est déjà activé. */}
-      {(!showActiveAnalytics || !showActiveCms) && (
+          si tout est déjà activé, et chez qui n'a pas de site (VER-105). */}
+      {montrerInclusAvecSite({ plan: hasLifetimeSiteVitrine, analytics: showActiveAnalytics, cms: showActiveCms }) && (
         <section className="mb-12">
           <div className="mb-4">
             <h2 className="text-2xl font-semibold tracking-tight">

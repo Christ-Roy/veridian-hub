@@ -12,6 +12,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { RechercheClient } from './clients/RechercheClient';
 import { ReconcileAuditCard } from './ReconcileAuditCard';
 
 export default async function AdminOverviewPage() {
@@ -53,10 +54,12 @@ export default async function AdminOverviewPage() {
   return (
     <div>
       <DashboardPageHeader
-        title="Overview plateforme"
+        title="Administration"
         icon={LayoutDashboard}
         className="mb-6"
       />
+
+      <RechercheClient className="mb-8" />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
         {cards.map((c) => (

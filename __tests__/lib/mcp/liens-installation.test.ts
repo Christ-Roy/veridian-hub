@@ -36,8 +36,9 @@ describe('liens « Ajouter à … » de la porte MCP', () => {
 });
 
 describe('ChatGPT', () => {
-  it('ouvre Paramètres → Plugins (pas /plugins seul, qui n\'ouvrait rien)', () => {
-    expect(L.chatgpt).toBe('https://chatgpt.com/#settings/Connectors');
+  it('ouvre la page Plugins, et l\'étape nomme les boutons de la doc d\'OpenAI (25/11)', () => {
+    expect(L.chatgpt).toBe('https://chatgpt.com/plugins');
+    for (const mot of ['chatgpt.com/plugins', 'Add custom MCP server', 'OAuth', 'Create as a plugin']) expect(L.instructions.chatgpt).toContain(mot);
   });
 });
 

@@ -220,7 +220,9 @@ HOSTNAME=0.0.0.0
 NEXT_TELEMETRY_DISABLED=1
 AUTH_TRUST_HOST=true
 DEPLOY_ENV=prod
-ADMIN_EMAILS=brunon5robert@gmail.com,robert.brunon@veridian.site
+# Administrateurs de plateforme, par hub_user_id (VER-263). L'autre ligne ne sert qu'aux rapports.
+PLATFORM_ADMINS=53245ae1-6bf8-4ec6-870f-32d75b7c0281
+ADRESSES_OPERATEUR=brunon5robert@gmail.com,robert.brunon@veridian.site
 
 AUTH_URL=https://app.veridian.site
 NEXTAUTH_URL=https://app.veridian.site
@@ -266,9 +268,11 @@ ROLE_PORTE=
 # Lecture d'activité par Academy (§5.19.6) : organisations nommées, jamais « toutes ». Celle de Robert, qui l'a demandée (24/11).
 ACTIVITE_ORGANISATIONS=359b76d5-bab7-4773-a889-cf4cf0248869
 # Délégation entre apps (§5.23) : cibles qui ont dit « garde servie ». Vide = aucun jeton, aucune poignée.
-# Ouvert à toutes le 24/11 (Robert, relayé par la parente) : chaque liaison reste ÉTEINTE jusqu'au clic de son propriétaire, et se coupe
-# d'un clic. `<cible>@test` = organisations marquées de test. Refermer : vider, puis déployer.
-DELEGATION_CIBLES=crm,notifuse
+# Ouvert à toutes le 24/11. Depuis le 25/11 (Robert) : ACTIVE par défaut où les deux apps sont ouvertes (lib/delegation/etat.ts), se coupe d'un clic, et
+# la coupure tient. `<cible>@test` = organisations marquées de test. Refermer : vider, puis déployer.
+DELEGATION_CIBLES=crm,notifuse,prospection@test
+# Le CRM comme SOURCE (vers Mail, vers Prospection) : organisations de test seulement, jusqu'à « appelant servi » du CRM et l'épreuve commune.
+DELEGATION_SOURCES=crm@test
 # Événements entre apps (F3) : `notifuse>crm` = tous, `notifuse>crm@<tenant>` = une organisation, `@test` = marquées de test. Vide = fermé. Ouvert ne
 # veut pas dire allumé : clic du propriétaire. Seule ouverte (25/11) : celle de Robert ; le CRM sert sa garde (940b9eb,
 # Liaisons 0.5.0 chez lui), parcours vert en staging (cas 27). Ouvrir une autre organisation : le CRM d'abord.
@@ -492,7 +496,7 @@ EOH
         resources {
           cpu        = 300
           # ~150 Mio par tour actif (binaire mesuré au repos le 22/11), 4 tours simultanés au plus (atelier/regles.mjs).
-          memory     = 256
+          memory     = 48
           memory_max = 1024
         }
       }
@@ -523,8 +527,9 @@ EOH
           }
         }
         resources {
-          cpu    = 50
-          memory = 64
+          cpu        = 50
+          memory     = 32
+          memory_max = 64
         }
       }
 
@@ -556,7 +561,7 @@ EOH
         }
         resources {
           cpu        = 10
-          memory     = 16
+          memory     = 32
           memory_max = 32
         }
       }

@@ -17,6 +17,7 @@ import { z } from 'zod';
 import { requireUser, userUuid } from '@/lib/auth/get-user';
 import { denyUnlessEmailProven } from '@/lib/auth/email-proof';
 import { prisma } from '@/lib/prisma';
+import { membreSeul } from '@/lib/tenants/membre-seul';
 import { provisionTenants } from '@/utils/tenants/provision';
 import { trackGoal, hubSessionId } from '@/lib/analytics/track-event';
 
@@ -89,6 +90,9 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  // Un salarié n'ouvre pas d'essai à lui : ses apps sont celles de son organisation.
+  if (!existing && (await membreSeul(prisma, uuid))) return NextResponse.json({ error: 'membre_organisation' }, { status: 403 });
+
   const result = await provisionTenants(user.email, uuid, { app });
 
   // Tunnel de vente : goal `app_started` vers Veridian Analytics (best-effort,
@@ -127,7 +131,6 @@ export async function POST(request: NextRequest) {
       ? {
           success: result.prospection.success,
           tenant_id: result.prospection.tenantId,
-          login_url: result.prospection.loginUrl,
           error: result.prospection.error,
         }
       : null,

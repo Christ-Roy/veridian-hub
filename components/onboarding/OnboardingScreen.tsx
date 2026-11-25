@@ -108,6 +108,7 @@ export function OnboardingScreen({
           variant="expire"
           email={invite.email}
           onRetry={onRenvoyerLien}
+          message={error}
         />
       )}
     </OnboardingShell>

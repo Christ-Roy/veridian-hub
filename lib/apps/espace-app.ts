@@ -13,6 +13,7 @@ import { createHmac } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
+import { abonnerParDefaut } from '@/lib/evenements/naissance';
 import { pushUserToApps } from '@/lib/identity/push-user';
 import { oublierUtilisateur } from '@/lib/mcp/cache';
 import { choisirPlanInitial, setAppPlan, type PlanApp } from '@/lib/plans/app-plan';
@@ -155,6 +156,8 @@ export async function ensureAppWorkspace(
     enabled: true,
     actorEmail: opts.actorEmail ?? null,
   });
+  // Une organisation neuve dont Mail et le CRM sont ouverts : sa liaison par défaut. Jamais bloquant.
+  if (cfg.app === 'crm') void abonnerParDefaut(db as unknown as Parameters<typeof abonnerParDefaut>[0], tenant.id);
   // La porte MCP ne doit pas garder « injoignable » pour un compte qui vient d'être créé.
   oublierUtilisateur(user.hubUserId, cfg.appKey);
   // Aucun plan n'est inventé à la création (décision du 22/11) : l'app garde le `free` du

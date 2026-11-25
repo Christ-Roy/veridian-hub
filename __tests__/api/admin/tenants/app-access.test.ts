@@ -247,11 +247,11 @@ describe('POST /api/admin/tenants/app-access', () => {
       expect(setTenantAppEnabledMock).not.toHaveBeenCalled();
     });
 
-    it('502 si Academy est injoignable (pas encore en ligne), rien n\'est activé', async () => {
+    it('424 si Academy est injoignable : sa raison se lit (Cloudflare efface le corps d\'un 502), rien n\'est activé', async () => {
       findUniqueMock.mockResolvedValue(proved);
       academyMock.mockResolvedValue({ ok: false, error: 'academy_unreachable: fetch failed' });
       const res = await POST(req({ user_email: 'r@x.io', app: 'academy', enabled: true }));
-      expect(res.status).toBe(502);
+      expect(res.status).toBe(424);
       expect(await res.json()).toMatchObject({ error: 'academy_provision_failed' });
       expect(setTenantAppEnabledMock).not.toHaveBeenCalled();
     });

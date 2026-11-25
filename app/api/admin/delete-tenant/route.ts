@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { couperToutes } from '@/lib/connecteurs/coffre';
+import { retourConnecteur } from '@/lib/connecteurs/porte';
 import { oublierCompte } from '@/lib/tenants/membres';
 import { deprovisionnerCompte } from '@/lib/apps/deprovision';
 import { pushUserToApps } from '@/lib/identity/push-user';
@@ -105,6 +107,10 @@ export async function DELETE(request: NextRequest) {
     actions.push('User has no supabaseUserId bridge — skipped tenant/sub/profile cleanup');
   }
 
+  if (userUuid) {
+    const coupees = await couperToutes(prisma, userUuid, retourConnecteur()).catch(() => 0);
+    if (coupees) actions.push(`Coupé : ${coupees} connexion(s) extérieure(s)`);
+  }
   const oubli = await oublierCompte(prisma, { id: user.id, email, hubUserId: userUuid ?? null, tenants: idsTenants });
   if (oubli.membres || oubli.invitations) actions.push(`Oublié : ${oubli.membres} appartenance(s), ${oubli.invitations} invitation(s)`);
 

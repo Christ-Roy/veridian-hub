@@ -1,7 +1,8 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const m = vi.hoisted(() => ({ rejoindre: vi.fn() }));
+const m = vi.hoisted(() => ({ rejoindre: vi.fn(), invite: vi.fn(async (..._a: unknown[]) => undefined) }));
+vi.mock('@/lib/organisations/acces', () => ({ noterInvite: m.invite }));
 const suivre = vi.hoisted(() => vi.fn(async (..._a: unknown[]): Promise<unknown[]> => []));
 vi.mock('@/lib/organisations/emission', () => ({ suivreOrganisation: suivre }));
 vi.mock('@/lib/tenants/membres', async (o) => ({ ...(await o<object>()), rejoindre: (...a: unknown[]) => m.rejoindre(...a) }));
@@ -33,6 +34,7 @@ describe('joindreParInvitation', () => {
   it('invité par le propriétaire d\'un espace relié : membre, sans rôle choisi par l\'app', async () => {
     expect(await joindreParInvitation(db, inv(), 'u-new')).toEqual({ etat: 'joint', tenantId: 'T' });
     expect(m.rejoindre.mock.calls[0][1]).toEqual({ tenantId: 'T', hubUserId: 'u-new', origine: 'invitation', acteur: 'invitation:i1', emiseLe: EMISE });
+    expect(m.invite.mock.calls.map((c) => c.slice(1)), 'à la main : décocher ne l\'en sortira pas').toEqual([['T', 'notifuse', 'u-new']]);
   });
 
   it('un inviteur qui n\'est ni propriétaire ni admin AU HUB ne rend personne membre, quoi que dise l\'app', async () => {

@@ -34,5 +34,5 @@ export async function PUT(request: NextRequest, { params }: Ctx) {
   if (!id.success || !c.success) return rendre({ error: 'invalid', details: c.success ? undefined : c.error.issues.map((i) => i.path.join('.')) }, 400);
   const r = await reglerOrganisation(prisma, { tenantId: id.data, reglage: c.data, acteur: resolveActor(request.headers, null) });
   if ('refus' in r) return rendre({ error: r.refus }, 404);
-  return rendre(r, r.emissions.every((e) => e.etat === 'applique') ? 200 : 207);
+  return rendre(r, r.emissions.every((e) => e.etat === 'applique') && r.retraits.every((x) => x.etat === 'retire' || x.etat === 'absent') ? 200 : 207);
 }

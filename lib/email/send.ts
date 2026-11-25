@@ -10,6 +10,8 @@ import { createHash } from 'node:crypto';
 // nodemailer v9 + @types/nodemailer v7 : plus de default export → import nommé.
 import { createTransport } from 'nodemailer';
 
+import { estCompteDeTest } from '@/lib/email/compte-de-test';
+
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 
 const DEFAULT_SENDER = {
@@ -46,6 +48,12 @@ export async function sendMail(payload: SendMailPayload): Promise<void> {
     return;
   }
 
+  // Le repli SMTP n'a pas de bac à sable : une adresse d'épreuve n'y part jamais.
+  if (estCompteDeTest(payload.to)) {
+    console.info('[mail] compte d\'épreuve : pas d\'envoi par le repli SMTP');
+    return;
+  }
+
   // Fallback SMTP Lark
   const smtpHost = process.env.SMTP_HOST;
   const smtpUser = process.env.SMTP_USER;
@@ -75,6 +83,9 @@ async function sendViaBrevo(payload: SendMailPayload, apiKey: string): Promise<v
       subject: payload.subject,
       htmlContent: payload.html,
       textContent: payload.text ?? stripHtml(payload.html),
+      // Compte d'épreuve : bac à sable Brevo (developers.brevo.com/docs/using-sandbox-mode, en-tête DANS le corps). Même chemin, même réponse,
+      // aucune remise, aucun rebond.
+      ...(estCompteDeTest(payload.to) ? { headers: { 'X-Sib-Sandbox': 'drop' } } : {}),
     }),
   });
 

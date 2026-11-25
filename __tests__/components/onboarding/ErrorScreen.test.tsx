@@ -30,6 +30,13 @@ describe('ErrorScreen — variante « expire »', () => {
     expect(screen.queryByText('Une erreur est survenue')).toBeNull();
   });
 
+  it('dit ce qui vient de se passer, et le tait sinon', () => {
+    const { rerender } = render(<ErrorScreen variant="expire" message="C’est parti" />);
+    expect(screen.getByRole('status')).toHaveTextContent('C’est parti');
+    rerender(<ErrorScreen variant="expire" />);
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
   it('affiche l’adresse de destination quand l’email est connu', () => {
     render(
       <ErrorScreen variant="expire" email="claire.dubois@exemple-client.fr" />
