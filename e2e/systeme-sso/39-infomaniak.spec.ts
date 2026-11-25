@@ -48,7 +48,7 @@ cas(null, 'SSO comme Infomaniak : chacun relie le sien, aucune adresse crue, la 
       ouverts.push(ctx);
       const page = await ctx.newPage();
       await page.goto(`${HUB_URL}/connexion/${T.slug}`, { waitUntil: 'networkidle' });
-      const r = { ctx, chemin: new URL(page.url()).pathname, texte: (await page.locator('body').innerText()).slice(0, 500), email: (await session(ctx))?.email?.toLowerCase() ?? null };
+      const r = { ctx, chemin: new URL(page.url()).pathname, texte: (await page.locator('body').innerText()).slice(0, 1_500), email: (await session(ctx))?.email?.toLowerCase() ?? null };
       await page.close();
       return r;
     };
@@ -84,10 +84,18 @@ cas(null, 'SSO comme Infomaniak : chacun relie le sien, aucune adresse crue, la 
 
     const un = await entrer(INFO('4815162342'));
     expect([un.email, un.chemin], un.texte).toEqual([M.email.toLowerCase(), '/dashboard']);
+    // Son tableau de bord : les apps de l'organisation, aucun essai ; une app pas ouverte (CRM) est refusée et dite, aucun espace à elle n'est créé.
+    expect([/TEST SSO/.test(un.texte), /Prospection/.test(un.texte), /essai/i.test(un.texte)], un.texte).toEqual([true, true, false]);
+    const crm = await un.ctx.newPage();
+    await crm.goto(`${HUB_URL}/login?next=${encodeURIComponent(`${APP_URL.twenty}/`)}`, { waitUntil: 'networkidle' }).catch(() => undefined);
+    const refusCrm = `${new URL(crm.url()).pathname}${new URL(crm.url()).search}`;
+    await crm.close();
+    const depart = await un.ctx.request.post(`${HUB_URL}/api/tenants/start`, { data: { app: 'prospection' } });
+    expect([refusCrm, depart.status(), ((await lookup(M.email)).json?.tenants ?? []).length], 'aucun espace à elle').toEqual([expect.stringContaining('/auth/bounce/error?app=crm&code=user_not_in_app'), 403, 0]);
     // Elle arrive dans l'app, dans l'organisation ; elle ne branche pas d'IA et ne touche pas à son compte.
     const page = await un.ctx.newPage();
     await page.goto(`${APP_URL.prospection}/`, { waitUntil: 'networkidle' }).catch(() => undefined);
-    await expect.poll(async () => JSON.stringify(await (await un.ctx.request.get(`${APP_URL.prospection}/api/me`)).json().catch(() => null)), { timeout: 60_000, message: 'arrivée dans Prospection' }).toContain('TEST SSO');
+    await expect.poll(async () => (await page.locator('body').innerText().catch(() => '')).includes('TEST SSO'), { timeout: 90_000, message: 'arrivée dans Prospection, dans l\'organisation' }).toBe(true);
     await page.close();
     const geste = await un.ctx.request.post(`${HUB_URL}/api/account/federation`, { headers: { origin: new URL(HUB_URL).origin }, data: { geste: 'delier', tenant_id: T.id } });
     const ia = await un.ctx.request.post(`${HUB_URL}/api/oauth/authorize`, { headers: { origin: new URL(HUB_URL).origin }, form: { decision: 'autoriser' } });

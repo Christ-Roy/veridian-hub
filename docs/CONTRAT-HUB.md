@@ -1794,8 +1794,7 @@ et `hub suspension` passent par lui.
   - **Refusé dès la première lecture après la réponse** : porte IA (CRM, Mail, Prospection) ; CRM (v42) cookie, jeton (GraphQL, REST, identité, MCP),
     rafraîchissement, flux en direct, lien de connexion non consommé ; Mail session, boîte unifiée, lien non consommé ; Prospection session, donnée de
     l'espace, lien non consommé. Avant v42, cookie, jeton de 30 min et flux du CRM lisaient encore. Le Hub n'envoie plus `revoke_sessions` au retrait.
-  - **OUVERT, mesuré** : Mail, l'accès de boîte (IMAP) créé par la personne ; Mail, le flux `mail.events` (contrôlé à l'ouverture seulement, 5 min).
-    Posé à Notifuse. Le cas 37 reste rouge tant que c'est ouvert.
+  - **Mail, fermés depuis 4539f91a** (25/11) : accès de boîte (IMAP) créé par la personne, flux `mail.events`. 19 portes sur 19, dernière lecture 0 ms.
   - **Ouvert, dit, non sondé** : clés API d'espace (convenu) ; CRM, lien de fichier signé, un jour au plus ; Analytics,
     clé d'organisation et liens de site (comptés, dits dans `avis`).
   - **Non mesurable par nous** : Academy, réservée (lu : sessions coupées et liens fermés au retrait, clés d'espace comptées) ; jetons que la personne
@@ -1811,6 +1810,13 @@ et `hub suspension` passent par lui.
   `veridian.site`) ; `avis` les cite app par app, « non comptées » si l'app se tait. État du 24/11, lu dans le code : Academy rend
   `active_api_keys_created_by_member` (clés par auteur) ; Notifuse et CRM, clés d'espace sans auteur noté, pas encore rendues ;
   Prospection, une clé par espace tenue par le Hub ; Analytics, pas de retrait. Au Hub, connexions IA et poignées meurent au retrait.
+- **Session d'organisation bornée** (VER-261, 25/11, cas 39) : ouverte par le fournisseur d'une organisation, elle n'ouvre QU'ELLE. La personne appartient aussi
+  ailleurs (son propre espace compris) : refusée, et celle qui vit tombe à la lecture suivante (`lib/federation/borne.ts`). Elle ne branche pas d'IA, ne change
+  pas le compte, ne fait rejoindre rien. Reste : une session d'APP ouverte par elle vit sa durée dans l'app ; un retrait la ferme.
+- **Fournisseur sans domaine** (Infomaniak : `email_verified` faux) : `domaines: []`, portée `openid`, aucune adresse crue, aucun compte créé. Chacun relie
+  (fournisseur, `sub`) dans Paramètres, par sa propre connexion récente ; un `sub` = une personne ; il se délie.
+- **Salarié** (`lib/tenants/membre-seul.ts`) : membre d'une organisation réglée, sans espace à lui. Il voit les apps cochées, et ni un clic ni une IA ne lui créent
+  un espace personnel (`user_not_in_app`, `membre_organisation`).
 - **Invitation acceptée** : membre au Hub (rôle `member`, toujours) si l'espace est relié et si l'inviteur est propriétaire ou
   admin AU HUB ; 20 invitations par espace et par jour ; le propriétaire voit les arrivées dans le Hub. `inviter_user_id` =
   `hub_user_id`.
