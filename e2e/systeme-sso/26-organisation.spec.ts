@@ -129,14 +129,15 @@ cas(null, 'organisation : réglée une fois au Hub, reçue et relue par l\'app, 
   const logoCrm = await fetch(new URL(espaceCrm!.logo!, hoteCrm));
   expect([logoCrm.status, logoCrm.headers.get('content-type')], espaceCrm!.logo!.slice(0, 120)).toEqual([200, 'image/png']);
 
-  // Suspendue, reprise, puis retiré : l'ouverture suit, sans rien désactiver à la main.
+  // Suspendue, reprise, puis retiré : l'ouverture suit AU HUB (porte MCP, rebond, jetons). Le CRM ne sert pas `suspend` : une session CRM déjà
+  // ouverte vit jusqu'à sa fin, et ce cas ne dit rien d'elle (CRM, 25/11).
   const appsDeM = async () => (JSON.parse((await outil(jetonM, 'chercher_outils', { besoin: 'lire les sociétés', app: 'twenty' })).texte) as { apps: string[] }).apps.includes('twenty');
   expect(await appsDeM(), 'contrôle positif').toBe(true);
   await admin('POST', `tenants/${T.id}/suspension`, { suspendre: true, motif: 'TEST' });
-  expect(await appsDeM(), 'suspendue').toBe(false);
+  expect(await appsDeM(), 'suspendue : fermé au Hub').toBe(false);
   await admin('POST', `tenants/${T.id}/suspension`, { suspendre: false, motif: 'TEST' });
   expect(await appsDeM(), 'reprise').toBe(true);
   await admin('POST', `tenants/${T.id}/remove-member`, { hub_user_id: M.hubUserId });
   expect(await appsDeM(), 'retiré').toBe(false);
-  return `réglée à l'écran, logo servi en PNG, Prospection et CRM relus à la version ${apres.document.version}, membre parti avec, arrivée dans l'organisation choisie (nom affiché : ${avec.dedans}) ; nom et logo servis par le CRM ; CRM ouvert au membre par l'organisation, refermé suspendue et retiré`;
+  return `réglée à l'écran, logo servi en PNG, Prospection et CRM relus à la version ${apres.document.version}, membre parti avec, arrivée dans l'organisation choisie (nom affiché : ${avec.dedans}) ; nom et logo servis par le CRM ; CRM ouvert au membre par l'organisation, refermé au Hub suspendue et retiré (session CRM déjà ouverte : non mesurée)`;
 }, { timeout: 480_000 });

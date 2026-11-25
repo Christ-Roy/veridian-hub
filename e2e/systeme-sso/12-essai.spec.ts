@@ -3,7 +3,7 @@
  * l'ignorait : Notifuse l'émet par la voie legacy HMAC, sans case au Hub). Le signal part comme Notifuse
  * l'émet (legacy, `x-veridian-notifuse-signature`, `tenant_id` = slug de son espace) ; la ligne naît `eligible` sur l'id du
  * tenant Hub ; reculée de 49 h, le tick l'active ; Notifuse reçoit `pro` par son slug, et le mail
- * « essai démarré » arrive dans une vraie boîte (groupe Lark `e2e-sso-essai@veridian.site`).
+ * « essai démarré » arrive dans une vraie boîte (il n'y en a plus, lib/boite.ts : NON ABOUTI).
  * Le tick envoie aussi une alerte Telegram à Robert : test libellé. Épreuve : `SSO_SABOTAGE=signal`.
  */
 import { execFileSync } from 'node:child_process';
@@ -14,7 +14,7 @@ import path from 'node:path';
 
 import { expect } from '@playwright/test';
 
-import { attendreMail } from './lib/boite';
+import { attendreMail, exigerBoite } from './lib/boite';
 import { HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
 import { lookup, statutNotifuse } from './lib/hub-admin';
@@ -61,6 +61,7 @@ async function signal(slug: string, cle: string) {
 }
 
 cas('notifuse', 'le signal d\'activité active l\'essai : eligible sur le tenant Hub, tick, plan pro chez Notifuse, mail reçu', async ({ browser }) => {
+  exigerBoite();
   const depuis = new Date();
   const E = await creerCompteProuve(browser, 'essai', ADRESSE);
   const slug = (await lookup(ADRESSE)).json?.tenants?.[0]?.notifuseWorkspaceSlug as string | undefined;

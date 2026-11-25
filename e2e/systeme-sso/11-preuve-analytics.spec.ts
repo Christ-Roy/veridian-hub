@@ -9,13 +9,14 @@ import { expect } from '@playwright/test';
 
 import { devraitEtreArrive, devraitNePasEtreArrive } from './lib/assertions';
 import { HUB_URL } from './lib/cibles';
-import { ADRESSE_PREUVE, lienDePreuve } from './lib/boite';
+import { ADRESSE_PREUVE, exigerBoite, lienDePreuve } from './lib/boite';
 import { cas, NonAbouti } from './lib/etat';
 import { lookup, planDansApp } from './lib/hub-admin';
 import { assurerRybbit, contexteDe, ouvrirApp } from './lib/monde';
 import { creerCompteNonProuve } from './lib/parcours';
 
 cas('analytics', 'adresse non prouvée : la preuve reçue par mail puis confirmée relie et connecte sur Rybbit', async ({ browser }) => {
+  exigerBoite();
   const depuis = new Date();
   const P = await creerCompteNonProuve(browser, 'preuve', ADRESSE_PREUVE);
   if (!P.etat) throw new NonAbouti('le Hub n\'a pas ouvert de session par mot de passe au compte non prouvé');
