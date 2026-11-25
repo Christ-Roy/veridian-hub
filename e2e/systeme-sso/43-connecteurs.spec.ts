@@ -27,6 +27,9 @@ cas(null, 'connexions : fermées, aucun départ vers un service extérieur', asy
       const r = await ctx.request.post(`${HUB_URL}/api/connecteurs`, { headers: { origin: new URL(HUB_URL).origin }, form: { connecteur: c, geste: 'brancher' }, maxRedirects: 0 });
       expect(r.headers().location, `${c} forcé sans l'écran`).toContain('avis=ferme');
     }
+    // Couper n'est pas fermé : sans connexion, la route le dit, au lieu de « pas encore ouverte ».
+    const coupe = await ctx.request.post(`${HUB_URL}/api/connecteurs`, { headers: { origin: new URL(HUB_URL).origin }, form: { connecteur: 'notion', geste: 'couper' }, maxRedirects: 0 });
+    expect(coupe.headers().location, 'couper répond').toContain('avis=absente');
     const apps = JSON.parse((await outil(await obtenirJetonMcp(browser, A, 'TEST CONNECTEURS'), 'chercher_outils', { besoin: 'page' })).texte) as { apps: string[] };
     expect(apps.apps.filter((a) => ['notion', 'linear', 'webflow', 'sentry'].includes(a))).toEqual([]);
     expect(dehors, 'navigations hors du Hub').toEqual([]);
