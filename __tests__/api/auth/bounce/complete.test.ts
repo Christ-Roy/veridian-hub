@@ -585,6 +585,14 @@ describe('GET /api/auth/bounce/complete', () => {
       expect((fetchMock.mock.calls[0] as unknown as [string])[0]).toBe('https://academy.app.veridian.site/api/sso/issue-magic-link');
     });
 
+    it('session ordinaire : aucun champ `emprunt` ne part (les cas d\'emprunt : emprunt.test.ts)', async () => {
+      getCurrentUserMock.mockResolvedValue(user);
+      appsActiveesMock.mockResolvedValue(new Set(['academy']));
+      fetchMock.mockResolvedValue(lien());
+      await ouvrir();
+      expect(JSON.parse((fetchMock.mock.calls[0] as unknown as [string, { body: string }])[1].body)).not.toHaveProperty('emprunt');
+    });
+
     it('compte activé, espace présent : lien direct, aucune création', async () => {
       getCurrentUserMock.mockResolvedValue(user);
       appsActiveesMock.mockResolvedValue(new Set(['academy']));

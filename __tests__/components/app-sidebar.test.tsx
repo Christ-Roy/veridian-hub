@@ -50,6 +50,16 @@ describe('AppSidebar', () => {
     expect(wsLabel.textContent).toBe('Acme workspace');
   });
 
+  it('le lien Administration : pour un administrateur seulement (VER-263)', () => {
+    renderSidebar({ admin: true });
+    expect(screen.getByRole('link', { name: 'Administration' }).getAttribute('href')).toBe('/dashboard/admin/clients');
+  });
+
+  it('pas de lien Administration par défaut', () => {
+    renderSidebar();
+    expect(screen.queryByRole('link', { name: 'Administration' })).toBeNull();
+  });
+
   it('n\'affiche pas le bloc workspace si workspaceName absent (rétro-compat)', () => {
     renderSidebar({ workspaceName: null });
     expect(screen.queryByTestId('sidebar-workspace-name')).toBeNull();

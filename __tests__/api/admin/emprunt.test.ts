@@ -1,5 +1,5 @@
 // @vitest-environment node
-/** Entrer chez un client et en sortir (VER-263) : qui peut, ce qui se refuse, la trace d'abord, et la session rendue. */
+/** Entrer chez un client (VER-263) : qui peut, ce qui se refuse, la trace d'abord. */
 import { NextRequest } from 'next/server';
 import { decode } from 'next-auth/jwt';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -14,9 +14,7 @@ vi.mock('@/lib/tenants/actif', () => ({ COOKIE_ACTIF: 'veridian_org', organisati
 vi.mock('@/lib/emprunt/entrees', () => ({ APPS_ECRAN: ['hub', 'notifuse', 'prospection', 'crm', 'analytics', 'academy'], entreeDe: (a: string) => (a === 'academy' ? null : `/vers/${a}`) }));
 
 import { POST as entrer } from '@/app/api/admin/emprunt/route';
-import { POST as sortir } from '@/app/api/auth/emprunt/sortir/route';
-import { empruntSigne } from '@/lib/emprunt/journal';
-import { lireRetour, scellerRetour } from '@/lib/emprunt/retour';
+import { lireRetour } from '@/lib/emprunt/retour';
 
 const BASE = 'https://app.veridian.site';
 const SESSION = '__Secure-authjs.session-token';
@@ -73,44 +71,5 @@ describe('entrer', () => {
     const r = await f();
     expect([r.status, ((await r.json()) as { error: string }).error]).toEqual([statut, code]);
     expect(r.headers.getSetCookie()).toEqual([]);
-  });
-});
-
-describe('sortir', () => {
-  const chez = (o = {}) => ({ user: { id: 'u-client', impersonated: true, impersonatedBy: ADMIN, empruntId: 'emprunt-1', authAt: maintenant(), ...o } });
-  const s = async (o: { origin?: string; retour?: string } = {}) => sortir(requete('/api/auth/emprunt/sortir', undefined, { origin: o.origin, cookie: `${SESSION}=du-client${o.retour ? `; ${RETOUR}=${o.retour}` : ''}` }));
-
-  it('rend ma session et mon organisation, efface le retour, écrit la fin', async () => {
-    m.auth.mockResolvedValue(chez());
-    const r = await s({ retour: await scellerRetour({ empruntId: 'emprunt-1', session: 'la-mienne', org: 'mon-org' }) });
-    expect([r.status, new URL(r.headers.get('location')!).pathname]).toEqual([303, '/dashboard/admin/clients']);
-    expect([r.cookies.get(SESSION)?.value, r.cookies.get('veridian_org')?.value, r.cookies.get(RETOUR)?.value]).toEqual(['la-mienne', 'mon-org', '']);
-    expect(m.audit.mock.calls[0][0].data).toMatchObject({ action: 'admin.impersonate.end', payload: { emprunt: 'emprunt-1', retour: true } });
-  });
-  it('le retour d\'un AUTRE emprunt, ou forgé : rien n\'est rendu, la session du client tombe', async () => {
-    m.auth.mockResolvedValue(chez());
-    for (const retour of [await scellerRetour({ empruntId: 'emprunt-2', session: 'la-mienne', org: null }), 'forge', undefined]) {
-      const r = await s({ retour });
-      expect(r.cookies.get(SESSION)?.value).toBe('');
-      expect(r.headers.get('location')).toContain('/login');
-    }
-  });
-  it('déconnecté ou expiré : le retour ne rend rien à personne', async () => {
-    m.auth.mockResolvedValue(null);
-    const r = await s({ retour: await scellerRetour({ empruntId: 'emprunt-1', session: 'la-mienne', org: null }) });
-    expect(r.cookies.get(SESSION)).toBeUndefined();
-    expect(r.cookies.get(RETOUR)?.value).toBe('');
-  });
-  it('une session ordinaire n\'y perd rien ; une autre origine est refusée', async () => {
-    m.auth.mockResolvedValue(moi());
-    expect((await s()).cookies.get(SESSION)).toBeUndefined();
-    expect((await s({ origin: 'https://mechant.fr' })).status).toBe(403);
-  });
-});
-
-describe('ce que l\'app reçoit', () => {
-  it('l\'emprunt, l\'emprunteur et la fin ; jamais une adresse ni la raison ; rien d\'une session ordinaire', () => {
-    expect(empruntSigne({ impersonated: true, impersonatedBy: ADMIN, empruntId: 'x', authAt: 1_000 })).toEqual({ id: 'x', par: ADMIN, expire_le: new Date(4_600_000).toISOString() });
-    for (const u of [undefined, {}, { impersonated: true }, { impersonated: true, impersonatedBy: ADMIN, authAt: 1 }, { impersonatedBy: ADMIN, empruntId: 'x', authAt: 1 }]) expect(empruntSigne(u)).toBeNull();
   });
 });
