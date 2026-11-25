@@ -65,7 +65,7 @@ cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec
       const page = await ctx.newPage();
       await page.goto(url, { waitUntil: 'networkidle' }).catch(() => undefined);
       const u = new URL(page.url());
-      const r = { origine: u.origin, chemin: u.pathname, texte: (await page.locator('body').innerText().catch(() => '')).slice(0, 1_500) };
+      const r = { origine: u.origin, chemin: u.pathname, texte: (await page.locator('body').innerText().catch(() => '')).slice(0, 1_500), html: await page.content().catch(() => '') };
       await page.close();
       return r;
     };
@@ -86,11 +86,11 @@ cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec
       rebond: (await rebond(ctx)).chemin === '/auth/organisation' ? 'fermée' : 'ouverte',
       mcp: (await mcp(jeton, T.slug)) ? 'fermée' : 'ouverte',
       active: /avis=active/.test(await activer(ctx, T.id)) ? 'ouverte' : 'fermée',
-      liaisons: /TEST OBLIGATOIRE/.test((await ou(ctx, `${HUB_URL}/dashboard/liaisons`)).texte) ? 'ouverte' : 'fermée',
+      ecran: (await ou(ctx, `${HUB_URL}/dashboard/organisation`)).html.includes(`value="${T.id}"`) ? 'ouverte' : 'fermée',
       assistant: (await fil(ctx, T.id)) === 404 ? 'fermée' : 'ouverte',
       echange: (await echanger()) === 'organisation_fournisseur' ? 'fermée' : 'ouverte',
     });
-    const TOUTES = (x: string) => ({ rebond: x, mcp: x, active: x, liaisons: x, assistant: x, echange: x });
+    const TOUTES = (x: string) => ({ rebond: x, mcp: x, active: x, ecran: x, assistant: x, echange: x });
 
     // Contrôle positif : libre, tout est ouvert par la même session.
     expect(await portes(cm, jetonM), 'libre : la même session ouvre tout').toEqual(TOUTES('ouverte'));

@@ -76,6 +76,8 @@ export async function echanger(db: Db, app: AppPaire, d: Demande, env: NodeJS.Pr
     return { statut: 403, error };
   };
 
+  // Aucune session ici : son dernier passage par le fournisseur de l'organisation fait foi.
+  if (await estFermee(db, g.hubUserId, { par: 'personne' }, g.tenantId)) return refuser('organisation_fournisseur');
   const u = await db.user.findFirst({ where: { supabaseUserId: g.hubUserId }, select: { email: true, emailVerified: true } });
   if (!u?.emailVerified) return refuser('user_invalid');
   const t = await db.tenant.findFirst({ where: { id: g.tenantId, deletedAt: null }, select: { userId: true, status: true } });
@@ -86,8 +88,6 @@ export async function echanger(db: Db, app: AppPaire, d: Demande, env: NodeJS.Pr
     if (!m || m.deletedAt) return refuser('not_member');
   }
   if (t.status === 'suspended' || t.status === 'deleted') return refuser('tenant_suspended');
-  // Aucune session ici : son dernier passage par le fournisseur de l'organisation fait foi.
-  if (await estFermee(db, g.hubUserId, { par: 'personne' }, g.tenantId)) return refuser('organisation_fournisseur');
   if (!(await liaisonActive(db, p, g.tenantId))) return refuser('integration_off');
   if (deborde(`${app}:${g.tenantId}`, Date.now())) return { statut: 429, error: 'rate_limited', retryAfterS: 60 };
 
