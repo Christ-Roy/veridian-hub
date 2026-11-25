@@ -19,6 +19,8 @@ import { seulementIci } from './borne';
 import { resoudreIdentite, type Connecte } from './identite';
 import { idpPret, type IdpPret } from './idp';
 import { relierParPersonne } from './liaison';
+import { COOKIE_PREMIERE, PREMIERE_S, scellerPremiere } from './premiere';
+import { porteValable, retenirPorte } from './porte';
 import type { Identite, Transaction } from './oidc';
 import { emettreTicket, FOURNISSEUR_FEDERATION } from './ticket';
 
@@ -78,7 +80,18 @@ export async function conclure(request: NextRequest, base: URL, i: IdpPret, t: T
     return 'refus' in l ? refus(l.refus) : vers('/dashboard/settings?federation=reliee');
   }
   const r = await resoudreIdentite(prisma, i, identite, await connecte());
-  if ('refus' in r) return refus(r.refus);
+  if ('refus' in r) {
+    if (r.refus !== 'non_relie') return refus(r.refus);
+    // Identifiant inconnu, fournisseur sans adresse : elle prouve l'adresse que l'organisation attend (lib/federation/premiere.ts).
+    const p = vers('/auth/premiere-entree');
+    p.cookies.set(COOKIE_PREMIERE, scellerPremiere({ idp: i.id, sub: identite.sub }), { httpOnly: true, secure: base.protocol === 'https:', sameSite: 'lax', path: '/', maxAge: PREMIERE_S });
+    return p;
+  }
+  return ouvrirSession(request, base, i, r, { vers, refus });
+}
+
+/** La session naît par Auth.js, n'ouvre que cette organisation, et ce navigateur retient sa porte. */
+export async function ouvrirSession(request: NextRequest, base: URL, i: IdpPret, r: { userId: string; hubUserId: string; neuf: boolean }, { vers, refus }: Sortie): Promise<NextResponse> {
   const suite = request.cookies.has(NEXT_COOKIE_NAME_SECURE) || request.cookies.has(NEXT_COOKIE_NAME_INSECURE) ? '/api/auth/bounce/complete' : '/dashboard';
   // Elle n'ouvre que cette organisation : quelqu'un d'ailleurs aussi entre par sa propre connexion (lib/federation/borne.ts).
   if (!(await seulementIci(prisma, r.hubUserId, i.tenantId))) return refus('autre_organisation');
@@ -90,5 +103,9 @@ export async function conclure(request: NextRequest, base: URL, i: IdpPret, t: T
   console.log(JSON.stringify({ tag: '[federation][reussi]', level: 'info', hub_user_id: r.hubUserId, tenant_id: i.tenantId, neuf: r.neuf }));
   const res = vers(`${cible.pathname}${cible.search}`);
   res.cookies.set(COOKIE_ACTIF, i.tenantId, { httpOnly: true, secure: base.protocol === 'https:', sameSite: 'lax', path: '/', maxAge: 365 * 24 * 3600 });
+  const p = await prisma.tenantIdp.findUnique({ where: { id: i.id }, select: { alias: true } }).catch(() => null);
+  const t = p?.alias ? null : await prisma.tenant.findFirst({ where: { id: i.tenantId }, select: { slug: true } }).catch(() => null);
+  const porte = porteValable(p?.alias ?? t?.slug ?? undefined);
+  if (porte) retenirPorte(res, porte, base.protocol === 'https:');
   return res;
 }

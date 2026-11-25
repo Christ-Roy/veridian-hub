@@ -7,7 +7,7 @@ vi.mock('@/lib/organisations/emission', () => ({ suivreOrganisation: m.suivre })
 vi.mock('@/lib/tenants/roles', () => ({ pousserRole: m.role }));
 vi.mock('@/lib/workspace/provision', () => ({ provisionDefaultWorkspace: m.ws }));
 
-import { adresseAffirmee, fournisseur, resoudreIdentite, type Connecte } from '@/lib/federation/identite';
+import { adresseAffirmee, entrer, fournisseur, relier, resoudreIdentite, type Connecte } from '@/lib/federation/identite';
 
 import { base, table } from '../delegation/fausse';
 
@@ -118,6 +118,15 @@ describe('resoudreIdentite : qui n\'entre pas', () => {
     await aller({ email: 'flou@client.test' });
     expect(await aller({ sub: 'un-autre', email: 'flou@client.test' })).toEqual({ refus: 'autre_identite' });
     expect(liens('U2')).toEqual([fournisseur(I)]);
+  });
+  it('relier : le lien, et sa trace', async () => {
+    await relier(db, I as never, 'U1', 's9');
+    expect(liens('U1')).toEqual([fournisseur(I)]);
+  });
+  it('entrer : membre, une fois ; rejouée, rien de neuf', async () => {
+    const qui = { userId: 'U1', hubUserId: 'h1', neuf: false };
+    expect([await entrer(db, I as never, qui, {}), await entrer(db, I as never, qui, {})]).toEqual([qui, qui]);
+    expect(membres()).toEqual([['h1', 'member', 'federation']]);
   });
   it('le `sub` d\'un autre fournisseur ne vaut rien ici', async () => {
     db.account.lignes.push({ id: 'a3', userId: 'U1', type: 'oidc', provider: 'org:autre', providerAccountId: 's1' });

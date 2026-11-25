@@ -17,6 +17,7 @@ import {
   credentialsLoginIpLimiter,
   extractClientIp,
 } from '@/lib/auth/rate-limit';
+import { pauseSetCookie, PAUSE_DECONNEXION_S } from '@/lib/federation/porte';
 import { buildClearedSessionHintSetCookie } from '@/lib/auth/session-hint-cookie';
 import { NextRequest, NextResponse } from 'next/server';
 
@@ -138,7 +139,7 @@ function isSignOutPath(pathname: string): boolean {
  * Set-Cookie existant — jamais de merge en une seule valeur virgulée, qui
  * corromprait les cookies de session posés par Auth.js.
  */
-function appendHintClearCookie(response: Response): Response {
+function appendHintClearCookie(response: Response, ...autres: string[]): Response {
   let clearCookie: string;
   try {
     clearCookie = buildClearedSessionHintSetCookie();
@@ -148,7 +149,7 @@ function appendHintClearCookie(response: Response): Response {
   }
 
   try {
-    response.headers.append('set-cookie', clearCookie);
+    for (const c of [clearCookie, ...autres]) response.headers.append('set-cookie', c);
     return response;
   } catch {
     // Headers immuables — on recompose.
@@ -162,7 +163,7 @@ function appendHintClearCookie(response: Response): Response {
   for (const cookie of response.headers.getSetCookie()) {
     headers.append('set-cookie', cookie);
   }
-  headers.append('set-cookie', clearCookie);
+  for (const c of [clearCookie, ...autres]) headers.append('set-cookie', c);
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -179,7 +180,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const response = await withRateLimit(req, rawPOST);
   if (isSignOutPath(new URL(req.url).pathname)) {
-    return appendHintClearCookie(response);
+    // Elle vient de partir : la porte de son organisation ne la ramène pas toute seule.
+    return appendHintClearCookie(response, pauseSetCookie(PAUSE_DECONNEXION_S, new URL(req.url).protocol === 'https:' || process.env.NODE_ENV === 'production'));
   }
   return response;
 }

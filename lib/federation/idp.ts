@@ -37,7 +37,9 @@ export const ReglageSaml = z.strictObject({
   actif: z.boolean().default(true),
 });
 export type RegleSaml = z.infer<typeof ReglageSaml>;
-export const Alias = z.string().regex(/^[a-z0-9][a-z0-9-]{2,38}[a-z0-9]$/);
+export const Alias = z.string().regex(/^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/);
+/** Durée d'une session ouverte par ce fournisseur (lib/federation/duree.ts). */
+export const SessionJours = z.number().int().min(2).max(30);
 
 /** La clé publique du fournisseur, en PEM, lisible, encore valable. Null : pas un certificat, ou fini. */
 export function certificatLu(texte: string, now = Date.now()): string | null {
@@ -75,7 +77,7 @@ export const adresseAcceptee = (adresse: string | undefined, test: boolean): boo
   }
 };
 
-type Pose = { tenantId: string; reglage: Reglage | RegleSaml; acteur: string; /** Par le propriétaire : aucune adresse affirmée, inactif jusqu'à l'essai. */ libreService?: boolean; alias?: string | null };
+type Pose = { tenantId: string; reglage: Reglage | RegleSaml; acteur: string; /** Par le propriétaire : aucune adresse affirmée, inactif jusqu'à l'essai. */ libreService?: boolean; alias?: string | null; sessionJours?: number | null };
 
 export async function poserIdp(db: Db, d: Pose): Promise<{ id: string } | { refus: RefusIdp }> {
   const t = await db.tenant.findFirst({ where: { id: d.tenantId, deletedAt: null }, select: { metadata: true } });
@@ -101,6 +103,7 @@ export async function poserIdp(db: Db, d: Pose): Promise<{ id: string } | { refu
     issuer: saml ? saml.issuer : d.reglage.issuer.replace(/\/+$/, ''), clientId: oidc?.client_id ?? '', secretChiffre: chiffrer(oidc?.client_secret ?? ''), domaines, creationAuto: !d.libreService && (oidc?.creation_auto ?? false),
     protocole: saml ? 'saml' : 'oidc', samlSsoUrl: saml?.sso_url ?? null, samlCertificat: certificat, libreService: d.libreService ?? false, essaiLe: null, actif: !d.libreService && d.reglage.actif, posePar: d.acteur, poseLe: new Date(),
     ...(d.alias === undefined ? {} : { alias: d.alias }),
+    ...(d.sessionJours === undefined ? {} : { sessionJours: d.sessionJours }),
   };
   // Un autre fournisseur est une autre identité : ses `sub` ne valent rien chez lui, la ligne repart d'un id neuf.
   if (avant && (avant.issuer !== ligne.issuer || (avant.protocole ?? 'oidc') !== ligne.protocole)) await db.tenantIdp.delete({ where: { id: avant.id } });
@@ -109,7 +112,7 @@ export async function poserIdp(db: Db, d: Pose): Promise<{ id: string } | { refu
 }
 
 /** Ce qui se montre : jamais le secret. */
-export const vueIdp = (i: TenantIdp) => ({ id: i.id, issuer: i.issuer, client_id: i.clientId, domaines: i.domaines, creation_auto: i.creationAuto, actif: i.actif, pose_le: i.poseLe.toISOString(), protocole: i.protocole ?? 'oidc', sso_url: i.samlSsoUrl ?? null, libre_service: i.libreService ?? false, essai_le: i.essaiLe?.toISOString() ?? null, alias: i.alias ?? null });
+export const vueIdp = (i: TenantIdp) => ({ id: i.id, issuer: i.issuer, client_id: i.clientId, domaines: i.domaines, creation_auto: i.creationAuto, actif: i.actif, pose_le: i.poseLe.toISOString(), protocole: i.protocole ?? 'oidc', sso_url: i.samlSsoUrl ?? null, libre_service: i.libreService ?? false, essai_le: i.essaiLe?.toISOString() ?? null, alias: i.alias ?? null, session_jours: i.sessionJours ?? null });
 
 export type IdpPret = { id: string; tenantId: string; issuer: string; clientId: string; secret: string; domaines: string[]; creationAuto: boolean; test: boolean; protocole?: 'oidc' | 'saml'; saml?: { ssoUrl: string; certificat: string } };
 

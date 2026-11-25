@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { adresseAcceptee, Alias, certificatLu, idpEssai, idpPret, issuerAccepte, poserIdp, ReglageIdp, ReglageSaml, reglerIdpLibre, vueIdp } from '@/lib/federation/idp';
+import { adresseAcceptee, Alias, certificatLu, idpEssai, idpPret, issuerAccepte, poserIdp, ReglageIdp, ReglageSaml, reglerIdpLibre, SessionJours, vueIdp } from '@/lib/federation/idp';
 
 import { ouvrirSaml } from '../../../e2e/systeme-sso/lib/saml-jetable';
 
@@ -101,7 +101,7 @@ describe('SAML et libre-service (VER-227)', () => {
     expect([certificatLu(cert), certificatLu(nu)].map((x) => x?.startsWith('-----BEGIN CERTIFICATE-----'))).toEqual([true, true]);
     expect([certificatLu('pas un certificat'), certificatLu('QUJD'), certificatLu(cert, Date.now() + 30 * 86_400_000)]).toEqual([null, null, null]);
   });
-  it('Alias : lisible, jamais un chemin', () => expect(['asd', 'a', 'ASD', 'a/b', '-asd', 'asd-', 'mon-entreprise'].map((x) => Alias.safeParse(x).success)).toEqual([false, false, false, false, false, false, true]));
+  it('Alias : lisible, jamais un chemin', () => expect(['asd', 'a', 'ASD', 'a/b', '-asd', 'asd-', 'mon-entreprise'].map((x) => Alias.safeParse(x).success)).toEqual([true, false, false, false, false, false, true]));
   it('ReglageSaml : strict, jamais de domaine', () => expect([ReglageSaml.safeParse(SAML()).success, ReglageSaml.safeParse({ ...SAML(), domaines: ['client.test'] }).success]).toEqual([true, false]));
   it('posé : prêt, sans domaine, l\'émetteur gardé tel quel ; certificat périmé ensuite : fermé', async () => {
     expect('id' in (await poserS())).toBe(true);
@@ -121,6 +121,18 @@ describe('SAML et libre-service (VER-227)', () => {
     expect(await poserIdp(db, { tenantId: 'E', reglage: ReglageIdp.parse({ ...R, domaines: [] }), acteur: 'op', alias: 'client' })).toEqual({ refus: 'alias_pris' });
     await poserS();
     expect(idps[0].alias, 'absent : gardé').toBe('mon-entreprise');
+  });
+  it('une durée se lit dans la vue, sans secret', async () => {
+    await poserS({}, { sessionJours: 7 });
+    expect(vueIdp({ ...idps[0], poseLe: new Date() }).session_jours).toBe(7);
+  });
+  it('SessionJours : 2 à 30 ; gardée si absente, retirée par null', async () => {
+    expect([1, 2, 30, 31, 7.5].map((x) => SessionJours.safeParse(x).success)).toEqual([false, true, true, false, false]);
+    await poserS({}, { sessionJours: 7 });
+    await poserS();
+    expect(idps[0].sessionJours).toBe(7);
+    await poserS({}, { sessionJours: null });
+    expect(idps[0].sessionJours).toBeNull();
   });
   it('idpEssai : le fournisseur du propriétaire, même inactif ; jamais celui d\'un opérateur', async () => {
     await libre();

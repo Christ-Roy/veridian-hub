@@ -169,4 +169,15 @@ describe('auth.config.ts — authorized callback (middleware edge gate)', () => 
       expect(call({ user: { email: 'client@veridian.site' } }, '/admin')).toBe(true);
     });
   });
+
+  describe('jwt du middleware : session d\'organisation', () => {
+    const jwt = (authConfig.callbacks as unknown as { jwt: (a: { token: object }) => object | null }).jwt;
+    const n = Math.floor(Date.now() / 1000);
+    it('finie, elle finit ici ; vivante, elle glisse ; une session ordinaire passe telle quelle', () => {
+      expect(jwt({ token: { federe: true, authAt: n - 2 * 86_400 } })).toBeNull();
+      expect(jwt({ token: { federe: true, authAt: n - 2 * 86_400, federeVu: n - 86_400, federeJours: 7 } })).toMatchObject({ federeVu: expect.any(Number) });
+      const ordinaire = { uid: 'U', authAt: 1 };
+      expect(jwt({ token: ordinaire })).toBe(ordinaire);
+    });
+  });
 });

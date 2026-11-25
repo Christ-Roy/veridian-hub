@@ -4,6 +4,11 @@ import { VeridianHubLogo } from '@/components/icons/VeridianHubLogo';
 import { AppTree } from '@/components/auth/AppTree';
 import { redirect } from 'next/navigation';
 import { cookies } from 'next/headers';
+import { PorteOrganisation } from '@/components/auth/PorteOrganisation';
+import { idpPret } from '@/lib/federation/idp';
+import { nomFournisseur } from '@/lib/federation/liaison';
+import { COOKIE_PAUSE, COOKIE_PORTE, porteValable } from '@/lib/federation/porte';
+import { prisma } from '@/lib/prisma';
 import { getAuthTypes } from '@/utils/auth-helpers/settings';
 import { Card } from '@/components/ui/card';
 import { getCurrentUser } from '@/lib/auth/get-user';
@@ -21,11 +26,12 @@ interface LoginPageProps {
     mode?: string;
     app?: string;
     reauth?: string;
+    normal?: string;
   }>;
 }
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
-  const { next: nextRaw, mode, app: appQuery, reauth } = await searchParams;
+  const { next: nextRaw, mode, app: appQuery, reauth, normal } = await searchParams;
   const deployEnv = process.env.DEPLOY_ENV;
 
   // 1. Cas "appel direct depuis une app downstream" : `?next=...` sans mode bounce
@@ -73,6 +79,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
     if (!reauth) return redirect('/dashboard');
   }
 
+  const porte = await porteRetenue(Boolean(reauth) || Boolean(normal));
   const { allowOauth, allowEmail } = getAuthTypes();
   // Garde-fou copy : si on est en mode `?mode=bounce&app=X` mais sans cookie
   // valide (cookie expiré), on n'affiche pas le copy "revenir sur X" mensonger.
@@ -88,7 +95,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
           EXPLICITEMENT cliqué sur "Continuer avec Google" depuis l'app
           downstream, on ne veut pas court-circuiter avec un autre compte
           via One Tap. */}
-      {!bounceApp && <GoogleOneTap callbackUrl="/dashboard" />}
+      {!bounceApp && !porte?.auto && <GoogleOneTap callbackUrl="/dashboard" />}
 
       {/* Left side - Form */}
       <div className="flex-1 flex items-center justify-center p-6 lg:p-12">
@@ -100,6 +107,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
           {/* Formulaire dans une Card avec effet relief (glass + voile dégradé) */}
           <Card className="relief-card border p-6">
+            {porte ? <PorteOrganisation {...porte} /> : null}
             <LoginForm
               allowEmail={allowEmail}
               allowOauth={allowOauth}
@@ -131,6 +139,21 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
       </div>
     </div>
   );
+}
+
+/** L'organisation que ce navigateur connaît, si sa porte est toujours ouverte. Jamais de départ seul après un essai, une déconnexion ou une demande de preuve. */
+async function porteRetenue(attendre: boolean): Promise<{ porte: string; organisation: string; fournisseur: string; auto: boolean } | null> {
+  const c = await cookies();
+  const porte = porteValable(c.get(COOKIE_PORTE)?.value);
+  if (!porte) return null;
+  try {
+    const i = await idpPret(prisma, { slug: porte });
+    if (!i) return null;
+    const [o, t] = await Promise.all([prisma.organisation.findUnique({ where: { tenantId: i.tenantId }, select: { nomAffiche: true } }), prisma.tenant.findFirst({ where: { id: i.tenantId }, select: { name: true } })]);
+    return { porte, organisation: o?.nomAffiche ?? t?.name ?? 'Votre organisation', fournisseur: nomFournisseur(i.issuer), auto: !attendre && !c.has(COOKIE_PAUSE) };
+  } catch {
+    return null;
+  }
 }
 
 /**

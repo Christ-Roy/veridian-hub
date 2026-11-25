@@ -9,6 +9,7 @@ import type { NextAuthConfig } from 'next-auth';
 import Google from 'next-auth/providers/google';
 import MicrosoftEntraID from 'next-auth/providers/microsoft-entra-id';
 
+import { federationExpiree, glisser } from '@/lib/federation/duree';
 import { isDevHarnessEnabled } from '@/lib/dev/harness-guard';
 
 export const authConfig = {
@@ -62,6 +63,10 @@ export const authConfig = {
     // dans auth.ts (Node runtime) parce qu'il a besoin de Prisma + bcrypt.
   ],
   callbacks: {
+    // Le middleware réécrit le jeton à chaque passage : une session d'organisation finie y finit, celle qui sert y glisse. Sans base (edge).
+    jwt({ token }) {
+      return federationExpiree(token) ? null : glisser(token);
+    },
     // Gate d'autorisation edge-safe — utilisé par le middleware Auth.js pour
     // décider si la requête passe. Pas de Prisma ici.
     authorized({ auth, request }) {

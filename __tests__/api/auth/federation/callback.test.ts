@@ -2,9 +2,9 @@
 import { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const m = vi.hoisted(() => ({ auth: vi.fn(), signIn: vi.fn(), user: vi.fn(), emprunt: vi.fn(), pret: vi.fn(), terminer: vi.fn(), resoudre: vi.fn(), ticket: vi.fn(), ligne: vi.fn(), ajouter: vi.fn(), ici: vi.fn(), relier: vi.fn(), role: vi.fn(), idpMaj: vi.fn(), audit: vi.fn() }));
+const m = vi.hoisted(() => ({ auth: vi.fn(), signIn: vi.fn(), user: vi.fn(), emprunt: vi.fn(), pret: vi.fn(), terminer: vi.fn(), resoudre: vi.fn(), ticket: vi.fn(), ligne: vi.fn(), ajouter: vi.fn(), ici: vi.fn(), relier: vi.fn(), role: vi.fn(), idpMaj: vi.fn(), audit: vi.fn(), alias: vi.fn() }));
 vi.mock('@/auth', () => ({ auth: () => m.auth(), signIn: (...a: unknown[]) => m.signIn(...a) }));
-vi.mock('@/lib/prisma', () => ({ prisma: { user: { findUnique: (...a: unknown[]) => m.ligne(...a) }, tenantIdp: { update: (...a: unknown[]) => m.idpMaj(...a) } } }));
+vi.mock('@/lib/prisma', () => ({ prisma: { user: { findUnique: (...a: unknown[]) => m.ligne(...a) }, tenantIdp: { update: (...a: unknown[]) => m.idpMaj(...a), findUnique: async () => m.alias() }, tenant: { findFirst: async () => ({ slug: 'client-long' }) } } }));
 vi.mock('@/lib/delegation/interrupteur', () => ({ roleAuHub: (...a: unknown[]) => m.role(...a) }));
 vi.mock('@/lib/admin/audit-log', () => ({ writeAuditLog: (...a: unknown[]) => m.audit(...a) }));
 vi.mock('@/lib/adresses/federation', () => ({ ajouterParFournisseur: (...a: unknown[]) => m.ajouter(...a) }));
@@ -47,6 +47,22 @@ describe('GET callback', () => {
     const c = r.headers.getSetCookie().join('\n');
     expect(c).toMatch(/veridian_org=T;/);
     expect(c).toMatch(/veridian-federation=;.*Max-Age=0/i);
+  });
+  it('ce navigateur retient la porte : l\'alias, sinon le nom ; une liaison ou un refus ne retiennent rien', async () => {
+    m.alias.mockResolvedValue({ alias: 'asd' });
+    expect((await revenir()).headers.getSetCookie().join('\n')).toMatch(/veridian-porte=asd;/);
+    m.alias.mockResolvedValue(null);
+    expect((await revenir()).headers.getSetCookie().join('\n')).toMatch(/veridian-porte=client-long;/);
+    m.resoudre.mockResolvedValue({ refus: 'retire' });
+    expect((await revenir()).headers.getSetCookie().join('\n')).not.toMatch(/veridian-porte=/);
+  });
+  it('identifiant inconnu d\'un fournisseur sans adresse : première entrée, identité scellée, aucune session', async () => {
+    vi.stubEnv('VAULT_ENC_KEY', 'k'.repeat(40));
+    m.resoudre.mockResolvedValue({ refus: 'non_relie' });
+    const r = await revenir();
+    expect(lieu(r)).toBe('/auth/premiere-entree');
+    expect(r.headers.getSetCookie().join('\n')).toMatch(/veridian-premiere-entree=v1\..*Max-Age=900/i);
+    expect([m.ticket.mock.calls.length, m.signIn.mock.calls.length]).toEqual([0, 0]);
   });
   it('venu d\'une app : il y retourne', async () => expect(lieu(await revenir({ bounce: true }))).toBe('/api/auth/bounce/complete'));
   it('2FA : le verdict d\'Auth.js fait foi', async () => {

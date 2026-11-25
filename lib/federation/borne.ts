@@ -5,7 +5,9 @@
  */
 import type { PrismaClient } from '@prisma/client';
 
-export type DbBorne = Pick<PrismaClient, 'user' | 'tenant' | 'tenantMember'>;
+import { federationExpiree, joursValables, type JetonFedere } from './duree';
+
+export type DbBorne = Pick<PrismaClient, 'user' | 'tenant' | 'tenantMember' | 'tenantIdp'>;
 
 /** Toutes ses organisations vivantes ou suspendues, les siennes et celles dont elle est membre : celle-ci, et aucune autre. */
 export async function seulementIci(db: Pick<DbBorne, 'tenant' | 'tenantMember'>, hubUserId: string, tenantId: string): Promise<boolean> {
@@ -15,10 +17,13 @@ export async function seulementIci(db: Pick<DbBorne, 'tenant' | 'tenantMember'>,
 }
 
 /** Sans organisation connue (session d'avant la borne), compte disparu ou lecture ratée : hors borne. Une session de 24 h se rouvre en un clic. */
-export async function horsDeSaBorne(db: DbBorne, token: { federe?: unknown; federeOrg?: unknown; uid?: unknown }): Promise<boolean> {
+export async function horsDeSaBorne(db: DbBorne, token: JetonFedere & { federeOrg?: unknown; uid?: unknown }): Promise<boolean> {
   if (token.federe !== true) return false;
   if (typeof token.federeOrg !== 'string' || typeof token.uid !== 'string') return true;
   try {
+    // Le fournisseur coupé ou retiré ferme ce qu'il avait ouvert ; la durée réglée aujourd'hui vaut pour les sessions d'hier.
+    const i = await db.tenantIdp.findUnique({ where: { tenantId: token.federeOrg }, select: { actif: true, sessionJours: true } });
+    if (!i?.actif || federationExpiree(token, undefined, joursValables(i.sessionJours))) return true;
     const u = await db.user.findUnique({ where: { id: token.uid }, select: { supabaseUserId: true } });
     return !u?.supabaseUserId || !(await seulementIci(db, u.supabaseUserId, token.federeOrg));
   } catch (err) {

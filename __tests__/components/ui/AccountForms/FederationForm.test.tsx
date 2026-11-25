@@ -31,6 +31,10 @@ describe('FederationForm', () => {
     await waitFor(() => expect(aller).toHaveBeenCalledWith('https://login.infomaniak.com/x'));
     expect(posts).toEqual([{ geste: 'relier', tenant_id: 'T' }]);
   });
+  it('dit ce que quitter le service ne fait pas, et ce que le retrait fait', async () => {
+    render(<FederationForm />);
+    expect(await screen.findByText(/ne ferme pas Veridian aussitôt.*immédiat/)).toBeInTheDocument();
+  });
   it('déjà reliée : délier', async () => {
     liaisons = [{ tenant_id: 'T', organisation: 'Client', fournisseur: 'Infomaniak', reliee: true }];
     reponse = { status: 200, corps: { ok: true } };

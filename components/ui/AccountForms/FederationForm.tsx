@@ -45,7 +45,9 @@ export default function FederationForm() {
     <Card>
       <CardHeader>
         <CardTitle>Connexion par votre organisation</CardTitle>
-        <CardDescription>Reliez une fois votre compte, puis connectez-vous avec lui.</CardDescription>
+        <CardDescription>
+          Reliez une fois votre compte, puis connectez-vous avec lui. Quitter ce service ne ferme pas Veridian aussitôt : votre organisation vous retire ici, et c&apos;est immédiat.
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
         {liaisons.map((l) => (

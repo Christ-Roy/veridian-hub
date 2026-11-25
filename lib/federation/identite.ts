@@ -20,7 +20,8 @@ import type { IdpPret } from './idp';
 import type { Identite } from './oidc';
 
 export type RefusFederation = 'non_relie' | 'adresse_absente' | 'adresse_non_verifiee' | 'domaine_refuse' | 'compte_existant' | 'autre_identite' | 'non_attendu' | 'retire' | 'organisation_indisponible';
-type Db = DbMembres & Pick<PrismaClient, 'account' | 'tenantPreinscription' | 'organisation' | 'organisationEmission' | 'userEmail'>;
+export type DbIdentite = DbMembres & Pick<PrismaClient, 'account' | 'tenantPreinscription' | 'organisation' | 'organisationEmission' | 'userEmail'>;
+type Db = DbIdentite;
 /** La personne déjà connectée au Hub, preuve récente, jamais une session d'emprunt : la seule qui puisse relier un compte existant. */
 export type Connecte = { userId: string; email: string } | null;
 
@@ -77,13 +78,13 @@ export async function resoudreIdentite(db: Db, i: IdpPret, x: Identite, connecte
   return entrer(db, i, { userId: cree.id, hubUserId, neuf: true }, deps);
 }
 
-async function relier(db: Db, i: IdpPret, userId: string, sub: string): Promise<void> {
+export async function relier(db: Db, i: IdpPret, userId: string, sub: string): Promise<void> {
   await db.account.create({ data: { userId, type: 'oidc', provider: fournisseur(i), providerAccountId: sub } });
   await writeAuditLog(db as unknown as PrismaClient, { action: 'federation.relie', actor: fournisseur(i), targetType: 'user', targetId: userId, payload: { tenant_id: i.tenantId } });
 }
 
 /** Appartenance, additive : un membre retiré au Hub ne revient pas par son fournisseur (M13), seul un geste neuf le fait. */
-async function entrer(db: Db, i: IdpPret, qui: { userId: string; hubUserId: string; neuf: boolean }, deps: { env?: NodeJS.ProcessEnv; fetchImpl?: typeof fetch }) {
+export async function entrer(db: Db, i: IdpPret, qui: { userId: string; hubUserId: string; neuf: boolean }, deps: { env?: NodeJS.ProcessEnv; fetchImpl?: typeof fetch }) {
   try {
     const r = await rejoindre(db, { tenantId: i.tenantId, hubUserId: qui.hubUserId, origine: 'federation', acteur: fournisseur(i) });
     if (r.cree) {

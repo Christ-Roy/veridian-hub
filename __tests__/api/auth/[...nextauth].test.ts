@@ -258,6 +258,12 @@ describe('Wrapper Auth.js — clear du cookie hint au signOut', () => {
     expect(cookies.some((c) => c.startsWith('veridian-session-hint='))).toBe(true);
   });
 
+  it('POST /api/auth/signout : la porte de son organisation ne la ramène pas toute seule', async () => {
+    const { POST } = await import('@/app/api/auth/[...nextauth]/route');
+    const res = await POST(buildReq('/api/auth/signout', '11.11.11.40', 'POST'));
+    expect(res.headers.getSetCookie().join('\n')).toMatch(/veridian-porte-pause=1;.*Max-Age=600/);
+  });
+
   it('GET /api/auth/signout (page de confirmation) → PAS de clear', async () => {
     // Rien n'est encore déconnecté à ce stade : supprimer le hint ici
     // délogguerait la landing pour un simple affichage de page.

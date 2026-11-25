@@ -5,9 +5,10 @@ import { expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({ pret: vi.fn(async () => null) }));
 vi.mock('@/auth', () => ({ auth: async () => null, signIn: async () => '' }));
 vi.mock('@/lib/prisma', () => ({ prisma: {} }));
+vi.mock('@/lib/federation/borne', () => ({ seulementIci: async () => false }));
 vi.mock('@/lib/federation/idp', async (o) => ({ ...(await o<object>()), idpPret: m.pret }));
 
-import { conclure, idpDe, sortieDe } from '@/lib/federation/conclure';
+import { conclure, idpDe, ouvrirSession, sortieDe } from '@/lib/federation/conclure';
 
 const base = new URL('https://app.veridian.site');
 it('sortieDe : la transaction est détruite à chaque retour, un refus se dit sans détail', () => {
@@ -28,4 +29,9 @@ it('conclure : sans personne connectée, un essai ne vaut rien', async () => {
   vi.spyOn(console, 'warn').mockImplementation(() => undefined);
   const r = await conclure({} as never, base, { id: 'i', tenantId: 'T' } as never, { essai: { userId: 'U' } } as never, { sub: 's', email: null, emailNie: true, nom: null }, sortieDe(base, { nom: 'c', chemin: '/x' }));
   expect(r.headers.get('location')).toContain('demande_expiree');
+});
+it('ouvrirSession : quelqu\'un d\'ailleurs aussi n\'entre pas, quel que soit le chemin', async () => {
+  vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  const r = await ouvrirSession({ cookies: { has: () => false } } as never, base, { id: 'i', tenantId: 'T' } as never, { userId: 'U', hubUserId: 'h', neuf: false }, sortieDe(base, { nom: 'c', chemin: '/x' }));
+  expect(r.headers.get('location')).toContain('autre_organisation');
 });

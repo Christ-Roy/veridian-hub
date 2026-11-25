@@ -7,8 +7,6 @@ import { createHash, randomBytes } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 
 export const FOURNISSEUR_FEDERATION = 'federation';
-/** D6 : sinon un salarié parti garderait un an l'accès ouvert par l'IdP de son ancien employeur. */
-export const SESSION_FEDEREE_S = 24 * 60 * 60;
 const TICKET_MS = 60_000;
 
 type Db = Pick<PrismaClient, 'federationTicket'>;
@@ -28,10 +26,4 @@ export async function consommerTicket(db: Db, ticket: unknown, now = Date.now())
   if (!l) return null;
   const pris = await db.federationTicket.deleteMany({ where: { empreinte: empreinte(ticket) } });
   return pris.count === 1 && l.tenantId && l.expireLe.getTime() > now ? { userId: l.userId, tenantId: l.tenantId } : null;
-}
-
-/** Une session fédérée tombe 24 h après son début réel, quoi que dise la durée re-signée. Sans début connu : expirée. */
-export function federationExpiree(token: { federe?: unknown; authAt?: unknown }, nowS = Math.floor(Date.now() / 1000)): boolean {
-  if (token.federe !== true) return false;
-  return typeof token.authAt !== 'number' || nowS - token.authAt > SESSION_FEDEREE_S;
 }

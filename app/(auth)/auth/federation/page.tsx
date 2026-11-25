@@ -33,7 +33,7 @@ export default async function FederationPage({ searchParams }: { searchParams: P
       <Card className="w-full max-w-md p-8 space-y-4">
         <h1 className="text-xl font-semibold">Connexion par votre organisation</h1>
         <p className="text-sm text-muted-foreground" role="status">{raison}</p>
-        <Link href="/login" className="inline-flex min-h-11 items-center text-sm font-medium underline">
+        <Link href="/login?normal=1" className="inline-flex min-h-11 items-center text-sm font-medium underline">
           Connexion habituelle
         </Link>
       </Card>

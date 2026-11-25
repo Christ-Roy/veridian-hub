@@ -676,6 +676,8 @@ model TenantIdp {
   /// Posé par le propriétaire lui-même : n'affirme aucune adresse, et ne s'active qu'après un essai réussi.
   libreService   Boolean   @default(false) @map("libre_service")
   essaiLe        DateTime? @map("essai_le")
+  /// Session glissante de N jours (2 à 30) ; vide : 24 h.
+  sessionJours   Int?      @map("session_jours")
   /// /connexion/<alias>, posé par un opérateur.
   alias          String?   @unique
 

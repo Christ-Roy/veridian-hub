@@ -42,9 +42,10 @@ describe('révocation : jamais `iat`', () => {
   it('le callback jwt d\'auth.ts appelle la révocation à chaque lecture de session', () => {
     const src = code('auth.ts');
     expect(src).toMatch(/isSessionRevoked\(\s*prisma\s*,\s*token\s*\)/);
-    // Elle précède le `return token` final du callback : un retour anticipé la sauterait.
+    // Elle précède le retour final du callback (`glisser` ne fait que dater l'usage d'une session d'organisation) : un retour anticipé la sauterait.
     const jwt = src.slice(src.indexOf('async jwt('), src.indexOf('async session('));
     expect(jwt.indexOf('isSessionRevoked')).toBeGreaterThan(jwt.indexOf('if (user)'));
-    expect(jwt.indexOf('isSessionRevoked')).toBeLessThan(jwt.lastIndexOf('return token'));
+    expect(jwt.indexOf('isSessionRevoked')).toBeLessThan(jwt.lastIndexOf('return glisser(token)'));
+    expect(jwt.lastIndexOf('return token'), 'aucun autre retour après la révocation').toBeLessThan(jwt.indexOf('isSessionRevoked'));
   });
 });

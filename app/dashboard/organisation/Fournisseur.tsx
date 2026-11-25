@@ -60,6 +60,9 @@ export function Fournisseur({ tenant, idp, adresses }: { tenant: string; idp: Vu
             ) : (
               <p className="text-sm text-muted-foreground">Réglé par Veridian : écrivez-nous pour le changer.</p>
             )}
+            <p className="text-sm text-muted-foreground">
+              {idp.session_jours ? `Une session vit ${idp.session_jours} jours après le dernier usage, 30 au plus.` : 'Une session vit 24 heures.'} Retirer quelqu&apos;un ici ferme son accès aussitôt ; lui ôter son compte chez le fournisseur, seulement à la fin de sa session.
+            </p>
             {idp.libre_service && !idp.essai_le ? <p className="text-sm text-muted-foreground">Essayez d&apos;abord avec votre propre compte : rien ne s&apos;ouvre avant.</p> : null}
           </div>
         ) : null}

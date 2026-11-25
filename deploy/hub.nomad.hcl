@@ -492,7 +492,7 @@ EOH
         resources {
           cpu        = 300
           # ~150 Mio par tour actif (binaire mesuré au repos le 22/11), 4 tours simultanés au plus (atelier/regles.mjs).
-          memory     = 256
+          memory     = 48
           memory_max = 1024
         }
       }
@@ -523,8 +523,9 @@ EOH
           }
         }
         resources {
-          cpu    = 50
-          memory = 64
+          cpu        = 50
+          memory     = 32
+          memory_max = 64
         }
       }
 
@@ -556,7 +557,7 @@ EOH
         }
         resources {
           cpu        = 10
-          memory     = 16
+          memory     = 32
           memory_max = 32
         }
       }

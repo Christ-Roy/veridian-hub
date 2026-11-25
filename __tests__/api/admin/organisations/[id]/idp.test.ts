@@ -49,6 +49,9 @@ describe('PUT idp', () => {
     expect((await PUT(req({ ...R, alias: '../x' }), ctx())).status).toBe(400);
     await PUT(req(R), ctx());
     expect(m.poser.mock.calls.at(-1)![1].alias).toBeUndefined();
+    expect((await PUT(req({ ...R, session_jours: 7 }), ctx())).status).toBe(200);
+    expect(m.poser.mock.calls.at(-1)![1].sessionJours).toBe(7);
+    expect((await PUT(req({ ...R, session_jours: 365 }), ctx())).status).toBe(400);
   });
   it('corps faux : 400 ; refus : 409, 404 ; sans droit : 403 ; rien n\'est noté', async () => {
     expect((await PUT(req({ ...R, plus: 1 }), ctx())).status).toBe(400);

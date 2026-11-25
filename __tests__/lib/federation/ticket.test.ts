@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 
-import { consommerTicket, emettreTicket, federationExpiree, FOURNISSEUR_FEDERATION, SESSION_FEDEREE_S } from '@/lib/federation/ticket';
+import { consommerTicket, emettreTicket, FOURNISSEUR_FEDERATION } from '@/lib/federation/ticket';
 
 const base = () => {
   const l: any[] = [];
@@ -20,12 +20,6 @@ describe('ticket', () => {
   it('inventé, mal formé, absent : rien', async () => {
     for (const t of ['x'.repeat(43), 'court', undefined, 12, { a: 1 }, `${'x'.repeat(43)}/`]) expect(await consommerTicket(base() as never, t)).toBeNull();
   });
-});
-it('federationExpiree : 24 h depuis la connexion réelle ; une session ordinaire ne tombe pas', () => {
-  const n = 2_000_000;
-  const f = (x: object) => federationExpiree(x, n);
-  expect([f({ federe: true, authAt: n - SESSION_FEDEREE_S }), f({ federe: true, authAt: n - SESSION_FEDEREE_S - 1 }), f({ federe: true }), f({ authAt: 0 }), f({ federe: 'true', authAt: 0 })]).toEqual([false, true, true, false, false]);
-  expect(SESSION_FEDEREE_S).toBe(86_400);
 });
 it('le fournisseur interne ne se confond avec aucun fournisseur réel ni avec les liens d\'organisation', () => {
   expect(FOURNISSEUR_FEDERATION).toBe('federation');

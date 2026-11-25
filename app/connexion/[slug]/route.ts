@@ -1,10 +1,12 @@
 /** GET /connexion/<organisation> : la porte d'entrée d'une organisation qui a son fournisseur d'identité. Sans fournisseur, inconnue ou fermée : la connexion habituelle, même réponse (M8). */
 import { NextResponse, type NextRequest } from 'next/server';
 
+import { auth } from '@/auth';
 import { ipClient } from '@/lib/auth/ip-client';
 import { RateLimiter } from '@/lib/auth/rate-limit';
 import { partir } from '@/lib/federation/depart';
 import { idpPret } from '@/lib/federation/idp';
+import { pauserPorte, PAUSE_ESSAI_S } from '@/lib/federation/porte';
 import { getHubBaseUrl } from '@/lib/mail/oauth-cookies';
 import { prisma } from '@/lib/prisma';
 
@@ -22,10 +24,14 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const i = await idpPret(prisma, { slug });
     if (!i) return habituelle();
+    // Déjà entrée par cette organisation, session vivante : pas de nouveau consentement.
+    const session = await auth();
+    if (session?.user?.federe === true && session.user.federeOrg === i.tenantId) return NextResponse.redirect(new URL('/dashboard', base), 303);
     const d = await partir(i, base);
     const r = NextResponse.redirect(d.url, 303);
     r.headers.set('Cache-Control', 'no-store');
     d.poser(r);
+    pauserPorte(r, PAUSE_ESSAI_S, base.protocol === 'https:');
     return r;
   } catch (err) {
     console.error(JSON.stringify({ tag: '[federation]', level: 'error', msg: 'fournisseur injoignable', slug, error: err instanceof Error ? err.message.slice(0, 160) : 'erreur' }));

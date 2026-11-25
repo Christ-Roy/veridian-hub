@@ -15,6 +15,7 @@ declare module 'next-auth' {
   interface User {
     /** Organisation dont le fournisseur ouvre la session. */
     federeOrg?: string;
+    federeJours?: number;
   }
   interface Session {
     user: {
@@ -23,6 +24,7 @@ declare module 'next-auth' {
       authAt?: number;
       /** `true` : session ouverte par le fournisseur d'une organisation, elle ne prouve pas la personne pour son compte. */
       federe?: boolean;
+      federeOrg?: string;
       /** `true` si la session provient d'une impersonation admin. */
       impersonated?: boolean;
       /** Email du platform admin à l'origine de l'impersonation, sinon null. */
@@ -40,6 +42,8 @@ declare module 'next-auth/jwt' {
     federe?: boolean;
     /** L'organisation qu'elle n'a pas le droit de quitter. */
     federeOrg?: string;
+    federeJours?: number;
+    federeVu?: number;
     /** `true` sur un JWT issu d'une impersonation admin. */
     impersonated?: boolean;
     /** Email du platform admin à l'origine de l'impersonation. */
