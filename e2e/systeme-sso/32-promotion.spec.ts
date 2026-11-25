@@ -76,8 +76,8 @@ cas(null, 'adresse principale : promue si elle est prouvée, la même personne p
     await adminOk('POST', `tenants/${T.id}/members`, { hub_user_id: A.hubUserId });
 
     // Son compte dans les apps, avant.
-    noterRybbit(A.email);
-    noterRybbit(A2);
+    // Chaque adresse qu'elle peut porter, sabotage compris (25/11 : un compte banni restait chez Analytics sous A3).
+    [A.email, A2, A3].forEach(noterRybbit);
     rybbitCompte('creer', A.email);
     rybbitCompte('lier', A.email, A.hubUserId ?? undefined);
     await adminOk('POST', 'tenants/app-access', { user_email: P.email, app: 'academy', enabled: true });
