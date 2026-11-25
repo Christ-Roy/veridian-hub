@@ -19,9 +19,9 @@ import type { SyncApp, TenantSnapshot } from '@/lib/sync/types';
 const DELAI_MS = 15_000;
 export const ROLES = ['member', 'admin', 'owner'] as const;
 export type Role = (typeof ROLES)[number];
-export type Origine = 'invitation' | 'reprise' | 'operateur';
+export type Origine = 'invitation' | 'reprise' | 'operateur' | 'preinscription';
 
-export type DbMembres = Pick<PrismaClient, 'tenant' | 'tenantMember' | 'user' | 'auditLog' | 'crossAppInvitation' | 'delegationGrant' | 'integrationPaire'>;
+export type DbMembres = Pick<PrismaClient, 'tenant' | 'tenantMember' | 'user' | 'auditLog' | 'crossAppInvitation' | 'delegationGrant' | 'integrationPaire' | 'tenantPreinscription'>;
 type Deps = { fetchImpl?: typeof fetch; apps?: readonly SyncApp[]; env?: NodeJS.ProcessEnv };
 
 /** Ce que l'auteur du geste doit lire : les apps où l'accès n'est PAS coupé, et pourquoi (Analytics ne sait pas retirer). */
@@ -86,7 +86,7 @@ export async function rejoindre(db: DbMembres, d: { tenantId: string; hubUserId:
   const avant = await db.tenantMember.findUnique({ where: cle });
   if (avant && !avant.deletedAt && (d.origine !== 'operateur' || avant.role === role)) return { cree: false, role: avant.role };
   // Un membre retiré ne revient ni par une reprise, ni par une invitation d'avant son retrait : seulement par un geste neuf.
-  if (avant?.deletedAt && (d.origine === 'reprise' || (d.origine === 'invitation' && !(d.emiseLe && d.emiseLe > avant.deletedAt)))) throw new RefusMembre('retire');
+  if (avant?.deletedAt && (d.origine === 'reprise' || ((d.origine === 'invitation' || d.origine === 'preinscription') && !(d.emiseLe && d.emiseLe > avant.deletedAt)))) throw new RefusMembre('retire');
   await db.tenantMember.upsert({
     where: cle,
     create: { tenantId: d.tenantId, userId: d.hubUserId, role, origine: d.origine, ajoutePar: d.acteur, roleLe: new Date() },
@@ -189,6 +189,8 @@ export async function retirer(db: DbMembres, d: { tenantId: string; hubUserId: s
   await revoquerPoignees(db, { hubUserId: d.hubUserId, tenantId: d.tenantId });
   // Une invitation encore ouverte le ferait revenir chez l'app : elle expire avant tout le reste.
   const invitations = await fermerInvitations(db, t, u.email, deps);
+  // Une pré-inscription encore ouverte le ferait revenir au prochain passage.
+  await db.tenantPreinscription.updateMany({ where: { tenantId: d.tenantId, email: u.email.trim().toLowerCase(), consommeeLe: null, annuleeLe: null }, data: { annuleeLe: new Date() } });
   const apps = await Promise.all((deps.apps ?? configuredSyncApps()).map((app) => retirerChez(app, t, u.email, d.hubUserId, d.motif ?? 'admin_action', deps)));
   if (!ligne && apps.every((a) => a.etat === 'absent')) throw new RefusMembre('pas_membre');
   const complet = apps.every((a) => a.etat === 'retire' || a.etat === 'absent');
@@ -255,8 +257,10 @@ export async function basculerSuspension(db: DbMembres, d: { tenantId: string; s
  * À la suppression d'un compte : ses appartenances, et ses invitations. Celles qu'il a envoyées bloquaient la suppression (clé
  * étrangère, 24/11), celles qu'il a reçues gardaient son adresse.
  */
-export async function oublierCompte(db: Pick<PrismaClient, 'tenantMember' | 'crossAppInvitation'>, u: { id: string; email: string; hubUserId: string | null }): Promise<{ membres: number; invitations: number }> {
+export async function oublierCompte(db: Pick<PrismaClient, 'tenantMember' | 'crossAppInvitation' | 'tenantPreinscription'>, u: { id: string; email: string; hubUserId: string | null; tenants?: string[] }): Promise<{ membres: number; invitations: number }> {
   const m = u.hubUserId ? await db.tenantMember.deleteMany({ where: { userId: u.hubUserId } }) : { count: 0 };
+  // Son adresse pré-inscrite ailleurs, et les adresses que ses organisations avaient pré-inscrites.
+  await db.tenantPreinscription.deleteMany({ where: { OR: [{ email: u.email.trim().toLowerCase() }, { tenantId: { in: u.tenants ?? [] } }] } });
   await db.crossAppInvitation.updateMany({ where: { acceptedByUserId: u.id }, data: { acceptedByUserId: null } });
   const i = await db.crossAppInvitation.deleteMany({ where: { OR: [{ inviterUserId: u.id }, { inviteeEmail: { equals: u.email, mode: 'insensitive' } }] } });
   return { membres: m.count, invitations: i.count };

@@ -56,6 +56,7 @@ export async function DELETE(request: NextRequest) {
   const userUuid = user.supabaseUserId;
   const actions: string[] = [];
   let apps: Awaited<ReturnType<typeof deprovisionnerCompte>> = [];
+  let idsTenants: string[] = [];
 
   // Soft-delete tenants (only if we have a UUID bridge)
   if (userUuid) {
@@ -67,6 +68,7 @@ export async function DELETE(request: NextRequest) {
       where: { userId: userUuid, deletedAt: null },
       select: { id: true, notifuseWorkspaceSlug: true, prospectionProvisionedAt: true, metadata: true },
     });
+    idsTenants = tenants.map((t) => t.id);
     apps = await deprovisionnerCompte({ email, tenants });
     for (const a of apps) actions.push(`${a.ok ? '✓' : '⚠️'} ${a.app} ${a.cible} : ${a.detail}`);
 
@@ -103,7 +105,7 @@ export async function DELETE(request: NextRequest) {
     actions.push('User has no supabaseUserId bridge — skipped tenant/sub/profile cleanup');
   }
 
-  const oubli = await oublierCompte(prisma, { id: user.id, email, hubUserId: userUuid ?? null });
+  const oubli = await oublierCompte(prisma, { id: user.id, email, hubUserId: userUuid ?? null, tenants: idsTenants });
   if (oubli.membres || oubli.invitations) actions.push(`Oublié : ${oubli.membres} appartenance(s), ${oubli.invitations} invitation(s)`);
 
   // Finally remove the Auth.js user (cascades to Account, Session, MfaCode)

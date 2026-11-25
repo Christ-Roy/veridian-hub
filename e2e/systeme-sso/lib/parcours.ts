@@ -135,12 +135,16 @@ export async function connexionHub(page: Page, email: string, motDePasse: string
   await page.getByRole('button', { name: /^Se connecter$/i }).click();
 }
 
+/** L'adresse qu'aurait un compte de cette batterie, avant qu'il existe. */
+export const adresseDe = (etiquette: string): string => `${PREFIXE_COMPTE}${ID_RUN}-${etiquette}@${DOMAINE_COMPTE}`;
+
 /**
  * Compte PROUVÉ : le chemin réel d'un client invité. Le lien d'invitation (envoyé à
  * cette adresse) est la preuve ; l'activation pose le mot de passe, ouvre la session
  * Hub et provisionne les apps. Aucun mail ne part (`sendEmail: false`).
  */
-export async function creerCompteProuve(browser: Browser, etiquette: string, adresse?: string): Promise<Compte> {
+/** `sansEspace` : le compte naît sans app ni espace à lui, comme quelqu'un qui se connecte pour la première fois (cas 29). */
+export async function creerCompteProuve(browser: Browser, etiquette: string, adresse?: string, sansEspace = false): Promise<Compte> {
   // `adresse` : une adresse de test fixe qui a une vraie boîte (cas 12, mail « essai démarré » lu).
   const email = adresse ?? `${PREFIXE_COMPTE}${ID_RUN}-${etiquette}@${DOMAINE_COMPTE}`;
   const nom = `TEST SYSTEME SSO ${etiquette}`;
@@ -148,7 +152,7 @@ export async function creerCompteProuve(browser: Browser, etiquette: string, adr
   noter(email);
   await usersCreate(email, nom);
   // Le Hub staging n'a que Twenty en face : ni Prospection ni Notifuse à provisionner.
-  const surStaging = /staging/.test(HUB_URL);
+  const surStaging = /staging/.test(HUB_URL) || sansEspace;
   const inv = await invite(email, surStaging ? ['hub'] : ['hub', 'prospection', 'notifuse', 'analytics'], 'TEST SYSTEME SSO');
   const ctx = await browser.newContext();
   try {

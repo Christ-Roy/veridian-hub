@@ -1,12 +1,16 @@
-/** POST { membres: [{ email, role? }], a_blanc? } : importe des membres dans l'organisation, un passage, une émission (VER-252). 207 : une ligne non jointe ou une app en retard. */
+/**
+ * GET : les adresses pré-inscrites et leur état. DELETE { email } : annule celle qui attend encore.
+ * POST { membres: [{ email, role? }], a_blanc? } : importe des membres dans l'organisation, un passage, une émission (VER-252). 207 : une ligne non jointe ou une app en retard.
+ */
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
-import { resolveActor } from '@/lib/admin/audit-log';
+import { resolveActor, writeAuditLog } from '@/lib/admin/audit-log';
 import { requireAdmin } from '@/lib/admin/require-admin';
 import { LIMITE_IMPORT, importerMembres } from '@/lib/organisations/importer';
 import { prisma } from '@/lib/prisma';
 import { IdTenant } from '@/lib/tenants/membres-http';
+import { annulerPreinscriptions, listerPreinscriptions } from '@/lib/tenants/preinscription';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -30,6 +34,25 @@ export async function POST(request: NextRequest, { params }: Ctx) {
   if ('refus' in r) return rendre({ error: r.refus }, 404);
   const compte: Record<string, number> = {};
   for (const l of r.lignes) compte[l.etat] = (compte[l.etat] ?? 0) + 1;
-  const bien = r.lignes.every((l) => l.etat === 'joint' || l.etat === 'deja') && r.organisation.every((e) => e.etat === 'applique');
+  const bien = r.lignes.every((l) => l.etat === 'joint' || l.etat === 'deja' || l.etat === 'preinscrit') && r.organisation.every((e) => e.etat === 'applique');
   return rendre({ compte, lignes: r.lignes, organisation: r.organisation, a_blanc: c.data.a_blanc === true }, bien ? 200 : 207);
+}
+
+export async function GET(request: NextRequest, { params }: Ctx) {
+  const refus = await requireAdmin(request);
+  if (refus) return refus;
+  const id = IdTenant.safeParse((await params).id);
+  if (!id.success) return rendre({ error: 'invalid' }, 400);
+  return rendre({ preinscrits: await listerPreinscriptions(prisma, id.data) });
+}
+
+export async function DELETE(request: NextRequest, { params }: Ctx) {
+  const refus = await requireAdmin(request);
+  if (refus) return refus;
+  const id = IdTenant.safeParse((await params).id);
+  const c = z.object({ email: z.string().email().max(254) }).strict().safeParse(await request.json().catch(() => null));
+  if (!id.success || !c.success) return rendre({ error: 'invalid' }, 400);
+  const annulees = await annulerPreinscriptions(prisma, { tenantId: id.data, email: c.data.email });
+  if (annulees) await writeAuditLog(prisma, { action: 'preinscription.annulee', actor: resolveActor(request.headers, null), targetType: 'tenant', targetId: id.data });
+  return rendre({ annulees });
 }

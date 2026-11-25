@@ -16,6 +16,7 @@ let audits: L[];
 let invitations: L[];
 let revoques: L[];
 let coupees: L[];
+let preinscrites: L[];
 const trouve = (w: L) => membres.find((m) => m.tenantId === w.tenantId_userId.tenantId && m.userId === w.tenantId_userId.userId) ?? null;
 const db = {
   tenant: { findFirst: async ({ where }: L) => (tenant && tenant.id === where.id ? tenant : null), update: async ({ data }: L) => Object.assign(tenant!, data) },
@@ -27,6 +28,7 @@ const db = {
   },
   delegationGrant: { updateMany: async ({ where }: L) => { revoques.push(where); return { count: 1 }; } },
   integrationPaire: { updateMany: async ({ where, data }: L) => { coupees.push([where, data]); return { count: 1 }; } },
+  tenantPreinscription: { updateMany: async ({ where, data }: L) => { preinscrites.push([where, data]); return { count: 1 }; } },
   crossAppInvitation: {
     findMany: async ({ where }: L) => invitations.filter((i) => i.inviteeEmail.toLowerCase() === where.inviteeEmail.equals.toLowerCase() && !i.acceptedAt && i.expiresAt > where.expiresAt.gt),
     updateMany: async ({ where, data }: L) => { for (const i of invitations) if (where.id.in.includes(i.id)) Object.assign(i, data); },
@@ -42,6 +44,7 @@ beforeEach(() => {
   invitations = [];
   revoques = [];
   coupees = [];
+  preinscrites = [];
   for (const a of ['NOTIFUSE', 'PROSPECTION', 'CRM', 'ACADEMY', 'ANALYTICS']) {
     vi.stubEnv(`${a}_API_URL`, `https://${a.toLowerCase()}.test`);
     vi.stubEnv(`${a}_HUB_API_SECRET`, 's');
@@ -258,9 +261,9 @@ describe('suspension', () => {
 
 it('oublierCompte : appartenances, invitations envoyées et reçues ; celles des autres restent', async () => {
   const jeu: L[] = [];
-  const d = { tenantMember: { deleteMany: async (x: L) => { jeu.push(['membres', x.where]); return { count: 1 }; } }, crossAppInvitation: { updateMany: async (x: L) => { jeu.push(['acceptees', x]); return { count: 0 }; }, deleteMany: async (x: L) => { jeu.push(['invitations', x.where]); return { count: 2 }; } } } as never;
-  expect(await oublierCompte(d, { id: 'c', email: 'a@b.fr', hubUserId: 'u' })).toEqual({ membres: 1, invitations: 2 });
-  expect(jeu).toEqual([['membres', { userId: 'u' }], ['acceptees', { where: { acceptedByUserId: 'c' }, data: { acceptedByUserId: null } }], ['invitations', { OR: [{ inviterUserId: 'c' }, { inviteeEmail: { equals: 'a@b.fr', mode: 'insensitive' } }] }]]);
+  const d = { tenantPreinscription: { deleteMany: async (x: L) => { jeu.push(['preinscriptions', x.where]); return { count: 0 }; } }, tenantMember: { deleteMany: async (x: L) => { jeu.push(['membres', x.where]); return { count: 1 }; } }, crossAppInvitation: { updateMany: async (x: L) => { jeu.push(['acceptees', x]); return { count: 0 }; }, deleteMany: async (x: L) => { jeu.push(['invitations', x.where]); return { count: 2 }; } } } as never;
+  expect(await oublierCompte(d, { id: 'c', email: 'A@b.fr', hubUserId: 'u', tenants: ['T'] })).toEqual({ membres: 1, invitations: 2 });
+  expect(jeu).toEqual([['membres', { userId: 'u' }], ['preinscriptions', { OR: [{ email: 'a@b.fr' }, { tenantId: { in: ['T'] } }] }], ['acceptees', { where: { acceptedByUserId: 'c' }, data: { acceptedByUserId: null } }], ['invitations', { OR: [{ inviterUserId: 'c' }, { inviteeEmail: { equals: 'A@b.fr', mode: 'insensitive' } }] }]]);
   expect(await oublierCompte(d, { id: 'c', email: 'a@b.fr', hubUserId: null })).toEqual({ membres: 0, invitations: 2 });
 });
 

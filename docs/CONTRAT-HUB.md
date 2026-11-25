@@ -1850,6 +1850,10 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
 - **Rattrapage** : `POST /api/organisations/lire`, signé comme la délégation (nonce) : le même document, pour une app cochée.
 - **Logo** : réencodé par le Hub (PNG, 512 px), servi à `/api/public/org/<tenant>/logo?v=<empreinte>` ; SVG refusé.
 - **Réglage** : `/dashboard/organisation` (propriétaire, admin ; sans modules ni réglages d'app), `hub org regler|etat|importer`.
+- **Pré-inscription** (VER-227 S1, `lib/tenants/preinscription.ts`) : `hub org importer` PRÉ-INSCRIT une adresse sans compte ou non prouvée
+  (30 jours). Aucun mail. Au premier passage avec cette adresse exacte, PROUVÉE (tableau de bord, ou rebond vers une app), la personne rejoint
+  l'organisation en `member`, et les apps cochées l'apprennent avant qu'elle y arrive. Un retrait annule ; seul un geste neuf la rouvre.
+  Jamais depuis une session d'emprunt. `hub org preinscrits|annuler`, liste à l'écran.
 - **Organisation active** : `hub_tenant_id` facultatif dans `issue-magic-link`, choisie au Hub, revérifiée au rebond.
 - **Activité** : `POST /api/organisations/activite { hub_tenant_id, hub_user_id, prefixe, depuis }` (signé avec nonce, Academy seule) →
   `{ fait, premier, dernier, nombre }`. `prefixe` nomme l'app (`twenty.create_`), `depuis` ISO, 400 jours au plus. Compte les appels RÉUSSIS par la

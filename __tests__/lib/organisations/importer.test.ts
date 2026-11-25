@@ -1,7 +1,8 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const m = vi.hoisted(() => ({ rejoindre: vi.fn(), suivre: vi.fn() }));
+const m = vi.hoisted(() => ({ rejoindre: vi.fn(), suivre: vi.fn(), preinscrire: vi.fn(async (..._a: unknown[]) => new Date('2026-12-25T00:00:00Z')) }));
+vi.mock('@/lib/tenants/preinscription', () => ({ preinscrire: m.preinscrire }));
 vi.mock('@/lib/tenants/membres', async (orig) => ({ ...(await orig<typeof import('@/lib/tenants/membres')>()), rejoindre: m.rejoindre }));
 vi.mock('@/lib/organisations/emission', () => ({ suivreOrganisation: m.suivre }));
 
@@ -48,14 +49,17 @@ describe('importerMembres', () => {
     const r = await importerMembres(db, { tenantId: 'T', acteur: 'op', membres: [
       { email: 'nouveau@x.fr' }, { email: 'inconnu@x.fr' }, { email: 'flou@x.fr' }, { email: 'actif@x.fr', role: 'member' }, { email: 'parti@x.fr' }, { email: 'prop@x.fr' },
     ] });
-    expect('lignes' in r && r.lignes.map((l) => l.etat)).toEqual(['joint', 'compte_absent', 'adresse_non_prouvee', 'deja', 'retire', 'deja']);
+    expect('lignes' in r && r.lignes.map((l) => l.etat)).toEqual(['joint', 'preinscrit', 'preinscrit', 'deja', 'retire', 'deja']);
+    expect(m.preinscrire.mock.calls.map((c) => c[1])).toEqual([{ tenantId: 'T', email: 'inconnu@x.fr', acteur: 'op' }, { tenantId: 'T', email: 'flou@x.fr', acteur: 'op' }]);
+    expect(etat(r, 'inconnu@x.fr')).toMatchObject({ role: 'member', detail: 'jusqu\'au 2026-12-25' });
     expect(m.rejoindre).toHaveBeenCalledTimes(1);
     expect(m.rejoindre.mock.calls[0][1]).toMatchObject({ tenantId: 'T', hubUserId: 'nouveau', role: 'member', origine: 'operateur', acteur: 'op' });
     expect(etat(r, 'actif@x.fr')).toMatchObject({ role: 'admin', detail: 'rôle admin conservé' });
   });
   it('à blanc : dit ce qui se passerait, n\'écrit rien et n\'émet rien', async () => {
     const r = await importerMembres(db, { tenantId: 'T', acteur: 'op', aBlanc: true, membres: [{ email: 'nouveau@x.fr' }, { email: 'parti@x.fr' }, { email: 'flou@x.fr' }] });
-    expect('lignes' in r && r.lignes.map((l) => [l.etat, l.detail])).toEqual([['joint', 'à blanc'], ['retire', undefined], ['adresse_non_prouvee', undefined]]);
+    expect('lignes' in r && r.lignes.map((l) => [l.etat, l.detail])).toEqual([['joint', 'à blanc'], ['retire', undefined], ['preinscrit', 'à blanc']]);
+    expect(m.preinscrire).not.toHaveBeenCalled();
     expect(m.rejoindre).not.toHaveBeenCalled();
     expect(m.suivre).not.toHaveBeenCalled();
   });
