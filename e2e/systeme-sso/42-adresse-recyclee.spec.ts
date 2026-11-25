@@ -79,8 +79,12 @@ cas(null, 'adresse recyclée : un compte neuf entre partout chez lui, et n\'hér
     const refusCrm = await activerTwentyAuHub(N.email).then(() => null, (err) => String(err instanceof Error ? err.message : err).slice(0, 200));
     const TN = (await lookup(N.email)).json?.tenants?.[0] as { id: string } | undefined;
     if (TN) noterEspaceTwenty(N.email, TN.id);
-    if (process.env.SSO_SABOTAGE === 'recycle-membre') await admin('POST', `tenants/${T.id}/members`, { hub_user_id: N.hubUserId });
+    if (process.env.SSO_SABOTAGE === 'recycle-membre') {
+      const a = await admin('POST', `tenants/${T.id}/members`, { hub_user_id: N.hubUserId });
+      console.log(`sabotage : ${a.status} ${JSON.stringify(a.json).slice(0, 400)}`);
+    }
     const neuf = await voir(await ctxDe(N), N.email);
+    console.log(`vu : ${JSON.stringify({ avantM, neuf, commun })}`);
     const herite = {
       prospection: (neuf.prospection ?? []).filter((x) => (avantM.prospection ?? []).includes(x)).length,
       mail: (neuf.mail ?? []).filter((x) => (avantM.mail ?? []).includes(x)).length,

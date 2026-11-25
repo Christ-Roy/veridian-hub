@@ -16,6 +16,7 @@ import { GET } from '@/app/api/connecteurs/retour/route';
 const revenir = async (q = 'code=c&state=s') => { const r = await GET(new NextRequest(`https://0.0.0.0/api/connecteurs/retour?${q}`)); return { avis: r.headers.get('location')?.split('avis=')[1], cookie: r.headers.get('set-cookie') }; };
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv('CONNECTEURS_OUVERTS', '1');
   m.user.mockResolvedValue({ id: 'U', supabaseUserId: 'h' });
   m.emprunt.mockResolvedValue(null);
   m.ouvrir.mockReturnValue({ cle: 'notion', userId: 'U' });
@@ -42,6 +43,11 @@ describe('GET', () => {
   it('jamais en cache, et le code ne fuit pas par l\'adresse d\'origine', async () => {
     const r = await GET(new NextRequest('https://0.0.0.0/api/connecteurs/retour?code=c&state=s'));
     expect([r.headers.get('cache-control'), r.headers.get('referrer-policy'), r.headers.get('location')?.includes('code=')]).toEqual(['no-store', 'no-referrer', false]);
+  });
+  it('fermé : aucun échange, rien n\'est gardé', async () => {
+    vi.stubEnv('CONNECTEURS_OUVERTS', '');
+    expect((await revenir()).avis).toBe('ferme');
+    expect([m.terminer.mock.calls.length, m.garder.mock.calls.length]).toEqual([0, 0]);
   });
   it('refusé chez le service : dit, sans échange', async () => {
     expect((await revenir('error=access_denied')).avis).toBe('refusee');

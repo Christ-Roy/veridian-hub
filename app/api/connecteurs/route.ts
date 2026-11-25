@@ -8,7 +8,7 @@ import { auth } from '@/auth';
 import { couper } from '@/lib/connecteurs/coffre';
 import { CHEMIN_RETOUR_CONNECTEUR, COOKIE_CONNECTEUR, partir, TRANSACTION_CONNECTEUR_S } from '@/lib/connecteurs/oauth';
 import { retourConnecteur } from '@/lib/connecteurs/porte';
-import { connecteur } from '@/lib/connecteurs/registre';
+import { connecteur, connecteursOuverts } from '@/lib/connecteurs/registre';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { isImpersonatedSession } from '@/lib/auth/impersonation';
 import { RateLimiter } from '@/lib/auth/rate-limit';
@@ -39,6 +39,8 @@ export async function POST(request: NextRequest) {
     return vers(r.coupee ? 'coupee' : 'absente');
   }
   if (f.get('geste') !== 'brancher') return vers('refus');
+  // Avant tout départ : c'est lui qui inscrit notre client chez le service.
+  if (!connecteursOuverts()) return vers('ferme');
   try {
     const d = await partir(prisma, c, user.id, retourConnecteur());
     const r = NextResponse.redirect(d.url, 303);

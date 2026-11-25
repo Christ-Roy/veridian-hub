@@ -82,9 +82,9 @@ describe('AppSidebar', () => {
     expect(screen.getByText('Organisation').closest('a')).toHaveAttribute('href', '/dashboard/organisation');
   });
 
-  it('« Connexions » mène aux services extérieurs', () => {
+  it('« Connexions » n\'est pas au menu tant que la fonction est fermée', () => {
     renderSidebar();
-    expect(screen.getByText('Connexions').closest('a')).toHaveAttribute('href', '/dashboard/connexions');
+    expect(screen.queryByText('Connexions')).toBeNull();
   });
 
   it('n\'affiche plus de lien "Aide" (NavSecondary retiré — refonte DA 2026-05-29)', () => {

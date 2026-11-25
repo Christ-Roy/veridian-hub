@@ -13,6 +13,7 @@ import Connexions from '@/app/dashboard/connexions/page';
 const html = async (avis?: string) => renderToStaticMarkup(await Connexions({ searchParams: Promise.resolve({ avis }) }));
 const gestes = (h: string) => [...h.matchAll(/aria-label="([^"]+)"/g)].map((x) => x[1]);
 beforeEach(() => {
+  vi.stubEnv('CONNECTEURS_OUVERTS', '1');
   m.user.mockResolvedValue({ id: 'U' });
   m.liste.mockResolvedValue([{ cle: 'notion', nom: 'Notion', texte: 'x', etat: 'absente' }, { cle: 'linear', nom: 'Linear', texte: 'y', etat: 'active' }, { cle: 'canva', nom: 'Canva', texte: 'z', etat: 'a_rebrancher' }]);
 });
@@ -22,6 +23,12 @@ it('chacun son geste : brancher, couper, rebrancher ; aucun champ de clé', asyn
   expect(gestes(h)).toEqual(['Brancher Notion', 'Couper Linear', 'Brancher Canva', 'Couper Canva']);
   expect(h).toContain('href="/dashboard/liaisons"');
   expect([h.includes('Rebrancher'), /type="(password|text)"/.test(h)]).toEqual([true, false]);
+});
+it('fermé : rien à brancher, ce qui est branché se coupe', async () => {
+  vi.stubEnv('CONNECTEURS_OUVERTS', '');
+  expect(gestes(await html())).toEqual(['Couper Linear', 'Couper Canva']);
+  m.liste.mockResolvedValue([]);
+  expect(await html()).toContain('pas encore ouverte');
 });
 it('l\'avis se dit, un avis inconnu ne dit rien', async () => {
   expect(await html('branchee')).toContain('Branché.');

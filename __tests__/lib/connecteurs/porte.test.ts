@@ -2,8 +2,8 @@
 /** La porte MCP contre un VRAI service (jetable) : ses outils, avec le jeton de la personne, et rien d'autre de chez nous. */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const reg = vi.hoisted(() => ({ l: [] as any[] }));
-vi.mock('@/lib/connecteurs/registre', () => ({ CONNECTEURS: reg.l, connecteur: (k: string) => reg.l.find((c) => c.cle === k) ?? null }));
+const reg = vi.hoisted(() => ({ l: [] as any[], ouvert: true }));
+vi.mock('@/lib/connecteurs/registre', () => ({ connecteursOuverts: () => reg.ouvert, CONNECTEURS: reg.l, connecteur: (k: string) => reg.l.find((c) => c.cle === k) ?? null }));
 vi.mock('@/lib/admin/audit-log', () => ({ writeAuditLog: async () => {} }));
 vi.mock('@/utils/helpers', () => ({ getURL: (p: string) => `https://hub.test${p}` }));
 
@@ -42,6 +42,15 @@ beforeEach(async () => {
   await garder(db, 'h', 'essai', await terminer(db, ouvrirTransaction(d.cookie)!, retour, retourConnecteur(), D));
 });
 
+it('fermé : rien n\'est servi, même une connexion existante', async () => {
+  reg.ouvert = false;
+  try {
+    expect(await servicesDe(db, 'h')).toEqual([]);
+    await expect(sessionExterne(db, 'h', 'essai', D)).rejects.toThrow('inconnu');
+  } finally {
+    reg.ouvert = true;
+  }
+});
 it('retourConnecteur : une seule adresse, la nôtre', () => expect(retourConnecteur()).toBe('https://hub.test/api/connecteurs/retour'));
 it('servicesDe : les siens, actifs', async () => {
   expect((await servicesDe(db, 'h')).map((x) => [x.appKey, x.externe])).toEqual([['essai', true]]);

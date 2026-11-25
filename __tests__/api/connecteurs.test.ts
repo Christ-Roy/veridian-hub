@@ -25,6 +25,7 @@ const jouer = async (champs: Record<string, string>, origin = 'https://app.verid
 };
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv('CONNECTEURS_OUVERTS', '1');
   m.auth.mockResolvedValue({ user: { authAt: 1 } });
   m.user.mockResolvedValue({ id: 'U', supabaseUserId: 'h' });
   m.emprunt.mockReturnValue(false);
@@ -38,6 +39,12 @@ describe('POST', () => {
     const r = await jouer({ connecteur: 'notion', geste: 'brancher' });
     expect([r.statut, r.lieu, m.partir.mock.calls[0][2]]).toEqual([303, 'https://mcp.notion.com/authorize?x', 'U']);
     expect(r.cookie).toMatch(/veridian-connecteur=scelle; Path=\/api\/connecteurs\/retour;.*Max-Age=600;.*Secure; HttpOnly; SameSite=lax/i);
+  });
+  it('fermé : brancher est refusé AVANT tout départ, couper marche', async () => {
+    vi.stubEnv('CONNECTEURS_OUVERTS', '');
+    expect((await jouer({ connecteur: 'notion', geste: 'brancher' })).lieu).toBe('/dashboard/connexions?avis=ferme');
+    expect(m.partir).not.toHaveBeenCalled();
+    expect((await jouer({ connecteur: 'notion', geste: 'couper' })).lieu).toContain('avis=coupee');
   });
   it('couper une connexion qui n\'existe pas : dit', async () => {
     m.couper.mockResolvedValue({ coupee: false, revoquee: false });

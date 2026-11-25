@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { connexionsDe } from '@/lib/connecteurs/coffre';
+import { connecteursOuverts } from '@/lib/connecteurs/registre';
 import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
@@ -23,18 +24,21 @@ const AVIS: Record<string, string> = {
   injoignable: 'Ce service ne répond pas. Réessayez dans un instant.',
   trop: 'Trop de demandes. Réessayez dans une heure.',
   refus: 'Demande refusée.',
+  ferme: 'Cette fonction n\'est pas encore ouverte.',
 };
 
 export default async function Connexions({ searchParams }: { searchParams: Promise<{ avis?: string }> }) {
   const user = await getCurrentUser();
   if (!user) redirect('/login?callbackUrl=/dashboard/connexions');
   const avis = AVIS[(await searchParams).avis ?? ''];
-  const services = await connexionsDe(prisma, userUuid(user));
+  const ouvert = connecteursOuverts();
+  // Fermé : seul ce qui est branché se montre, pour pouvoir le couper.
+  const services = (await connexionsDe(prisma, userUuid(user))).filter((s) => ouvert || s.etat !== 'absente');
   return (
     <div className="mx-auto max-w-2xl space-y-6 p-6">
       <DashboardPageHeader title="Connexions" icon={PlugIcon} description="Reliez les outils que vous utilisez déjà. Votre IA les retrouve avec vos apps Veridian." />
       {avis ? <p role="status" className="text-sm">{avis}</p> : null}
-      <Card className="p-6">
+      {services.length > 0 ? <Card className="p-6">
         <ul className="divide-y divide-border">
           {services.map((s) => (
             <li key={s.cle} className="flex items-center justify-between gap-4 py-4 first:pt-0 last:pb-0">
@@ -45,13 +49,13 @@ export default async function Connexions({ searchParams }: { searchParams: Promi
                 </p>
               </div>
               <div className="flex shrink-0 gap-2">
-                {s.etat !== 'active' ? <Geste cle={s.cle} nom={s.nom} geste="brancher">{s.etat === 'a_rebrancher' ? 'Rebrancher' : 'Brancher'}</Geste> : null}
+                {ouvert && s.etat !== 'active' ? <Geste cle={s.cle} nom={s.nom} geste="brancher">{s.etat === 'a_rebrancher' ? 'Rebrancher' : 'Brancher'}</Geste> : null}
                 {s.etat !== 'absente' ? <Geste cle={s.cle} nom={s.nom} geste="couper">Couper</Geste> : null}
               </div>
             </li>
           ))}
         </ul>
-      </Card>
+      </Card> : <p className="text-sm text-muted-foreground">Aucun service extérieur n&apos;est branché. Cette fonction n&apos;est pas encore ouverte.</p>}
       <Card className="flex items-center justify-between gap-4 p-6">
         <div>
           <p className="font-medium">Entre vos apps Veridian</p>

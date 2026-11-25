@@ -13,4 +13,7 @@ export const CONNECTEURS: readonly Connecteur[] = [
   { cle: 'sentry', nom: 'Sentry', texte: 'Erreurs et projets Sentry.', mcpUrl: 'https://mcp.sentry.dev/mcp' },
 ];
 
+/** Fermé par défaut (parente, 25/11) : brancher et servir attendent la relecture et l'accord de Robert. Couper reste toujours possible. */
+export const connecteursOuverts = (env: NodeJS.ProcessEnv = process.env): boolean => env.CONNECTEURS_OUVERTS === '1';
+
 export const connecteur = (cle: unknown): Connecteur | null => CONNECTEURS.find((c) => c.cle === cle) ?? null;

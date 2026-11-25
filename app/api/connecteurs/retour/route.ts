@@ -4,6 +4,7 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { garder } from '@/lib/connecteurs/coffre';
 import { CHEMIN_RETOUR_CONNECTEUR, COOKIE_CONNECTEUR, ouvrirTransaction, terminer } from '@/lib/connecteurs/oauth';
 import { retourConnecteur } from '@/lib/connecteurs/porte';
+import { connecteursOuverts } from '@/lib/connecteurs/registre';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { denyIfImpersonated } from '@/lib/auth/recent-auth';
 import { getHubBaseUrl } from '@/lib/mail/oauth-cookies';
@@ -21,6 +22,7 @@ export async function GET(request: NextRequest) {
     r.cookies.set(COOKIE_CONNECTEUR, '', { httpOnly: true, secure: base.protocol === 'https:', sameSite: 'lax', path: CHEMIN_RETOUR_CONNECTEUR, maxAge: 0 });
     return r;
   };
+  if (!connecteursOuverts()) return vers('ferme');
   const t = ouvrirTransaction(request.cookies.get(COOKIE_CONNECTEUR)?.value);
   if (!t) return vers('expiree');
   const user = await getCurrentUser();

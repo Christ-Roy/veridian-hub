@@ -1,7 +1,7 @@
 // @vitest-environment node
 /** Catalogue : à qui chaque app est ouverte, quels espaces, et ce que transporte une session d'app. */
 import { exportJWK, generateKeyPair } from 'jose';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { appsDe, catalogue, espacesDe, sessionPour, tousEspaces, viderCache, type Db } from '@/lib/mcp/catalogue';
 
@@ -84,6 +84,7 @@ describe('sessionPour', () => {
 });
 
 describe('catalogue et services extérieurs', () => {
+  beforeEach(() => { vi.stubEnv('CONNECTEURS_OUVERTS', '1'); });
   it('reliés par la personne, ils sont dans ses apps ; à rebrancher, dits ; une lecture ratée n\'emporte rien', async () => {
     viderCache();
     const base = { mcpApp: { findMany: async () => [] }, tenantApp: { findMany: async () => [] } };
