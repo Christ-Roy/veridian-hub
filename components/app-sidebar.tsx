@@ -4,6 +4,7 @@ import * as React from "react"
 import Link from "next/link"
 import {
   BotIcon,
+  Building2Icon,
   FileIcon,
   LayoutDashboardIcon,
   PlugIcon,
@@ -40,6 +41,11 @@ const navMain = [
     title: "Connexions",
     url: "/dashboard/connexions",
     icon: PlugIcon,
+  },
+  {
+    title: "Organisation",
+    url: "/dashboard/organisation",
+    icon: Building2Icon,
   },
   {
     title: "Membres",

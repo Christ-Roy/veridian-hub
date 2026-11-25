@@ -1,4 +1,5 @@
 // /dashboard/connexions : les services extérieurs que la personne relie à son compte (VER-244). Reliés, leurs outils arrivent à son IA avec ses apps.
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
 
 import { PlugIcon } from 'lucide-react';
@@ -50,6 +51,15 @@ export default async function Connexions({ searchParams }: { searchParams: Promi
             </li>
           ))}
         </ul>
+      </Card>
+      <Card className="flex items-center justify-between gap-4 p-6">
+        <div>
+          <p className="font-medium">Entre vos apps Veridian</p>
+          <p className="text-sm text-muted-foreground">Ce que vos apps font l&apos;une dans l&apos;autre, actif par défaut.</p>
+        </div>
+        <Button asChild size="sm" variant="outline">
+          <Link href="/dashboard/liaisons">Voir</Link>
+        </Button>
       </Card>
       <p className="text-sm text-muted-foreground">
         Vous vous connectez chez le service lui-même : Veridian ne voit jamais votre mot de passe. L&apos;accès est à vous seul, chiffré, et se coupe ici.

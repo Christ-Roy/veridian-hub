@@ -67,7 +67,7 @@ cas(null, 'adresse recyclée : un compte neuf entre partout chez lui, et n\'hér
     await pause(15_000); // le temps des coupures et de leurs reprises
     const N: Compte = await creerCompteProuve(browser, 'recycle', M.email);
     expect(N.hubUserId, 'une autre personne').not.toBe(M.hubUserId);
-    await activerTwentyAuHub(N.email);
+    const refusCrm = await activerTwentyAuHub(N.email).then(() => null, (err) => String(err instanceof Error ? err.message : err).slice(0, 200));
     const TN = (await lookup(N.email)).json?.tenants?.[0] as { id: string } | undefined;
     if (TN) noterEspaceTwenty(N.email, TN.id);
     if (process.env.SSO_SABOTAGE === 'recycle-membre') await admin('POST', `tenants/${T.id}/members`, { hub_user_id: N.hubUserId });
@@ -79,7 +79,7 @@ cas(null, 'adresse recyclée : un compte neuf entre partout chez lui, et n\'hér
     };
     const entre = { prospection: Boolean(neuf.prospection?.length), mail: Boolean(neuf.mail?.length), crm: Boolean(neuf.crm) };
     expect.soft(herite, 'ce que le compte neuf a hérité').toEqual({ prospection: 0, mail: 0, crm: 0 });
-    expect.soft(entre, `il entre partout : ${neuf.erreurs.join(' | ')}`).toEqual({ prospection: true, mail: true, crm: true });
+    expect.soft(entre, `il entre partout : ${[refusCrm, ...neuf.erreurs].filter(Boolean).join(' | ')}`).toEqual({ prospection: true, mail: true, crm: true });
     // Ce que M tenait est fermé, et ne s'est pas rouvert avec le compte neuf.
     const meM = (await (await cM.request.get(`${APP_URL.prospection}/api/me`)).json().catch(() => null)) as { workspaces?: unknown[] } | null;
     const hubM = ((await (await cM.request.get(`${HUB_URL}/api/auth/session`)).json().catch(() => null)) as { user?: unknown } | null)?.user ?? null;

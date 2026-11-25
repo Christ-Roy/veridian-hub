@@ -20,6 +20,7 @@ beforeEach(() => {
 it('chacun son geste : brancher, couper, rebrancher ; aucun champ de clé', async () => {
   const h = await html();
   expect(gestes(h)).toEqual(['Brancher Notion', 'Couper Linear', 'Brancher Canva', 'Couper Canva']);
+  expect(h).toContain('href="/dashboard/liaisons"');
   expect([h.includes('Rebrancher'), /type="(password|text)"/.test(h)]).toEqual([true, false]);
 });
 it('l\'avis se dit, un avis inconnu ne dit rien', async () => {

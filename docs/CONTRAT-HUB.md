@@ -1954,6 +1954,22 @@ ou ambigu : la ligne reste et se compte, rien n'est deviné. Au 25/11 : aucune c
 touché par aucun de ces gestes (vu échouer avant le correctif). Le Hub retire alors l'app de `APPS_PAR_ADRESSE` et lui envoie `hub_user_id` dans `by-email`
 (`HUB_USER_ID_APPS`). Les anciens champs restent envoyés pendant la bascule.
 
+#### 5.19.8 Une adresse libérée ressert, sans rien hériter (VER-256, 25/11/2026)
+
+Une adresse se recycle : boîte d'entreprise réattribuée, compte supprimé puis recréé. Mesuré le 25/11 : M supprimée au Hub, un compte NEUF à la même adresse
+(autre `hub_user_id`) est refusé par le CRM (`409 hub_user_conflict` à la création de son espace) : la copie de M y garde l'adresse.
+
+**Règle.** À `POST /api/hub/users/sync { hub_user_id, deleted: true }`, l'app :
+1. ferme tout ce que cette personne tient : sessions, jetons, clés créées par elle, liens non consommés ; la sort de tous ses espaces ;
+2. LIBÈRE l'adresse : la copie garde son `hub_user_id` et son historique (auteur), mais ne porte plus l'adresse ; invitations en attente à cette adresse : annulées ;
+3. répond `200`, rejouable.
+
+Ensuite, la même adresse avec un AUTRE `hub_user_id` (`issue-magic-link`, `sync-member`, `provision`) : une copie NEUVE est créée. Elle n'hérite de rien : ni
+espace, ni rôle, ni clé, ni brouillon, ni lien, ni historique d'un autre. `409 hub_user_conflict` reste réservé à une copie VIVANTE d'un autre `hub_user_id`.
+Un compte suspendu (pas supprimé) garde son adresse. Au Hub : `oublierCompte` et la cascade ne laissent ni membre, ni pré-inscription, ni invitation.
+
+**Éprouvé quand** le cas 42 passe : un compte neuf à l'adresse d'un compte supprimé entre partout, chez lui seulement.
+
 ### 5.20 Restauration d'un membre
 
 Si l'admin Hub a retiré un membre par erreur :

@@ -88,9 +88,10 @@ export async function POST(request: NextRequest) {
     const provision =
       espaceApp === 'crm' ? await ensureCrmWorkspace(prisma, qui, actorOpts) : await ensureAcademyWorkspace(prisma, qui, actorOpts);
     if (!provision.ok) {
+      console.warn(JSON.stringify({ tag: '[app-access]', level: 'warn', app: espaceApp, hub_user_id: user.supabaseUserId, error: String(provision.error).slice(0, 120) }));
       return NextResponse.json(
         { error: provision.error === 'tenant_not_found' ? 'tenant_not_found' : `${espaceApp}_provision_failed`, detail: provision.error },
-        { status: provision.error === 'tenant_not_found' ? 404 : provision.error === `${espaceApp}_not_configured` ? 503 : 502 },
+        { status: provision.error === 'tenant_not_found' ? 404 : provision.error === `${espaceApp}_not_configured` ? 503 : 424 },
       );
     }
     if (espaceApp === 'crm') crmWorkspaceId = provision.workspaceId;

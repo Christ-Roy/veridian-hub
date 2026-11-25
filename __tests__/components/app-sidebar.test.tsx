@@ -77,6 +77,11 @@ describe('AppSidebar', () => {
     expect(screen.queryByText('Bientôt')).not.toBeInTheDocument();
   });
 
+  it('« Organisation » se trouve sans connaître son adresse', () => {
+    renderSidebar();
+    expect(screen.getByText('Organisation').closest('a')).toHaveAttribute('href', '/dashboard/organisation');
+  });
+
   it('« Connexions » mène aux services extérieurs', () => {
     renderSidebar();
     expect(screen.getByText('Connexions').closest('a')).toHaveAttribute('href', '/dashboard/connexions');
