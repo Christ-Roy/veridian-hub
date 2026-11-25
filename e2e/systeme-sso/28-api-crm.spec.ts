@@ -1,8 +1,10 @@
 /**
  * L'API du CRM dans un programme (VER-253) : api_lire passe, api_ecrire et api_supprimer se NOMMENT, et rien de ce qui administre (membres)
  * ne passe par elles, même nommées, ni par alias, ni en écriture glissée dans une lecture, ni en masse sans liste d'identifiants.
- * Épreuve : `SSO_SABOTAGE=api-crm` ne nomme pas l'écriture : le cas doit échouer.
+ * `SSO_RAISONS=<fichier>` y écrit la raison de chaque refus. Épreuve : `SSO_SABOTAGE=api-crm` ne nomme pas l'écriture : le cas doit échouer.
  */
+import { writeFileSync } from 'node:fs';
+
 import { expect } from '@playwright/test';
 
 import { cas, NonAbouti } from './lib/etat';
@@ -75,6 +77,7 @@ cas(null, 'API du CRM dans un programme : lire passe, écrire se nomme, administ
     ];
     const refus = await jouer(interdits, ['twenty.api_ecrire', 'twenty.api_supprimer']);
     expect(refus.map((x, i) => [interdits[i][1].slice(0, 70), /^(refus|reserve)/.test(x)]), refus.join('\n').slice(0, 1500)).toEqual(interdits.map((x) => [x[1].slice(0, 70), true]));
+    if (process.env.SSO_RAISONS) writeFileSync(process.env.SSO_RAISONS, refus.map((x, i) => `${interdits[i][0]} ${interdits[i][1].slice(0, 60)} => ${x}`).join('\n'));
     const [fin] = await jouer([['api_lire', LIRE]]);
     expect(fin, 'rien de glissé').not.toContain(`${nom} glissée`);
     expect((await outil(jeton, 'executer_outil', { nom: 'twenty.find_many_workspace_members', arguments: { limit: 5, select: ['id'] }, espace: T.slug })).texte, 'le membre est toujours là').toContain(membre);
