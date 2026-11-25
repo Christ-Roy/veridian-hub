@@ -15,6 +15,8 @@ import { creerCompteProuve, noterEspaceTwenty, ouvrirApp, type Compte } from './
 
 type Issue = { app: string; etat: string; detail?: string };
 const DELAI = 30_000;
+/** Au-delà, ce n'est plus une propagation : c'est une porte. */
+const BORNE = 5_000;
 
 cas(null, 'suspension : le CRM ferme session et clé, puis les rend ; cochée et non cochée', async ({ browser }) => {
   if (/staging/.test(HUB_URL)) throw new NonAbouti('épreuve de prod (organisations réglées, CRM réservé)');
@@ -47,10 +49,19 @@ cas(null, 'suspension : le CRM ferme session et clé, puis les rend ; cochée et
         const r = await ctx.request.post(`${origine}/metadata`, { headers: { origin: origine, 'x-twenty-session-cookie': '1' }, data: { query, variables } }).catch(() => null);
         return (await r?.json().catch(() => null)) as { data?: any; errors?: { message: string }[] } | null;
       };
-      return { a, origine, gql, email: async () => ((await gql('{currentUser{email currentWorkspace{id}}}'))?.data?.currentUser?.email as string | undefined)?.toLowerCase() ?? null };
+      /** Ouverte = elle lit des DONNÉES. `currentUser` ne prouve rien : le CRM le laisse lire à un espace suspendu, pour l'écran qui l'explique (25/11). */
+      const donnees = async () => {
+        const r = await ctx.request.post(`${origine}/graphql`, { headers: { origin: origine, 'x-twenty-session-cookie': '1' }, data: { query: '{companies(first:1){edges{node{id}}}}' } }).catch(() => null);
+        const j = (await r?.json().catch(() => null)) as { data?: { companies?: { edges?: unknown[] } } } | null;
+        return Array.isArray(j?.data?.companies?.edges);
+      };
+      return { a, origine, gql, donnees, email: async () => ((await gql('{currentUser{email currentWorkspace{id}}}'))?.data?.currentUser?.email as string | undefined)?.toLowerCase() ?? null };
     };
+    const roles = new Map<string, string | undefined>();
+    const lus: string[] = [];
     const cleDe = async (s: Awaited<ReturnType<typeof entrer>>) => {
       const role = ((await s.gql('{getApiKeyRoles{id label}}'))?.data?.getApiKeyRoles as { id: string; label: string }[] | undefined)?.find((r) => r.label === 'Admin');
+      roles.set(s.origine, role?.id);
       const fin = new Date(Date.now() + 86_400_000).toISOString();
       const id = (await s.gql('mutation($i:CreateApiKeyInput!){createApiKey(input:$i){id}}', { i: { name: 'TEST suspension', expiresAt: fin, roleId: role?.id } }))?.data?.createApiKey?.id;
       const jeton = (await s.gql('mutation($a:UUID!,$e:String!){generateApiKeyToken(apiKeyId:$a,expiresAt:$e){token}}', { a: id, e: fin }))?.data?.generateApiKeyToken?.token as string | undefined;
@@ -60,10 +71,17 @@ cas(null, 'suspension : le CRM ferme session et clé, puis les rend ; cochée et
     const [sP, sM, sQ] = [await entrer(P), await entrer(M), await entrer(Q)];
     expect([await sP.email(), await sM.email(), await sQ.email()], `entrées : ${sP.a.url} ${sM.a.url} ${sQ.a.url}`).toEqual([P, M, Q].map((c) => c.email.toLowerCase()));
     expect(sM.origine, 'M est dans l\'espace de T').toBe(sP.origine);
+    expect([await sP.donnees(), await sM.donnees(), await sQ.donnees()], 'contrôle positif : les sessions lisent').toEqual([true, true, true]);
     const [kP, kQ] = [await cleDe(sP), await cleDe(sQ)];
     expect([await kP(), await kQ()], 'contrôle positif : les clés ouvrent').toEqual([200, 200]);
 
     const attendre = async (f: () => Promise<boolean>) => { const t0 = Date.now(); while (Date.now() - t0 < DELAI) { if (await f()) return Date.now() - t0; await new Promise((r) => setTimeout(r, 400)); } return null; };
+    /**
+     * La DERNIÈRE ouverture pendant 15 s, pas la première fermeture : le CRM a plusieurs processus, l'un peut servir encore quand l'autre a fermé (25/11,
+     * une clé créée par la session d'un espace suspendu). 0 : jamais rouverte.
+     */
+    const derniereOuverture = async (f: () => Promise<boolean>) => { const t0 = Date.now(); let vu = 0; while (Date.now() - t0 < 15_000) { const t = Date.now(); if (await f()) vu = Math.max(1, t - t0); await new Promise((r) => setTimeout(r, 200)); } return vu; };
+    const creerCle = async (s: Awaited<ReturnType<typeof entrer>>) => { const r = await s.gql('mutation($i:CreateApiKeyInput!){createApiKey(input:$i){id}}', { i: { name: 'TEST interdite', expiresAt: new Date(Date.now() + 86_400_000).toISOString(), roleId: roles.get(s.origine) } }); return Boolean(r?.data?.createApiKey?.id); };
     const basculer = async (t: { id: string }, suspendre: boolean) => {
       const r = await admin<{ apps: Issue[]; avis: string | null }>('POST', `tenants/${t.id}/suspension`, { suspendre, motif: 'TEST' });
       return { ...r.json, statut: r.status, crm: r.json.apps?.find((x) => x.app === 'crm') };
@@ -73,30 +91,40 @@ cas(null, 'suspension : le CRM ferme session et clé, puis les rend ; cochée et
 
     const jouer = async (nom: string, t: typeof T, siens: { s: Awaited<ReturnType<typeof entrer>>; c: Compte }[], k: () => Promise<number>, autre: { s: Awaited<ReturnType<typeof entrer>>; c: Compte; k: () => Promise<number> }) => {
       const coupure = sabotage === 'suspension-crm' ? null : await basculer(t, true);
-      const session = await attendre(async () => (await Promise.all(siens.map((x) => x.s.email()))).every((e) => e === null));
-      const cle = await attendre(async () => (await k()) !== 200);
-      expect([coupure?.crm?.etat, session !== null, cle !== null], `${nom} : ${JSON.stringify(coupure?.apps)} session ${session} clé ${cle}`).toEqual(['suspendu', true, true]);
-      expect([await autre.s.email(), await autre.k()], `${nom} : l'organisation d'à côté`).toEqual([autre.c.email.toLowerCase(), 200]);
+      const [session, cle, geste] = await Promise.all([derniereOuverture(async () => (await Promise.all(siens.map((x) => x.s.donnees()))).some(Boolean)), derniereOuverture(async () => (await k()) === 200), derniereOuverture(() => creerCle(siens[0].s))]);
+      const ferme = `données ${session} ms, clé ${cle} ms, geste ${geste} ms après`;
+      expect([coupure?.crm?.etat, session < BORNE, cle < BORNE, geste < BORNE], `${nom} : ${JSON.stringify(coupure?.apps)} dernière ouverture : ${ferme}`).toEqual(['suspendu', true, true, true]);
+      expect([await autre.s.donnees(), await autre.k()], `${nom} : l'organisation d'à côté`).toEqual([true, 200]);
+      const profil = (await siens[0].s.email()) ? 'profil encore lisible' : 'profil fermé';
       // Revenir par le Hub : il lit pourquoi, et n'entre pas.
       const retour = await browser.newContext({ storageState: siens.at(-1)!.c.etat as never });
       try {
-        const a = await ouvrirApp(retour, 'twenty');
-        expect([a.chemin, /Espace suspendu/.test(a.texte)], `${nom} : ${a.url} ${a.texte.slice(0, 160)}`).toEqual(['/auth/bounce/error', true]);
+        // Une erreur de navigation se LIT (boucle de redirection ou panne réseau), elle ne se devine pas sur une page vide.
+        let a = { chemin: '', texte: '', erreur: '' };
+        for (let i = 0; i < 3 && a.chemin !== '/auth/bounce/error'; i++) {
+          const page = await retour.newPage();
+          const erreur = await page.goto(`${HUB_URL}/login?next=${encodeURIComponent(`${APP_URL.twenty}/`)}`, { waitUntil: 'networkidle' }).then(() => '', (e: Error) => e.message.split('\n')[0]);
+          a = { chemin: new URL(page.url()).pathname, texte: await page.locator('body').innerText().catch(() => ''), erreur: [a.erreur, erreur].filter(Boolean).join(' / ') };
+          await page.close();
+          if (a.chemin !== '/auth/bounce/error') await new Promise((r) => setTimeout(r, 31_000)); // au-delà de l'anti-boucle du rebond
+        }
+        expect([a.chemin, /Espace suspendu/.test(a.texte)], `${nom} : ${a.erreur} ${a.texte.slice(0, 160)}`).toEqual(['/auth/bounce/error', true]);
+        if (a.erreur) lus.push(`${nom} : navigation reprise après ${a.erreur}`);
       } finally {
         await retour.close();
       }
-      // Ce qui change pendant la suspension est refusé par le CRM, et dit.
+      // Réglée pendant la suspension : le Hub n'émet rien, et l'app repart à jour à la reprise.
       const refuse = nom === 'cochée' ? (await admin<{ emissions: Issue[] }>('PUT', `organisations/${t.id}`, { nom_affiche: 'TEST suspension bis' })).json.emissions : [];
-      if (nom === 'cochée') expect(refuse.map((e) => [e.app, e.etat, e.detail]), JSON.stringify(refuse)).toEqual([['crm', 'echec', 'workspace_suspended']]);
+      if (nom === 'cochée') expect(refuse.map((e) => [e.app, e.etat, e.detail]), JSON.stringify(refuse)).toEqual([]);
       const reprise = sabotage === 'suspension-reprise' ? null : await basculer(t, false);
-      const rendue = await attendre(async () => (await Promise.all(siens.map(async (x) => (await x.s.email()) === x.c.email.toLowerCase()))).every(Boolean));
+      const rendue = await attendre(async () => (await Promise.all(siens.map((x) => x.s.donnees()))).every(Boolean));
       const cleRendue = await attendre(async () => (await k()) === 200);
       expect([reprise?.crm?.etat, rendue !== null, cleRendue !== null], `${nom} : reprise ${JSON.stringify(reprise?.apps)} session ${rendue} clé ${cleRendue}`).toEqual(['repris', true, true]);
       if (nom === 'cochée') {
         const apres = await adminOk<{ emissions: { app: string; a_jour: boolean }[] }>('GET', `organisations/${t.id}`);
         expect(apres.emissions.map((e) => [e.app, e.a_jour]), 'ce que la suspension avait retenu est appliqué').toEqual([['crm', true]]);
       }
-      return `${nom} : session fermée en ${session} ms, clé en ${cle} ms, rendues en ${rendue} et ${cleRendue} ms`;
+      return `${nom} : dernière ouverture ${ferme} (${profil}), rendues en ${rendue} et ${cleRendue} ms`;
     };
     const un = await jouer('cochée', T, [{ s: sP, c: P }, { s: sM, c: M }], kP, { s: sQ, c: Q, k: kQ });
     const deux = await jouer('non cochée', T2, [{ s: sQ, c: Q }], kQ, { s: sP, c: P, k: kP });
@@ -108,16 +136,16 @@ cas(null, 'suspension : le CRM ferme session et clé, puis les rend ; cochée et
     await adminOk('PUT', `organisations/${T.id}`, { modules: [] });
     expect(await porte(), 'décochée : porte IA').toBe(false);
     await new Promise((r) => setTimeout(r, 10_000));
-    const session = (await sM.email()) === M.email.toLowerCase() ? 'VIT' : 'fermée';
+    const session = (await sM.donnees()) ? 'LIT ENCORE les données' : 'fermée';
     const neuf = await browser.newContext({ storageState: M.etat as never });
     let rebond = '';
     try {
       const s = await entrer(M, neuf);
-      rebond = s.origine === sP.origine && (await s.email()) ? 'ENTRE dans l\'espace de l\'organisation' : `${s.a.hote}${s.a.chemin}`;
+      rebond = s.origine === sP.origine && (await s.donnees()) ? 'ENTRE dans l\'espace de l\'organisation' : `${s.a.hote}${s.a.chemin}`;
     } finally {
       await neuf.close();
     }
-    return `${un} ; ${deux} ; jamais suspendue, reprise : crm ${jamais.crm?.etat} ${jamais.crm?.detail ?? ''} ; DÉCOCHÉ : porte IA fermée, session CRM de M ${session}, nouvelle entrée de M par le Hub : ${rebond}`;
+    return `${un} ; ${deux} ;${lus.length ? ` ${lus.join(' ; ')} ;` : ''} jamais suspendue, reprise : crm ${jamais.crm?.etat} ${jamais.crm?.detail ?? ''} ; DÉCOCHÉ : porte IA fermée, session CRM de M ${session}, nouvelle entrée de M par le Hub : ${rebond}`;
   } finally {
     for (const c of ouverts) await c.close().catch(() => undefined);
   }

@@ -1783,8 +1783,8 @@ et `hub suspension` passent par lui.
   expirent. Le Hub n'appelle jamais `sync-member`. Encore dans l'app : le relevé dit `retire_au_hub`, jamais `jonction`.
 - **Suspension** : la porte MCP refuse tout outil d'app et tout programme, et exige un espace nommé si un autre est suspendu.
 - **CRM** (VER-254, v37, 25/11) : `suspend` et `resume` ferment et rendent sessions, clés, MCP, tâches de fond et webhooks. Suspendu : `issue-magic-link`,
-  `attach-member`, `organisations/sync` répondent `423 workspace_suspended` ; le rebond le dit (« Espace suspendu »), ce qui était à appliquer repart à la
-  reprise. `409 not_suspended_by_hub` (espace fermé par un autre chemin) est DIT et sort des cibles ; `410` : rien à fermer. Cas 34.
+  `attach-member`, `organisations/sync` répondent `423 workspace_suspended` ; le rebond le dit (« Espace suspendu »), le Hub n'émet rien d'une organisation
+  suspendue, et réémet à la reprise. `409 not_suspended_by_hub` (espace fermé par un autre chemin) est DIT et sort des cibles ; `410` : rien à fermer. Cas 34.
 - **Qui ne sait pas** (25/11) : retrait et suspension, Analytics ; `attach-owner`, Academy.
 - **Clés API d'un retiré** : jamais coupées (des automatisations en vivent), toujours DITES. `remove-member` rend
   `active_api_keys` (toutes les clés actives de l'espace, hors clé du Hub) et `api_keys_url` (la page où les renouveler, en https sur
