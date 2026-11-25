@@ -1844,6 +1844,8 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
 - **Émission** : `POST <app>/api/hub/organisations/sync` (HMAC `ts.corps`) `{ hub_tenant_id, version, nom, type, marque, modules, membres, reglages }`,
   à chaque changement, vers les apps cochées seulement. `version` monotone, ne bouge que si le contenu bouge. `membres` ADDITIF : une absence
   ne retire personne ; `joined_at` = adhésion en vigueur. Réponse `{ applied, reason: unchanged | stale }`.
+- **Nom** : `marque.nom_affiche` est celui que le propriétaire a CHOISI, ou null ; `nom` est le nom du compte au Hub. Une app ne se renomme que
+  d'après `marque.nom_affiche`, et un null ne vide rien.
 - **Relecture** : `GET <app>/api/hub/organisations/sync?hub_tenant_id=` → `{ version }`. « Appliqué » veut dire relu.
 - **Rattrapage** : `POST /api/organisations/lire`, signé comme la délégation (nonce) : le même document, pour une app cochée.
 - **Logo** : réencodé par le Hub (PNG, 512 px), servi à `/api/public/org/<tenant>/logo?v=<empreinte>` ; SVG refusé.

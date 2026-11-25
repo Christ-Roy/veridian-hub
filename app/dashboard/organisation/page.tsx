@@ -56,7 +56,7 @@ export default async function Organisation({ searchParams }: { searchParams: Pro
           <CardContent>
             <form method="post" action="/api/organisations/active" className="flex flex-wrap items-center gap-3">
               <select name="tenant" aria-label="Organisation active" defaultValue={active ?? espaces[0].id} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
-                {espaces.map((e) => <option key={e.id} value={e.id}>{e.nom}</option>)}
+                {espaces.map((e) => <option key={e.id} value={e.id}>{e.org?.nomAffiche ?? e.nom}</option>)}
               </select>
               <Button type="submit" variant="outline">Choisir</Button>
             </form>
@@ -69,14 +69,14 @@ export default async function Organisation({ searchParams }: { searchParams: Pro
         return (
           <Card key={e.id}>
             <CardHeader>
-              <CardTitle>{e.nom}</CardTitle>
+              <CardTitle>{e.org?.nomAffiche ?? e.nom}</CardTitle>
             </CardHeader>
             <CardContent>
               <form method="post" action="/api/organisations/regler" encType="multipart/form-data" className="flex flex-col gap-4">
                 <input type="hidden" name="tenant" value={e.id} />
                 <div className="flex flex-col gap-2">
                   <Label htmlFor={`nom-${e.id}`}>Nom affiché</Label>
-                  <Input id={`nom-${e.id}`} name="nom_affiche" maxLength={80} defaultValue={e.org?.nomAffiche ?? e.nom} />
+                  <Input id={`nom-${e.id}`} name="nom_affiche" maxLength={80} defaultValue={e.org?.nomAffiche ?? ''} placeholder={e.nom} />
                 </div>
                 <div className="flex flex-col gap-2">
                   <Label htmlFor={`type-${e.id}`}>Type</Label>

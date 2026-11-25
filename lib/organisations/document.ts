@@ -20,7 +20,7 @@ export type DocumentOrg = {
   version: number;
   nom: string;
   type: (typeof TYPES)[number];
-  marque: { nom_affiche: string; logo_url: string | null; logo_sombre_url: null; favicon_url: null; couleur_primaire: string | null; couleur_accent: string | null };
+  marque: { nom_affiche: string | null; logo_url: string | null; logo_sombre_url: null; favicon_url: null; couleur_primaire: string | null; couleur_accent: string | null };
   modules: string[];
   membres: MembreOrg[];
   reglages: Record<string, unknown>;
@@ -52,7 +52,8 @@ export async function contenuOrg(db: Db, tenantId: string, base: string): Promis
     hub_tenant_id: t.id,
     nom: o.nomAffiche ?? t.name,
     type: o.type === 'organisation' ? ('organisation' as const) : ('individuel' as const),
-    marque: { nom_affiche: o.nomAffiche ?? t.name, logo_url: urlLogo(base, o), logo_sombre_url: null, favicon_url: null, couleur_primaire: o.couleurPrimaire, couleur_accent: o.couleurAccent },
+    // Choisi par le propriétaire, ou null : le nom par défaut d'un compte n'est jamais un choix, une app ne s'en renomme pas (Notifuse, 25/11).
+    marque: { nom_affiche: o.nomAffiche, logo_url: urlLogo(base, o), logo_sombre_url: null, favicon_url: null, couleur_primaire: o.couleurPrimaire, couleur_accent: o.couleurAccent },
     modules: [...o.modules].sort(),
     membres: await membresDe(db, t),
     reglages: (o.reglages ?? {}) as Record<string, unknown>,
