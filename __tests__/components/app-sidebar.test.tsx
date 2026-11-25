@@ -77,6 +77,11 @@ describe('AppSidebar', () => {
     expect(screen.queryByText('Bientôt')).not.toBeInTheDocument();
   });
 
+  it('« Connexions » mène aux services extérieurs', () => {
+    renderSidebar();
+    expect(screen.getByText('Connexions').closest('a')).toHaveAttribute('href', '/dashboard/connexions');
+  });
+
   it('n\'affiche plus de lien "Aide" (NavSecondary retiré — refonte DA 2026-05-29)', () => {
     // La refonte a retiré la nav secondaire (lien "Aide" placeholder #).
     renderSidebar();

@@ -274,7 +274,7 @@ async function jouer(
       throw new AppInjoignable(`${o.nom} ne se joue pas ici`);
     } else {
       const app = cat.apps.find((a) => a.appKey === o.app)!;
-      const s = p.session ? await p.session(o.app) : await sessionOuCreation(app, qui, deps, tenantId);
+      const s = p.session ? await p.session(o.app) : await sessionOuCreation(app, qui, { ...deps, db }, tenantId);
       r = (await s.appeler(o.local, params)) as Contenu;
     }
     await journal(db, qui, o.nom, !r.isError, Date.now() - debut, p.programme, espace);
@@ -329,6 +329,8 @@ async function programme(db: DbPorte, qui: Appelant, cat: Catalogue, args: Recor
         // Ouvrir un flux entre apps n'est pas un geste de programme (parente, 24/11).
         if (n === HUB_PROGRAMME.nom || n === HUB_REGLER.nom) return undefined;
         const o = cat.outils.find((x) => x.nom === n);
+        // Le jeton d'un service extérieur reste hors d'un programme : un geste, un appel direct.
+        if (o && cat.apps.find((a) => a.appKey === o.app)?.externe) return { injoignable: `${n} : service extérieur, en appel direct par executer_outil.` };
         if (o && (familleReservee(o) || reserveAuHub(o))) return { injoignable: `${n} administre (membres, rôles, clés, webhooks, apps, réglages) : jamais depuis un programme, même nommé. ${reserveAuHub(o) ? 'Cela se fait au Hub.' : 'En appel direct, executer_outil.'}` };
         if (o) return o;
         const app = n.split('.')[0];

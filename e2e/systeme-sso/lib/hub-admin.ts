@@ -55,6 +55,8 @@ export type Reponse<T = any> = { status: number; json: T };
  * lancée 2 s avant une mise en ligne. Le Hub, lui, répond toujours en JSON.
  */
 function hubAbsent(r: Reponse): boolean {
+  // Un refus écrit par la route (« crm_provision_failed ») n'est pas un Hub absent : il se lit (25/11, cas 42).
+  if (typeof (r.json as { error?: unknown } | null)?.error === 'string') return false;
   if ([502, 503, 504].includes(r.status)) return true;
   return r.status === 404 && typeof (r.json as { non_json?: string })?.non_json === 'string';
 }

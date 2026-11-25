@@ -83,6 +83,19 @@ describe('sessionPour', () => {
   });
 });
 
+describe('catalogue et services extérieurs', () => {
+  it('reliés par la personne, ils sont dans ses apps ; à rebrancher, dits ; une lecture ratée n\'emporte rien', async () => {
+    viderCache();
+    const base = { mcpApp: { findMany: async () => [] }, tenantApp: { findMany: async () => [] } };
+    const avec = { ...base, connexionExterne: { findMany: async () => [{ connecteur: 'notion' }], findUnique: async () => null } } as unknown as Db;
+    const c = await catalogue(avec, QUI as never, []);
+    expect([c.apps.map((a) => [a.appKey, a.externe]), c.injoignables[0]?.raison]).toEqual([[['notion', true]], expect.stringContaining('à rebrancher')]);
+    vi.spyOn(console, 'error').mockReturnValue();
+    const casse = { ...base, connexionExterne: { findMany: async () => { throw new Error('base'); } } } as unknown as Db;
+    expect((await catalogue(casse, QUI as never, [])).apps).toEqual([]);
+  });
+});
+
 describe('catalogue', () => {
   it('les outils du Hub qu\'on lui passe, et eux seuls ; une app muette est dite injoignable, elle ne vide pas la liste', async () => {
     viderCache();

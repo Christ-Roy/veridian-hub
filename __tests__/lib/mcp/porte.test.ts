@@ -466,6 +466,13 @@ describe('executer_programme', () => {
     expect((await direct('analytics.update_site_config')).result.isError ?? false, 'les réglages restent possibles en direct').toBe(false);
     expect(joues()).toEqual(['creer_objectif', 'update_site_config']);
   });
+  it('un service extérieur ne se joue jamais depuis un programme, même nommé', async () => {
+    const f = appFactice({ outils: [{ name: 'chercher', description: 'x', inputSchema: { type: 'object' }, annotations: { readOnlyHint: true } }] });
+    const avec = { ...db, connexionExterne: { findMany: async () => [{ connecteur: 'notion' }], findUnique: async () => null } };
+    const r: any = await traiter(avec as never, QUI, { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'executer_programme', arguments: { code: 'x', autoriser: ['notion.chercher'] } } }, { fetchImpl: f.fetchImpl, programme: true, ouvrirMoteur: moteur([{ nom: 'notion.chercher' }]) });
+    expect(f.recus.filter((x) => x.corps.method === 'tools/call')).toEqual([]);
+    expect(JSON.stringify(r)).toMatch(/recues/);
+  });
   it('offert seulement quand le moteur est configuré ; sinon trois outils et refus', async () => {
     const r: any = await traiter(db as never, QUI, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, { programme: true, ouvrirMoteur: moteur([]) });
     expect(r.result.tools.map((t: any) => t.name)).toEqual(['chercher_outils', 'decrire_outil', 'executer_outil', 'executer_programme']);

@@ -11,11 +11,12 @@ import { signerPourApp } from './identite';
 import type { Appelant } from './oauth';
 import type { Provisionneur } from './provisionneurs';
 
+import { servicesDe, sessionExterne } from '@/lib/connecteurs/porte';
 import { appsParOrganisation } from '@/lib/tenant-apps/organisation';
 
 export { viderCache } from './cache';
 
-export type Db = Pick<PrismaClient, 'mcpApp' | 'tenantApp' | 'tenant' | 'tenantTrial' | 'tenantMember' | 'organisation'>;
+export type Db = Pick<PrismaClient, 'mcpApp' | 'tenantApp' | 'tenant' | 'tenantTrial' | 'tenantMember' | 'organisation'> & Partial<Pick<PrismaClient, 'connexionExterne' | 'connecteurClient' | 'auditLog'>>;
 
 export type Outil = {
   nom: string;
@@ -27,13 +28,15 @@ export type Outil = {
   local: string;
 };
 
-export type AppInscrite = { appKey: string; label: string; mcpUrl: string };
+export type AppInscrite = { appKey: string; label: string; mcpUrl: string; /** Service extérieur relié par la personne : son jeton à elle, aucune identité signée par le Hub. */ externe?: true };
 
 export type Deps = {
   fetchImpl?: typeof fetch;
   maintenant?: () => number;
   /** Création de compte par app (défaut : ceux du Hub, lib/mcp/provisionneurs.ts). */
   provisionneurs?: Record<string, Provisionneur>;
+  /** La base, pour le jeton d'un service extérieur. */
+  db?: Db;
   /** Options des sessions d'app (mode programme). */
   session?: ConstructorParameters<typeof SessionApp>[3];
   /** Rôle dans l'organisation choisie, signé avec tenant_id. */
@@ -115,6 +118,7 @@ export async function sessionPour(app: AppInscrite, qui: Appelant, deps: Deps = 
  * provisionnement habituel, oublie l'échec, et réessaie une fois.
  */
 export async function sessionOuCreation(app: AppInscrite, qui: Appelant, deps: Deps = {}, tenantId?: string): Promise<SessionApp> {
+  if (app.externe) return sessionExterne(deps.db as never, qui.hubUserId, app.appKey);
   try {
     return await sessionPour(app, qui, deps, tenantId);
   } catch (err) {
@@ -156,8 +160,9 @@ export async function outilsApp(app: AppInscrite, qui: Appelant, deps: Deps = {}
 export type Catalogue = { outils: Outil[]; apps: AppInscrite[]; injoignables: { app: string; raison: string }[] };
 
 export async function catalogue(db: Db, qui: Appelant, outilsHub: Outil[], deps: Deps = {}): Promise<Catalogue> {
-  const apps = await appsDe(db, qui.hubUserId);
-  const res = await Promise.allSettled(apps.map((a) => outilsApp(a, qui, deps)));
+  const services = await servicesDe(db as never, qui.hubUserId).catch((err) => (console.error('[mcp] services extérieurs', err instanceof Error ? err.message.slice(0, 120) : 'erreur'), []));
+  const apps: AppInscrite[] = [...(await appsDe(db, qui.hubUserId)), ...services];
+  const res = await Promise.allSettled(apps.map((a) => outilsApp(a, qui, { ...deps, db })));
   const outils = [...outilsHub];
   const injoignables: Catalogue['injoignables'] = [];
   res.forEach((r, i) => {

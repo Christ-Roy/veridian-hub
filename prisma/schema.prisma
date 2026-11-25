@@ -683,6 +683,37 @@ model TenantIdp {
   @@schema("hub_app")
 }
 
+/// Notre client OAuth chez un service extérieur, enregistré automatiquement (VER-119, lib/connecteurs).
+model ConnecteurClient {
+  connecteur    String
+  retour        String
+  clientId      String   @map("client_id")
+  secretChiffre String?  @map("secret_chiffre")
+  creeLe        DateTime @default(now()) @map("cree_le")
+
+  @@id([connecteur, retour])
+  @@map("connecteur_clients")
+  @@schema("hub_app")
+}
+
+/// Connexion d'une personne à un service extérieur : jetons chiffrés, jamais rendus.
+model ConnexionExterne {
+  id             String    @id @default(cuid())
+  hubUserId      String    @map("hub_user_id")
+  connecteur     String
+  accesChiffre   String    @map("acces_chiffre")
+  refreshChiffre String?   @map("refresh_chiffre")
+  expireLe       DateTime? @map("expire_le")
+  /// active | a_rebrancher
+  etat           String    @default("active")
+  creeLe         DateTime  @default(now()) @map("cree_le")
+  renouveleLe    DateTime  @default(now()) @map("renouvele_le")
+
+  @@unique([hubUserId, connecteur])
+  @@map("connexions_externes")
+  @@schema("hub_app")
+}
+
 /// Ticket à usage unique (60 s) entre le retour du fournisseur et Auth.js.
 model FederationTicket {
   empreinte String   @id

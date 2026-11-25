@@ -6,6 +6,7 @@ import {
   BotIcon,
   FileIcon,
   LayoutDashboardIcon,
+  PlugIcon,
   SettingsIcon,
   Users2Icon,
 } from "lucide-react"
@@ -34,6 +35,11 @@ const navMain = [
     title: "Assistants IA",
     url: "/dashboard/ia",
     icon: BotIcon,
+  },
+  {
+    title: "Connexions",
+    url: "/dashboard/connexions",
+    icon: PlugIcon,
   },
   {
     title: "Membres",
