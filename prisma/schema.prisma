@@ -494,7 +494,7 @@ model Tenant {
   prospectionLoginToken          String?      @map("prospection_login_token")
   prospectionLoginTokenUsed      Boolean?     @default(false) @map("prospection_login_token_used")
   prospectionLoginTokenCreatedAt DateTime?    @map("prospection_login_token_created_at") @db.Timestamptz(6)
-  prospectionPlan                String?      @default("freemium") @map("prospection_plan")
+  prospectionPlan                String?      @map("prospection_plan")
   prospectionConfig              Json?        @map("prospection_config")
   prospectionProvisionedAt       DateTime?    @map("prospection_provisioned_at") @db.Timestamptz(6)
   metadata                       Json?

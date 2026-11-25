@@ -114,6 +114,10 @@ describe('linkApp — création de Tenant', () => {
     const createData = createMock.mock.calls[0][0].data;
     expect(createData.prospectionPlan).toBe('complimentary');
     expect(createData.prospectionProvisionedAt).toBeInstanceOf(Date);
+    findFirstMock.mockResolvedValueOnce(null);
+    createMock.mockResolvedValueOnce({ id: 't-new2' });
+    await linkApp(prisma, { ...baseInput, app: 'prospection', plan: undefined });
+    expect(createMock.mock.calls[1][0].data.prospectionPlan, 'aucun plan par défaut').toBeNull();
   });
 });
 

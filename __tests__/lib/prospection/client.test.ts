@@ -76,6 +76,8 @@ describe('ProspectionClient HMAC requests', () => {
     expect(sentBody.user_id).toBe('uuid-alice');
     expect(sentBody.metadata).toEqual({ hub_user_id: 'uuid-alice' });
     expect(sentBody.plan).toBe('freemium');
+    await client.provisionTenant({ email: 'b@veridian.test', name: 'b', userId: 'uuid-b' });
+    expect('plan' in JSON.parse((fetchImpl.mock.calls[1][1] as RequestInit).body as string), 'sans plan : rien d\'envoyé').toBe(false);
   });
 
   it('throw ProspectionError sur 4xx sans retry', async () => {

@@ -164,7 +164,7 @@ function dedicatedColumnsForApp(
       };
     case 'prospection':
       return {
-        prospectionPlan: input.plan ?? 'freemium',
+        prospectionPlan: input.plan ?? null,
         prospectionProvisionedAt: new Date(),
       };
     // cms / analytics : tout dans metadata, pas de colonnes dédiées

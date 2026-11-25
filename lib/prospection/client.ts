@@ -116,7 +116,7 @@ export class ProspectionClient {
     return this.hmacRequest<ProvisionResponse>('POST', '/api/tenants/provision', {
       email: input.email,
       name: input.name,
-      plan: input.plan ?? 'freemium',
+      ...(input.plan ? { plan: input.plan } : {}),
       user_id: input.userId,
       metadata: { hub_user_id: input.userId, ...(input.hubTenantId ? { hub_tenant_id: input.hubTenantId } : {}) },
       ...(input.hubTenantId ? { hub_tenant_id: input.hubTenantId } : {}),

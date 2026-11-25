@@ -156,7 +156,6 @@ export async function provisionProspectionTenant(
       email,
       name: email.split('@')[0],
       userId,
-      plan: 'freemium',
       emailProven: await isEmailProvenInDb(prisma, userId),
       hubTenantId: tenantId,
     });
@@ -167,7 +166,6 @@ export async function provisionProspectionTenant(
       prospectionApiKey: data.api_key,
       // VER-106 : plus aucun jeton de connexion gardé au Hub, l'app s'ouvre par le rebond signé.
       prospectionLoginToken: null,
-      prospectionPlan: 'freemium',
       prospectionProvisionedAt: new Date(),
     };
 

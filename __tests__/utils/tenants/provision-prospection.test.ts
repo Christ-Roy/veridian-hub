@@ -83,7 +83,10 @@ describe('provisionProspectionTenant', () => {
     expect(body.hub_tenant_id).toBe('tenant-1');
     expect(body.metadata).toEqual({ hub_user_id: 'uuid-alice', hub_tenant_id: 'tenant-1' });
     expect(body.email).toBe('alice@veridian.test');
-    expect(body.plan).toBe('freemium');
+    // Aucun plan par défaut (22/11) : ni envoyé, ni noté au Hub.
+    expect('plan' in body).toBe(false);
+    const { prisma } = await import('@/lib/prisma');
+    expect('prospectionPlan' in (prisma.tenant.update as unknown as ReturnType<typeof vi.fn>).mock.calls.at(-1)![0].data).toBe(false);
     expect(body.name).toBe('alice');
 
     // HMAC standard headers — pas de Bearer ni d'ancien `signature` dans body
