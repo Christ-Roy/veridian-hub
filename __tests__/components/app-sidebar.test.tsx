@@ -82,6 +82,11 @@ describe('AppSidebar', () => {
     expect(screen.getByText('Organisation').closest('a')).toHaveAttribute('href', '/dashboard/organisation');
   });
 
+  it('« Liaisons » se trouve sans connaître son adresse', () => {
+    renderSidebar();
+    expect(screen.getByText('Liaisons').closest('a')).toHaveAttribute('href', '/dashboard/liaisons');
+  });
+
   it('« Connexions » n\'est pas au menu tant que la fonction est fermée', () => {
     renderSidebar();
     expect(screen.queryByText('Connexions')).toBeNull();

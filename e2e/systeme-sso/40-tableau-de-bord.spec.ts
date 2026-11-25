@@ -62,10 +62,7 @@ cas(null, 'tableau de bord : Prospection par le rebond, l\'IA sans clé, liaison
     await capture(page, 'ia-avec-crm');
     await expect(page.getByRole('list', { name: 'Apps ouvertes à votre IA' }).getByText('CRM')).toBeVisible();
     expect(await page.locator('#ia-cle').isVisible(), 'la clé est repliée').toBe(false);
-    await page.goto(`${HUB_URL}/dashboard/connexions`, { waitUntil: 'networkidle' });
-    await page.getByRole('link', { name: 'Voir', exact: true }).click();
-    await page.waitForURL((u) => u.pathname === '/dashboard/liaisons');
-    await page.waitForLoadState('networkidle');
+    await parLeMenu(page, 'Liaisons', '/dashboard/liaisons');
     await capture(page, 'liaisons');
     await expect(page.getByText('Active par défaut').first()).toBeVisible();
 

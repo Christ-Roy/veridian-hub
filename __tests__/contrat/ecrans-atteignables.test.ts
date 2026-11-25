@@ -1,6 +1,5 @@
 /**
- * Contrat : tout écran de app/dashboard est visé par un lien, un push ou une redirection du code
- * (app, components, lib), hors sa propre page. Un écran sans lien existe mais personne ne le trouve
+ * Contrat : tout écran de app/dashboard est visé par un autre écran (.tsx, menu compris). Un écran sans lien existe mais personne ne le trouve
  * (VER-263 : sécurité, compte d'envoi mail).
  */
 import { describe, expect, it } from 'vitest';
@@ -11,9 +10,14 @@ import { code, parcourir } from './source';
 const EXCEPTIONS: Record<string, string> = {
   // VER-263, session Hub B : /dashboard/admin/** lui appartient, le lien vient avec son lot.
   '/dashboard/admin/lookup': 'session Hub B',
+  // Mail y envoie la personne (docs/CONTRAT-MAIL.md) ; pas proposé d'ici tant que l'accord de Google n'a pas été joué en vrai.
+  '/dashboard/settings/mail': 'entrée depuis Mail',
+  // Connexions extérieures fermées (VER-119) : l'entrée du menu vient avec leur ouverture, session Hub C.
+  '/dashboard/connexions': 'session Hub C',
 };
 
-const sources = ['app', 'components', 'lib'].flatMap(parcourir).filter((p) => /\.(ts|tsx)$/.test(p));
+// Ce qu'une personne peut cliquer : les écrans et leurs morceaux. La redirection d'une route d'API ne rend pas un écran trouvable.
+const sources = ['app', 'components', 'lib'].flatMap(parcourir).filter((p) => p.endsWith('.tsx') || /^(lib|components)\/.*nav.*\.ts$/.test(p));
 
 const ecrans = parcourir('app/dashboard')
   .filter((p) => p.endsWith('/page.tsx'))
@@ -44,7 +48,7 @@ describe('écrans du tableau de bord atteignables', () => {
   });
 
   it.each(ecrans.filter((e) => !(e.route in EXCEPTIONS)).map((e) => [e.route, e] as const))('%s est visé par un lien', (_route, e) => {
-    expect(viseParAilleurs(e), `aucun href, push ou redirect ne mène à ${e.route}`).toBe(true);
+    expect(viseParAilleurs(e), `aucun écran ne mène à ${e.route}`).toBe(true);
   });
 
   it.each(Object.keys(EXCEPTIONS))('exception %s encore nécessaire', (route) => {

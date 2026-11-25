@@ -89,20 +89,6 @@ export default async function SettingsPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Envoi d&apos;emails depuis votre Gmail</CardTitle>
-            <CardDescription>
-              Connectez votre adresse Gmail pour que vos apps Veridian envoient des emails en votre nom.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Link href="/dashboard/settings/mail" className="text-sm text-primary hover:underline">
-              Gérer mon compte d&apos;envoi
-            </Link>
-          </CardContent>
-        </Card>
-
         {/* Connected providers (OAuth + Credentials) */}
         <Card>
           <CardHeader>

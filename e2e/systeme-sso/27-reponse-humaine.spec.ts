@@ -45,7 +45,7 @@ cas(null, 'une réponse humaine reçue dans Mail devient une tâche au CRM, une 
     await marquerTest(T.id);
     const crm = (enabled: boolean) => adminOk('POST', 'mcp-apps', { app_key: 'twenty', label: 'CRM', mcp_url: 'https://crm.staging.veridian.site/mcp', acces: 'tous', enabled });
     await inscrire('twenty', 'CRM', 'https://crm.staging.veridian.site/mcp');
-    const prov = await versMail('POST', '/api/tenants/provision', { tenant_id: slug, owner_email: P.email, workspace_name: 'TEST réponse', plan: 'free', email_proven: true, metadata: { hub_user_id: P.hubUserId } });
+    const prov = await versMail('POST', '/api/tenants/provision', { tenant_id: slug, owner_email: P.email, owner_hub_user_id: P.hubUserId, workspace_name: 'TEST réponse', plan: 'free', email_proven: true, metadata: { hub_user_id: P.hubUserId } });
     if (prov.status >= 300) throw new NonAbouti(`espace Mail de staging : HTTP ${prov.status} ${JSON.stringify(prov.json).slice(0, 200)}`);
     cree = true;
     const lien = await versMail('POST', '/api/tenants/update-plan', { tenant_id: slug, plan: 'free', hub_tenant_id: T.id });

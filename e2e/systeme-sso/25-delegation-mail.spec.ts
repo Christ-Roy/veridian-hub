@@ -37,7 +37,7 @@ cas(null, 'délégation vers Mail : importe sans envoyer, une fois par jeton et 
     const T = (await lookup(P.email)).json?.tenants?.[0];
     if (!T) throw new NonAbouti('compte de test sans tenant');
     noterEspaceTwenty(P.email, T.id);
-    const prov = await versMail('POST', '/api/tenants/provision', { tenant_id: slug, owner_email: P.email, workspace_name: 'TEST délégation', plan: 'free', email_proven: true, metadata: { hub_user_id: P.hubUserId } });
+    const prov = await versMail('POST', '/api/tenants/provision', { tenant_id: slug, owner_email: P.email, owner_hub_user_id: P.hubUserId, workspace_name: 'TEST délégation', plan: 'free', email_proven: true, metadata: { hub_user_id: P.hubUserId } });
     if (prov.status >= 300) throw new NonAbouti(`espace Mail de staging : HTTP ${prov.status} ${prov.texte}`);
     cree = true;
     const lien = await versMail('POST', '/api/tenants/update-plan', { tenant_id: slug, plan: 'free', hub_tenant_id: T.id });
