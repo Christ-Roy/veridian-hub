@@ -10,6 +10,7 @@ const RAISONS: Record<string, string> = {
   organisation_indisponible: 'La connexion de cette organisation est fermée pour le moment. Contactez son administrateur.',
   fournisseur_injoignable: 'Le service de connexion de votre organisation ne répond pas. Réessayez dans un instant.',
   reponse_refusee: 'La réponse du service de connexion de votre organisation n\'a pas pu être vérifiée. Repartez du lien de votre organisation.',
+  identifiant_non_durable: 'Le service de connexion de votre organisation vous désigne par une adresse, ou par un identifiant qui change à chaque fois. Demandez à son administrateur un identifiant stable (format « persistent »).',
   adresse_absente: 'Le service de connexion de votre organisation n\'a pas donné votre adresse. Prévenez son administrateur.',
   adresse_non_verifiee: 'Le service de connexion de votre organisation dit que votre adresse n\'est pas vérifiée. Prévenez son administrateur.',
   domaine_refuse: 'Votre adresse n\'appartient pas aux domaines de cette organisation.',

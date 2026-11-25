@@ -8,8 +8,8 @@ import { z } from 'zod';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { denyIfImpersonated, denyUnlessRecentAuth, PREUVE_COMPTE_S } from '@/lib/auth/recent-auth';
 import { RateLimiter } from '@/lib/auth/rate-limit';
+import { partir } from '@/lib/federation/depart';
 import { delier, fournisseurDe, liaisonsDe } from '@/lib/federation/liaison';
-import { CHEMIN_RETOUR, COOKIE_FEDERATION, demarrer, TRANSACTION_S } from '@/lib/federation/oidc';
 import { getHubBaseUrl } from '@/lib/mail/oauth-cookies';
 import { prisma } from '@/lib/prisma';
 
@@ -45,9 +45,9 @@ export async function POST(request: NextRequest) {
   const i = await fournisseurDe(prisma, u, c.data.tenant_id);
   if (!i) return rendre({ error: 'not_found' }, 404);
   try {
-    const s = await demarrer(i, new URL(CHEMIN_RETOUR, base).href, undefined, undefined, { userId: u.id });
+    const s = await partir(i, base, { relier: { userId: u.id } });
     const r = rendre({ ok: true, url: s.url });
-    r.cookies.set(COOKIE_FEDERATION, s.cookie, { httpOnly: true, secure: base.protocol === 'https:', sameSite: 'lax', path: CHEMIN_RETOUR, maxAge: TRANSACTION_S });
+    s.poser(r);
     return r;
   } catch (err) {
     console.error(JSON.stringify({ tag: '[federation]', level: 'error', msg: 'fournisseur injoignable', idp: i.id, error: err instanceof Error ? err.message.slice(0, 160) : 'erreur' }));

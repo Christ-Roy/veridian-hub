@@ -38,6 +38,18 @@ describe('demarrer', () => {
   });
 });
 
+describe('demarrer, pour de vrai et pour un essai', () => {
+  it('hors épreuve, l\'adresse jointe doit être publique : la nôtre n\'est jamais appelée', async () => {
+    const avant = idp.demandes();
+    await expect(demarrer({ ...i, test: false }, RETOUR)).rejects.toThrow();
+    expect(idp.demandes()).toBe(avant);
+  });
+  it('l\'essai est scellé, et lui seul le dit', async () => {
+    const d = await demarrer(i, RETOUR, undefined, undefined, undefined, { userId: 'P' });
+    expect([ouvrir(d.cookie)?.essai, (await aller()).t.essai]).toEqual([{ userId: 'P' }, undefined]);
+  });
+});
+
 describe('demarrer pour un ajout d\'adresse', () => {
   it('le fournisseur redemande la connexion, pour l\'adresse nommée ; qui l\'a demandé est scellé ; une connexion ordinaire n\'en dit rien', async () => {
     const d = await demarrer(i, RETOUR, undefined, { userId: 'U', email: 'jean@client.test' });

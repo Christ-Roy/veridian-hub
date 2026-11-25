@@ -3,8 +3,8 @@ import { NextResponse, type NextRequest } from 'next/server';
 
 import { ipClient } from '@/lib/auth/ip-client';
 import { RateLimiter } from '@/lib/auth/rate-limit';
+import { partir } from '@/lib/federation/depart';
 import { idpPret } from '@/lib/federation/idp';
-import { CHEMIN_RETOUR, COOKIE_FEDERATION, demarrer, TRANSACTION_S } from '@/lib/federation/oidc';
 import { getHubBaseUrl } from '@/lib/mail/oauth-cookies';
 import { prisma } from '@/lib/prisma';
 
@@ -22,10 +22,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   try {
     const i = await idpPret(prisma, { slug });
     if (!i) return habituelle();
-    const d = await demarrer(i, new URL(CHEMIN_RETOUR, base).href);
+    const d = await partir(i, base);
     const r = NextResponse.redirect(d.url, 303);
     r.headers.set('Cache-Control', 'no-store');
-    r.cookies.set(COOKIE_FEDERATION, d.cookie, { httpOnly: true, secure: base.protocol === 'https:', sameSite: 'lax', path: CHEMIN_RETOUR, maxAge: TRANSACTION_S });
+    d.poser(r);
     return r;
   } catch (err) {
     console.error(JSON.stringify({ tag: '[federation]', level: 'error', msg: 'fournisseur injoignable', slug, error: err instanceof Error ? err.message.slice(0, 160) : 'erreur' }));

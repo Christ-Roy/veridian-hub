@@ -298,8 +298,8 @@ export default async function DashboardPage({
 
       {/* Section "Inclus avec votre site web" : uniquement les services pas
           encore activés (les actifs ont remonté dans "Vos outils"). Masquée
-          si tout est déjà activé. */}
-      {(!showActiveAnalytics || !showActiveCms) && (
+          si tout est déjà activé, et chez qui n'a pas de site (VER-105). */}
+      {montrerInclusAvecSite({ plan: hasLifetimeSiteVitrine, analytics: showActiveAnalytics, cms: showActiveCms }) && (
         <section className="mb-12">
           <div className="mb-4">
             <h2 className="text-2xl font-semibold tracking-tight">

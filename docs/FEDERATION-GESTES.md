@@ -33,6 +33,17 @@ Le secret expire dans 24 mois : le rejouer avant.
 
 Une application « OIDC, Web », code avec PKCE, la même adresse de retour. Nous donner l'adresse de l'émetteur, l'ID et le secret.
 
+## SAML 2.0
+
+Une application SAML : adresse de réponse (ACS) et identifiant d'entité donnés par `hub org idp <tenant>` ou par l'écran Organisation. Identifiant de la
+personne : format **persistent**, jamais son adresse (chez Microsoft, l'identifiant d'objet est pris tout seul). Assertion **signée en SHA-256**, non chiffrée.
+Nous donner l'identifiant d'entité du fournisseur, son adresse de connexion et son certificat. SAML n'affirme aucune adresse : chacun relie son compte.
+
+## Le client le fait seul
+
+Le propriétaire, dans Organisation, « Se connecter avec le compte de votre organisation » : OpenID Connect ou SAML, **Essayer** avec son compte, **Activer**.
+Posé ainsi, le fournisseur n'affirme aucune adresse et ne crée aucun compte : chaque membre relie le sien dans Paramètres. Un domaine se déclare chez nous.
+
 ## Ensuite
 
 - `hub org importer <tenant> membres.csv` : les personnes attendues, sans aucun mail. Ou `--creation-auto` : tout le domaine entre.

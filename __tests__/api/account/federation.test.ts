@@ -9,7 +9,7 @@ vi.mock('@/lib/prisma', () => ({ prisma: { user: { findUnique: (...a: unknown[])
 vi.mock('@/lib/auth/get-user', () => ({ getCurrentUser: () => m.user() }));
 vi.mock('@/lib/auth/recent-auth', () => ({ PREUVE_COMPTE_S: 1, denyIfImpersonated: () => m.emprunt(), denyUnlessRecentAuth: () => m.recent() }));
 vi.mock('@/lib/federation/liaison', () => ({ fournisseurDe: (...a: unknown[]) => m.de(...a), liaisonsDe: (...a: unknown[]) => m.liste(...a), delier: (...a: unknown[]) => m.delier(...a) }));
-vi.mock('@/lib/federation/oidc', () => ({ CHEMIN_RETOUR: '/api/auth/federation/callback', COOKIE_FEDERATION: 'veridian-federation', TRANSACTION_S: 600, demarrer: (...a: unknown[]) => m.demarrer(...a) }));
+vi.mock('@/lib/federation/depart', () => ({ partir: (...a: unknown[]) => m.demarrer(...a) }));
 vi.mock('@/lib/mail/oauth-cookies', () => ({ getHubBaseUrl: () => new URL('https://app.veridian.site') }));
 
 import { GET, POST } from '@/app/api/account/federation/route';
@@ -25,7 +25,7 @@ beforeEach(() => {
   m.de.mockResolvedValue({ id: 'i1' });
   m.liste.mockResolvedValue([{ tenant_id: T }]);
   m.delier.mockResolvedValue(true);
-  m.demarrer.mockResolvedValue({ url: 'https://login.infomaniak.com/authorize?x', cookie: 'scelle' });
+  m.demarrer.mockResolvedValue({ url: 'https://login.infomaniak.com/authorize?x', poser: (r: { cookies: { set: (n: string, v: string, o: object) => void } }) => r.cookies.set('veridian-federation', 'scelle', { httpOnly: true }) });
   vi.spyOn(RateLimiter.prototype, 'enforce').mockReturnValue({ ok: true } as never);
 });
 describe('GET', () => {
@@ -39,7 +39,7 @@ describe('POST', () => {
   it('relier : où aller, transaction scellée pour CETTE personne', async () => {
     const r = await poster({ geste: 'relier', tenant_id: T });
     expect([r.status, await r.json()]).toEqual([200, { ok: true, url: 'https://login.infomaniak.com/authorize?x' }]);
-    expect(m.demarrer.mock.calls[0].slice(1)).toEqual(['https://app.veridian.site/api/auth/federation/callback', undefined, undefined, { userId: 'u' }]);
+    expect([m.demarrer.mock.calls[0][0], m.demarrer.mock.calls[0][2]]).toEqual([{ id: 'i1' }, { relier: { userId: 'u' } }]);
     expect(r.headers.getSetCookie().join()).toMatch(/veridian-federation=scelle;.*HttpOnly/i);
   });
   it('délier', async () => {

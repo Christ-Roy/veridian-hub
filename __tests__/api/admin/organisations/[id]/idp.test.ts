@@ -42,6 +42,14 @@ describe('PUT idp', () => {
     expect([r.status, JSON.stringify(await r.json()).includes('tres-secret'), JSON.stringify(m.audit.mock.calls).includes('tres-secret')]).toEqual([200, false, false]);
     expect(m.poser.mock.calls[0][1]).toMatchObject({ tenantId: T, reglage: { domaines: ['client.fr'], creation_auto: false, actif: true } });
   });
+  it('SAML, et un alias lisible ; alias faux refusé ; absent, il est gardé', async () => {
+    const S = { protocole: 'saml', issuer: 'urn:c', sso_url: 'https://idp.client.fr/sso', certificat: 'A'.repeat(120) };
+    expect((await PUT(req({ ...S, alias: 'client-fr' }), ctx())).status).toBe(200);
+    expect(m.poser.mock.calls[0][1]).toMatchObject({ alias: 'client-fr', reglage: { protocole: 'saml' } });
+    expect((await PUT(req({ ...R, alias: '../x' }), ctx())).status).toBe(400);
+    await PUT(req(R), ctx());
+    expect(m.poser.mock.calls.at(-1)![1].alias).toBeUndefined();
+  });
   it('corps faux : 400 ; refus : 409, 404 ; sans droit : 403 ; rien n\'est noté', async () => {
     expect((await PUT(req({ ...R, plus: 1 }), ctx())).status).toBe(400);
     m.poser.mockResolvedValue({ refus: 'domaine_public' });

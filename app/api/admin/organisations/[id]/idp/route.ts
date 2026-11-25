@@ -3,8 +3,9 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { resolveActor, writeAuditLog } from '@/lib/admin/audit-log';
 import { requireAdmin } from '@/lib/admin/require-admin';
-import { poserIdp, ReglageIdp, vueIdp } from '@/lib/federation/idp';
+import { Alias, poserIdp, ReglageIdp, ReglageSaml, vueIdp } from '@/lib/federation/idp';
 import { CHEMIN_RETOUR } from '@/lib/federation/oidc';
+import { CHEMIN_ACS, entiteSp } from '@/lib/federation/saml';
 import { getHubBaseUrl } from '@/lib/mail/oauth-cookies';
 import { prisma } from '@/lib/prisma';
 import { IdTenant } from '@/lib/tenants/membres-http';
@@ -19,7 +20,7 @@ async function vue(request: NextRequest, tenantId: string) {
   const i = await prisma.tenantIdp.findUnique({ where: { tenantId } });
   const t = await prisma.tenant.findFirst({ where: { id: tenantId, deletedAt: null }, select: { slug: true } });
   const base = getHubBaseUrl(request.url);
-  return { idp: i ? vueIdp(i) : null, connexion: t?.slug ? new URL(`/connexion/${t.slug}`, base).href : null, retour: new URL(CHEMIN_RETOUR, base).href };
+  return { idp: i ? vueIdp(i) : null, connexion: t?.slug ? new URL(`/connexion/${i?.alias ?? t.slug}`, base).href : null, saml: { acs: new URL(CHEMIN_ACS, base).href, entite: entiteSp({ tenantId }, base) }, retour: new URL(CHEMIN_RETOUR, base).href };
 }
 
 export async function GET(request: NextRequest, { params }: Ctx) {
@@ -33,12 +34,15 @@ export async function PUT(request: NextRequest, { params }: Ctx) {
   const refus = await requireAdmin(request);
   if (refus) return refus;
   const id = IdTenant.safeParse((await params).id);
-  const c = ReglageIdp.safeParse(await request.json().catch(() => null));
-  if (!id.success || !c.success) return rendre({ error: 'invalid' }, 400);
+  // `alias` : /connexion/<alias>, lisible ; null le retire, absent le garde.
+  const { alias, ...corps } = ((await request.json().catch(() => null)) ?? {}) as Record<string, unknown>;
+  const c = corps.protocole === 'saml' ? ReglageSaml.safeParse(corps) : ReglageIdp.safeParse(corps);
+  const a = Alias.nullish().safeParse(alias);
+  if (!id.success || !c.success || !a.success) return rendre({ error: 'invalid' }, 400);
   const acteur = resolveActor(request.headers, null);
-  const r = await poserIdp(prisma, { tenantId: id.data, reglage: c.data, acteur });
+  const r = await poserIdp(prisma, { tenantId: id.data, reglage: c.data, acteur, alias: a.data });
   if ('refus' in r) return rendre({ error: r.refus }, r.refus === 'tenant_introuvable' ? 404 : 409);
-  await writeAuditLog(prisma, { action: 'federation.idp_pose', actor: acteur, targetType: 'tenant', targetId: id.data, payload: { issuer: c.data.issuer, domaines: c.data.domaines, creation_auto: c.data.creation_auto, actif: c.data.actif } });
+  await writeAuditLog(prisma, { action: 'federation.idp_pose', actor: acteur, targetType: 'tenant', targetId: id.data, payload: { issuer: c.data.issuer, ...('protocole' in c.data ? { protocole: 'saml' } : { domaines: c.data.domaines, creation_auto: c.data.creation_auto }), actif: c.data.actif, ...(a.data === undefined ? {} : { alias: a.data }) } });
   return rendre(await vue(request, id.data));
 }
 

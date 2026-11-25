@@ -1904,6 +1904,10 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
   pas la plateforme (25/11) : l'administrateur de ce fournisseur peut en ouvrir une. `denyUnlessRecentAuth(PREUVE_COMPTE_S)`, `isPlatformAdmin`.
 - **Apps ouvertes par l'organisation** (option A, parente 25/11, `lib/tenant-apps/organisation.ts`) : le CRM coché s'ouvre (tuile, IA, délégation) aux
   membres VIVANTS, lu à chaque fois : retrait, suspension ou case décochée referment. L'app garde ses droits. Academy garde sa réserve.
+- **SAML et libre-service** (VER-227, 25/11, `lib/federation/{saml,sortie,depart,conclure}.ts`, cas 41) : même garde que l'OIDC et même conclusion (session bornée).
+  SAML n'affirme aucune adresse (`domaines` vide, toujours), l'audience est propre à l'organisation (`/saml/<tenant>`), la réponse doit répondre à la demande du
+  navigateur, l'identifiant doit durer (ni adresse, ni éphémère). Le PROPRIÉTAIRE pose son fournisseur : aucun domaine, aucun compte créé, inactif jusqu'à SON
+  essai, tout changement redemande l'essai ; ce qu'un opérateur a posé ne se change pas là. Sortie vers le fournisseur : IP réellement jointe publique.
 - **Fédération OIDC** (VER-227 S2, `lib/federation`) : `hub org idp poser` déclare le fournisseur ET les domaines qu'il peut affirmer (un domaine, une
   organisation ; ni public, ni le nôtre). Entrée par `/connexion/<slug>` : code, PKCE, `state`, `nonce`, `iss`, `aud` et SIGNATURE vérifiés. Clé durable :
   (fournisseur, `sub`). Compte neuf : création ouverte ou adresse pré-inscrite. Compte existant prouvé : sa personne le relie, connectée, une fois. Jamais

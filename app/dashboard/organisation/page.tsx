@@ -12,12 +12,17 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { roleAuHub } from '@/lib/delegation/interrupteur';
+import { vueIdp } from '@/lib/federation/idp';
+import { CHEMIN_RETOUR } from '@/lib/federation/oidc';
+import { CHEMIN_ACS, entiteSp } from '@/lib/federation/saml';
 import { espacesDe } from '@/lib/mcp/catalogue';
 import { hubPublicUrl } from '@/lib/organisations/base';
 import { urlLogo } from '@/lib/organisations/document';
 import { prisma } from '@/lib/prisma';
 import { COOKIE_ACTIF, organisationActive } from '@/lib/tenants/actif';
 import { listerPreinscriptions } from '@/lib/tenants/preinscription';
+
+import { Fournisseur } from './Fournisseur';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,8 +33,26 @@ const AVIS: Record<string, string> = {
   role_insuffisant: 'Seul le propriétaire ou un administrateur règle cette organisation.',
   trop_gros: 'Logo trop lourd : 2 Mo au plus.',
   format_refuse: 'Logo refusé : PNG, JPEG ou WebP.',
+  fournisseur_pose: 'Fournisseur enregistré. Essayez-le avec votre propre compte, puis activez-le.',
+  essai_reussi: 'Essai réussi. Vous pouvez l\'activer.',
+  essai_manquant: 'Essayez-le d\'abord : il ne s\'active qu\'après un essai réussi.',
+  fournisseur_actif: 'Actif. Vos membres relient leur compte dans leurs Paramètres, puis entrent par votre porte.',
+  fournisseur_coupe: 'Coupé. Chacun garde sa connexion habituelle.',
+  fournisseur_retire: 'Retiré, et les comptes déliés. Chacun garde sa connexion habituelle.',
+  fournisseur_incomplet: 'Réglage incomplet : vérifiez l\'émetteur (https), l\'identifiant et le secret, ou le certificat.',
+  fournisseur_injoignable: 'Ce fournisseur ne répond pas à cette adresse.',
+  issuer_refuse: 'Adresse refusée : une adresse publique en https.',
+  certificat_refuse: 'Certificat illisible ou périmé.',
+  proprietaire_seul: 'Seul le propriétaire règle la connexion de l\'organisation.',
+  pose_par_veridian: 'Réglé par Veridian : écrivez-nous pour le changer.',
+  absent: 'Aucun fournisseur n\'est enregistré.',
+  trop_de_gestes: 'Trop de gestes en peu de temps. Réessayez dans une heure.',
   refus: 'Réglage refusé : vérifiez les couleurs (#RRGGBB) et le nom.',
 };
+function adressesDe(tenantId: string, porte: string | null) {
+  const base = new URL(hubPublicUrl());
+  return { retour: new URL(CHEMIN_RETOUR, base).href, acs: new URL(CHEMIN_ACS, base).href, entite: entiteSp({ tenantId }, base), connexion: porte ? new URL(`/connexion/${porte}`, base).href : null };
+}
 const ATTENTE: Record<string, string> = { en_attente: 'attendue', joint: 'a rejoint', expiree: 'délai passé', annulee: 'annulée' };
 const APPS: Record<string, string> = { academy: 'Academy', notifuse: 'Mail', prospection: 'Prospection', crm: 'CRM' };
 
@@ -43,6 +66,7 @@ export default async function Organisation({ searchParams }: { searchParams: Pro
     au: await roleAuHub(prisma, e.id, userUuid(user)),
     org: await prisma.organisation.findUnique({ where: { tenantId: e.id }, omit: { logo: true } }),
     emissions: await prisma.organisationEmission.findMany({ where: { tenantId: e.id } }),
+    idp: await prisma.tenantIdp.findUnique({ where: { tenantId: e.id } }),
     preinscrits: (await listerPreinscriptions(prisma, e.id)).filter((p) => p.etat !== 'annulee'),
   })));
   const active = await organisationActive(prisma, userUuid(user), (await cookies()).get(COOKIE_ACTIF)?.value);
@@ -112,6 +136,7 @@ export default async function Organisation({ searchParams }: { searchParams: Pro
                   <Button type="submit">Enregistrer</Button>
                 </div>
               </form>
+              {e.au === 'owner' ? <Fournisseur tenant={e.id} idp={e.idp ? vueIdp(e.idp) : null} adresses={adressesDe(e.id, e.idp?.alias ?? e.slug)} /> : null}
               {e.preinscrits.length > 0 ? (
                 <div className="mt-6">
                   <p className="font-medium">Personnes attendues</p>
