@@ -6,7 +6,8 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { users, updateMock, pushMock, decouvrirMock, moi } = vi.hoisted(() => ({
+const { audits, users, updateMock, pushMock, decouvrirMock, moi } = vi.hoisted(() => ({
+  audits: [] as object[],
   pushMock: vi.fn(),
   decouvrirMock: vi.fn(),
   moi: { id: 'u1', email: 'moi@x.fr', name: 'Moi', supabaseUserId: 'h1' as string | null },
@@ -23,6 +24,7 @@ vi.mock('@/lib/auth/recent-auth', () => ({
   denyUnlessRecentAuth: async () => null,
   PREUVE_COMPTE_S: 86400,
 }));
+vi.mock('@/lib/admin/audit-log', () => ({ writeAuditLog: async (_d: unknown, l: object) => { audits.push(l); } }));
 vi.mock('@/lib/auth/email-proof', () => ({ issueEmailProof: vi.fn(async () => true) }));
 // La VRAIE garde (lib/adresses/garde) : seules les apps sont jouées.
 vi.mock('@/lib/identity/push-user', () => ({ pushUserToApps: (...a: unknown[]) => pushMock(...a) }));
@@ -55,6 +57,7 @@ describe('PATCH /api/account/profile : email normalisé (D6)', () => {
     users.set('moi@x.fr', { id: 'u1', email: 'moi@x.fr' });
     users.set('victime@x.fr', { id: 'u2', email: 'victime@x.fr' });
     updateMock.mockClear();
+    audits.length = 0;
     moi.supabaseUserId = 'h1';
     chez = { prospection: 'ok' };
     pushMock.mockImplementation(async (_p: unknown, o?: { apps: string[] }) => Object.fromEntries((o?.apps ?? []).map((a) => [a, chez[a] ?? 'not_in_app'])));
@@ -84,11 +87,13 @@ describe('PATCH /api/account/profile : email normalisé (D6)', () => {
     expect(j.message).toMatch(/votre adresse actuelle continue de marcher partout/);
     expect(updateMock).not.toHaveBeenCalled();
     expect((await PATCH(req({ name: 'Autre nom' }))).status, 'le nom, lui, change').toBe(200);
+    expect(audits, 'rien n\'a changé d\'adresse').toEqual([]);
   });
 
   it('ni Mail, ni CRM, ni Academy : il passe ; une app muette : refusé', async () => {
     expect((await PATCH(req({ email: 'neuve@x.fr' }))).status).toBe(200);
     expect(updateMock).toHaveBeenCalledTimes(1);
+    expect(audits).toEqual([{ action: 'adresse.changee', actor: 'user:u1', targetType: 'user', targetId: 'u1' }]);
     chez.analytics = 'failed';
     expect((await PATCH(req({ email: 'autre@x.fr' }))).status).toBe(503);
     expect(updateMock).toHaveBeenCalledTimes(1);

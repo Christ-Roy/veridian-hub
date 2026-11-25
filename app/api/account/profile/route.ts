@@ -14,6 +14,7 @@
 import { denyIfImpersonated, denyUnlessRecentAuth, PREUVE_COMPTE_S } from '@/lib/auth/recent-auth';
 import { issueEmailProof } from '@/lib/auth/email-proof';
 import { normaliserEmail } from '@/lib/auth/email-normalize';
+import { writeAuditLog } from '@/lib/admin/audit-log';
 import { direArret, verifierApps } from '@/lib/adresses/garde';
 import { pushUserToApps } from '@/lib/identity/push-user';
 import { NextResponse } from 'next/server';
@@ -99,6 +100,11 @@ export async function PATCH(req: Request) {
         data: { providerAccountId: email },
       })
       .catch(() => { /* non bloquant */ });
+  }
+
+  // Sans cette trace, on ne savait pas dire si ce geste avait déjà servi (25/11). Ni l'ancienne ni la nouvelle adresse au journal.
+  if (email && email !== user.email) {
+    await writeAuditLog(prisma, { action: 'adresse.changee', actor: `user:${user.id}`, targetType: 'user', targetId: user.id });
   }
 
   // Une nouvelle adresse reçoit son lien de preuve et n'atteint les apps qu'une fois
