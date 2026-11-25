@@ -22,6 +22,18 @@ describe('appsDe et espacesDe', () => {
     expect((await appsDe(base(['academy']), 'u')).map((a) => a.appKey)).toEqual(['academy', 'notifuse']);
   });
 
+  it('le CRM coché par une organisation s\'ouvre à son membre vivant ; retiré, il se referme ; Academy non', async () => {
+    const base = (membre: boolean) => ({
+      mcpApp: { findMany: async () => ['academy', 'twenty'].map((appKey) => ({ appKey, label: appKey, mcpUrl: 'x', acces: 'tenant_app' })) },
+      tenantApp: { findMany: async () => [] },
+      tenantMember: { findMany: async () => (membre ? [{ tenantId: 'T' }] : []) },
+      tenant: { findMany: async ({ where }: { where: { OR: { id?: { in: string[] } }[] } }) => where.OR.flatMap((o) => o.id?.in ?? []).map((id) => ({ id })) },
+      organisation: { findMany: async ({ where }: { where: { tenantId: { in: string[] } } }) => where.tenantId.in.map(() => ({ modules: ['crm', 'academy'] })) },
+    }) as unknown as Db;
+    expect((await appsDe(base(true), 'u')).map((a) => a.appKey)).toEqual(['twenty']);
+    expect(await appsDe(base(false), 'u')).toEqual([]);
+  });
+
   it('un propriétaire aussi inscrit comme membre ne voit son espace qu\'une fois, en propriétaire', async () => {
     const t = { id: 't1', name: 'Un', slug: 'un', status: 'active' };
     const db = {

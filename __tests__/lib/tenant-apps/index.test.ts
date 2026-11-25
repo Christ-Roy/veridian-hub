@@ -57,6 +57,12 @@ describe('getEnabledGatedApps', () => {
     });
   });
 
+  it('ajoute ce que son organisation a coché ; une organisation illisible n\'ajoute rien et n\'enlève rien', async () => {
+    const p = (organisation: unknown) => ({ tenantApp: { findMany: async () => [{ appKey: 'analytics' }] }, tenantMember: { findMany: async () => [{ tenantId: 'T' }] }, tenant: { findMany: async () => [{ id: 'T' }] }, organisation }) as never;
+    expect(Array.from(await getEnabledGatedApps(p({ findMany: async () => [{ modules: ['crm'] }] }), 'u')).sort()).toEqual(['analytics', 'twenty']);
+    expect(Array.from(await getEnabledGatedApps(p({ findMany: async () => { throw new Error('x'); } }), 'u'))).toEqual(['analytics']);
+  });
+
   it('ignore les clés inconnues retournées par la DB', async () => {
     const prisma = {
       tenantApp: {

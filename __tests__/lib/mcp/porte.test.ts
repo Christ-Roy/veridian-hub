@@ -226,6 +226,17 @@ const claims = async (f: ReturnType<typeof appFactice>) => {
 };
 
 describe('espace (tenant_id signé)', () => {
+  it('une app réservée cochée par une organisation s\'appelle par la porte, pour son membre vivant seulement', async () => {
+    db.tenantApp.lignes.length = 0;
+    (db as any).mcpApp.lignes[0].appKey = 'twenty';
+    const lire = (db as any).tenant.findMany;
+    (db as any).tenant.findMany = async (q: any) => (q.where.OR ? [{ id: 't1' }] : lire(q));
+    (db as any).organisation = { findMany: async ({ where }: any) => (where.tenantId.in.includes('t1') ? [{ modules: ['crm'] }] : []) };
+    const apps = async () => json(await appel('chercher_outils', { besoin: 'visites' }, appFactice())).apps;
+    expect(await apps()).toContain('twenty');
+    (db as any).organisation.findMany = async () => [{ modules: ['prospection'] }];
+    expect(await apps()).not.toContain('twenty');
+  });
   it('un seul espace, non choisi : rien n\'est signé (l\'app prend son espace par défaut)', async () => {
     const f = appFactice();
     await appel('executer_outil', { nom: 'analytics.visites_du_site' }, f);
