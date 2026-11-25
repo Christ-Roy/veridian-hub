@@ -145,7 +145,7 @@ cas(null, 'entrer chez un client par l\'écran : chercher, entrer, sortir, redev
     await p.goto(`${HUB_URL}/dashboard`, { waitUntil: 'networkidle' });
     if (sabotage === 'emprunt-retour') await ctx.clearCookies({ name: /veridian-retour/ });
     await p.getByRole('button', { name: 'Sortir' }).click();
-    await p.waitForURL(/\/dashboard\/admin\/clients\?sortie=/);
+    await p.waitForURL(/\/dashboard\/admin\/clients\?(.*&)?sortie=/);
     expect(await session(ctx)).toMatchObject({ email: A.email.toLowerCase() });
     expect((await session(ctx))?.impersonated).toBeUndefined();
     await expect(p.getByTestId('sortie-emprunt')).toContainText('CRM, avec mon compte');

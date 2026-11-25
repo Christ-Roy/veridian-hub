@@ -40,6 +40,7 @@ describe('sortir', () => {
     const r = await s({ retour: await scellerRetour({ empruntId: 'emprunt-1', session: 'la-mienne', org: 'mon-org' }) });
     expect([r.status, new URL(r.headers.get('location')!).pathname]).toEqual([303, '/dashboard/admin/clients']);
     expect([r.cookies.get(SESSION)?.value, r.cookies.get('veridian_org')?.value, r.cookies.get(RETOUR)?.value]).toEqual(['la-mienne', 'mon-org', '']);
+    expect(new URL(r.headers.get('location')!).search, 'sur la fiche du client quitté').toBe(`?u=${ADMIN}&sortie=emprunt-1`);
     expect(m.audit.mock.calls[0][0].data).toMatchObject({ action: 'admin.impersonate.end', payload: { emprunt: 'emprunt-1', retour: true } });
   });
   it('le retour d\'un AUTRE emprunt, ou forgé : rien n\'est rendu, la session du client tombe', async () => {

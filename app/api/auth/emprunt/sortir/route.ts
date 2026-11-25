@@ -21,8 +21,10 @@ export async function POST(request: NextRequest) {
   const enEmprunt = isImpersonatedSession(session) && !!u?.empruntId && !!u.id;
   const retour = enEmprunt ? await lireRetour(request.cookies.get(cookieRetour(secure))?.value, u!.empruntId!) : null;
 
+  // On revient sur la fiche du client quitté : l'app suivante est à un clic.
+  const client = retour ? await prisma.user.findUnique({ where: { id: u!.id! }, select: { supabaseUserId: true } }).catch(() => null) : null;
   // Ni en emprunt, ni de quoi revenir : on ne touche pas à une session ordinaire, on ne rend rien à une session finie.
-  const vers = retour ? `/dashboard/admin/clients?sortie=${encodeURIComponent(u!.empruntId!)}` : u && !enEmprunt ? '/dashboard' : '/login?callbackUrl=%2Fdashboard%2Fadmin%2Fclients';
+  const vers = retour ? `/dashboard/admin/clients?${client?.supabaseUserId ? `u=${client.supabaseUserId}&` : ''}sortie=${encodeURIComponent(u!.empruntId!)}` : u && !enEmprunt ? '/dashboard' : '/login?callbackUrl=%2Fdashboard%2Fadmin%2Fclients';
   const res = NextResponse.redirect(new URL(vers, base), 303);
   res.cookies.set(cookieRetour(secure), '', { httpOnly: true, secure, sameSite: 'strict', path: CHEMIN_RETOUR, maxAge: 0 });
   if (!enEmprunt) return res;
