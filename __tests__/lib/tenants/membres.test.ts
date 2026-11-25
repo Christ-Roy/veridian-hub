@@ -115,7 +115,7 @@ describe('un membre retiré ne revient pas tout seul', () => {
 });
 
 /** Des apps qui tiennent leur liste de membres. */
-function apps(etat: Record<string, string[]>, o: { sourd?: string; refuse?: string; dit?: Record<string, [number, string]>; muet?: string; cles?: Record<string, object> } = {}) {
+function apps(etat: Record<string, string[]>, o: { sourd?: string; refuse?: string; dit?: Record<string, [number, string]>; sansLien?: string; muet?: string; cles?: Record<string, object> } = {}) {
   const posts: { app: string; chemin: string; corps: L }[] = [];
   const f = vi.fn(async (u: string, init: RequestInit = {}) => {
     const url = new URL(u);
@@ -123,6 +123,8 @@ function apps(etat: Record<string, string[]>, o: { sourd?: string; refuse?: stri
     if ((init.method ?? 'GET') === 'GET') {
       if (o.muet === app) return new Response('', { status: 500 });
       const email = url.searchParams.get('email')!;
+      // Une app qui lit hub_user_id ne voit pas un compte sans lien.
+      if (o.sansLien === app && url.searchParams.has('hub_user_id')) return Response.json({ found: false });
       const ws = { notifuse: { workspace_id: 'esp' }, prospection: { workspace_id: 'wp', tenant_id: 'tp', hub_tenant_id: 'T' }, crm: { workspace_id: 'w-crm' }, academy: { workspace_id: 'wa', hub_tenant_id: 'T' }, analytics: { workspace_id: '9', hub_tenant_id: 'T' } }[app];
       // Un autre espace de la même personne, dans un autre tenant : jamais touché.
       const autre = { workspace_id: 'ailleurs', tenant_id: 'tz', hub_tenant_id: 'T-autre' };
@@ -151,6 +153,13 @@ describe('retirer', () => {
     expect(a.posts[0].corps).toMatchObject({ user_email: 'm@x.fr', email: 'm@x.fr', hub_user_id: 'u-m' });
     expect(membres[0].deletedAt).toBeInstanceOf(Date);
     expect(audits[0]).toMatchObject({ action: 'membre.retire', targetId: 'T' });
+  });
+
+  it('un compte sans lien avec le Hub ne se dit jamais « absent » : il y est encore, et rien n\'est envoyé par l\'adresse', async () => {
+    const a = apps({ notifuse: ['m@x.fr'] }, { sansLien: 'notifuse' });
+    const r = await retirerM(a.f, ['notifuse', 'crm']);
+    expect(r.apps).toEqual([{ app: 'notifuse', etat: 'echec', detail: expect.stringContaining('sans lien avec le Hub') }, { app: 'crm', etat: 'absent' }]);
+    expect([r.complet, a.posts]).toEqual([false, []]);
   });
 
   it('les clés API restées actives sont dites app par app, jamais tues ; une clé n\'est pas un échec', async () => {
@@ -261,6 +270,11 @@ describe('suspension', () => {
     expect(a.posts.map((p) => p.chemin)).toEqual(['/api/tenants/tp/remove-member']);
   });
 
+  it('propriétaire sans lien dans l\'app : son espace est fermé quand même, c\'est lui qu\'on vise', async () => {
+    const a = apps({ notifuse: ['prop@x.fr'] }, { sansLien: 'notifuse' });
+    expect((await basculer(true, a.f)).apps[0]).toEqual({ app: 'notifuse', etat: 'suspendu' });
+    expect(a.posts.map((p) => p.corps.tenant_id)).toEqual(['esp']);
+  });
   it('le CRM dit « pas suspendu par le Hub » : échec DIT, jamais avalé, et plus visé au prochain rejeu', async () => {
     const etat: Record<string, string[]> = { crm: ['prop@x.fr'] };
     await basculer(true, apps(etat).f);

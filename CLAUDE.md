@@ -72,7 +72,7 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
 - **Appartenance, rôle, délégation** (VER-245, contrat §5.19.3 à §5.19.5) : `lib/tenants/membres.ts` seul écrivain de
   `tenant_members`. Rôle porté aux apps (`ROLE_PORTE`) : fermé sans Robert. Liaisons (`DELEGATION_CIBLES`) : ouvertes, éteintes jusqu'au
   clic du propriétaire ; jamais de jeton à `act` sans « garde servie ». Organisation unique (§5.19.6, `hub org`). Cas 21 à 26.
-- **Adresses** (§5.19.6, §5.19.7) : changement fermé à qui est chez Mail, CRM ou Academy (`lib/adresses/garde.ts`). Session fédérée : aucun geste de compte. 30 à 33.
+- **Adresses** (§5.19.6, §5.19.7) : changement fermé chez Academy, et par compte non relié (`lib/adresses/garde.ts`). Session fédérée : aucun geste de compte. 30 à 33.
 - **Garde rapide** : `__tests__/contrat/` (révocation sans `iat`, `authAt`, cibles du rebond, origines) ; tout nouvel
   `encode(` de JWT de session s'y ajoute. Détail : `docs/PARCOURS-IDENTITE.md`.
 - **Sonde de prod** : « Sonde identité » de `hub-ci.yml` (lecture seule) ; le cron de reconcile alerte au-dessus de

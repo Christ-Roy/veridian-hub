@@ -6,6 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { consumeEmailProof } from '@/lib/auth/email-proof';
 import { pushUserToApps } from '@/lib/identity/push-user';
+import { suivreAdresseMail } from '@/lib/notifuse/adresse';
 import { getHubBaseUrl } from '@/lib/mail/oauth-cookies';
 import { prisma } from '@/lib/prisma';
 
@@ -31,11 +32,14 @@ export async function POST(request: NextRequest) {
   if (result === 'proved') {
     // L'adresse est désormais prouvée : les copies des apps peuvent la suivre.
     if (user.supabaseUserId) {
+      const hubUserId = user.supabaseUserId;
       void pushUserToApps({
-        hubUserId: user.supabaseUserId,
+        hubUserId,
         email: user.email,
         name: user.name,
-      }).catch(() => undefined);
+      })
+        .then((r) => (r.notifuse === 'ok' ? suivreAdresseMail(prisma, hubUserId, user.email.toLowerCase()) : 0))
+        .catch(() => undefined);
     }
     return NextResponse.redirect(new URL('/dashboard?email_proof=ok', baseUrl), 303);
   }

@@ -1864,8 +1864,9 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
   fournisseur de son organisation (elle se reconnecte devant lui, `prompt=login`, et il affirme exactement l'adresse demandée ; ni session ni lien n'en
   naissent). Le `hub_user_id` ne bouge pas, les apps suivent par `users/sync` ; l'ancienne devient un alias ; toutes les sessions tombent. Une app qui
   refuse l'adresse remet tout comme avant. Dans un domaine tenu par une organisation, elle seule prouve, à ses membres. Refusée, avant tout changement,
-  à qui a un compte chez **Mail, le CRM ou Academy** (`APPS_PAR_ADRESSE`, `lib/adresses/garde.ts`) ; la MÊME garde tient les réglages (« Votre email »,
-  `PATCH /api/account/profile`, cas 33). Ils en sortent quand ils servent §5.19.7. Pas écrits : avis à l'ancienne adresse et annulation (mail).
+  à qui a un compte chez **Academy** (`APPS_PAR_ADRESSE`, `lib/adresses/garde.ts`), et PAR COMPTE ailleurs : un compte que l'app ne connaît que par son
+  adresse (il en naîtrait un double), ou une app muette. La MÊME garde tient les réglages (« Votre email », `PATCH /api/account/profile`, cas 33).
+  Mail (f1a2d839) et le CRM (v38) servent §5.19.7 depuis le 25/11. Pas écrits : avis à l'ancienne adresse et annulation (mail).
 - **Une session ouverte par le fournisseur d'une organisation** ne fait AUCUN geste de compte (adresse, mot de passe, 2FA, fournisseurs) et n'administre
   pas la plateforme (25/11) : l'administrateur de ce fournisseur peut en ouvrir une. `denyUnlessRecentAuth(PREUVE_COMPTE_S)`, `isPlatformAdmin`.
 - **Apps ouvertes par l'organisation** (option A, parente 25/11, `lib/tenant-apps/organisation.ts`) : le CRM coché s'ouvre (tuile, IA, délégation) aux
@@ -1902,6 +1903,9 @@ choisir un compte existant, même si `hub_user_id` est inconnu. Un compte trouv�
 | `POST /api/tenants/provision` | `{ tenant_id, owner_hub_user_id, owner_email, email_proven, ... }` | le propriétaire NOTÉ est `owner_hub_user_id`. Rejeu : même propriétaire et autre adresse = `200` ; autre `owner_hub_user_id` = `409 owner_mismatch`. Tant que le Hub ne l'envoie pas en tête, `metadata.hub_user_id` en tient lieu |
 | `POST /api/workspaces.generateMagicLink` (Mail, clé de l'espace) | `{ hub_user_id, user_email? }` | par `hub_user_id` ; inconnue ou pas membre : refus |
 | `GET /api/users/by-email` | `?hub_user_id=&email=` | `hub_user_id` d'abord ; `email` seulement s'il est absent. `role: owner` par `owner_hub_user_id` |
+
+**Un compte sans lien** ne se relie que par `issue-magic-link` ou `sync-member` avec `email_proven`. Tant qu'il ne l'est pas, un retrait le dit en échec
+(« sans lien avec le Hub »), jamais « absent », et rien ne part par l'adresse ; la suspension, qui vise un espace, le ferme quand même.
 
 **Données existantes.** Un propriétaire ou un membre noté par l'adresse se convertit par la copie locale reliée (`adresse -> hub_user_id`), une fois. Sans lien
 ou ambigu : la ligne reste et se compte, rien n'est deviné. Au 25/11 : aucune copie décalée, 5 propriétaires CRM sur 5 reconnus : la conversion est juste.

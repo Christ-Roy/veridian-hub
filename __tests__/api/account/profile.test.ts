@@ -78,11 +78,12 @@ describe('PATCH /api/account/profile : email normalisé (D6)', () => {
     );
   });
 
-  it.each([['notifuse', /^Mail vous reconnaît/], ['crm', /^Le CRM vous reconnaît/], ['academy', /^Academy vous reconnaît/]] as const)('un compte chez %s : refusé, rien ne change, et il lit pourquoi', async (app, dit) => {
-    chez[app] = 'ok';
+  it.each([['notifuse', 'non_reliee', /^Mail ne vous connaît que par/], ['crm', 'non_reliee', /^Le CRM ne vous connaît que par/], ['academy', 'par_adresse', /^Academy vous reconnaît/]] as const)('chez %s (%s) : refusé, rien ne change, et il lit pourquoi', async (app, cas, dit) => {
+    if (cas === 'par_adresse') chez[app] = 'ok';
+    else decouvrirMock.mockImplementation(async (a: string) => ({ found: a === app }));
     const res = await PATCH(req({ email: 'neuve@x.fr' }));
     const j = await res.json();
-    expect([res.status, j.error, j.apps]).toEqual([409, 'app_par_adresse', [app]]);
+    expect([res.status, j.error, j.apps]).toEqual([409, `app_${cas}`, [app]]);
     expect(j.message).toMatch(dit);
     expect(j.message).toMatch(/votre adresse actuelle continue de marcher partout/);
     expect(updateMock).not.toHaveBeenCalled();
@@ -90,7 +91,8 @@ describe('PATCH /api/account/profile : email normalisé (D6)', () => {
     expect(audits, 'rien n\'a changé d\'adresse').toEqual([]);
   });
 
-  it('ni Mail, ni CRM, ni Academy : il passe ; une app muette : refusé', async () => {
+  it('relié chez Mail et au CRM, ou absent : il passe ; une app muette : refusé', async () => {
+    Object.assign(chez, { notifuse: 'ok', crm: 'ok' });
     expect((await PATCH(req({ email: 'neuve@x.fr' }))).status).toBe(200);
     expect(updateMock).toHaveBeenCalledTimes(1);
     expect(audits).toEqual([{ action: 'adresse.changee', actor: 'user:u1', targetType: 'user', targetId: 'u1' }]);

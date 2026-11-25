@@ -124,8 +124,9 @@ function espaceNote(t: Tenant, app: SyncApp): string | null {
 }
 
 /** Les espaces de ce tenant où l'app voit cette adresse. `null` : l'app ne l'a pas dit. */
-async function espacesChez(app: SyncApp, t: Tenant, email: string, hubUserId: string, deps: Deps): Promise<TenantSnapshot[] | null> {
-  const r = await discoverAppForEmail(app, email, { timeoutMs: DELAI_MS, fetchImpl: deps.fetchImpl, hubUserId });
+/** `hubUserId` null : par l'adresse seule, pour voir un compte sans lien. Jamais pour choisir une PERSONNE à toucher. */
+async function espacesChez(app: SyncApp, t: Tenant, email: string, hubUserId: string | null, deps: Deps): Promise<TenantSnapshot[] | null> {
+  const r = await discoverAppForEmail(app, email, { timeoutMs: DELAI_MS, fetchImpl: deps.fetchImpl, ...(hubUserId ? { hubUserId } : {}) });
   if ('error' in r) return null;
   if (!r.found) return [];
   const note = espaceNote(t, app);
@@ -148,7 +149,12 @@ async function retirerChez(app: SyncApp, t: Tenant, email: string, hubUserId: st
       }
       return { app, etat: 'echec', detail: 'retrait envoyé, pas relu : espace suspendu, rejouer après la reprise' };
     }
-    if (espaces.length === 0) return { app, etat: 'absent' };
+    // Une app qui lit `hub_user_id` ne voit pas un compte sans lien : « absent » serait faux tant qu'il y entre encore.
+    if (espaces.length === 0) {
+      const sansLien = await espacesChez(app, t, email, null, deps);
+      if (sansLien === null) return { app, etat: 'echec', detail: 'l\'app ne dit pas où est ce compte' };
+      return sansLien.length === 0 ? { app, etat: 'absent' } : { app, etat: 'echec', detail: 'un compte de cette adresse, sans lien avec le Hub, y est encore : à retirer dans l\'app' };
+    }
     if (!RETRAIT[app]) return { app, etat: 'non_gere', detail: 'aucune route de retrait dans cette app' };
     let cles: IssueApp['cles'];
     for (const s of espaces) {
@@ -214,7 +220,9 @@ function ciblesNotees(t: Tenant): Partial<Record<SyncApp, string[]>> {
 async function basculerChez(app: SyncApp, t: Tenant, proprietaire: { email: string }, suspendre: boolean, deps: Deps): Promise<{ issue: IssueApp; cibles: string[] }> {
   const notees = ciblesNotees(t)[app] ?? [];
   try {
-    const espaces = await espacesChez(app, t, proprietaire.email, t.userId, deps);
+    // La suspension vise un ESPACE de ce tenant : un propriétaire sans lien dans l'app n'empêche pas de le fermer.
+    const parLien = await espacesChez(app, t, proprietaire.email, t.userId, deps);
+    const espaces = parLien?.length === 0 ? await espacesChez(app, t, proprietaire.email, null, deps) : parLien;
     if (espaces === null && notees.length === 0) return { issue: { app, etat: 'echec', detail: 'l\'app ne dit pas quel espace est relié' }, cibles: notees };
     const cibles = Array.from(new Set([...notees, ...(espaces ?? []).map((s) => cible(app, t, s))]));
     if (cibles.length === 0) return { issue: { app, etat: 'absent' }, cibles: [] };

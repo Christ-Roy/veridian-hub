@@ -9,6 +9,7 @@ import { writeAuditLog } from '@/lib/admin/audit-log';
 import { normaliserEmail } from '@/lib/auth/email-normalize';
 import { revokeAllSessions } from '@/lib/auth/session-revocation';
 import { pushUserToApps } from '@/lib/identity/push-user';
+import { suivreAdresseMail } from '@/lib/notifuse/adresse';
 import { suivreOrganisation } from '@/lib/organisations/emission';
 import type { SyncApp } from '@/lib/sync/types';
 
@@ -87,6 +88,7 @@ export async function promouvoir(db: PrismaClient, u: Titulaire, brut: string, d
     await writeAuditLog(db, { action: 'adresse.promotion_refusee', actor: `user:${u.id}`, targetType: 'user', targetId: u.id, payload: { apps: refusent, retour } });
     return { refus: 'app_refuse', apps: refusent };
   }
+  if (issues.notifuse === 'ok') await suivreAdresseMail(db, hubUserId, l.email);
   await writeAuditLog(db, { action: 'adresse.promue', actor: `user:${u.id}`, targetType: 'user', targetId: u.id, payload: { preuve: l.preuve, apps: issues } });
   const orgs = await db.tenantMember.findMany({ where: { userId: hubUserId, deletedAt: null }, select: { tenantId: true } });
   for (const o of orgs) await suivreOrganisation(db, o.tenantId, { fetchImpl: deps.fetchImpl });

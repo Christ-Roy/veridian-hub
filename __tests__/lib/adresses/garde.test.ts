@@ -16,9 +16,18 @@ describe('verifierApps', () => {
     expect(await verifierApps({ hubUserId: 'h', email: 'a@x.fr' })).toEqual({ reliees: ['prospection'] });
     expect(m.push.mock.calls).toEqual([[{ hubUserId: 'h' }, { apps: ['notifuse', 'prospection'], fetchImpl: undefined }]]);
   });
+  it('Mail et CRM, PAR COMPTE (parente, 25/11) : relié il suit, non relié refusé, muet refusé', async () => {
+    const jouer = async (app: string, etat: string, trouve = false) => { m.push.mockResolvedValue({ [app]: etat }); m.decouvrir.mockResolvedValue({ found: trouve }); return verifierApps({ hubUserId: 'h', email: 'a@x.fr' }, { apps: [app] as never }); };
+    for (const app of ['notifuse', 'crm']) {
+      expect(await jouer(app, 'ok'), `${app} relié`).toEqual({ reliees: [app] });
+      expect(await jouer(app, 'not_in_app', true), `${app} non relié`).toEqual({ refus: 'app_non_reliee', apps: [app] });
+      expect(await jouer(app, 'not_in_app'), `${app} absent`).toEqual({ reliees: [] });
+      for (const muet of ['failed', 'endpoint_missing', 'not_configured']) expect(await jouer(app, muet), `${app} ${muet}`).toEqual({ refus: 'app_indisponible', apps: [app] });
+    }
+  });
   it('une app par adresse l\'emporte sur une app muette : c\'est elle qu\'on nomme', async () => {
-    m.push.mockResolvedValue({ notifuse: 'ok', prospection: 'failed' });
-    expect(await verifierApps({ hubUserId: 'h', email: 'a@x.fr' })).toEqual({ refus: 'app_par_adresse', apps: ['notifuse'] });
+    m.push.mockResolvedValue({ academy: 'ok', prospection: 'failed' });
+    expect(await verifierApps({ hubUserId: 'h', email: 'a@x.fr' }, { apps: ['academy', 'prospection'] })).toEqual({ refus: 'app_par_adresse', apps: ['academy'] });
   });
   it('sans identité Hub, aucune app n\'est interrogée par elle', async () => {
     m.decouvrir.mockImplementation(async (a: string) => ({ found: a === 'prospection' }));
@@ -34,5 +43,5 @@ describe('direArret', () => {
   });
 });
 describe('APPS_PAR_ADRESSE', () => {
-  it('Mail, CRM, Academy : en sortir se décide, avec l\'épreuve (CONTRAT-HUB §5.19.7)', () => expect([...APPS_PAR_ADRESSE].sort()).toEqual(['academy', 'crm', 'notifuse']));
+  it('Academy seule : en sortir se décide, avec l\'épreuve (CONTRAT-HUB §5.19.7)', () => expect(APPS_PAR_ADRESSE).toEqual(['academy']));
 });

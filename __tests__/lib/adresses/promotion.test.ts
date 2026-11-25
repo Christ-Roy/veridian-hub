@@ -2,11 +2,12 @@
 /** AD-M3 : rendre principale une adresse PROUVÉE. Tout ou rien, jamais par une app qui désigne encore quelqu'un par son adresse. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const m = vi.hoisted(() => ({ push: vi.fn(), decouvrir: vi.fn(), revoquer: vi.fn(), suivre: vi.fn(async (..._a: unknown[]) => []), idp: vi.fn(), membre: vi.fn(), audits: [] as any[] }));
+const m = vi.hoisted(() => ({ push: vi.fn(), decouvrir: vi.fn(), revoquer: vi.fn(), suivre: vi.fn(async (..._a: unknown[]) => []), idp: vi.fn(), membre: vi.fn(), mail: vi.fn(async (..._a: unknown[]) => 1), audits: [] as any[] }));
 vi.mock('@/lib/identity/push-user', () => ({ pushUserToApps: (...a: unknown[]) => m.push(...a) }));
 vi.mock('@/lib/sync/discovery', () => ({ configuredSyncApps: () => ['notifuse', 'prospection', 'analytics', 'crm', 'academy'], discoverAppForEmail: (...a: unknown[]) => m.decouvrir(...a) }));
 vi.mock('@/lib/auth/session-revocation', () => ({ revokeAllSessions: (...a: unknown[]) => m.revoquer(...a) }));
 vi.mock('@/lib/organisations/emission', () => ({ suivreOrganisation: m.suivre }));
+vi.mock('@/lib/notifuse/adresse', () => ({ suivreAdresseMail: m.mail }));
 vi.mock('@/lib/admin/audit-log', () => ({ writeAuditLog: async (_d: unknown, l: unknown) => { m.audits.push(l); } }));
 vi.mock('@/lib/adresses/federation', async (o) => ({ ...(await o<object>()), idpDuDomaine: (...a: unknown[]) => m.idp(...a), membreVivant: (...a: unknown[]) => m.membre(...a) }));
 
@@ -101,7 +102,23 @@ describe('promouvoir', () => {
     expect(await aller()).toMatchObject({ promue: 'jean@neuf.test' });
     expect(await aller('jean@ancien.test', { ...U, email: 'jean@neuf.test' }), 'retour').toMatchObject({ promue: 'jean@ancien.test' });
   });
-  it.each(['notifuse', 'crm', 'academy'])('un compte chez %s, qui désigne par l\'adresse : on s\'arrête avant', async (app) => {
+  it('reliée chez Mail et au CRM : ils suivent, et l\'adresse que le Hub garde pour Mail aussi', async () => {
+    chez.notifuse = 'ok';
+    chez.crm = 'ok';
+    expect(await aller()).toMatchObject({ promue: 'jean@neuf.test' });
+    expect(pousses()[0][1]).toEqual(['notifuse', 'prospection', 'analytics', 'crm']);
+    expect(m.mail.mock.calls.map((c) => c.slice(1))).toEqual([['h1', 'jean@neuf.test']]);
+  });
+  it('sans compte chez Mail, l\'adresse de Mail n\'est pas touchée', async () => {
+    await aller();
+    expect(m.mail).not.toHaveBeenCalled();
+  });
+  it.each(['notifuse', 'crm'])('%s ne la connaît que par son adresse : on s\'arrête avant', async (app) => {
+    m.decouvrir.mockImplementation(async (a: string) => ({ found: a === app }));
+    expect(await aller()).toEqual({ refus: 'app_non_reliee', apps: [app] });
+    intact();
+  });
+  it.each(['academy'])('un compte chez %s, qui désigne par l\'adresse : on s\'arrête avant', async (app) => {
     expect(APPS_PAR_ADRESSE).toContain(app);
     chez[app] = 'ok';
     expect(await aller()).toEqual({ refus: 'app_par_adresse', apps: [app] });

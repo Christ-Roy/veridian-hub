@@ -7,12 +7,11 @@ import { configuredSyncApps, discoverAppForEmail } from '@/lib/sync/discovery';
 import type { SyncApp } from '@/lib/sync/types';
 
 /**
- * Ces apps désignent encore quelqu'un par son ADRESSE. Mail : retirer, changer le rôle, rétablir un membre. CRM : retirer un membre, et le propriétaire
- * d'un espace noté par l'adresse du jour de la création. Academy : les inscriptions, donc les preuves de formation, rattachées par celle du stagiaire.
- * Porte de sortie : l'app lit `hub_user_id` partout (CONTRAT-HUB §5.19.7) et sort d'ici. Pour Mail, `tenants.notifuseUserEmail` (entrée directe) devra
- * suivre dans la promotion.
+ * Ces apps désignent encore quelqu'un par son ADRESSE : fermé à qui y a un compte, relié ou non. Academy : les inscriptions, donc les preuves de formation,
+ * rattachées par l'adresse du stagiaire (attend Robert). Mail (f1a2d839) et le CRM (v38) en sont sortis le 25/11 : ils lisent `hub_user_id` partout
+ * (CONTRAT-HUB §5.19.7), et l'arrêt y est PAR COMPTE, comme ailleurs : refusé si CE compte n'est pas relié, ou si l'app ne répond pas.
  */
-export const APPS_PAR_ADRESSE: readonly SyncApp[] = ['notifuse', 'crm', 'academy'];
+export const APPS_PAR_ADRESSE: readonly SyncApp[] = ['academy'];
 
 export type RefusApp = 'app_par_adresse' | 'app_non_reliee' | 'app_indisponible';
 export type Arret = { refus: RefusApp; apps: SyncApp[] };

@@ -1,7 +1,8 @@
 /**
  * Changer d'adresse principale (VER-227, AD-M3), sans boîte : la seconde adresse est prouvée par le fournisseur de l'organisation. La personne reste
  * la même dans chaque app (`hub_user_id`, aucun double), l'ancienne adresse n'ouvre plus rien et se détache. Refusés : non prouvée, celle d'un autre,
- * domaine tenu par une AUTRE organisation, rejouée, session ouverte par le fournisseur, compte chez une app qui désigne encore par l'adresse (Mail, CRM, Academy).
+ * domaine tenu par une AUTRE organisation, rejouée, session ouverte par le fournisseur, compte chez Academy, qui désigne encore par l'adresse. Le lien
+ * direct de Mail ouvre la même personne avant et après.
  * NON PROUVÉ ici : la session trop ancienne (24 h, tests), l'ajout par code reçu (pas de boîte d'épreuve).
  * Épreuves : `SSO_SABOTAGE=promotion` (le fournisseur confirme une autre adresse) et `promotion-ailleurs` (l'organisation qui a prouvé reste la bonne)
  * doivent faire échouer le cas.
@@ -18,7 +19,7 @@ import { ouvrirIdp, type IdentiteDite } from './lib/idp-jetable';
 import { adresseDe, attendreSessionHub, connexionHub, creerCompteProuve, noter, noterEspaceTwenty, noterRybbit, ouvrirApp, sessionApp, type Compte } from './lib/parcours';
 
 const DOMAINE = 'veridian.site';
-const COPIES = { prospection: [APP_URL.prospection, 'PROSPECTION_TENANT_API_SECRET'], analytics: [APP_URL.analytics, 'ANALYTICS_HUB_API_SECRET'] } as const;
+const COPIES = { notifuse: [APP_URL.notifuse, 'NOTIFUSE_HUB_API_SECRET'], crm: [APP_URL.twenty, 'CRM_HUB_API_SECRET_PROD'], prospection: [APP_URL.prospection, 'PROSPECTION_TENANT_API_SECRET'], analytics: [APP_URL.analytics, 'ANALYTICS_HUB_API_SECRET'] } as const;
 type App = keyof typeof COPIES;
 
 cas(null, 'adresse principale : promue si elle est prouvée, la même personne partout', async ({ browser }) => {
@@ -26,7 +27,8 @@ cas(null, 'adresse principale : promue si elle est prouvée, la même personne p
   const sabotage = process.env.SSO_SABOTAGE ?? '';
   const P: Compte = await creerCompteProuve(browser, 'promp');
   const B: Compte = await creerCompteProuve(browser, 'promb');
-  const A: Compte = await creerCompteProuve(browser, 'proma', undefined, true);
+  // A a son propre espace Mail et Prospection ; elle entre au CRM par l'organisation T.
+  const A: Compte = await creerCompteProuve(browser, 'proma');
   const de = async (c: Compte) => { const t = (await lookup(c.email)).json?.tenants?.[0]; if (!t) throw new NonAbouti('compte de test sans tenant'); await marquerTest(t.id); return t as { id: string; slug: string }; };
   const T = await de(P);
   const T2 = await de(B);
@@ -69,7 +71,9 @@ cas(null, 'adresse principale : promue si elle est prouvée, la même personne p
   });
 
   try {
-    await adminOk('PUT', `organisations/${T.id}`, { type: 'organisation', nom_affiche: 'TEST promotion', modules: ['prospection'] });
+    await activerTwentyAuHub(P.email);
+    noterEspaceTwenty(P.email, T.id);
+    await adminOk('PUT', `organisations/${T.id}`, { type: 'organisation', nom_affiche: 'TEST promotion', modules: ['prospection', 'crm'] });
     await ouvrirPorte(T.id);
     expect(await geste(A.etat, { geste: 'federer', email: A2 }), 'pas membre : même réponse qu\'un domaine inconnu').toEqual([404, { error: 'domaine_non_federe' }]);
     expect(await geste(A.etat, { geste: 'federer', email: 'x@inconnu.test' })).toEqual([404, { error: 'domaine_non_federe' }]);
@@ -80,9 +84,31 @@ cas(null, 'adresse principale : promue si elle est prouvée, la même personne p
     [A.email, A2, A3].forEach(noterRybbit);
     rybbitCompte('creer', A.email);
     rybbitCompte('lier', A.email, A.hubUserId ?? undefined);
+    /** Le bouton « ouvrir Mail » : le lien direct (generateMagicLink), et qui s'y retrouve vraiment. */
+    const ouvrirMail = async (etat: unknown) => {
+      const tenant = (await avec(etat, (ctx) => ctx.request.post(`${HUB_URL}/api/admin/notifuse/magic-link`, { data: { tenantId: A.tenantId } }).then(async (r) => ({ statut: r.status(), ...((await r.json().catch(() => ({}))) as { autoLoginUrl?: string; source?: string }) }))));
+      if (!tenant.autoLoginUrl) return { statut: tenant.statut, source: null, id: null, email: null };
+      return avec(null, async (ctx) => {
+        const page = await ctx.newPage();
+        await page.goto(tenant.autoLoginUrl!, { waitUntil: 'networkidle' });
+        await page.waitForFunction(() => Boolean(localStorage.getItem('auth_token')));
+        const moi = await page.evaluate(async () => (await (await fetch('/api/user.me', { headers: { Authorization: `Bearer ${localStorage.getItem('auth_token')}` } })).json()) as { user?: { id?: string; email?: string } });
+        return { statut: tenant.statut, source: tenant.source ?? null, id: moi.user?.id ?? null, email: moi.user?.email?.toLowerCase() ?? null };
+      });
+    };
+    const dansCrm = (etat: unknown) => avec(etat, async (ctx) => {
+      const a = await ouvrirApp(ctx, 'twenty');
+      const o = new URL(a.url).origin;
+      const r = await ctx.request.post(`${o}/metadata`, { headers: { origin: o, 'x-twenty-session-cookie': '1' }, data: { query: '{currentUser{id email}}' } });
+      const u = ((await r.json().catch(() => null)) as { data?: { currentUser?: { id: string; email: string } } } | null)?.data?.currentUser;
+      return { id: u?.id ?? null, email: u?.email?.toLowerCase() ?? null };
+    });
     const dans = (etat: unknown) => avec(etat, async (ctx) => { await ouvrirApp(ctx, 'prospection'); return sessionApp(ctx, 'prospection') as Promise<{ email?: string; id?: string } | null>; });
     const avant = await dans(A.etat);
     if (!avant?.id) throw new NonAbouti('A n\'est pas entrée dans Prospection');
+    const mailAvant = await ouvrirMail(A.etat);
+    const crmAvant = await dansCrm(A.etat);
+    expect([mailAvant.statut, mailAvant.email, crmAvant.email], `ouvrir Mail ${JSON.stringify(mailAvant)}`).toEqual([200, A1, A1]);
     for (const app of Object.keys(COPIES) as App[]) expect(await vue(app), `${app}, avant`).toEqual({ elle: [A1], parAdresse: 1 });
 
     // Rien ne se promeut sans preuve, ni celle d'un autre.
@@ -129,6 +155,9 @@ cas(null, 'adresse principale : promue si elle est prouvée, la même personne p
     for (const app of Object.keys(COPIES) as App[]) expect(await vue(app), `${app}, après`).toEqual({ elle: [A2], parAdresse: 1 });
     const apres = await dans(neuve);
     expect([apres?.id, apres?.email?.toLowerCase()], 'la même personne dans Prospection').toEqual([avant.id, A2]);
+    const mailApres = await ouvrirMail(neuve);
+    expect([mailApres.statut, mailApres.source, mailApres.id, mailApres.email], 'ouvrir Mail : la même personne').toEqual([200, mailAvant.source, mailAvant.id, A2]);
+    expect(await dansCrm(neuve), 'la même personne au CRM').toEqual({ id: crmAvant.id, email: A2 });
     for (const app of Object.keys(COPIES) as App[]) expect((await vue(app)).parAdresse, `${app} : aucun double après être entrée`).toBe(1);
     expect(await refus(neuve, A2), 'rejouée').toEqual([404, 'not_found']);
 
@@ -144,13 +173,11 @@ cas(null, 'adresse principale : promue si elle est prouvée, la même personne p
     const ac = await appelAcademy(`/api/tenants/${T.id}/sync-member`, { hub_user_id: A.hubUserId, email: A2, role: 'member', email_proven: true });
     if (!ac.ok) throw new NonAbouti(`entrée à Academy : HTTP ${ac.status}`);
     expect((await geste(neuve, { geste: 'promouvoir', email: A3 })).map((x) => (typeof x === 'number' ? x : [x?.error, x?.apps])), 'Academy').toEqual([409, ['app_par_adresse', ['academy']]]);
-    // P a un compte chez Mail et au CRM, qui désignent encore par l'adresse : on s'arrête avant, rien ne bouge.
-    await activerTwentyAuHub(P.email);
-    noterEspaceTwenty(P.email, T.id);
+    // P a un compte chez Mail, au CRM et chez Academy : Academy seule, qui désigne encore par l'adresse, l'arrête, et rien ne bouge.
     const pp = await prouver(P.etat, P2, { sub: 'p-1', email: P2 });
     expect(pp.url, pp.texte).toContain('adresse=ajoutee');
     const [s, j] = await geste(P.etat, { geste: 'promouvoir', email: P2 });
-    expect([s, j.error, [...(j.apps ?? [])].sort()]).toEqual([409, 'app_par_adresse', ['academy', 'crm', 'notifuse']]);
+    expect([s, j.error, [...(j.apps ?? [])].sort()]).toEqual([409, 'app_par_adresse', ['academy']]);
     expect((await adresses(P.etat)).principale.toLowerCase(), 'rien n\'a changé').toBe(P.email.toLowerCase());
 
     if (sabotage !== 'promotion-ailleurs') {
@@ -162,7 +189,7 @@ cas(null, 'adresse principale : promue si elle est prouvée, la même personne p
     expect(await refus(neuve, A3), 'domaine tenu par une autre organisation').toEqual([403, 'domaine_federe']);
     expect((await geste(neuve, { geste: 'detacher', email: A1 }))[0], 'l\'ancienne se détache').toBe(200);
     expect(await adresses(neuve)).toMatchObject({ principale: A2, secondaires: [A3] });
-    return 'prouvée par le fournisseur puis promue à l\'écran ; même hub_user_id au Hub, dans Prospection et Analytics, aucun double ; ancienne : plus d\'entrée, détachée ; refusés : sans session, non prouvée, d\'un autre, autre adresse que demandée, session du fournisseur, rejouée, preuve perdue, autre organisation, Mail, CRM et Academy (encore par adresse)';
+    return `prouvée par le fournisseur puis promue à l'écran ; même hub_user_id au Hub, dans Mail, CRM, Prospection et Analytics, aucun double ; ouvrir Mail (${mailAvant.source}) et le CRM rendent la même personne avant et après ; ancienne : plus d'entrée, détachée ; refusés : sans session, non prouvée, d'un autre, autre adresse que demandée, session du fournisseur, rejouée, preuve perdue, autre organisation, Academy (encore par adresse)`;
   } finally {
     for (const t of [T, T2]) await admin('DELETE', `organisations/${t.id}/idp`).catch(() => undefined);
     await idp.fermer();
