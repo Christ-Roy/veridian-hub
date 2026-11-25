@@ -20,6 +20,9 @@ const FABRIQUES_CONNUES = [
   'lib/auth/impersonation.ts',
 ];
 
+/** Chiffre autre chose qu'une session : le cookie de retour d'un emprunt, sous son propre sel (jamais déchiffrable comme session). */
+const PAS_UNE_SESSION = ['lib/emprunt/retour.ts'];
+
 /** `encode(` appelé comme fonction libre, pas `TextEncoder().encode(` ni `x.encode(`. */
 const APPEL_ENCODE = /(?<![.\w])encode\s*\(/g;
 /** Fabriques de jeton signé autrement qu'avec Auth.js : toute nouvelle doit être examinée. */
@@ -52,8 +55,12 @@ describe('sessions fabriquées à la main', () => {
     for (const f of FABRIQUES_CONNUES) expect(appels(code(f)).length, f).toBeGreaterThan(0);
   });
 
+  it('le cookie de retour garde son propre sel', () => {
+    for (const f of PAS_UNE_SESSION) for (const a of appels(code(f))) expect(a).toMatch(/salt: SEL\b/);
+  });
+
   it('aucun encode( de session hors de la liste connue', () => {
-    const inconnus = tous.filter((p) => !FABRIQUES_CONNUES.includes(p) && appels(code(p)).length > 0);
+    const inconnus = tous.filter((p) => !FABRIQUES_CONNUES.includes(p) && !PAS_UNE_SESSION.includes(p) && appels(code(p)).length > 0);
     expect(inconnus).toEqual([]);
   });
 

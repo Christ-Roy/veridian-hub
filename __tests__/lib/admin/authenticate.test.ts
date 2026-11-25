@@ -29,7 +29,7 @@ const isPlatformAdminMock = vi.fn();
 
 vi.mock('@/auth', () => ({ auth: (...a: unknown[]) => authMock(...a) }));
 vi.mock('@/lib/admin/check-admin', () => ({
-  isPlatformAdmin: (...a: unknown[]) => isPlatformAdminMock(...a),
+  administrateurDe: async (s: { user: { email: string } }) => ((await isPlatformAdminMock(s)) ? { userId: 'u1', hubUserId: 'h1', email: s.user.email } : null),
 }));
 
 // Mock rate-limit pour pouvoir le piloter (sinon il pollue d'autres tests)

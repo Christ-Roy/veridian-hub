@@ -22,7 +22,7 @@ import { horsDeSaBorne } from '@/lib/federation/borne';
 import { federationExpiree, glisser, joursValables } from '@/lib/federation/duree';
 import { consommerTicket, FOURNISSEUR_FEDERATION } from '@/lib/federation/ticket';
 import { createOauthEventLogger } from '@/lib/auth/oauth-event-log';
-import { impersonationExpiree } from '@/lib/auth/impersonation';
+import { empruntRetire, impersonationExpiree } from '@/lib/auth/emprunt-bornes';
 import { normaliserEmail } from '@/lib/auth/email-normalize';
 import { verifierMotDePasse } from '@/lib/auth/plafond-compte';
 
@@ -208,7 +208,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
         return token;
       }
       // Impersonation : une heure après son début réel, quoi que dise la durée re-signée (D5).
-      if (impersonationExpiree(token)) return null;
+      if (impersonationExpiree(token) || empruntRetire(token)) return null;
       // Session ouverte par le fournisseur d'une organisation : 24 h, ou la durée qu'elle a réglée (lib/federation/duree.ts).
       if (federationExpiree(token)) return null;
       // Et seulement tant que la personne n'appartient qu'à cette organisation.
@@ -242,6 +242,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
         session.user.impersonated = true;
         session.user.impersonatedBy =
           typeof token.impersonatedBy === 'string' ? token.impersonatedBy : null;
+        session.user.empruntId = typeof token.empruntId === 'string' ? token.empruntId : null;
       }
       return session;
     },

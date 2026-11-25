@@ -22,7 +22,7 @@ vi.mock('@/auth', () => ({ auth: authMock }));
 
 const userFindUnique = vi.fn();
 const verificationTokenCreate = vi.fn(async () => ({}));
-const auditLogCreate = vi.fn(async () => ({}));
+const auditLogCreate = vi.fn(async () => ({ id: 'emprunt-1' }));
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     user: { findUnique: userFindUnique },
@@ -37,7 +37,7 @@ beforeEach(() => {
   authMock.mockResolvedValue(null);
   // Par défaut : admin autorisé via session.
   authenticateAdminMock.mockResolvedValue({ ok: true, sessionEmail: 'robert@veridian.site' });
-  userFindUnique.mockResolvedValue({ id: 'user-1', email: 'target@veridian.site' });
+  userFindUnique.mockResolvedValue({ id: 'user-1', email: 'target@veridian.site', supabaseUserId: 'h-1' });
 });
 
 function makeReq(body: unknown) {
@@ -54,14 +54,14 @@ describe('POST /api/auth/impersonate-set', () => {
       response: NextResponse.json({ error: 'unauthorized' }, { status: 401 }),
     });
     const { POST } = await import('@/app/api/auth/impersonate-set/route');
-    const res = await POST(makeReq({ email: 'target@veridian.site' }));
+    const res = await POST(makeReq({ email: 'target@veridian.site', supabaseUserId: 'h-1' }));
     expect(res.status).toBe(401);
   });
 
   it('refuse une session courante déjà impersonée (403)', async () => {
     authMock.mockResolvedValue({ user: { impersonated: true } } as never);
     const { POST } = await import('@/app/api/auth/impersonate-set/route');
-    const res = await POST(makeReq({ email: 'target@veridian.site' }));
+    const res = await POST(makeReq({ email: 'target@veridian.site', supabaseUserId: 'h-1' }));
     expect(res.status).toBe(403);
     expect(verificationTokenCreate).not.toHaveBeenCalled();
   });
@@ -88,7 +88,7 @@ describe('POST /api/auth/impersonate-set', () => {
 
   it('succès : génère le token + callback_url + audit log', async () => {
     const { POST } = await import('@/app/api/auth/impersonate-set/route');
-    const res = await POST(makeReq({ email: 'target@veridian.site' }));
+    const res = await POST(makeReq({ email: 'target@veridian.site', supabaseUserId: 'h-1' }));
     expect(res.status).toBe(200);
     const body = await res.json();
 
@@ -100,7 +100,7 @@ describe('POST /api/auth/impersonate-set', () => {
     // Token stocké hashé, identifier préfixé.
     expect(verificationTokenCreate).toHaveBeenCalledTimes(1);
     const tokenArg = verificationTokenCreate.mock.calls[0][0] as { data: Record<string, unknown> };
-    expect(tokenArg.data.identifier).toBe('impersonate:user-1');
+    expect(tokenArg.data.identifier).toBe('impersonate:user-1:emprunt-1');
     expect(tokenArg.data.token).toMatch(/^[a-f0-9]{64}$/);
 
     // Audit log start.
@@ -114,7 +114,7 @@ describe('POST /api/auth/impersonate-set', () => {
   it('actor = token:ADMIN_SECRET si auth via secret (pas de session)', async () => {
     authenticateAdminMock.mockResolvedValue({ ok: true, sessionEmail: null });
     const { POST } = await import('@/app/api/auth/impersonate-set/route');
-    await POST(makeReq({ email: 'target@veridian.site' }));
+    await POST(makeReq({ email: 'target@veridian.site', supabaseUserId: 'h-1' }));
     const auditArg = auditLogCreate.mock.calls[0][0] as { data: Record<string, unknown> };
     expect(auditArg.data.actor).toBe('token:ADMIN_SECRET');
   });

@@ -1,39 +1,35 @@
-import { isAuthRecent, PREUVE_COMPTE_S } from '@/lib/auth/recent-auth';
+import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 
-import { auth } from '@/auth';
-import { isPlatformAdmin } from '@/lib/admin/check-admin';
+import { sessionAdmin, type SessionAdmin } from '@/lib/admin/session-admin';
+
+/** Le même refus partout : le corps dit quoi faire, jamais si le compte existe. */
+export function refusAdmin(raison: Extract<SessionAdmin, { ok: false }>['raison']): NextResponse {
+  if (raison === 'non_connecte') return NextResponse.json({ error: 'unauthorized', message: 'Provide x-admin-secret or authenticate.' }, { status: 401 });
+  if (raison === 'preuve_ancienne') return NextResponse.json({ error: 'recent_auth_required', login_url: '/login?reauth=1' }, { status: 403 });
+  if (raison === 'emprunt') return NextResponse.json({ error: 'forbidden', message: 'Impersonated session has no admin access.' }, { status: 403 });
+  return NextResponse.json({ error: 'forbidden' }, { status: 403 });
+}
+
+/** Comparaison en temps constant ; sans secret posé, rien ne passe. */
+export function secretAdminValide(fourni: string | null): boolean {
+  const attendu = process.env.ADMIN_SECRET;
+  if (!attendu || !fourni) return false;
+  const a = Buffer.from(fourni);
+  const b = Buffer.from(attendu);
+  if (a.length !== b.length) {
+    timingSafeEqual(a, Buffer.alloc(a.length));
+    return false;
+  }
+  return timingSafeEqual(a, b);
+}
 
 /**
- * Auth wrapper partagé pour les routes admin du Hub.
- *
- * Deux chemins acceptés :
- *  - header `x-admin-secret` qui matche `ADMIN_SECRET` env (script / cron)
- *  - session Auth.js d'un administrateur de plateforme (`isPlatformAdmin`, par hub_user_id)
- *
- * Renvoie `null` si la requête est autorisée, sinon une `NextResponse` 401/403
- * que la route doit retourner directement.
+ * Garde des routes d'administration : `x-admin-secret` (outil `hub`, batterie) ou session d'un administrateur de plateforme.
+ * `null` : autorisé. Sinon la réponse à rendre telle quelle.
  */
 export async function requireAdmin(request: NextRequest): Promise<NextResponse | null> {
-  const adminSecret = process.env.ADMIN_SECRET;
-  const headerSecret = request.headers.get('x-admin-secret');
-  if (adminSecret && headerSecret === adminSecret) return null;
-
-  const session = await auth();
-  if (!session?.user) {
-    return NextResponse.json(
-      { error: 'Unauthorized — provide x-admin-secret or authenticate' },
-      { status: 401 },
-    );
-  }
-  if (!(await isPlatformAdmin(session))) {
-    return NextResponse.json({ error: 'Forbidden — admin access only' }, { status: 403 });
-  }
-  if (!isAuthRecent(session.user.authAt, PREUVE_COMPTE_S)) {
-    return NextResponse.json(
-      { error: 'recent_auth_required', login_url: '/login?reauth=1' },
-      { status: 403 },
-    );
-  }
-  return null;
+  if (secretAdminValide(request.headers.get('x-admin-secret'))) return null;
+  const s = await sessionAdmin();
+  return s.ok ? null : refusAdmin(s.raison);
 }

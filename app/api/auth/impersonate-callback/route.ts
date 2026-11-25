@@ -25,7 +25,6 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-import { writeAuditLog } from '@/lib/admin/audit-log';
 import { prisma } from '@/lib/prisma';
 import {
   consumeImpersonationToken,
@@ -34,6 +33,8 @@ import {
   secureCookiesEnabled,
   IMPERSONATION_SESSION_TTL_S,
 } from '@/lib/auth/impersonation';
+import { APPS_ECRAN, entreeDe, type AppEcran } from '@/lib/emprunt/entrees';
+import { emprunteurDe, suiteEmprunt } from '@/lib/emprunt/journal';
 import { getURL } from '@/utils/helpers';
 
 export const dynamic = 'force-dynamic';
@@ -85,10 +86,11 @@ export async function GET(request: NextRequest) {
     return errorRedirect('impersonate_user_gone', 404);
   }
 
-  // 3. Encode un vrai JWT de session Auth.js, marqué `impersonated`.
-  //    `impersonatedBy` est volontairement générique ici : l'identité de
-  //    l'admin déclencheur a été tracée à l'étape `start` (audit log). On
-  //    note "admin" pour la bannière UI sans relire l'audit.
+  // 3. Qui emprunte se lit dans le journal. Illisible : personne n'entre.
+  const par = await emprunteurDe(prisma, result.empruntId).catch(() => null);
+  if (!par) return errorRedirect('impersonate_token_invalid', 410);
+
+  // 4. Encode un vrai JWT de session Auth.js, marqué `impersonated`.
   let sessionJwt: string;
   try {
     sessionJwt = await encodeImpersonationSessionJwt({
@@ -98,7 +100,8 @@ export async function GET(request: NextRequest) {
         name: targetUser.name,
         image: targetUser.image,
       },
-      impersonatedBy: 'admin',
+      impersonatedBy: par,
+      empruntId: result.empruntId,
     });
   } catch (err) {
     // AUTH_SECRET manquant → on ne pose AUCUN cookie. Refus net.
@@ -114,19 +117,14 @@ export async function GET(request: NextRequest) {
     return errorRedirect('impersonate_session_error', 500);
   }
 
-  // 4. Audit — l'impersonation a effectivement été consommée.
-  await writeAuditLog(prisma, {
-    action: 'admin.impersonate.consume',
-    actor: 'token:IMPERSONATE',
-    targetType: 'user',
-    targetId: targetUser.id,
-    payload: { targetEmail: targetUser.email },
-  });
+  await suiteEmprunt(prisma, { action: 'consume', empruntId: result.empruntId, par, userId: targetUser.id, detail: { targetEmail: targetUser.email, via: 'lien' } });
 
-  // 5. Pose le cookie de session Auth.js + redirige vers le dashboard.
+  // 5. Pose le cookie de session, puis l'app demandée (liste fermée) ou le tableau de bord.
+  const vers = request.nextUrl.searchParams.get('vers');
+  const destination = (APPS_ECRAN as readonly string[]).includes(vers ?? '') ? entreeDe(vers as AppEcran) : null;
   const secure = secureCookiesEnabled();
   const cookieName = sessionCookieName(secure);
-  const res = NextResponse.redirect(getURL('/dashboard'), 303);
+  const res = NextResponse.redirect(getURL(destination ?? '/dashboard'), 303);
   res.cookies.set(cookieName, sessionJwt, {
     httpOnly: true,
     secure,

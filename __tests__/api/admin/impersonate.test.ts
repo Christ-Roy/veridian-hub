@@ -22,7 +22,16 @@ vi.mock('@/lib/admin/authenticate', () => ({
 }));
 
 const verificationTokenCreate = vi.fn(async () => ({}));
-const auditLogCreate = vi.fn(async () => ({}));
+const auditLogCreate = vi.fn(async () => ({ id: 'emprunt-1' }));
+const ficheClient = vi.fn(async () => ({
+  hubUserId: 'uuid-1', email: 'a@test.io', nom: null, adresseProuvee: true, organisations: [{ id: 't1', nom: 'T', role: 'proprietaire', suspendue: false }],
+  apps: [
+    { app: 'hub', libelle: 'Hub', etat: 'ouverte', entrable: true, detail: '', espaces: [] },
+    { app: 'prospection', libelle: 'Prospection', etat: 'ouverte', entrable: true, detail: '', espaces: [] },
+    { app: 'notifuse', libelle: 'Mail', etat: 'inconnu', entrable: false, detail: 'L\'app ne connaît pas ce compte.', espaces: [] },
+  ],
+}));
+vi.mock('@/lib/emprunt/entrees', () => ({ ficheClient }));
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -124,24 +133,21 @@ describe('POST /api/admin/impersonate', () => {
     expect(res.status).toBe(429);
   });
 
-  it('Prospection : le lien du rebond signé, rien n\'est appelé ni écrit (VER-106)', async () => {
+  it('un lien par app qui ouvre, vers l\'app ; `null` et la raison pour celle qui n\'ouvrirait pas', async () => {
     const { POST } = await import('@/app/api/admin/impersonate/route');
-    const { prisma } = await import('@/lib/prisma');
-    const corps = await (await POST(makeReq({ email: 'a@test.io' }))).json();
-    expect(corps.links.prospection).toBe('https://app.veridian.site/login?next=https%3A%2F%2Fprospection.test%2F');
-    expect(globalThis.fetch).not.toHaveBeenCalled();
-    expect((prisma as unknown as { tenant: { update: ReturnType<typeof vi.fn> } }).tenant.update).not.toHaveBeenCalled();
+    const c = await (await POST(makeReq({ email: 'a@test.io', raison: ' un  appel ' }))).json();
+    expect(c.links.hub).toMatch(/^https:\/\/app\.veridian\.site\/api\/auth\/impersonate-callback\?token=[a-f0-9]{64}$/);
+    expect(c.links.prospection).toBe(`${c.links.hub}&vers=prospection`);
+    expect(c.links.notifuse).toBeNull();
+    expect(c.apps.find((x: { app: string }) => x.app === 'notifuse')).toMatchObject({ entrable: false, detail: 'L\'app ne connaît pas ce compte.' });
+    expect((auditLogCreate.mock.calls[0] as unknown as [{ data: { payload: unknown } }])[0].data.payload).toMatchObject({ raison: 'un appel', par: 'cle:ADMIN_SECRET', via: 'lien' });
   });
 
-  it('returns links with hub callback + notifuse when admin', async () => {
+  it('le journal ne s\'écrit pas : aucun lien', async () => {
+    auditLogCreate.mockRejectedValueOnce(new Error('base en panne'));
     const { POST } = await import('@/app/api/admin/impersonate/route');
-    const res = await POST(makeReq({ email: 'a@test.io' }));
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.links).toHaveProperty('hub');
-    expect(body.links.hub).toContain('/api/auth/impersonate-callback?token=');
-    expect(body.links).toHaveProperty('notifuse');
-    expect(body.links).not.toHaveProperty('twenty');
+    await expect(POST(makeReq({ email: 'a@test.io' }))).rejects.toThrow('base en panne');
+    expect(verificationTokenCreate).not.toHaveBeenCalled();
   });
 
   it('génère un token impersonate (verification_tokens, pas Session)', async () => {
@@ -149,7 +155,7 @@ describe('POST /api/admin/impersonate', () => {
     await POST(makeReq({ email: 'a@test.io' }));
     expect(verificationTokenCreate).toHaveBeenCalledTimes(1);
     const arg = verificationTokenCreate.mock.calls[0][0] as { data: Record<string, unknown> };
-    expect(arg.data.identifier).toBe('impersonate:auth-1');
+    expect(arg.data.identifier).toBe('impersonate:auth-1:emprunt-1');
     expect(arg.data.token).toMatch(/^[a-f0-9]{64}$/);
   });
 

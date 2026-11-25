@@ -3,6 +3,7 @@ import { SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/app-sidebar';
 import { FreemiumBanner } from '@/components/dashboard/FreemiumBanner';
 import { MobileTopbar } from '@/components/dashboard/MobileTopbar';
+import { BandeauEmprunt } from '@/components/emprunt/BandeauEmprunt';
 import { Suspense } from 'react';
 import { AuthTracker } from '@/components/analytics/auth-tracker';
 import { PurchaseTracker } from '@/components/analytics/purchase-tracker';
@@ -10,6 +11,7 @@ import { PurchaseTracker } from '@/components/analytics/purchase-tracker';
 import { auth } from '@/auth';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { isImpersonatedSession } from '@/lib/auth/impersonation';
+import { isPlatformAdmin } from '@/lib/admin/check-admin';
 import { prisma } from '@/lib/prisma';
 import { consommerPreinscriptions } from '@/lib/tenants/preinscription';
 import { resolveTrialBannerState } from '@/lib/trial/banner-state';
@@ -105,6 +107,10 @@ export default async function DashboardLayout({
   // révélation du trial (state machine en `trial_active`+).
   const trialBanner = resolveTrialBannerState(trialRows, hasActiveSubscription);
 
+  // Le lien d'administration, jamais depuis un emprunt ni une session fédérée. Le garde, lui, est dans le layout de /dashboard/admin.
+  const enEmprunt = isImpersonatedSession(session);
+  const estAdmin = await isPlatformAdmin(session);
+
   return (
     <SidebarProvider>
       {/* Track auth events (signup/login) et set user_id */}
@@ -125,8 +131,10 @@ export default async function DashboardLayout({
             avatar: dbUser?.image || user.image || '/avatars/default.svg',
           }}
           workspaceName={currentWorkspaceName}
+          admin={estAdmin}
         />
         <main className="flex-1 flex flex-col overflow-hidden w-full min-w-0">
+          {enEmprunt && <BandeauEmprunt email={user.email} debutS={session?.user?.authAt} />}
           {/* Barre mobile : hamburger (ouvre la sidebar en drawer) + logo.
               Cachée sur desktop où la sidebar est toujours visible. */}
           <MobileTopbar />

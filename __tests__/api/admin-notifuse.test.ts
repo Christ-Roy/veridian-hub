@@ -29,11 +29,11 @@ vi.mock('@/lib/auth/recent-auth', () => ({
 // ============================================================================
 
 vi.mock('@/auth', () => ({
-  auth: vi.fn(async () => ({ user: { email: 'brunon5robert@gmail.com' } })),
+  auth: vi.fn(async () => ({ user: { id: 'u1', email: 'brunon5robert@gmail.com' } })),
 }));
 
 vi.mock('@/lib/admin/check-admin', () => ({
-  isPlatformAdmin: vi.fn(() => true),
+  administrateurDe: vi.fn(async () => ({ userId: 'u1', hubUserId: 'h1', email: 'brunon5robert@gmail.com' })),
 }));
 
 const tenantStore: Map<string, any> = new Map();

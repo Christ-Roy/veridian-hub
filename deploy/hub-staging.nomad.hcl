@@ -214,7 +214,7 @@ DELEGATION_SOURCES=crm
 DELEGATION_EVENEMENTS=notifuse>crm@test
 OAUTH_TEST_PROVIDER=true
 # Administrateurs de plateforme, par hub_user_id (VER-263). L'autre ligne ne sert qu'aux rapports.
-PLATFORM_ADMINS=03edb21f-4560-4698-987b-37b5f4d230d1
+PLATFORM_ADMINS=03edb21f-4560-4698-987b-37b5f4d230d1,e2e45000-0000-4000-8000-000000000045
 ADRESSES_OPERATEUR=brunon5robert@gmail.com,robert.brunon@veridian.site
 
 AUTH_URL=https://hub.staging.veridian.site

@@ -62,7 +62,7 @@ describe('createImpersonationToken', () => {
     const prisma = { verificationToken: { create } } as never;
     const before = Date.now();
 
-    const { rawToken, expires } = await createImpersonationToken(prisma, 'user-cuid-1');
+    const { rawToken, expires } = await createImpersonationToken(prisma, 'user-cuid-1', 'emprunt-1');
 
     expect(rawToken).toMatch(/^[a-f0-9]{64}$/); // 32 bytes hex
     const callArg = create.mock.calls[0][0] as { data: Record<string, unknown> };
@@ -70,7 +70,7 @@ describe('createImpersonationToken', () => {
     expect(callArg.data.token).toBe(hashImpersonationToken(rawToken));
     expect(callArg.data.token).not.toBe(rawToken);
     // Identifier préfixé impersonate:<userId>
-    expect(callArg.data.identifier).toBe(`${IMPERSONATION_IDENTIFIER_PREFIX}user-cuid-1`);
+    expect(callArg.data.identifier).toBe(`${IMPERSONATION_IDENTIFIER_PREFIX}user-cuid-1:emprunt-1`);
     // Expiry ~10min
     const expMs = (callArg.data.expires as Date).getTime();
     expect(expMs).toBeGreaterThanOrEqual(before + IMPERSONATION_TOKEN_TTL_MS - 1000);
@@ -84,7 +84,7 @@ describe('consumeImpersonationToken', () => {
     const raw = 'a'.repeat(64);
     const hash = hashImpersonationToken(raw);
     const findUnique = vi.fn(async () => ({
-      identifier: `${IMPERSONATION_IDENTIFIER_PREFIX}user-9`,
+      identifier: `${IMPERSONATION_IDENTIFIER_PREFIX}user-9:emprunt-1`,
       token: hash,
       expires: new Date(Date.now() + 60_000),
     }));
@@ -92,7 +92,7 @@ describe('consumeImpersonationToken', () => {
     const prisma = { verificationToken: { findUnique, deleteMany } } as never;
 
     const res = await consumeImpersonationToken(prisma, raw);
-    expect(res).toEqual({ ok: true, targetUserId: 'user-9' });
+    expect(res).toEqual({ ok: true, targetUserId: 'user-9', empruntId: 'emprunt-1' });
     // delete sur le HASH, pas le brut.
     expect(deleteMany).toHaveBeenCalledWith({ where: { token: hash } });
   });
@@ -126,7 +126,7 @@ describe('consumeImpersonationToken', () => {
     const prisma = {
       verificationToken: {
         findUnique: vi.fn(async () => ({
-          identifier: `${IMPERSONATION_IDENTIFIER_PREFIX}user-x`,
+          identifier: `${IMPERSONATION_IDENTIFIER_PREFIX}user-x:emprunt-1`,
           token: hashImpersonationToken(raw),
           expires: new Date(Date.now() + 60_000),
         })),
@@ -143,7 +143,7 @@ describe('consumeImpersonationToken', () => {
     const prisma = {
       verificationToken: {
         findUnique: vi.fn(async () => ({
-          identifier: `${IMPERSONATION_IDENTIFIER_PREFIX}user-old`,
+          identifier: `${IMPERSONATION_IDENTIFIER_PREFIX}user-old:emprunt-1`,
           token: hashImpersonationToken(raw),
           expires: new Date(Date.now() - 1000), // périmé
         })),
@@ -163,6 +163,7 @@ describe('encodeImpersonationSessionJwt', () => {
     const jwt = await encodeImpersonationSessionJwt({
       user: { id: 'u-42', email: 'target@veridian.site', name: 'Target' },
       impersonatedBy: 'robert@veridian.site',
+      empruntId: 'emprunt-1',
       secret: TEST_SECRET,
       secure: true,
     });
@@ -182,6 +183,7 @@ describe('encodeImpersonationSessionJwt', () => {
     const jwt = await encodeImpersonationSessionJwt({
       user: { id: 'u-1', email: 'a@b.io' },
       impersonatedBy: 'admin',
+      empruntId: 'emprunt-1',
       secret: TEST_SECRET,
       secure: false,
     });
@@ -201,6 +203,7 @@ describe('encodeImpersonationSessionJwt', () => {
     const jwt = await encodeImpersonationSessionJwt({
       user: { id: 'u-1', email: 'a@b.io' },
       impersonatedBy: 'admin',
+      empruntId: 'emprunt-1',
       secret: TEST_SECRET,
       secure: true,
     });
@@ -219,6 +222,7 @@ describe('encodeImpersonationSessionJwt', () => {
       encodeImpersonationSessionJwt({
         user: { id: 'u-1', email: 'a@b.io' },
         impersonatedBy: 'admin',
+      empruntId: 'emprunt-1',
       })
     ).rejects.toThrow(/AUTH_SECRET/);
     if (prev !== undefined) process.env.AUTH_SECRET = prev;
@@ -322,6 +326,7 @@ describe('encodeImpersonationSessionJwt : date de début (D5)', () => {
     const jwt = await encodeImpersonationSessionJwt({
       user: { id: 'u-42', email: 'target@veridian.site' },
       impersonatedBy: 'robert@veridian.site',
+      empruntId: 'emprunt-1',
       secret: TEST_SECRET,
       secure: false,
     });

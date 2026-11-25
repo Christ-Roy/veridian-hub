@@ -11,6 +11,8 @@ import Link from 'next/link';
 import Logo from '@/components/icons/Logo';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { auth } from '@/auth';
+import { BandeauEmprunt } from '@/components/emprunt/BandeauEmprunt';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { APPS } from '@/lib/pricing/plans';
 
@@ -27,6 +29,7 @@ const NOM_APP: Record<string, string> = {
   prospection: APPS.prospection.display_name,
   cms: APPS.cms.display_name,
   crm: 'Veridian CRM',
+  academy: 'Veridian Academy',
 };
 
 const SUPPORT = 'contact@veridian.site';
@@ -38,11 +41,15 @@ export default async function BounceErrorPage({ searchParams }: BounceErrorPageP
   const displayApp = NOM_APP[safeApp] ?? (safeApp || 'l\'application');
   const user = await getCurrentUser().catch(() => null);
   const email = user?.email ?? null;
+  const session = await auth().catch(() => null);
+  const enEmprunt = session?.user?.impersonated === true;
   const identite = safeCode === 'user_not_in_app' || safeCode === 'hub_user_conflict';
   const sujet = encodeURIComponent(`Accès à ${displayApp}`);
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-background p-6">
+    <div className="min-h-screen w-full flex flex-col bg-background">
+      {enEmprunt && <BandeauEmprunt email={email ?? ''} debutS={session?.user?.authAt} />}
+      <div className="flex-1 flex items-center justify-center p-6">
       <Card className="w-full max-w-md border shadow-sm p-8 space-y-6" data-bounce-code={safeCode || 'inconnu'}>
         <div className="flex flex-col items-center gap-3 text-center">
           <Logo width="48px" height="48px" />
@@ -88,7 +95,7 @@ export default async function BounceErrorPage({ searchParams }: BounceErrorPageP
           <Button asChild>
             <Link href="/dashboard">Retour à mon tableau de bord</Link>
           </Button>
-          {identite && <ChangerDeCompte retour="/login" />}
+          {identite && !enEmprunt && <ChangerDeCompte retour="/login" />}
           {identite || safeCode === 'workspace_suspended' ? (
             <Button variant="ghost" asChild>
               <a href={`mailto:${SUPPORT}?subject=${sujet}`}>Écrire à {SUPPORT}</a>
@@ -100,6 +107,7 @@ export default async function BounceErrorPage({ searchParams }: BounceErrorPageP
           )}
         </div>
       </Card>
+      </div>
     </div>
   );
 }

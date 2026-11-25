@@ -2828,6 +2828,23 @@ gère la redirection signup-app §6bis.8.2 point 5.)
 callback Google/Microsoft, pas de gestion de scope OAuth. Tout reste
 au Hub.
 
+**Emprunt (assistance, VER-263).** Quand un administrateur de plateforme entre chez un client depuis le Hub, le corps signé porte :
+
+```json
+"emprunt": { "id": "<ligne du journal du Hub>", "par": "<hub_user_id de l'administrateur | cle:ADMIN_SECRET>", "expire_le": "<ISO 8601>" }
+```
+
+- Champ absent : une entrée ordinaire. Champ présent : `hub_user_id` et `email` restent ceux du CLIENT, l'humain devant l'écran est `par`.
+  Jamais l'adresse de l'emprunteur ni la raison : elles restent au journal du Hub, que le client ne lit pas.
+- L'app **ouvre la session du client sans rien changer** : ni rôle, ni espace, ni dernière connexion présentée au client comme la sienne.
+- L'app **garde trace** de l'entrée (`emprunt.id`, `emprunt.par`, client, heure), et l'attache à ce qui s'écrit pendant la session. Elle répond alors
+  `"emprunt_journalise": true` à côté de `magic_link_url`. Sans ce champ, le Hub note `app_journalise: false` et ne suppose rien.
+- L'app **borne la session à `expire_le`** et l'affiche. `expire_le` illisible ou passé : refuser (400 `emprunt_expire`).
+- Côté Hub, pendant un emprunt : une heure au plus, aucun geste au Hub (403 `impersonation_interdite`, garde du middleware), ni `organisations`,
+  ni `delegations`, ni espace créé à la première ouverture, ni pré-inscription consommée.
+- Journal du Hub : `admin.impersonate.start` (avant l'entrée, sans trace pas d'entrée), `.consume`, `.app` (app, résultat, `app_journalise`), `.end`.
+- **État (25/11)** : servi par le Hub, lu par aucune app. Chacune accepte le champ sans le connaître.
+
 #### 6bis.8.4 Cas particuliers
 
 - **Adresse non prouvée** : aucun appel à l'app, retour au tableau de bord et envoi
