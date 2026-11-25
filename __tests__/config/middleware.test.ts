@@ -56,6 +56,10 @@ describe('middleware.ts — matcher exclusions', () => {
     expect(source).toMatch(/api\/pricing\/plans/);
   });
 
+  it('exclut les routes qui remplacent la session (VER-263) : le middleware reposerait l\'ancienne par-dessus', () => {
+    for (const r of ['api/admin/emprunt', 'api/auth/emprunt', 'api/auth/impersonate-callback']) expect(source).toMatch(new RegExp(`\\(\\?![^']*\\|${r}\\|`));
+  });
+
   it('le matcher applique l\'exclusion en negative lookahead (pas en pattern séparé)', () => {
     // L'exclusion doit être DANS le `(?!...)` du matcher unique, pas dans
     // un pattern parallèle (sinon le matcher est toujours évalué sur la
