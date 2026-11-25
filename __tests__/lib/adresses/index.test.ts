@@ -121,3 +121,13 @@ it('adressesProuvees, titulaireSecondaire, detacher : une principale non prouvé
   expect([await detacher(db, U, 'sec@x.fr', T0), await detacher(db, U, 'jean@gmail.com', T0), await detacher(db, U, 'Pro@client.fr', T0), await detacher(db, U, 'pro@client.fr', T0)]).toEqual([false, false, true, false]);
   expect(await titulaireSecondaire(db, 'pro@client.fr')).toBeNull();
 });
+
+it('les bornes annoncées : 10 min, cinq essais, cinq adresses ; une détachée libère sa place', async () => {
+  expect([CODE_MIN, ESSAIS_MAX, ADRESSES_MAX]).toEqual([10, 5, 5]);
+  for (let i = 0; i < ADRESSES_MAX; i++) emails.push({ userId: 'u', email: `s${i}@x.fr`, detacheeLe: null });
+  await demander('neuve@x.fr');
+  expect(envois).toHaveLength(0);
+  await detacher(db, U, 's0@x.fr', T0);
+  await demander('neuve@x.fr');
+  expect(envois.map((e) => e.to)).toEqual(['neuve@x.fr']);
+});
