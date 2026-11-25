@@ -12,9 +12,10 @@ import type { SyncApp } from '@/lib/sync/types';
 import { signerAction } from '@/lib/mcp/identite';
 import { appsParOrganisation } from '@/lib/tenant-apps/organisation';
 
+import { liaisonActive, noterPassage } from './etat';
 import { listerIntegrations } from './interrupteur';
 import { organisationDeTest } from './ouverture';
-import { adresseAction, CLE_MCP, paireServie, empreintePortees, paireEntre, porteesAccordees, type AppPaire } from './paires';
+import { adresseAction, CLE_MCP, paireServie, paireEntre, porteesAccordees, type AppPaire } from './paires';
 import { empreinte } from './poignee';
 
 export const FENETRE_MS = 5 * 60_000;
@@ -84,8 +85,7 @@ export async function echanger(db: Db, app: AppPaire, d: Demande, env: NodeJS.Pr
     if (!m || m.deletedAt) return refuser('not_member');
   }
   if (t.status === 'suspended' || t.status === 'deleted') return refuser('tenant_suspended');
-  const i = await db.integrationPaire.findUnique({ where: { tenantId_paire: { tenantId: g.tenantId, paire: p.cle } } });
-  if (!i || i.etat !== 'allumee' || !i.consentiLe || i.portees !== empreintePortees(p)) return refuser('integration_off');
+  if (!(await liaisonActive(db, p, g.tenantId))) return refuser('integration_off');
   if (deborde(`${app}:${g.tenantId}`, Date.now())) return { statut: 429, error: 'rate_limited', retryAfterS: 60 };
 
   const cibleMcp = await db.mcpApp.findUnique({ where: { appKey: CLE_MCP[p.cible] }, select: { mcpUrl: true, enabled: true, acces: true } });
@@ -97,7 +97,7 @@ export async function echanger(db: Db, app: AppPaire, d: Demande, env: NodeJS.Pr
   const url = adresseAction(p.cible, cibleMcp.mcpUrl);
   const jti = randomUUID();
   const jeton = await signerAction({ audience: url, hubUserId: g.hubUserId, email: u.email, tenantId: g.tenantId, app, scope: portees, jti, ttlS: TTL_ACTION_S }, env);
-  await db.integrationPaire.updateMany({ where: { tenantId: g.tenantId, paire: p.cle }, data: { dernierPassage: new Date(), derniereErreur: null } }).catch(() => undefined);
+  await noterPassage(db, p, g.tenantId).catch(() => undefined);
   // Ni données ni poignée : qui, quelle paire, quel jeton, pourquoi.
   await writeAuditLog(db as PrismaClient, { action: 'delegation.jeton', actor: `app:${app}`, targetType: 'tenant', targetId: g.tenantId, payload: { hub_user_id: g.hubUserId, paire: p.cle, scope: portees, jti, motif: (d.motif ?? '').slice(0, 80) } });
   return { jeton, tenantId: g.tenantId, expiresIn: TTL_ACTION_S, url };

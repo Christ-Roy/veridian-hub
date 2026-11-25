@@ -1,6 +1,6 @@
 /**
- * Interrupteurs des paires d'apps dans une organisation (VER-245 b.2, arbitrages du 24/11) : un propriétaire ou un admin éteint et
- * rallume ; la PREMIÈRE ouverture d'une paire, et tout élargissement de portée, demandent le clic du propriétaire sur une page du Hub.
+ * Interrupteurs des paires d'apps dans une organisation (VER-245 b.2). Par défaut selon lib/delegation/etat.ts (25/11) ; un propriétaire ou un admin coupe, la
+ * coupure tient ; rallumer ce qui n'a jamais été consenti, et tout élargissement de portée, demandent le clic du propriétaire sur une page du Hub.
  * Aucun mail d'avis : l'état vit dans le Hub et dans les apps.
  */
 import { randomBytes } from 'node:crypto';
@@ -9,18 +9,20 @@ import type { PrismaClient } from '@prisma/client';
 
 import { writeAuditLog } from '@/lib/admin/audit-log';
 
+import { contexteDe, etatDe } from './etat';
 import { organisationDeTest } from './ouverture';
 import { empreintePortees, paire as trouverPaire, paireReglable, PAIRES } from './paires';
 import { empreinte } from './poignee';
 
 const DEMANDE_MIN = 15;
-type Db = Pick<PrismaClient, 'integrationPaire' | 'integrationDemande' | 'tenant' | 'tenantMember' | 'user' | 'auditLog'>;
-export type EtatPaire = { paire: string; libelle: string; source: string; cible: string; nature: string; etat: 'allumee' | 'eteinte' | 'indisponible'; consentie: boolean; change_par: string | null; change_le: string | null; dernier_passage: string | null; derniere_erreur: string | null };
+type Db = Pick<PrismaClient, 'organisation' | 'integrationPaire' | 'integrationDemande' | 'tenant' | 'tenantMember' | 'user' | 'auditLog'>;
+export type EtatPaire = { paire: string; libelle: string; source: string; cible: string; nature: string; etat: 'allumee' | 'eteinte' | 'indisponible'; consentie: boolean; par_defaut: boolean; change_par: string | null; change_le: string | null; dernier_passage: string | null; derniere_erreur: string | null };
 export type Reglage = { etat: 'allumee' | 'eteinte' } | { etat: 'a_confirmer'; lien: string; expire_le: string } | { refus: 'paire_inconnue' | 'role_insuffisant' | 'cible_non_servie' };
 
-export async function listerIntegrations(db: Pick<Db, 'integrationPaire' | 'user' | 'tenant'>, tenantId: string, env: NodeJS.ProcessEnv = process.env): Promise<EtatPaire[]> {
+export async function listerIntegrations(db: Pick<Db, 'integrationPaire' | 'user' | 'tenant' | 'organisation'>, tenantId: string, env: NodeJS.ProcessEnv = process.env): Promise<EtatPaire[]> {
   const lignes = await db.integrationPaire.findMany({ where: { tenantId } });
   const test = await organisationDeTest(db, tenantId, env);
+  const contexte = await contexteDe(db, tenantId);
   const ids = Array.from(new Set(lignes.map((l) => l.changePar.split(' ')[0])));
   const comptes = ids.length ? await db.user.findMany({ where: { supabaseUserId: { in: ids } }, select: { supabaseUserId: true, email: true } }) : [];
   const qui = (c: string) => {
@@ -29,14 +31,13 @@ export async function listerIntegrations(db: Pick<Db, 'integrationPaire' | 'user
   };
   return PAIRES.map((p) => {
     const l = lignes.find((x) => x.paire === p.cle);
-    const servie = paireReglable(p, tenantId, env, test);
-    const consentie = Boolean(l?.consentiLe && l.portees === empreintePortees(p));
+    const e = etatDe(p, l, contexte, paireReglable(p, tenantId, env, test));
+    const reglee = l && l.etat !== 'defaut' ? l : null;
     return {
       paire: p.cle, libelle: p.libelle, source: p.source, cible: p.cible, nature: p.nature,
-      etat: !servie ? 'indisponible' : l?.etat === 'allumee' && consentie ? 'allumee' : 'eteinte',
-      consentie,
-      change_par: l ? qui(l.changePar) : null,
-      change_le: l?.changeLe.toISOString() ?? null,
+      etat: e.etat, consentie: e.consentie, par_defaut: e.parDefaut,
+      change_par: reglee ? qui(reglee.changePar) : null,
+      change_le: reglee?.changeLe.toISOString() ?? null,
       dernier_passage: l?.dernierPassage?.toISOString() ?? null,
       derniere_erreur: l?.derniereErreur ?? null,
     };
@@ -62,6 +63,8 @@ export async function reglerIntegration(db: Db, d: { tenantId: string; paire: st
   const l = await db.integrationPaire.findUnique({ where: cle });
   if (d.etat === 'allumee') {
     if (!paireReglable(p, d.tenantId, env, await organisationDeTest(db, d.tenantId, env))) return { refus: 'cible_non_servie' };
+    // Active par défaut : elle l'est déjà, rien à écrire ni à faire confirmer.
+    if (etatDe(p, l, await contexteDe(db, d.tenantId), true).parDefaut) return { etat: 'allumee' };
     if (!l?.consentiLe || l.portees !== empreintePortees(p)) {
       const jeton = randomBytes(32).toString('base64url');
       const expireLe = new Date(Date.now() + DEMANDE_MIN * 60_000);
@@ -105,5 +108,9 @@ export async function confirmerDemande(db: Db, jeton: string, hubUserId: string,
 
 /** Une organisation suspendue perd ses consentements : la reprise ne rallume rien toute seule. */
 export async function couperIntegrations(db: Pick<PrismaClient, 'integrationPaire'>, tenantId: string): Promise<number> {
-  return (await db.integrationPaire.updateMany({ where: { tenantId }, data: { etat: 'eteinte', consentiLe: null, consentiPar: null, changePar: 'hub suspension', changeLe: new Date() } })).count;
+  const coupe = { etat: 'eteinte', consentiLe: null, consentiPar: null, changePar: 'hub suspension', changeLe: new Date() };
+  const { count } = await db.integrationPaire.updateMany({ where: { tenantId }, data: coupe });
+  // Ce qui était actif par défaut s'éteint de même : sans ligne, la reprise le rallumerait.
+  await db.integrationPaire.createMany({ data: PAIRES.map((p) => ({ tenantId, paire: p.cle, ...coupe })), skipDuplicates: true });
+  return count;
 }

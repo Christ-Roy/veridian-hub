@@ -43,6 +43,14 @@ describe('recevoirNotifuse', () => {
     expect(db.integrationPaire.lignes[0]).toMatchObject({ derniereErreur: null });
     expect(db.integrationPaire.lignes[0].dernierPassage).toBeInstanceOf(Date);
   });
+  it('organisation neuve, sans réglage : active par défaut, le passage se garde ; existante : rien', async () => {
+    db.integrationPaire.lignes.length = 0;
+    Object.assign(db.tenant.lignes[0], { notifuseWorkspaceSlug: 'ws1', metadata: { crm: { workspace_id: 'w' } }, createdAt: new Date('2026-06-01') });
+    expect(await envoyer(evt('d0'))).toMatchObject({ corps: { raison: 'paire_eteinte' } });
+    db.tenant.lignes[0].createdAt = new Date('2026-11-26T08:00:00Z');
+    expect(await envoyer(evt('d1'))).toMatchObject({ statut: 200, corps: { effet: 'cree' } });
+    expect(db.integrationPaire.lignes[0]).toMatchObject({ etat: 'defaut', dernierPassage: expect.any(Date) });
+  });
   it('le CRM n\'a rien à faire (ignore) ou l\'a déjà (rejoue) : succès, pas d\'écriture comptée, et l\'événement ne revient pas', async () => {
     const rendre = (o: object) => crm.mockResolvedValueOnce(new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: JSON.stringify(o) }] } }), { headers: { 'content-type': 'application/json' } }));
     rendre({ ok: true, ignore: true, raison: 'tache_deja_ouverte' });

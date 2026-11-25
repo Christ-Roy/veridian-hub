@@ -28,4 +28,4 @@ export function table(unique: string[] = []) {
     upsert: async ({ where, create, update }: L) => { const l = lignes.find((x) => ok(x, where)); if (l) return Object.assign(l, update); const c = { changeLe: new Date(), ...create }; lignes.push(c); return c; },
   };
 }
-export const base = () => ({ userEmail: table(), delegationGrant: table(['empreinte']), delegationNonce: table(['empreinte']), integrationPaire: table(), integrationDemande: table(['empreinte']), tenant: table(), tenantMember: table(), user: table(), mcpApp: table(), tenantApp: table(), auditLog: table(), organisationAcces: table(['tenantId', 'app', 'hubUserId']) });
+export const base = () => ({ organisation: table(), userEmail: table(), delegationGrant: table(['empreinte']), delegationNonce: table(['empreinte']), integrationPaire: table(), integrationDemande: table(['empreinte']), tenant: table(), tenantMember: table(), user: table(), mcpApp: table(), tenantApp: table(), auditLog: table(), organisationAcces: table(['tenantId', 'app', 'hubUserId']) });

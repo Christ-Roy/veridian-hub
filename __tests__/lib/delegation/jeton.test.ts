@@ -145,9 +145,9 @@ describe('echanger', () => {
     db.mcpApp.lignes[0].acces = 'tenant_app';
     const t = db.delegationGrant.lignes[0].tenantId;
     const d = db as any;
-    d.organisation = { findMany: async ({ where }: any) => (where.tenantId.in.includes(t) ? [{ modules: ['crm'] }] : []) };
+    d.organisation = { findUnique: async () => null, findMany: async ({ where }: any) => (where.tenantId.in.includes(t) ? [{ modules: ['crm'] }] : []) };
     expect('jeton' in (await demander())).toBe(true);
-    d.organisation = { findMany: async ({ where }: any) => (where.tenantId.in.includes('une-autre') ? [{ modules: ['crm'] }] : []) };
+    d.organisation = { findUnique: async () => null, findMany: async ({ where }: any) => (where.tenantId.in.includes('une-autre') ? [{ modules: ['crm'] }] : []) };
     expect(await demander()).toEqual({ statut: 403, error: 'app_not_open' });
   });
   it('cible absente du registre MCP : 503', async () => {

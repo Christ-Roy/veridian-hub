@@ -14,6 +14,7 @@ import {
   createProspectionClientFromEnv,
   ProspectionError,
 } from '@/lib/prospection/client';
+import { abonnerParDefaut } from '@/lib/evenements/naissance';
 import { prisma } from '@/lib/prisma';
 import { assurerTenantHub as assurerTenantHubDb } from '@/lib/tenants/assurer';
 
@@ -102,6 +103,9 @@ export async function provisionNotifuseTenant(
     } catch (logErr) {
       console.warn('[NOTIFUSE] provisioning_log create failed:', logErr);
     }
+
+    // Une organisation neuve dont Mail et le CRM sont ouverts : sa liaison par défaut. Jamais bloquant.
+    void abonnerParDefaut(prisma, tenantId);
 
     logStep('NOTIFUSE', 'Stored in DB');
 

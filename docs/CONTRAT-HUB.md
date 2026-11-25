@@ -1844,6 +1844,9 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
 
 #### 5.19.5 Délégation entre apps (VER-245 b.2)
 
+- **Par défaut** (Robert, 25/11, `lib/delegation/etat.ts`, règle de lecture : rien n'est écrit chez personne) : un GESTE (Prospection vers CRM ou Mail) est
+  actif dans toute organisation où les deux apps sont ouvertes ; un ÉVÉNEMENT (Mail vers CRM) l'est chez les organisations nées depuis le 26/11, et se
+  propose aux autres. Toute coupure tient, suspension comprise. « Par défaut » n'est jamais dit consenti ; une portée élargie en sort. Cas 23.
 - **Poignée** : au rebond, `issue-magic-link` porte `delegations: [{ hub_tenant_id, grant, expire_le }]` (30 jours, une par organisation)
   pour une app source d'une paire servie. L'app la garde dans sa session SERVEUR, jamais dans le navigateur ni dans un journal.
 - **Échange** : `POST /api/delegation/jeton` `{ grant_type, subject_grant, audience, scope, motif? }`, en-têtes `X-Veridian-App`,

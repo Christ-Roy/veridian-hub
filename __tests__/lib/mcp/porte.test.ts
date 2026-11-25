@@ -388,6 +388,10 @@ describe('liaisons entre apps (VER-245 b.2)', () => {
     await (db as any).tenantMember.create({ data: { tenantId: 't6', userId: HUB_USER, role, deletedAt: null } });
   };
 
+  it('l\'IA sait qu\'elles sont actives par défaut, et qu\'une coupure tient', async () => {
+    const t = JSON.stringify(await appel('chercher_outils', { besoin: 'liaisons entre apps', app: 'hub' }, appFactice()));
+    expect(t).toContain('Actives par défaut');
+  });
   it('lister : le seul espace qu\'on a, ou celui qu\'on nomme ; jamais un espace étranger', async () => {
     expect(json(await appel('executer_outil', { nom: 'hub.integrations_lister' }, appFactice())).espace).toBe('mon-espace');
     await autre('member');

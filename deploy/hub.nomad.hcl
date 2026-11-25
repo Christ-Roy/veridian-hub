@@ -266,8 +266,8 @@ ROLE_PORTE=
 # Lecture d'activité par Academy (§5.19.6) : organisations nommées, jamais « toutes ». Celle de Robert, qui l'a demandée (24/11).
 ACTIVITE_ORGANISATIONS=359b76d5-bab7-4773-a889-cf4cf0248869
 # Délégation entre apps (§5.23) : cibles qui ont dit « garde servie ». Vide = aucun jeton, aucune poignée.
-# Ouvert à toutes le 24/11 (Robert, relayé par la parente) : chaque liaison reste ÉTEINTE jusqu'au clic de son propriétaire, et se coupe
-# d'un clic. `<cible>@test` = organisations marquées de test. Refermer : vider, puis déployer.
+# Ouvert à toutes le 24/11. Depuis le 25/11 (Robert) : ACTIVE par défaut où les deux apps sont ouvertes (lib/delegation/etat.ts), se coupe d'un clic, et
+# la coupure tient. `<cible>@test` = organisations marquées de test. Refermer : vider, puis déployer.
 DELEGATION_CIBLES=crm,notifuse
 # Événements entre apps (F3) : `notifuse>crm` = tous, `notifuse>crm@<tenant>` = une organisation, `@test` = marquées de test. Vide = fermé. Ouvert ne
 # veut pas dire allumé : clic du propriétaire. Seule ouverte (25/11) : celle de Robert ; le CRM sert sa garde (940b9eb,

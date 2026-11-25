@@ -1,5 +1,5 @@
 // /dashboard/liaisons : les liaisons entre apps, espace par espace (VER-245). Voir, allumer, couper, sans IA. Adresse stable : les apps y
-// renvoient. Mêmes règles que l'outil `hub.integrations_regler` : seul le propriétaire ouvre, propriétaire et admin coupent.
+// renvoient. Mêmes règles que l'outil `hub.integrations_regler` : actives par défaut (lib/delegation/etat.ts), propriétaire et admin coupent.
 import { redirect } from 'next/navigation';
 
 import { Link2Icon } from 'lucide-react';
@@ -80,7 +80,7 @@ export default async function Liaisons({ searchParams }: { searchParams: Promise
                   <div className="min-w-0">
                     <p className="font-medium">{l.libelle}</p>
                     <p className="text-sm text-muted-foreground">
-                      {l.etat === 'allumee' ? 'Allumée' : 'Éteinte'}
+                      {l.etat !== 'allumee' ? 'Éteinte' : l.par_defaut ? 'Active par défaut' : 'Allumée'}
                       {l.dernier_passage ? `, dernier passage le ${new Date(l.dernier_passage).toLocaleString('fr-FR', { timeZone: 'Europe/Paris' })}` : ''}
                       {l.derniere_erreur ? `, dernière erreur : ${ERREURS[l.derniere_erreur] ?? l.derniere_erreur}` : ''}
                     </p>

@@ -29,6 +29,12 @@ describe('/dashboard/liaisons', () => {
     m.lister.mockResolvedValue([ligne({ etat: 'allumee', consentie: true })]);
     expect(await boutons()).toEqual([false, true]);
   });
+  it('par défaut : le dit, et se coupe ; réglée : ne le dit pas', async () => {
+    m.lister.mockResolvedValue([ligne({ etat: 'allumee', par_defaut: true })]);
+    expect([(await html()).includes('Active par défaut'), ...(await boutons())]).toEqual([true, false, true]);
+    m.lister.mockResolvedValue([ligne({ etat: 'allumee', consentie: true, par_defaut: false })]);
+    expect((await html()).includes('par défaut')).toBe(false);
+  });
   it('admin : rallume ce que le propriétaire a consenti, pas une liaison neuve', async () => {
     m.role.mockResolvedValue('admin');
     expect(await boutons()).toEqual([false, false]);

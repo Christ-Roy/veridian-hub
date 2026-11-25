@@ -113,13 +113,13 @@ const HUB_PROGRAMME: Outil = {
 /** Les liaisons entre apps (VER-245 b.2) : même code et mêmes droits que l'écran du Hub. */
 const HUB_LISTER: Outil = {
   nom: 'hub.integrations_lister', app: 'hub', local: 'integrations_lister',
-  description: 'Liaisons entre les apps de mon organisation (Prospection vers CRM, Mail vers CRM…) : sens, allumée ou éteinte, qui l\'a changée et quand, dernier passage, dernière erreur.',
+  description: 'Liaisons entre les apps de mon organisation (Prospection vers CRM, Mail vers CRM…) : sens, allumée (par défaut ou réglée) ou éteinte, qui l\'a changée et quand, dernier passage, dernière erreur.',
   inputSchema: { type: 'object', properties: {} },
   annotations: { readOnlyHint: true },
 };
 const HUB_REGLER: Outil = {
   nom: 'hub.integrations_regler', app: 'hub', local: 'integrations_regler',
-  description: 'Allumer ou éteindre une liaison entre deux apps de mon organisation. Éteindre et rallumer : direct. La première ouverture rend un lien que le propriétaire confirme dans Veridian. Propriétaire ou admin seulement.',
+  description: 'Allumer ou éteindre une liaison entre deux apps de mon organisation. Actives par défaut entre les apps ouvertes. Éteindre : direct, et cela tient. Rallumer une liaison jamais confirmée rend un lien que le propriétaire confirme dans Veridian. Propriétaire ou admin seulement.',
   inputSchema: { type: 'object', properties: { paire: { type: 'string', description: 'La paire rendue par hub.integrations_lister, ex. « prospection>crm ».' }, etat: { type: 'string', enum: ['allumee', 'eteinte'] } }, required: ['paire', 'etat'] } as unknown as Outil['inputSchema'],
   annotations: { destructiveHint: true, idempotentHint: true, openWorldHint: false },
 };

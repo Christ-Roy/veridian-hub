@@ -32,7 +32,7 @@ const db = {
     findMany: async ({ where }: L) => membres.filter((m) => m.tenantId === where.tenantId && !m.deletedAt),
   },
   delegationGrant: { updateMany: async ({ where }: L) => { revoques.push(where); return { count: 1 }; } },
-  integrationPaire: { updateMany: async ({ where, data }: L) => { coupees.push([where, data]); return { count: 1 }; } },
+  integrationPaire: { createMany: async () => ({ count: 0 }), updateMany: async ({ where, data }: L) => { coupees.push([where, data]); return { count: 1 }; } },
   userEmail: { findMany: async ({ where }: L) => secondaires.filter((x) => x.hub === where.user.supabaseUserId && !x.detacheeLe) },
   tenantPreinscription: { updateMany: async ({ where, data }: L) => { preinscrites.push([where, data]); return { count: 1 }; } },
   crossAppInvitation: {
