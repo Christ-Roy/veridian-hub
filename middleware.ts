@@ -22,11 +22,13 @@ export const config = {
      *   consommé en HTTP par Notifuse Go au boot, donc bénéficie 10× de la
      *   cache edge. Cf. todo/2026-05-21-fix-cache-cookies-pricing-plans.md.
      *   Sûr car la route n'a aucune logique auth (catalogue public statique).
+     * - api/admin/emprunt, api/auth/emprunt, api/auth/impersonate-callback : elles REMPLACENT la session.
+     *   Le middleware re-signe celle qui arrive et la reposerait par-dessus. Elles se gardent seules.
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - images - .svg, .png, .jpg, .jpeg, .gif, .webp
      */
-    '/((?!api/pricing/plans|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!api/pricing/plans|api/admin/emprunt|api/auth/emprunt|api/auth/impersonate-callback|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };

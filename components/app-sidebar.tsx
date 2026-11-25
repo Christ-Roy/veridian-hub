@@ -9,6 +9,7 @@ import {
   FileIcon,
   LayoutDashboardIcon,
   SettingsIcon,
+  ShieldIcon,
   Users2Icon,
 } from "lucide-react"
 
@@ -67,6 +68,7 @@ const navMain = [
 export function AppSidebar({
   user,
   workspaceName,
+  admin = false,
   ...props
 }: React.ComponentProps<typeof Sidebar> & {
   user: {
@@ -80,6 +82,8 @@ export function AppSidebar({
    * Optionnel pour rester rétro-compatible — si absent, on n'affiche rien.
    */
   workspaceName?: string | null;
+  /** Administrateur de plateforme : le lien vers l'administration. */
+  admin?: boolean;
 }) {
   return (
     <Sidebar collapsible="offcanvas" {...props}>
@@ -112,7 +116,7 @@ export function AppSidebar({
         </div>
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={navMain} />
+        <NavMain items={admin ? [...navMain, { title: "Administration", url: "/dashboard/admin/clients", icon: ShieldIcon }] : navMain} />
       </SidebarContent>
       <SidebarFooter>
         <NavUser user={user} />

@@ -27,8 +27,9 @@ declare module 'next-auth' {
       federeOrg?: string;
       /** `true` si la session provient d'une impersonation admin. */
       impersonated?: boolean;
-      /** Email du platform admin à l'origine de l'impersonation, sinon null. */
+      /** Qui emprunte (`hub_user_id` de l'administrateur), sinon null. */
       impersonatedBy?: string | null;
+      empruntId?: string | null;
     } & DefaultSession['user'];
   }
 }
@@ -46,7 +47,8 @@ declare module 'next-auth/jwt' {
     federeVu?: number;
     /** `true` sur un JWT issu d'une impersonation admin. */
     impersonated?: boolean;
-    /** Email du platform admin à l'origine de l'impersonation. */
+    /** Qui emprunte (`hub_user_id` de l'administrateur). */
     impersonatedBy?: string | null;
+    empruntId?: string | null;
   }
 }

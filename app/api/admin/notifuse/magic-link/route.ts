@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/auth';
 import { denyUnlessEmailProven } from '@/lib/auth/email-proof';
-import { isPlatformAdmin } from '@/lib/admin/check-admin';
+import { sessionAdmin } from '@/lib/admin/session-admin';
 import { NotifuseClient } from '@/lib/notifuse/client';
 import { resolveNotifuseAutoLogin } from '@/lib/notifuse/resolve-autologin';
 import { prisma } from '@/lib/prisma';
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
   });
 
   // Authorization: only the tenant owner OR a platform admin can request a magic link
-  if (tenant.userId !== me?.supabaseUserId && !(await isPlatformAdmin(session))) {
+  if (tenant.userId !== me?.supabaseUserId && !(await sessionAdmin()).ok) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 

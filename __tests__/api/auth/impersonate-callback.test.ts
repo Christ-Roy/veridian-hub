@@ -21,6 +21,8 @@ const verificationTokenFindUnique = vi.fn();
 const verificationTokenDeleteMany = vi.fn();
 const userFindUnique = vi.fn();
 const auditLogCreate = vi.fn(async () => ({}));
+const ADMIN = '53245ae1-6bf8-4ec6-870f-32d75b7c0281';
+const auditLogFindUnique = vi.fn();
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -29,7 +31,7 @@ vi.mock('@/lib/prisma', () => ({
       deleteMany: verificationTokenDeleteMany,
     },
     user: { findUnique: userFindUnique },
-    auditLog: { create: auditLogCreate },
+    auditLog: { create: auditLogCreate, findUnique: auditLogFindUnique },
   },
 }));
 
@@ -45,6 +47,7 @@ function makeReq(token?: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   process.env.AUTH_SECRET = TEST_SECRET;
+  auditLogFindUnique.mockResolvedValue({ action: 'admin.impersonate.start', payload: { par: ADMIN } });
   process.env.NEXT_PUBLIC_SITE_URL = 'https://app.veridian.site';
   process.env.NEXTAUTH_URL = 'https://app.veridian.site';
 });
@@ -67,7 +70,7 @@ describe('GET /api/auth/impersonate-callback', () => {
   it('token expiré → redirect impersonate_token_expired', async () => {
     const raw = 'a'.repeat(64);
     verificationTokenFindUnique.mockResolvedValue({
-      identifier: 'impersonate:user-1',
+      identifier: 'impersonate:user-1:emprunt-1',
       token: hashImpersonationToken(raw),
       expires: new Date(Date.now() - 1000),
     });
@@ -80,7 +83,7 @@ describe('GET /api/auth/impersonate-callback', () => {
   it('token déjà consommé (course perdue) → redirect invalid', async () => {
     const raw = 'b'.repeat(64);
     verificationTokenFindUnique.mockResolvedValue({
-      identifier: 'impersonate:user-1',
+      identifier: 'impersonate:user-1:emprunt-1',
       token: hashImpersonationToken(raw),
       expires: new Date(Date.now() + 60_000),
     });
@@ -93,7 +96,7 @@ describe('GET /api/auth/impersonate-callback', () => {
   it('user cible supprimé entre-temps → redirect impersonate_user_gone', async () => {
     const raw = 'c'.repeat(64);
     verificationTokenFindUnique.mockResolvedValue({
-      identifier: 'impersonate:user-gone',
+      identifier: 'impersonate:user-gone:emprunt-1',
       token: hashImpersonationToken(raw),
       expires: new Date(Date.now() + 60_000),
     });
@@ -107,7 +110,7 @@ describe('GET /api/auth/impersonate-callback', () => {
   it('succès : pose le cookie de session + redirect /dashboard + audit log', async () => {
     const raw = 'd'.repeat(64);
     verificationTokenFindUnique.mockResolvedValue({
-      identifier: 'impersonate:user-42',
+      identifier: 'impersonate:user-42:emprunt-1',
       token: hashImpersonationToken(raw),
       expires: new Date(Date.now() + 60_000),
     });
@@ -159,7 +162,7 @@ describe('GET /api/auth/impersonate-callback', () => {
     process.env.NEXT_PUBLIC_SITE_URL = 'http://localhost:3000';
     const raw = 'f'.repeat(64);
     verificationTokenFindUnique.mockResolvedValue({
-      identifier: 'impersonate:user-local',
+      identifier: 'impersonate:user-local:emprunt-1',
       token: hashImpersonationToken(raw),
       expires: new Date(Date.now() + 60_000),
     });
@@ -195,7 +198,7 @@ describe('GET /api/auth/impersonate-callback', () => {
     delete process.env.AUTH_SECRET;
     const raw = 'e'.repeat(64);
     verificationTokenFindUnique.mockResolvedValue({
-      identifier: 'impersonate:user-1',
+      identifier: 'impersonate:user-1:emprunt-1',
       token: hashImpersonationToken(raw),
       expires: new Date(Date.now() + 60_000),
     });

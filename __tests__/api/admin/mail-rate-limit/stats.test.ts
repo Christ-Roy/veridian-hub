@@ -27,7 +27,7 @@ vi.mock('@/auth', () => ({
 }));
 
 vi.mock('@/lib/admin/check-admin', () => ({
-  isPlatformAdmin: vi.fn().mockReturnValue(false),
+  administrateurDe: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock('@/lib/auth/impersonation', () => ({

@@ -43,7 +43,6 @@ services:
       AUTH_TRUST_HOST: "true"
 
       # ─── Admin (identique prod/staging) ────────────────────────────────
-      ADMIN_EMAILS: brunon5robert@gmail.com,robert.brunon@veridian.site
       # Permet aux scripts / CI d'appeler /api/admin/* via header
       # x-admin-secret sans session Auth.js. Doit être défini dans le `.env`
       # de chaque environnement (vide → header désactivé).

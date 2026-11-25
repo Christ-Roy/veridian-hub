@@ -23,7 +23,8 @@ import { z } from 'zod';
 
 import { auth } from '@/auth';
 import { authenticateAdmin } from '@/lib/admin/authenticate';
-import { writeAuditLog } from '@/lib/admin/audit-log';
+import { PAR_CLE } from '@/lib/auth/emprunt-bornes';
+import { ouvrirEmprunt } from '@/lib/emprunt/journal';
 import { prisma } from '@/lib/prisma';
 import {
   createImpersonationToken,
@@ -36,6 +37,7 @@ export const runtime = 'nodejs';
 
 const bodySchema = z.object({
   email: z.string().email(),
+  raison: z.string().max(2000).nullish(),
 });
 
 export async function POST(request: NextRequest) {
@@ -72,26 +74,21 @@ export async function POST(request: NextRequest) {
   // 4. Résout le user cible.
   const targetUser = await prisma.user.findUnique({
     where: { email },
-    select: { id: true, email: true },
+    select: { id: true, email: true, supabaseUserId: true },
   });
   if (!targetUser) {
     return NextResponse.json({ error: 'user_not_found', email }, { status: 404 });
   }
 
-  // 5. Génère le token impersonate (hashé en base, usage unique, TTL 10min).
-  const { rawToken, expires } = await createImpersonationToken(prisma, targetUser.id);
-
-  // 6. Audit — qui prépare l'impersonation de qui, quand.
-  const actor = adminAuth.sessionEmail
-    ? `admin:${adminAuth.sessionEmail}`
-    : 'token:ADMIN_SECRET';
-  await writeAuditLog(prisma, {
-    action: 'admin.impersonate.start',
-    actor,
-    targetType: 'user',
-    targetId: targetUser.id,
-    payload: { targetEmail: targetUser.email, expiresAt: expires.toISOString() },
+  // 5. Le journal d'abord (sans trace, pas de lien), puis le token (hashé en base, usage unique, TTL 10min).
+  const empruntId = await ouvrirEmprunt(prisma, {
+    par: adminAuth.hubUserId ?? PAR_CLE,
+    acteur: adminAuth.sessionEmail ? `admin:${adminAuth.sessionEmail}` : 'token:ADMIN_SECRET',
+    cible: { id: targetUser.id, email: targetUser.email, hubUserId: targetUser.supabaseUserId },
+    raison: parsed.data.raison,
+    via: 'lien',
   });
+  const { rawToken, expires } = await createImpersonationToken(prisma, targetUser.id, empruntId);
 
   const callbackUrl = `${getURL('/api/auth/impersonate-callback')}?token=${encodeURIComponent(rawToken)}`;
 

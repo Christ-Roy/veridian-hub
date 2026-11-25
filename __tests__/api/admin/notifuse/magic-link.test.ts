@@ -33,8 +33,8 @@ const tenantUpdateMock = vi.fn();
 const isPlatformAdminMock = vi.fn();
 
 vi.mock('@/auth', () => ({ auth: (...args: unknown[]) => authMock(...args) }));
-vi.mock('@/lib/admin/check-admin', () => ({
-  isPlatformAdmin: (...args: unknown[]) => isPlatformAdminMock(...args),
+vi.mock('@/lib/admin/session-admin', () => ({
+  sessionAdmin: async (...args: unknown[]) => ({ ok: await isPlatformAdminMock(...args) }),
 }));
 vi.mock('@/lib/prisma', () => ({
   prisma: {

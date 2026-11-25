@@ -37,7 +37,7 @@ const isPlatformAdminMock = vi.fn();
 
 vi.mock('@/auth', () => ({ auth: (...a: unknown[]) => authMock(...a) }));
 vi.mock('@/lib/admin/check-admin', () => ({
-  isPlatformAdmin: (...a: unknown[]) => isPlatformAdminMock(...a),
+  administrateurDe: async (s: { user: { email: string } }) => ((await isPlatformAdminMock(s)) ? { userId: 'u1', hubUserId: 'h1', email: s.user.email } : null),
 }));
 
 import { requireAdmin } from '@/lib/admin/require-admin';
@@ -94,15 +94,15 @@ describe('requireAdmin — chemin session Auth.js', () => {
 
   it('rejette (403) quand session user présent mais NON admin', async () => {
     authMock.mockResolvedValueOnce({ user: { email: 'random@x', id: 'u1' } });
-    isPlatformAdminMock.mockResolvedValueOnce(false);
+    isPlatformAdminMock.mockReturnValueOnce(false);
     const res = await requireAdmin(makeReq());
     expect(res).not.toBeNull();
     expect(res!.status).toBe(403);
   });
   it('admin dont la dernière connexion est trop ancienne : 403, preuve récente exigée', async () => {
     recente.ok = false;
-    authMock.mockResolvedValueOnce({ user: { email: 'admin@x' } });
-    isPlatformAdminMock.mockResolvedValueOnce(true);
+    authMock.mockResolvedValueOnce({ user: { email: 'admin@x', id: 'u1' } });
+    isPlatformAdminMock.mockReturnValueOnce(true);
     const res = await requireAdmin(new NextRequest('https://app.veridian.site/api/admin/x'));
     recente.ok = true;
     expect(res?.status).toBe(403);
@@ -110,9 +110,15 @@ describe('requireAdmin — chemin session Auth.js', () => {
   });
 
 
+  it('session d\'emprunt : 403, même chez un administrateur (VER-263 : cette garde-là l\'acceptait)', async () => {
+    authMock.mockResolvedValueOnce({ user: { email: 'admin@x', id: 'u1', impersonated: true } });
+    isPlatformAdminMock.mockReturnValue(true);
+    expect((await requireAdmin(makeReq()))?.status).toBe(403);
+  });
+
   it('autorise (null) quand session user est admin', async () => {
     authMock.mockResolvedValueOnce({ user: { email: 'admin@x', id: 'u1' } });
-    isPlatformAdminMock.mockResolvedValueOnce(true);
+    isPlatformAdminMock.mockReturnValueOnce(true);
     const res = await requireAdmin(makeReq());
     expect(res).toBeNull();
   });
@@ -145,7 +151,7 @@ describe('requireAdmin — garde-fous de configuration (sécu)', () => {
     // valide passe par le header. On verrouille que la présence d'une session
     // non-admin ne casse PAS l'accès par secret.
     authMock.mockResolvedValueOnce({ user: { email: 'random@x' } });
-    isPlatformAdminMock.mockResolvedValueOnce(false);
+    isPlatformAdminMock.mockReturnValueOnce(false);
     const res = await requireAdmin(makeReq({ 'x-admin-secret': 'super-secret-for-tests' }));
     expect(res).toBeNull();
   });

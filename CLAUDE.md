@@ -1,10 +1,8 @@
 # Hub SaaS Veridian
 
 > ## 🔴 Règle d'or Veridian — zéro contournement (gravée Robert 2026-06-10)
-> **Interdit absolu** : cron bricolé, SQLite/store parallèle, job maison pour
-> ÉVITER l'API ou la DB réelle de l'app. On travaille AVEC le vrai système :
-> coder → staging → test lourd → prod. Un blocage (accès, credential) se
-> débloque via le lead, il ne se contourne pas.
+> **Interdit absolu** : cron bricolé, store parallèle, job maison pour ÉVITER l'API ou la base réelle de l'app. Coder → staging →
+> test lourd → prod. Un blocage (accès, credential) se débloque via le lead, il ne se contourne pas.
 
 
 ## Ce que c'est
@@ -77,7 +75,7 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
 Outil admin : `hub` (`hub doctor` d'abord : santé, secret, auth admin). Aucune de ces commandes n'affiche de secret.
 
 - **Un client ne peut plus se connecter** : `hub tenant <email>` (adresse prouvée ? apps liées ?), `hub audit --since <date>`.
-  Adresse non prouvée : aucun lien d'app, `hub invite <email>` renouvelle l'accès (`--no-email` : lien seul). Voir sa vue : `hub open <email>`.
+  Adresse non prouvée : aucun lien d'app, `hub invite <email>` renouvelle l'accès (`--no-email` : lien seul). Entrer chez lui : `/dashboard/admin/clients` ou `hub open <email>` (`docs/PARCOURS-IDENTITE.md`, cas 45).
 - **Un rebond échoue** : `/auth/bounce/error?code=` dit pourquoi (`not_configured` : variable `<APP>_API_URL` ou
   `<APP>_HUB_API_SECRET` absente du job ; `unreachable` : l'app ; refus d'identité : voir « Rebond refusé »).
   `nomad-v logs hub` (tag `[bounce][refus]`). 3 rebonds rapides : anti-boucle, 30 s.
@@ -145,6 +143,5 @@ Jamais de limite visible. Stripe → Hub → apps, jamais Stripe → app.
 
 - `.github/workflows/hub-ci.yml` : test → audit (npm) → docker → **trivy** → deploy-prod (sur `main`) → e2e-prod-smoke → rollback-prod (si fail)
 - **Pas de cron Trivy** : CVE de l'image servie via `secu`, `_trivy-image.yml` à la construction.
-- Runners GitHub (dépôt public) : le smoke garde `playwright install --with-deps`.
 - Logs `nomad-v logs hub`, redeploy `nomad-v run hub`. Skill `/nomad`.
 

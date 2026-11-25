@@ -6,17 +6,24 @@ const m = vi.hoisted(() => ({ lire: vi.fn() }));
 vi.mock('@/lib/prisma', () => ({ prisma: { user: { findUnique: (...a: unknown[]) => m.lire(...a) } } }));
 
 import { estAdresseOperateur, isPlatformAdmin, isPlatformAdminId } from '@/lib/admin/check-admin';
+import { lireAdmins } from '@/lib/admin/liste-admins';
 
 const ROBERT = '53245ae1-6bf8-4ec6-870f-32d75b7c0281';
+const AUTRE = '11111111-2222-4333-8444-555555555555';
 const base = (u: object | null) => m.lire.mockResolvedValue(u);
 beforeEach(() => {
   vi.clearAllMocks();
   vi.unstubAllEnvs();
-  vi.stubEnv('PLATFORM_ADMINS', ` ${ROBERT.toUpperCase()} , autre`);
+  vi.stubEnv('PLATFORM_ADMINS', ` ${ROBERT.toUpperCase()} , ${AUTRE}`);
   vi.stubEnv('ADRESSES_OPERATEUR', 'Robert@X.fr');
   base({ supabaseUserId: ROBERT, emailVerified: new Date() });
 });
 const s = (o: object = {}) => ({ user: { id: 'u1', ...o } });
+
+describe('lireAdmins', () => {
+  it('lit une liste, casse et espaces compris', () => expect([...lireAdmins(` ${ROBERT.toUpperCase()} , ${AUTRE},`)!]).toEqual([ROBERT, AUTRE]));
+  it.each([undefined, '', ' , ', 'robert@x.fr', `${ROBERT},robert@x.fr`, `${ROBERT};${AUTRE}`])('%j est illisible en entier', (l) => expect(lireAdmins(l)).toBeNull());
+});
 
 describe('isPlatformAdmin', () => {
   it('la personne désignée, adresse prouvée : oui', async () => expect(await isPlatformAdmin(s())).toBe(true));
@@ -38,7 +45,14 @@ describe('isPlatformAdmin', () => {
     m.lire.mockRejectedValue(new Error('base'));
     expect([...rendu, await isPlatformAdmin(s())]).toEqual([false, false, false, false]);
   });
-  it('réglage vide : personne', async () => { vi.stubEnv('PLATFORM_ADMINS', ''); expect(await isPlatformAdmin(s())).toBe(false); });
+  it.each(['', ' , ', 'x', `${AUTRE},robert@x.fr`])('liste illisible %j : personne promu ni déchu', async (l) => {
+    vi.stubEnv('PLATFORM_ADMINS', l);
+    const connu = await isPlatformAdmin(s());
+    base({ email: 'a@x', supabaseUserId: AUTRE, emailVerified: new Date() });
+    expect([connu, await isPlatformAdmin(s())]).toEqual([true, false]);
+  });
+  it('retiré d\'une liste lisible : plus administrateur', async () => { vi.stubEnv('PLATFORM_ADMINS', AUTRE); expect(await isPlatformAdmin(s())).toBe(false); });
+  it('empruntée, marque posée à la racine de la session : non', async () => expect(await isPlatformAdmin({ ...s(), impersonated: true })).toBe(false));
 });
 it('isPlatformAdminId : liste exacte, casse indifférente', () => expect([isPlatformAdminId(ROBERT), isPlatformAdminId('x'), isPlatformAdminId(null), isPlatformAdminId('')]).toEqual([true, false, false, false]));
 it('estAdresseOperateur : pour les rapports, ne donne aucun droit', () => expect([estAdresseOperateur(' robert@x.FR '), estAdresseOperateur('a@x.fr')]).toEqual([true, false]));

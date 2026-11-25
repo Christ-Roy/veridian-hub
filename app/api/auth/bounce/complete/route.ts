@@ -45,6 +45,7 @@ import { ensureCrmWorkspace } from '@/lib/crm/provision';
 import { getEnabledGatedApps } from '@/lib/tenant-apps';
 import { isEmailProvenInDb } from '@/lib/auth/email-proof-provider';
 import { getHubBaseUrl } from '@/lib/mail/oauth-cookies';
+import { empruntSigne, suiteEmprunt } from '@/lib/emprunt/journal';
 import { emettrePoignees } from '@/lib/delegation/poignee';
 import { prisma } from '@/lib/prisma';
 import type { SyncApp } from '@/lib/sync/types';
@@ -128,7 +129,16 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // Pré-inscrit par une organisation : il la rejoint maintenant, et l'app le connaît avant qu'on l'y envoie. Un échec n'empêche pas d'entrer.
   const session = await auth();
   // Une session fédérée ne fait rejoindre aucune autre organisation : elle n'ouvre que la sienne.
-  const jointes = user.supabaseUserId && !isImpersonatedSession(session) && session?.user?.federe !== true
+  // Emprunt (VER-263) : on entre comme le client, on ne fait rien en son nom. Ni poignée de délégation, ni rôle porté, ni espace créé ; l'app sait qui est là.
+  const enEmprunt = isImpersonatedSession(session);
+  const emprunt = empruntSigne(session?.user);
+  if (enEmprunt && !emprunt) {
+    journaliserRefus({ app: parsed.app, code: 'unexpected', hubUserId: user.supabaseUserId ?? null });
+    return wipeCookies(NextResponse.redirect(new URL('/dashboard', baseUrl)));
+  }
+  const tracer = (resultat: string, journalise: boolean | null) =>
+    emprunt ? suiteEmprunt(prisma, { action: 'app', empruntId: emprunt.id, par: emprunt.par, userId: user.id, detail: { app: parsed.app, resultat, app_journalise: journalise } }) : Promise.resolve();
+  const jointes = user.supabaseUserId && !enEmprunt && session?.user?.federe !== true
     ? await consommerPreinscriptions(prisma, user.supabaseUserId).catch((err): string[] => { console.error('[preinscription]', err instanceof Error ? err.message.slice(0, 160) : 'erreur'); return []; })
     : [];
 
@@ -142,10 +152,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       emailProven: await isEmailProvenInDb(prisma, userUuid(user)),
       next: parsed.url,
       // Seulement aux apps qui le traduisent ; une lecture ratée n'empêche jamais d'entrer (l'app ne change alors rien).
-      delegations: await emettrePoignees(prisma, { hubUserId: userUuid(user), app: parsed.app }).catch(() => []),
+      delegations: enEmprunt ? [] : await emettrePoignees(prisma, { hubUserId: userUuid(user), app: parsed.app }).catch(() => []),
       // Il vient de la rejoindre : il y arrive, même s'il a déjà son propre espace.
       hubTenantId: jointes[0] ?? await organisationActive(prisma, userUuid(user), req.cookies.get(COOKIE_ACTIF)?.value).catch(() => null),
-      organisations: APPS_A_ROLE.includes(parsed.app as SyncApp) ? await organisationsPourRebond(prisma, userUuid(user)).catch(() => []) : [],
+      organisations: !enEmprunt && APPS_A_ROLE.includes(parsed.app as SyncApp) ? await organisationsPourRebond(prisma, userUuid(user)).catch(() => []) : [],
+      emprunt,
     };
     // Academy est réservée : sans activation au Hub, aucun lien, même si l'app connaît encore le compte
     // (activation retirée). Le refus passe par la page d'erreur, jamais muet.
@@ -155,14 +166,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       throw new BounceError('user_not_in_app', 'academy: compte non activé au Hub');
     }
     let magicLinkUrl: string;
+    let empruntJournalise: boolean | undefined;
     let code: 'ok' | 'premiere_ouverture' = 'ok';
     try {
-      ({ magicLinkUrl } = await issueMagicLinkForApp(demande));
+      ({ magicLinkUrl, empruntJournalise } = await issueMagicLinkForApp(demande));
     } catch (err) {
       // Le CRM est ouvert à tout compte prouvé, Academy à tout compte activé : à la première ouverture,
       // le Hub crée l'espace puis reprend.
       const premiere = err instanceof BounceError && err.code === 'user_not_in_app';
-      if (!premiere || (parsed.app !== 'crm' && parsed.app !== 'academy')) throw err;
+      if (!premiere || enEmprunt || (parsed.app !== 'crm' && parsed.app !== 'academy')) throw err;
       // Un salarié n'a pas d'espace à lui : pas ouvert à son organisation, c'est refusé et dit, jamais un espace vide créé à sa place.
       if (await membreSeul(prisma, userUuid(user))) throw err;
       const qui = { hubUserId: userUuid(user), email: user.email, name: user.name };
@@ -175,9 +187,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       code = 'premiere_ouverture';
     }
     journaliserReussite({ app: parsed.app, code, hubUserId: demande.hubUserId });
+    await tracer('entre', empruntJournalise ?? false);
     return wipeCookies(NextResponse.redirect(magicLinkUrl));
   } catch (err) {
     const code = err instanceof BounceError ? err.code : 'unexpected';
+    await tracer(code, null);
     journaliserRefus({
       app: parsed.app,
       code,
