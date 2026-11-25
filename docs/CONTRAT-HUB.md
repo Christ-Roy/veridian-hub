@@ -1791,7 +1791,8 @@ et `hub suspension` passent par lui.
   suspendue, et réémet à la reprise. `409 not_suspended_by_hub` (espace fermé par un autre chemin) est DIT et sort des cibles ; `410` : rien à fermer. Cas 34.
 - **Session ouverte d'un retiré** : mesuré le 25/11, le CRM (v39) la laissait lire après `remove-member`. Le Hub envoie donc `users/sync { revoke_sessions }`
   au CRM juste après (toutes ses sessions CRM ; le rebond le fait rentrer là où il est encore membre), et dit `echec` si la coupure n'a pas pris. À retirer
-  quand le CRM coupe lui-même, dans cet espace. Les autres apps : pas mesurées.
+  quand le CRM coupe lui-même, dans cet espace. Mail et Prospection ferment
+  d'elles-mêmes (cas 37) ; Academy : réservée, non mesurée.
 - **Qui ne sait pas** (25/11) : retrait et suspension, Analytics ; `attach-owner`, Academy.
 - **Clés API d'un retiré** : jamais coupées (des automatisations en vivent), toujours DITES. `remove-member` rend
   `active_api_keys` (toutes les clés actives de l'espace, hors clé du Hub) et `api_keys_url` (la page où les renouveler, en https sur
