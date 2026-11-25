@@ -263,6 +263,7 @@ describe('POST /api/admin/notifuse/magic-link', () => {
     expect(body.expiresAt).toBe('2026-05-26T00:00:00Z');
     expect(generateMagicLinkMock).toHaveBeenCalledWith({
       apiKey: 'api-key-xyz',
+      hubUserId: 'owner-uuid',
       userEmail: 'owner@x.com',
     });
   });

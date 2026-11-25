@@ -99,6 +99,8 @@ export interface StatusResponse {
 
 export interface MagicLinkInput {
   apiKey: string;
+  /** La personne (CONTRAT-HUB §5.19.7) ; l'adresse n'est qu'informative. */
+  hubUserId?: string;
   userEmail: string;
 }
 

@@ -220,6 +220,11 @@ describe('issueMagicLinkForApp — erreurs business', () => {
     ).rejects.toMatchObject({ code: 'hub_user_conflict', httpStatus: 400 });
   });
 
+  it('423 → workspace_suspended : ni une panne, ni un compte à créer', async () => {
+    const fetchMock = vi.fn(async () => Response.json({ error: 'workspace_suspended' }, { status: 423 }));
+    await expect(issueMagicLinkForApp({ app: 'crm', hubUserId: 'u', email: 'a@b.c' }, { env: { ...makeEnv(), CRM_API_URL: 'https://crm.app.veridian.site', CRM_HUB_API_SECRET: 's' }, fetchImpl: fetchMock as never })).rejects.toMatchObject({ code: 'workspace_suspended', httpStatus: 423 });
+  });
+
   it('400 autre erreur → BounceError(unreachable)', async () => {
     const fetchMock = vi.fn(async () =>
       new Response(JSON.stringify({ error: 'bad_input' }), { status: 400 }),

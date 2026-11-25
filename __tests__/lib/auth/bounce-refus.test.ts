@@ -2,7 +2,7 @@
 /** Journal des rebonds : refus et réussite se recoupent par app et compte, sans jamais l'adresse ni le lien. */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { journaliserRefus, journaliserReussite } from '@/lib/auth/bounce-refus';
+import { journaliserRefus, journaliserReussite, REFUS_IDENTITE } from '@/lib/auth/bounce-refus';
 
 afterEach(() => vi.restoreAllMocks());
 const capter = (m: 'info' | 'warn' | 'error') => {
@@ -29,5 +29,14 @@ describe('journaliserRefus', () => {
     journaliserRefus({ app: 'crm', code: 'unreachable', hubUserId: null });
     expect([w.length, e.length]).toEqual([1, 1]);
     expect(JSON.parse(w[0])).toMatchObject({ tag: '[bounce][refus]', app: 'crm', code: 'user_not_in_app', hub_user_id: 'u', http_status: 400 });
+  });
+});
+
+describe('REFUS_IDENTITE', () => {
+  it('un espace suspendu est un refus voulu, pas une panne : il n\'alerte personne', () => {
+    const [w, e] = [capter('warn'), capter('error')];
+    expect(REFUS_IDENTITE).toContain('workspace_suspended');
+    journaliserRefus({ app: 'crm', code: 'workspace_suspended', hubUserId: 'u', httpStatus: 423 });
+    expect([w.length, e.length]).toEqual([1, 0]);
   });
 });

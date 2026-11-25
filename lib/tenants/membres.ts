@@ -12,6 +12,7 @@ import type { PrismaClient } from '@prisma/client';
 import { writeAuditLog } from '@/lib/admin/audit-log';
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
 import { configuredSyncApps, discoverAppForEmail } from '@/lib/sync/discovery';
+import { suivreOrganisation } from '@/lib/organisations/emission';
 import { couperIntegrations } from '@/lib/delegation/interrupteur';
 import { revoquerPoignees } from '@/lib/delegation/poignee';
 import type { SyncApp, TenantSnapshot } from '@/lib/sync/types';
@@ -60,7 +61,12 @@ export class RefusMembre extends Error {
 
 /** Routes par app (lues dans leur code le 24/11). Absent : l'app ne sait pas le faire, et c'est dit. */
 const RETRAIT: Partial<Record<SyncApp, true>> = { notifuse: true, prospection: true, crm: true, academy: true };
-const SUSPENSION: Partial<Record<SyncApp, true>> = { notifuse: true, prospection: true, academy: true };
+const SUSPENSION: Partial<Record<SyncApp, true>> = { notifuse: true, prospection: true, academy: true, crm: true };
+/** Ce qu'un refus veut dire, en clair ; un code inconnu est rendu tel quel, jamais avalé. */
+const DIT: Record<string, string> = {
+  not_suspended_by_hub: 'fermé par un autre chemin que le Hub : pas repris, à rouvrir dans l\'app',
+  workspace_not_active: 'espace en cours de création : pas suspendu, rejouer',
+};
 
 async function tenantVivant(db: DbMembres, id: string) {
   const t = await db.tenant.findFirst({ where: { id, deletedAt: null }, select: { id: true, userId: true, status: true, notifuseWorkspaceSlug: true, metadata: true } });
@@ -214,12 +220,23 @@ async function basculerChez(app: SyncApp, t: Tenant, proprietaire: { email: stri
     if (cibles.length === 0) return { issue: { app, etat: 'absent' }, cibles: [] };
     if (!SUSPENSION[app]) return { issue: { app, etat: 'non_gere', detail: 'aucune route de suspension dans cette app' }, cibles: [] };
     const rate: string[] = [];
+    const restent: string[] = [];
     for (const c of cibles) {
       const res = await signer(app, 'POST', `/api/tenants/${suspendre ? 'suspend' : 'resume'}`, { tenant_id: c, ...(suspendre ? { reason: 'admin_action' } : {}) }, deps);
-      if (!res.ok) rate.push(`http_${res.status}`);
+      if (res.ok) {
+        if (suspendre) restent.push(c);
+        continue;
+      }
+      const brut = ((await res.json().catch(() => null)) as { error?: unknown } | null)?.error;
+      const code = typeof brut === 'string' && /^[a-z_]{3,40}$/.test(brut) ? brut : null;
+      // L'espace n'existe plus : rien à fermer, rien à rouvrir.
+      if (res.status === 410) continue;
+      rate.push(code ? `${DIT[code] ?? code} (${code}, http_${res.status})` : `http_${res.status}`);
+      // Ce que le Hub n'a pas suspendu, il n'a pas à le reprendre au prochain rejeu.
+      if (code !== 'not_suspended_by_hub') restent.push(c);
     }
-    if (rate.length) return { issue: { app, etat: 'echec', detail: rate.join(', ') }, cibles };
-    return { issue: { app, etat: suspendre ? 'suspendu' : 'repris' }, cibles: suspendre ? cibles : [] };
+    if (rate.length) return { issue: { app, etat: 'echec', detail: rate.join(', ') }, cibles: restent };
+    return { issue: { app, etat: suspendre ? 'suspendu' : 'repris' }, cibles: restent };
   } catch (err) {
     return { issue: { app, etat: 'echec', detail: err instanceof Error ? err.message.slice(0, 160) : 'erreur' }, cibles: notees };
   }
@@ -249,6 +266,8 @@ export async function basculerSuspension(db: DbMembres, d: { tenantId: string; s
   const metadata = Object.keys(cibles).length ? { ...reste, hub_suspension: { cibles } } : reste;
   await db.tenant.update({ where: { id: t.id }, data: { metadata: metadata as never } });
   const apps = res.map((r) => r.issue);
+  // Ce qu'une app suspendue a refusé d'appliquer (423, la version n'avance pas chez elle) repart à la reprise.
+  if (!d.suspendre) await suivreOrganisation(db as unknown as PrismaClient, t.id, deps);
   const complet = apps.every((a) => a.etat === 'suspendu' || a.etat === 'repris' || a.etat === 'absent');
   await writeAuditLog(db as PrismaClient, { action: d.suspendre ? 'tenant.suspendu' : 'tenant.repris', actor: d.acteur, targetType: 'tenant', targetId: t.id, payload: { deja, complet, apps, motif: d.motif ?? null } });
   return { deja, apps, complet, avis: nonCoupees(apps) };

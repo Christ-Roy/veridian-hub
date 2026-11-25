@@ -107,6 +107,7 @@ export async function resolveNotifuseAutoLogin(
     try {
       const result = await client.generateMagicLink({
         apiKey: tenant.notifuseApiKey,
+        hubUserId: tenant.userId ?? undefined,
         userEmail: tenant.notifuseUserEmail,
       });
       return {

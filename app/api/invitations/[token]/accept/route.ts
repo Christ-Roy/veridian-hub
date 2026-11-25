@@ -113,7 +113,7 @@ export async function POST(
   // "invalid input syntax for type uuid" → 500 → downstream_call=pending.
   const userRow = await prisma.user.findUnique({
     where: { id: user.id },
-    select: { supabaseUserId: true },
+    select: { supabaseUserId: true, emailVerified: true },
   });
   if (!userRow?.supabaseUserId) {
     // Cas pathologique : un user Hub sans supabaseUserId backfill (devrait
@@ -144,6 +144,7 @@ export async function POST(
     acceptingUserId: user.id,
     acceptingUserHubId: userRow.supabaseUserId,
     acceptingUserEmail: user.email,
+    acceptingEmailProven: Boolean(userRow.emailVerified),
     allowEmailMismatch: parsed.data?.allow_email_mismatch === true,
     attachDownstream: attachMemberDownstream,
   });

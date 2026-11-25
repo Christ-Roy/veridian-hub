@@ -64,6 +64,7 @@ export class NotifuseClient {
     return this.hmacRequest<ProvisionResponse>('POST', '/api/tenants/provision', {
       tenant_id: input.tenantId,
       owner_email: input.ownerEmail,
+      ...(input.hubUserId ? { owner_hub_user_id: input.hubUserId } : {}),
       workspace_name: input.workspaceName,
       plan: input.plan,
       ...(input.hubUserId || input.hubTenantId
@@ -126,7 +127,7 @@ export class NotifuseClient {
     return this.apiKeyRequest<MagicLinkResponse>(
       'POST',
       '/api/workspaces.generateMagicLink',
-      { user_email: input.userEmail },
+      { ...(input.hubUserId ? { hub_user_id: input.hubUserId } : {}), user_email: input.userEmail },
       input.apiKey,
     );
   }

@@ -64,6 +64,14 @@ export default async function BounceErrorPage({ searchParams }: BounceErrorPageP
                 ou écrivez-nous pour regrouper vos comptes.
               </p>
             </>
+          ) : safeCode === 'workspace_suspended' ? (
+            <>
+              <h1 className="text-2xl font-bold">Espace suspendu</h1>
+              <p className="text-muted-foreground text-sm">
+                Votre espace {displayApp} est suspendu : il ne s&apos;ouvre pas pour le moment. Vos données sont conservées.
+                Demandez au propriétaire de votre organisation, ou écrivez-nous.
+              </p>
+            </>
           ) : (
             <>
               <h1 className="text-2xl font-bold">Impossible de revenir sur {displayApp}</h1>
@@ -81,7 +89,7 @@ export default async function BounceErrorPage({ searchParams }: BounceErrorPageP
             <Link href="/dashboard">Retour à mon tableau de bord</Link>
           </Button>
           {identite && <ChangerDeCompte retour="/login" />}
-          {identite ? (
+          {identite || safeCode === 'workspace_suspended' ? (
             <Button variant="ghost" asChild>
               <a href={`mailto:${SUPPORT}?subject=${sujet}`}>Écrire à {SUPPORT}</a>
             </Button>

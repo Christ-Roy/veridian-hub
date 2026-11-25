@@ -50,6 +50,8 @@ export type AcceptInvitationInput = {
    *  par la route — sinon Notifuse crash sur "invalid input syntax for type uuid". */
   acceptingUserHubId?: string;
   acceptingUserEmail: string;
+  /** L'adresse du compte qui accepte est prouvée, lu en base : le lien d'invitation seul n'en est pas la preuve ici. */
+  acceptingEmailProven?: boolean;
   /** Si true, accepte même si l'email du user loggué ne matche pas
    *  `invitee_email` (cas warning UI : l'user décide de continuer avec
    *  son compte actuel au lieu de logout). */
@@ -205,6 +207,7 @@ export async function acceptCrossAppInvitation(
       // acceptingUserId pour la rétrocompat tests unitaires.
       hubUserId: input.acceptingUserHubId ?? input.acceptingUserId,
       hubUserEmail: input.acceptingUserEmail,
+      emailProven: input.acceptingEmailProven === true,
       role: inv.targetRole,
       invitationId: inv.id,
     });

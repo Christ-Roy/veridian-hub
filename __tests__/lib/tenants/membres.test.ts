@@ -4,6 +4,9 @@ import { readFileSync } from 'node:fs';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const org = vi.hoisted(() => ({ suivre: vi.fn(async (..._a: unknown[]) => []) }));
+vi.mock('@/lib/organisations/emission', () => ({ suivreOrganisation: org.suivre }));
+
 import { basculerSuspension, avisCles, nonCoupees, oublierCompte, rejoindre, retirer, type DbMembres } from '@/lib/tenants/membres';
 
 import { parcourir } from '../../contrat/source';
@@ -112,7 +115,7 @@ describe('un membre retiré ne revient pas tout seul', () => {
 });
 
 /** Des apps qui tiennent leur liste de membres. */
-function apps(etat: Record<string, string[]>, o: { sourd?: string; refuse?: string; muet?: string; cles?: Record<string, object> } = {}) {
+function apps(etat: Record<string, string[]>, o: { sourd?: string; refuse?: string; dit?: Record<string, [number, string]>; muet?: string; cles?: Record<string, object> } = {}) {
   const posts: { app: string; chemin: string; corps: L }[] = [];
   const f = vi.fn(async (u: string, init: RequestInit = {}) => {
     const url = new URL(u);
@@ -128,6 +131,7 @@ function apps(etat: Record<string, string[]>, o: { sourd?: string; refuse?: stri
     const corps = JSON.parse(String(init.body));
     posts.push({ app, chemin: url.pathname, corps });
     if (o.refuse === app) return new Response('', { status: 500 });
+    if (o.dit?.[app]) return Response.json({ error: o.dit[app][1] }, { status: o.dit[app][0] });
     if (o.sourd !== app && url.pathname.endsWith('/remove-member')) etat[app] = (etat[app] ?? []).filter((e) => e !== corps.email);
     return Response.json({ removed: true, ...(o.cles?.[app] ?? {}) });
   });
@@ -207,21 +211,24 @@ describe('retirer', () => {
 });
 
 describe('suspension', () => {
-  const basculer = (suspendre: boolean, f: typeof fetch) => basculerSuspension(db, { tenantId: 'T', suspendre, acteur: 'test' }, { fetchImpl: f, apps: ['notifuse', 'prospection', 'academy', 'crm'] as never });
-  it('au Hub d\'abord, puis les apps qui savent ; celle qui ne sait pas est dite ; reprise symétrique', async () => {
-    const etat = { notifuse: ['prop@x.fr'], prospection: ['prop@x.fr'], academy: ['prop@x.fr'], crm: ['prop@x.fr'] };
+  const basculer = (suspendre: boolean, f: typeof fetch) => basculerSuspension(db, { tenantId: 'T', suspendre, acteur: 'test' }, { fetchImpl: f, apps: ['notifuse', 'prospection', 'academy', 'crm', 'analytics'] as never });
+  beforeEach(() => org.suivre.mockClear());
+  it('au Hub d\'abord, puis les apps qui savent ; celle qui ne sait pas est dite ; reprise symétrique, l\'organisation repart', async () => {
+    const etat = { notifuse: ['prop@x.fr'], prospection: ['prop@x.fr'], academy: ['prop@x.fr'], crm: ['prop@x.fr'], analytics: ['prop@x.fr'] };
     const a = apps(etat);
     const r = await basculer(true, a.f);
     expect(tenant!.status).toBe('suspended');
-    expect(r.apps.map((x) => x.etat)).toEqual(['suspendu', 'suspendu', 'suspendu', 'non_gere']);
+    expect(r.apps.map((x) => x.etat)).toEqual(['suspendu', 'suspendu', 'suspendu', 'suspendu', 'non_gere']);
     expect(r.complet).toBe(false);
-    expect(r.avis, 'celui qui suspend lit ce qui ne l\'est pas').toContain('crm (aucune route de suspension');
-    expect(a.posts.map((p) => [p.app, p.chemin, p.corps.tenant_id])).toEqual(expect.arrayContaining([['notifuse', '/api/tenants/suspend', 'esp'], ['prospection', '/api/tenants/suspend', 'tp'], ['academy', '/api/tenants/suspend', 'T']]));
+    expect(r.avis, 'celui qui suspend lit ce qui ne l\'est pas').toContain('analytics (aucune route de suspension');
+    expect(a.posts.map((p) => [p.app, p.chemin, p.corps.tenant_id])).toEqual(expect.arrayContaining([['notifuse', '/api/tenants/suspend', 'esp'], ['prospection', '/api/tenants/suspend', 'tp'], ['academy', '/api/tenants/suspend', 'T'], ['crm', '/api/tenants/suspend', 'T']]));
+    expect(org.suivre, 'suspendue : rien à émettre').not.toHaveBeenCalled();
     expect(audits[0]).toMatchObject({ action: 'tenant.suspendu' });
     expect(revoques, 'poignées du tenant').toEqual([{ tenantId: 'T', revoqueLe: null }]);
     expect(coupees[0][1], 'consentements retirés').toMatchObject({ etat: 'eteinte', consentiLe: null });
     const b = apps(etat);
-    expect((await basculer(false, b.f)).apps[0].etat).toBe('repris');
+    expect((await basculer(false, b.f)).apps.map((x) => x.etat)).toEqual(['repris', 'repris', 'repris', 'repris', 'non_gere']);
+    expect(org.suivre.mock.calls.map((c) => c[1]), 'ce qu\'un 423 avait retenu').toEqual(['T']);
     expect(tenant!.status).toBe('active');
     expect(b.posts.every((p) => p.chemin === '/api/tenants/resume')).toBe(true);
   });
@@ -252,6 +259,22 @@ describe('suspension', () => {
     const r = await retirerM(a.f, ['prospection']);
     expect(r.apps[0]).toMatchObject({ etat: 'echec', detail: expect.stringContaining('pas relu') });
     expect(a.posts.map((p) => p.chemin)).toEqual(['/api/tenants/tp/remove-member']);
+  });
+
+  it('le CRM dit « pas suspendu par le Hub » : échec DIT, jamais avalé, et plus visé au prochain rejeu', async () => {
+    const etat: Record<string, string[]> = { crm: ['prop@x.fr'] };
+    await basculer(true, apps(etat).f);
+    const r = await basculer(false, apps(etat, { dit: { crm: [409, 'not_suspended_by_hub'] } }).f);
+    expect(r.apps[3]).toEqual({ app: 'crm', etat: 'echec', detail: 'fermé par un autre chemin que le Hub : pas repris, à rouvrir dans l\'app (not_suspended_by_hub, http_409)' });
+    expect([r.complet, r.avis]).toEqual([false, expect.stringContaining('not_suspended_by_hub')]);
+    expect(tenant!.metadata).toEqual({ crm: { workspace_id: 'w-crm' } });
+  });
+  it('un code inconnu est rendu tel quel, un texte libre non ; espace disparu : rien à fermer', async () => {
+    const etat: Record<string, string[]> = { crm: ['prop@x.fr'] };
+    expect((await basculer(true, apps(etat, { dit: { crm: [409, 'workspace_not_active'] } }).f)).apps[3].detail).toMatch(/en cours de création.*workspace_not_active, http_409/);
+    expect((await basculer(true, apps(etat, { dit: { crm: [418, 'theiere_pleine'] } }).f)).apps[3].detail).toBe('theiere_pleine (theiere_pleine, http_418)');
+    expect((await basculer(true, apps(etat, { dit: { crm: [400, 'Un texte <b>libre</b>'] } }).f)).apps[3].detail).toBe('http_400');
+    expect((await basculer(true, apps(etat, { dit: { crm: [410, 'workspace_gone'] } }).f)).apps[3].etat).toBe('suspendu');
   });
 
   it('une app qui refuse : échec dit, le Hub reste suspendu', async () => {

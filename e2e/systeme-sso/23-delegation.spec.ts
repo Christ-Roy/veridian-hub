@@ -129,11 +129,12 @@ cas(null, 'délégation : le propriétaire ouvre une liaison, une app agit 120 s
     const t0 = Date.now();
     expect((await echanger(gm!)).json, 'retiré').toEqual({ error: 'grant_invalid' });
     const coupe = Date.now() - t0;
-    await admin('POST', `tenants/${T.id}/suspension`, { suspendre: true });
+    const chezCrm = async (suspendre: boolean) => (await admin<{ apps: { app: string; etat: string; detail?: string }[] }>('POST', `tenants/${T.id}/suspension`, { suspendre })).json.apps?.find((x) => x.app === 'crm');
+    expect(await chezCrm(true), 'fermé DANS le CRM (session et clé : cas 34)').toEqual({ app: 'crm', etat: 'suspendu' });
     expect((await echanger(g)).json, 'suspendue').toEqual({ error: 'grant_invalid' });
-    await admin('POST', `tenants/${T.id}/suspension`, { suspendre: false });
+    expect(await chezCrm(false), 'rouvert dans le CRM').toEqual({ app: 'crm', etat: 'repris' });
     expect((await regler('allumee')).etat, 'la reprise redemande le clic').toBe('a_confirmer');
-    return `jeton de 120 s reconnu par le CRM (403 delegation_forbidden hors portée), retiré refusé en ${coupe} ms, suspension, nonce, paire, éteinte : refusés`;
+    return `jeton de 120 s reconnu par le CRM (403 delegation_forbidden hors portée), retiré refusé en ${coupe} ms, suspension fermée dans le CRM puis reprise, nonce, paire, éteinte : refusés`;
   } finally {
     if (!avant) await admin('DELETE', 'mcp-apps?app_key=twenty');
   }

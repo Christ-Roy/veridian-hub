@@ -266,10 +266,17 @@ describe('acceptCrossAppInvitation', () => {
       now,
       attachDownstream: async (input) => {
         capturedHubUserId = input.hubUserId;
+        expect(input.emailProven, 'jamais supposée').toBe(false);
         return { status: 'pending', reason: 'endpoint_not_found', httpStatus: 404 };
       },
     });
     expect(capturedHubUserId).toBe('user_alice');
+  });
+
+  it('l\'adresse prouvée se transmet à l\'app', async () => {
+    let vu: unknown = 'jamais appelé';
+    await acceptCrossAppInvitation(prisma, { token: validToken, acceptingUserId: 'user_alice', acceptingUserEmail: 'alice@example.com', acceptingEmailProven: true, now, attachDownstream: async (input) => { vu = input.emailProven; return { status: 'pending', reason: 'endpoint_not_found', httpStatus: 404 }; } });
+    expect(vu).toBe(true);
   });
 
   it('returns completed + loginUrl when attachDownstream returns completed', async () => {

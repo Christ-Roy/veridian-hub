@@ -82,6 +82,7 @@ export type AttachDownstreamInput = {
   hubUserEmail: string;
   role: string;
   invitationId: string;
+  emailProven?: boolean;
   /** Override base URL (tests + flexibilité multi-env). Si absent, on lit
    *  `NEXT_PUBLIC_<APP>_URL` puis fallback `https://<app>.app.veridian.site`. */
   baseUrl?: string;
@@ -239,6 +240,8 @@ export async function attachMemberDownstream(
     hub_user_email: input.hubUserEmail,
     role: input.role,
     invitation_id: input.invitationId,
+    // L'app ne relie un compte sans lien que sur une adresse prouvée (CONTRAT-HUB §5.19.7).
+    ...(input.emailProven ? { email_proven: true } : {}),
   };
   const rawBody = JSON.stringify(bodyObj);
 

@@ -44,6 +44,7 @@ const DEFAULT_TIMEOUT_MS = 10_000;
  *                     app. Le Hub redirige vers `/dashboard?app=<app>&hint=signup`.
  * `hub_user_conflict` : 400 propre — le compte de l'app est déjà relié à un AUTRE compte Hub
  *                       (une personne qui a plusieurs comptes Hub). Défini, jamais deviné.
+ * `workspace_suspended` : 423, tous les espaces de la personne dans cette app sont suspendus (ou celui qu'elle demande).
  * `invalid_response` : réponse 200 mais sans `magic_link_url` parseable.
  * `not_configured` : ENV var manquante côté Hub (URL ou secret) — l'app n'est
  *                    pas câblée.
@@ -52,6 +53,7 @@ export type BounceErrorCode =
   | 'unreachable'
   | 'user_not_in_app'
   | 'hub_user_conflict'
+  | 'workspace_suspended'
   | 'invalid_response'
   | 'not_configured';
 
@@ -294,6 +296,10 @@ export async function issueMagicLinkForApp(
       `bounce: ${input.app} returned 400 (${errCode ?? 'unknown'})`,
       400,
     );
+  }
+
+  if (response.status === 423) {
+    throw new BounceError('workspace_suspended', `bounce: ${input.app} workspace suspended`, 423);
   }
 
   if (response.status === 401 || response.status === 403) {
