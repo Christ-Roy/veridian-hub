@@ -1,7 +1,7 @@
 'use client';
 
-// « Mon IA » (docs/MON-IA.md) : brancher sa clé une fois, puis allumer l'assistant app par app. La clé
-// part au Hub et n'en revient jamais : seuls ses 4 derniers caractères s'affichent.
+// « Mon IA » (docs/MON-IA.md) : l'assistant DANS l'app. Une clé n'y est que le choix avancé, replié : le connecteur suffit pour que
+// l'IA travaille dans toutes les apps (Robert, 25/11). La clé part au Hub et n'en revient jamais : seuls ses 4 derniers caractères s'affichent.
 import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -72,7 +72,7 @@ export function MonIa(props: { branchements: Branchement[]; espaces: Espace[]; a
 
   return (
     <div className="space-y-6">
-      {branchements.length > 0 ? (
+      {branchements.length > 0 && (
         <ul className="divide-y divide-border">
           {branchements.map((b) => (
             <li key={b.fournisseur} className="flex items-center justify-between gap-4 py-3 text-sm">
@@ -88,49 +88,12 @@ export function MonIa(props: { branchements: Branchement[]; espaces: Espace[]; a
             </li>
           ))}
         </ul>
-      ) : (
-        <p className="text-sm text-muted-foreground">Aucune IA branchée pour l&apos;instant.</p>
       )}
-
-      <form onSubmit={brancher} className="space-y-3" autoComplete="off">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="space-y-1">
-            <Label htmlFor="ia-fournisseur">Fournisseur</Label>
-            <select
-              id="ia-fournisseur"
-              className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
-              value={fournisseur}
-              onChange={(e) => setFournisseur(e.target.value)}
-            >
-              {FOURNISSEURS.map((f) => (
-                <option key={f.cle} value={f.cle}>
-                  {f.nom}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="ia-modele">Modèle (facultatif)</Label>
-            <Input id="ia-modele" value={modele} onChange={(e) => setModele(e.target.value)} placeholder="par défaut" />
-          </div>
-        </div>
-        <div className="space-y-1">
-          <Label htmlFor="ia-cle">Clé d&apos;API</Label>
-          <Input id="ia-cle" type="password" value={cle} onChange={(e) => setCle(e.target.value)} required autoComplete="off" />
-          <p className="text-xs text-muted-foreground">
-            Chiffrée chez Veridian, jamais affichée. Vos questions sont facturées par votre fournisseur, sur votre compte.
-          </p>
-        </div>
-        <Button type="submit" disabled={envoi || !cle}>
-          {envoi ? 'Branchement…' : 'Brancher mon IA'}
-        </Button>
-        {message && <p className="text-sm">{message}</p>}
-      </form>
 
       {apps.length > 0 && props.espaces.length > 0 && (
         <div className="space-y-2">
           <h3 className="text-sm font-medium">Assistant dans vos apps</h3>
-          <p className="text-xs text-muted-foreground">Coupé par défaut. Il agit dans l&apos;espace choisi, et vous demande avant toute modification.</p>
+          <p className="text-xs text-muted-foreground">Allumé d&apos;office, éteignable ici. Il agit dans l&apos;espace choisi, et vous demande avant toute modification.</p>
           <ul className="divide-y divide-border">
             {apps.flatMap((a) =>
               props.espaces.filter((e) => !props.espacesParApp || props.espacesParApp[a.cle]?.includes(e.id)).map((e) => (
@@ -153,6 +116,44 @@ export function MonIa(props: { branchements: Branchement[]; espaces: Espace[]; a
           </ul>
         </div>
       )}
+
+      <details>
+        <summary className="cursor-pointer text-sm text-muted-foreground">Utiliser une clé de fournisseur</summary>
+        <form onSubmit={brancher} className="space-y-3 pt-3" autoComplete="off">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1">
+              <Label htmlFor="ia-fournisseur">Fournisseur</Label>
+              <select
+                id="ia-fournisseur"
+                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                value={fournisseur}
+                onChange={(e) => setFournisseur(e.target.value)}
+              >
+                {FOURNISSEURS.map((f) => (
+                  <option key={f.cle} value={f.cle}>
+                    {f.nom}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="ia-modele">Modèle (facultatif)</Label>
+              <Input id="ia-modele" value={modele} onChange={(e) => setModele(e.target.value)} placeholder="par défaut" />
+            </div>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="ia-cle">Clé d&apos;API</Label>
+            <Input id="ia-cle" type="password" value={cle} onChange={(e) => setCle(e.target.value)} required autoComplete="off" />
+            <p className="text-xs text-muted-foreground">
+              Chiffrée chez Veridian, jamais affichée. Vos questions sont facturées par votre fournisseur, sur votre compte.
+            </p>
+          </div>
+          <Button type="submit" disabled={envoi || !cle}>
+            {envoi ? 'Branchement…' : 'Brancher mon IA'}
+          </Button>
+          {message && <p className="text-sm">{message}</p>}
+        </form>
+      </details>
     </div>
   );
 }

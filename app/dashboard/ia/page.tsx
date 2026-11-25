@@ -9,7 +9,7 @@ import { Card } from '@/components/ui/card';
 import { DashboardPageHeader } from '@/components/dashboard/PageHeader';
 import { atelierConfigure, FOURNISSEUR_ABONNEMENT, tenantOuvertDuCompte } from '@/lib/ia/atelier';
 import { branchementsDe } from '@/lib/ia/branchements';
-import { espacesDe } from '@/lib/mcp/catalogue';
+import { appsDe, espacesDe } from '@/lib/mcp/catalogue';
 import { connexionsActives } from '@/lib/mcp/connexions';
 import { getEnabledGatedApps } from '@/lib/tenant-apps';
 import { liensInstallation } from '@/lib/mcp/liens-installation';
@@ -29,14 +29,15 @@ export default async function AssistantsIaPage() {
   if (!user) redirect('/login');
   const connexions = user.supabaseUserId ? await connexionsActives(prisma, user.supabaseUserId) : [];
   const hubUserId = user.supabaseUserId;
-  const [branchements, espaces, activations, ouvertes] = hubUserId
+  const [branchements, espaces, activations, ouvertes, appsPorte] = hubUserId
     ? await Promise.all([
         branchementsDe(prisma, hubUserId),
         espacesDe(prisma, hubUserId),
         prisma.iaActivation.findMany({ where: { hubUserId }, select: { app: true, tenantId: true, enabled: true } }),
         getEnabledGatedApps(prisma, hubUserId),
+        appsDe(prisma, hubUserId),
       ])
-    : [[], [], [], new Set<string>()];
+    : [[], [], [], new Set<string>(), []];
   // L'assistant n'est proposé que dans une app ouverte pour ce compte, et seulement pour les espaces
   // qui y existent : Academy pour tous ses espaces, le CRM pour ceux qui ont un workspace Twenty.
   const metas = espaces.length
@@ -54,6 +55,8 @@ export default async function AssistantsIaPage() {
   const tenantAbonnement = hubUserId ? await tenantOuvertDuCompte(prisma as never, hubUserId) : null;
   const abonnement = atelierConfigure(tenantAbonnement);
   const abonnementBranche = branchements.some((b) => b.fournisseur === FOURNISSEUR_ABONNEMENT);
+  const cles = branchements.filter((b) => b.fournisseur !== FOURNISSEUR_ABONNEMENT);
+  const espacesVus = espaces.map((e) => ({ id: e.id, nom: e.nom }));
 
   return (
     <div className="max-w-2xl mx-auto p-6 space-y-6">
@@ -63,17 +66,24 @@ export default async function AssistantsIaPage() {
         icon={BotIcon}
       />
       <Card className="p-6 space-y-4">
-        <h2 className="text-lg font-medium">Mon IA</h2>
+        <h2 className="text-lg font-medium">Connecter votre IA</h2>
         <p className="text-sm text-muted-foreground">
-          Branchez votre propre IA une fois : elle devient l&apos;Assistant Veridian dans toutes vos apps, d&apos;office. Vous pouvez l&apos;éteindre app par app.
+          Un seul branchement, sans clé : connectez-vous, autorisez, et votre IA travaille dans toutes vos apps. Rien d&apos;autre à régler.
         </p>
-        <MonIa
-          branchements={branchements.filter((b) => b.fournisseur !== FOURNISSEUR_ABONNEMENT)}
-          espaces={espaces.map((e) => ({ id: e.id, nom: e.nom }))}
-          activations={activations}
-          apps={apps}
-          espacesParApp={espacesParApp}
-        />
+        {appsPorte.length > 0 && (
+          <ul className="flex flex-wrap gap-2" aria-label="Apps ouvertes à votre IA">
+            {appsPorte.map((a) => (
+              <li key={a.appKey} className="rounded-md border border-border px-2 py-1 text-xs">
+                {a.label}
+              </li>
+            ))}
+          </ul>
+        )}
+        <ConnecterAssistant liens={liensInstallation()} />
+      </Card>
+      <Card className="p-6 space-y-4">
+        <h2 className="text-lg font-medium">Assistants connectés</h2>
+        <ConnexionsIa connexions={connexions} />
       </Card>
       {abonnement && (
         <Card className="p-6 space-y-4">
@@ -81,14 +91,23 @@ export default async function AssistantsIaPage() {
           <MonAbonnement branche={abonnementBranche} />
         </Card>
       )}
-      <Card className="p-6 space-y-4">
-        <h2 className="text-lg font-medium">Connecter un assistant</h2>
-        <ConnecterAssistant liens={liensInstallation()} />
-      </Card>
-      <Card className="p-6 space-y-4">
-        <h2 className="text-lg font-medium">Assistants connectés</h2>
-        <ConnexionsIa connexions={connexions} />
-      </Card>
+      {/* L'assistant DANS l'app (CRM, Academy) ne passe pas par le connecteur : lui seul peut avoir besoin d'une clé. */}
+      {apps.length > 0 && (cles.length > 0 || abonnementBranche) ? (
+        <Card className="p-6 space-y-4">
+          <h2 className="text-lg font-medium">L&apos;assistant intégré à vos apps</h2>
+          <MonIa branchements={cles} espaces={espacesVus} activations={activations} apps={apps} espacesParApp={espacesParApp} />
+        </Card>
+      ) : espacesParApp.crm || cles.length > 0 ? (
+        <details className="rounded-lg border border-border p-4">
+          <summary className="cursor-pointer text-sm text-muted-foreground">Avancé : l&apos;assistant intégré au CRM</summary>
+          <div className="space-y-4 pt-4">
+            <p className="text-sm text-muted-foreground">
+              Facultatif. Votre IA connectée travaille déjà dans le CRM ; ceci ne sert qu&apos;à la fenêtre de discussion du CRM lui-même.
+            </p>
+            <MonIa branchements={cles} espaces={espacesVus} activations={activations} apps={apps} espacesParApp={espacesParApp} />
+          </div>
+        </details>
+      ) : null}
     </div>
   );
 }
