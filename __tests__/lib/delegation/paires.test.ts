@@ -27,6 +27,11 @@ describe('registre des paires', () => {
     expect(PAIRES.filter((p) => paireServie(p, tout)).map((p) => p.cle)).toEqual(['prospection>crm', 'prospection>notifuse']);
     expect(paireServie(paire('notifuse>crm')!, tout)).toBe(false);
   });
+  it('paireServie : « CRM vers Mail » n\'a pas d\'appelant, elle ne sert jamais, même cible ouverte ou organisation de test', () => {
+    const p = paire('crm>notifuse')!;
+    expect([paireServie(p, env('notifuse')), paireServie(p, env('notifuse@test'), true), paireReglable(p, 'T', env('notifuse'))]).toEqual([false, false, false]);
+    expect(paireServie(paire('prospection>notifuse')!, env('notifuse')), 'témoin : même cible, autre source').toBe(true);
+  });
   it('paireServie : une action vers une cible fermée ne sert pas', () => expect([paireServie(paire('prospection>crm')!, env()), paireServie(paire('prospection>crm')!, env('notifuse')), paireServie(paire('prospection>crm')!, env('crm'))]).toEqual([false, false, true]));
   it('evenementOuvert : vide = fermé ; tous, une organisation, ou marquées ; jamais par préfixe', () => {
     const e = (v?: string) => ({ NODE_ENV: 'test', DELEGATION_EVENEMENTS: v }) as NodeJS.ProcessEnv;
