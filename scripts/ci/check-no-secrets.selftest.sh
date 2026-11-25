@@ -10,6 +10,9 @@
 # Exit 0 = le contrôle attrape ce qu'il doit attraper et laisse passer le reste.
 set -euo pipefail
 
+# Lancé d'un hook git, ces variables renverraient le `git config` ci-dessous vers le VRAI dépôt.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_COMMON_DIR
+
 CHECK="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/check-no-secrets.sh"
 [ -x "$CHECK" ] || { echo "✗ $CHECK introuvable ou non exécutable"; exit 1; }
 
