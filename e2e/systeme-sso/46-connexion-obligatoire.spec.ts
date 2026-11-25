@@ -165,6 +165,14 @@ cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec
     expect(await passer(cn, { sub: 'obl-m', email: 'x@y.fr', email_verified: false })).toBe('/auth/federation?code=autre_identite');
     expect((await ou(cn, `${HUB_URL}/dashboard`)).chemin).toBe('/auth/organisation');
 
+    // Par le fournisseur SEUL, celle qui a aussi son autre organisation n'entre pas : rien de l'autre ne se lit depuis la session de celle-ci.
+    idp.dire({ sub: 'obl-m', email: 'x@y.fr', email_verified: false });
+    const seul = await browser.newContext();
+    ouverts.push(seul);
+    const tente = await ou(seul, `${HUB_URL}/connexion/${T.slug}`);
+    const sansSession = ((await (await seul.request.get(`${HUB_URL}/api/auth/session`)).json().catch(() => null)) as { user?: unknown } | null)?.user ?? null;
+    expect([/autre organisation/.test(tente.texte), sansSession, (await ou(seul, `${HUB_URL}/dashboard`)).chemin], tente.texte).toEqual([true, null, '/login']);
+
     // 4. Entrée par le fournisseur seul : session fédérée, portes ouvertes.
     expect(await passer(cn, { sub: 'obl-n', email: 'x@y.fr', email_verified: false })).toBe('/dashboard');
     idp.dire({ sub: 'obl-n', email: 'x@y.fr', email_verified: false });
