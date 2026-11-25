@@ -128,15 +128,12 @@ cas(null, 'adresse principale : promue si elle est prouvée, la même personne p
     expect(await adresses(A.etat)).toMatchObject({ principale: A.email, secondaires: [A2] });
     expect((await refus(B.etat, A2))[0], 'un autre ne promeut pas la sienne').toBe(404);
 
-    // La session qu'ouvre le fournisseur ne touche pas au compte.
     idp.dire({ sub: 'a-1', email: A2 });
     const relier = (etat: unknown) => avec(etat, async (ctx) => { const page = await ctx.newPage(); await page.goto(`${HUB_URL}/connexion/${T.slug}`, { waitUntil: 'networkidle' }); return { chemin: new URL(page.url()).pathname, etat: await ctx.storageState() }; });
     expect((await relier(null)).chemin, 'adresse secondaire : pas d\'entrée sans l\'avoir relié').toBe('/auth/federation');
-    expect((await relier(A.etat)).chemin, 'reliée par sa personne').toBe('/dashboard');
-    const federee = await relier(null);
-    expect(federee.chemin).toBe('/dashboard');
-    expect(await refus(federee.etat, A2), 'session du fournisseur').toEqual([403, 'session_federee']);
-    expect((await avec(federee.etat, (ctx) => ctx.request.post(`${HUB_URL}/api/account/password`, { data: { newPassword: 'Nouveau-Passe-9z!' } }))).status(), 'ni son mot de passe').toBe(403);
+    // A a aussi son espace à elle : la session du fournisseur n'ouvrirait que l'organisation, elle est refusée (VER-261). Ses gestes refusés : cas 39.
+    expect((await relier(A.etat)).chemin, 'reliée, mais elle appartient aussi ailleurs').toBe('/auth/federation');
+    expect((await relier(null)).chemin).toBe('/auth/federation');
     expect(await entrer(A1, A.motDePasse), 'contrôle positif : le mot de passe n\'a pas bougé').not.toBeNull();
 
     // Promue, depuis l'écran.
@@ -188,9 +185,12 @@ cas(null, 'adresse principale : promue si elle est prouvée, la même personne p
       await adminOk('POST', `tenants/${T2.id}/members`, { hub_user_id: A.hubUserId });
     }
     expect(await refus(neuve, A3), 'domaine tenu par une autre organisation').toEqual([403, 'domaine_federe']);
-    expect((await geste(neuve, { geste: 'detacher', email: A1 }))[0], 'l\'ancienne se détache').toBe(200);
-    expect(await adresses(neuve)).toMatchObject({ principale: A2, secondaires: [A3] });
-    return `prouvée par le fournisseur puis promue à l'écran ; même hub_user_id au Hub, dans Mail, CRM, Prospection et Analytics, aucun double ; ouvrir Mail (${mailAvant.source}) et le CRM rendent la même personne avant et après ; ancienne : plus d'entrée, détachée ; refusés : sans session, non prouvée, d'un autre, autre adresse que demandée, session du fournisseur, rejouée, preuve perdue, autre organisation, Academy (encore par adresse)`;
+    // L'ancienne a été prévenue et peut annuler 72 h (AD-M3) : pendant ce temps, personne ne la détache. Un lien inventé n'annule rien.
+    expect((await geste(neuve, { geste: 'detacher', email: A1 })).map((x) => (typeof x === 'number' ? x : x?.error)), 'l\'ancienne peut annuler').toEqual([409, 'annulation_ouverte']);
+    const faux = await avec(null, (ctx) => ctx.request.post(`${HUB_URL}/api/account/adresses/annuler`, { form: { token: 'a'.repeat(43) }, maxRedirects: 0 }));
+    expect(faux.headers().location, 'lien inventé').toContain('result=invalide');
+    expect(await adresses(neuve)).toMatchObject({ principale: A2 });
+    return `prouvée par le fournisseur puis promue à l'écran ; même hub_user_id au Hub, dans Mail, CRM, Prospection et Analytics, aucun double ; ouvrir Mail (${mailAvant.source}) et le CRM rendent la même personne avant et après ; ancienne : plus d'entrée, gardée 72 h pour annuler ; refusés : sans session, non prouvée, d'un autre, autre adresse que demandée, session du fournisseur, rejouée, preuve perdue, autre organisation, Academy (encore par adresse)`;
   } finally {
     for (const t of [T, T2]) await admin('DELETE', `organisations/${t.id}/idp`).catch(() => undefined);
     await idp.fermer();

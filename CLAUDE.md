@@ -22,14 +22,6 @@ Prospection). CRM (Twenty) : espace créé par `app-access --app twenty`, entré
 - shadcn/ui + Tailwind
 - Brevo pour les mails transactionnels (`lib/email/send.ts`), Notifuse fork pour les tenants
 
-## Structure
-
-```
-app/ (auth, marketing, dashboard, admin, api)   auth.ts, auth.config.ts (edge), middleware.ts
-lib/ auth admin prisma notifuse stripe mcp (porte MCP) apps (deprovision, lier-hub) sync (reconcile)
-prisma/ (schema, migrations)   utils/tenants/provision.ts   utils/stripe/prisma-sync.ts   styles/main.css (OKLCH)
-```
-
 ## Session et identité
 
 Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HUB.md` §3.8 et §6bis.8.0.
@@ -50,7 +42,7 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   déclarée facultative avec sa raison (`__tests__/contrat/variables-job.test.ts`). Une clé de `nomad/jobs/hub` se pose AVANT le déploiement qui la rend.
 - **Essai** : le 5e mail Notifuse nourrit `tenant_trials` ; le tick (30 min) n'active qu'à 48 h. Drapeau
   `TRIAL_MACHINE_ENABLED` (`lib/trial/flag.ts`) rendu par le template depuis `nomad/jobs/hub` : absent = 1, seul `0` coupe.
-  **Couper** : clé à 0 (écriture du bloc : voir `AUTH_SECRET` plus bas), puis `nomad-v run hub`. Preuve : `__tests__/lib/trial/flag.test.ts`.
+  **Couper** : clé à 0 (écriture du bloc : voir `AUTH_SECRET` plus bas), puis `nomad-v run hub`.
 - **Academy** (22/11, Robert seul) : espace comme le CRM (`lib/apps/espace-app.ts`, tenant créé s'il manque).
   Sans `hub app-access <email> --app academy --enabled true` : ni tuile, ni rebond, ni MCP. Grille propre,
   plans à la main, hors Stripe et essai. Secret : `ACADEMY_HUB_API_SECRET` de `nomad/jobs/hub`.
@@ -60,19 +52,19 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   (`estPlanOffert`, même règle chez Twenty). `--plan none` retire un plan. Preuve : cas 14 (staging, Stripe test).
 - **Porte MCP** (09/11, `docs/CONTRAT-MCP.md`) : `/api/mcp`, 4 outils pour toutes les apps. Le Hub est serveur OAuth
   et registre (`hub mcp-app add`), ne code aucun outil d'app, présente à l'app un JWT ES256 (`MCP_SIGNING_JWK`).
-  `tenant_id` signé seulement si l'IA choisit un espace ; espace non relié → `hub relier --app <app>`. Boutons
-  « Ajouter à Claude… » : `GET /api/mcp/liens-installation?app=<cle>` (public).
+  `tenant_id` signé seulement si l'IA choisit un espace ; espace non relié → `hub relier --app <app>`. Liens d'ajout : `GET /api/mcp/liens-installation` (public).
 - **Mode programme** (24/11, VER-241) : le code d'un client tourne dans le groupe `programme` (rise), sans réseau ni secret ;
   anciens clients par `hub.executer_programme`. Fermé par défaut : seule `app/api/mcp` l'offre, jamais Mon IA. Preuve sur ce
   qui est servi : `scripts/epreuve-programme.sh hub` (0/1/2), cas 18 à 20. Une app qui coupe ses réponses doit lire
   `X-Veridian-MCP-Appel`.
-- **Mon IA** (VER-203, `docs/MON-IA.md`) : clé chiffrée, interrupteur allumé d'office, éteignable par app.
-  Clé d'un compte : `hub ia brancher <email> --fournisseur <f> --depuis <VARIABLE de ~/credentials>`. CRM : chat natif de
-  Twenty, fournisseur « Veridian » (`/api/ia/v1`), sans fenêtre au Hub. Ateliers : un par tenant, rise.
+- **Mon IA** (VER-203, `docs/MON-IA.md`) : le connecteur d'abord, jamais de clé proposée quand il suffit ; une clé ne sert qu'au chat natif
+  du CRM (`/api/ia/v1`). `hub ia brancher <email> --fournisseur <f> --depuis <VARIABLE>`. Ateliers : un par tenant, rise.
 - **Appartenance, rôle, délégation** (VER-245, contrat §5.19.3 à §5.19.5) : `lib/tenants/membres.ts` seul écrivain de
   `tenant_members`. Rôle porté aux apps (`ROLE_PORTE`) : fermé sans Robert. Liaisons (`DELEGATION_CIBLES`) : ouvertes, éteintes jusqu'au
   clic du propriétaire ; jamais de jeton à `act` sans « garde servie ». Organisation unique (§5.19.6, `hub org`). Cas 21 à 26.
-- **Adresses** (§5.19.6, §5.19.7) : changement fermé chez Academy, et par compte non relié (`lib/adresses/garde.ts`). Session fédérée : aucun geste de compte. 30 à 33.
+- **Adresses** (§5.19.6 à 8) : changement fermé chez Academy et par compte non relié ; l'ancienne est prévenue et annule 72 h (`lib/adresses/annulation.ts`). 30 à 33, 42.
+- **Fournisseur d'une organisation** (§5.19.6) : OIDC ou SAML, posé par nous (`hub org idp`) ou par le propriétaire à l'écran (sans domaine, essai d'abord). Session bornée à l'organisation. 39, 41.
+- **Connexions extérieures** (`docs/CONNECTEURS.md`) : Notion, Linear… par OAuth, sans application à créer. Registre figé dans le code. 43.
 - **Garde rapide** : `__tests__/contrat/` (révocation sans `iat`, `authAt`, cibles du rebond, origines) ; tout nouvel
   `encode(` de JWT de session s'y ajoute. Détail : `docs/PARCOURS-IDENTITE.md`.
 - **Sonde de prod** : « Sonde identité » de `hub-ci.yml` (lecture seule) ; le cron de reconcile alerte au-dessus de
