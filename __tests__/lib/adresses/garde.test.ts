@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const m = vi.hoisted(() => ({ push: vi.fn(), decouvrir: vi.fn() }));
 vi.mock('@/lib/identity/push-user', () => ({ pushUserToApps: (...a: unknown[]) => m.push(...a) }));
-vi.mock('@/lib/sync/discovery', () => ({ configuredSyncApps: () => ['notifuse', 'prospection'], discoverAppForEmail: (...a: unknown[]) => m.decouvrir(...a) }));
+vi.mock('@/lib/sync/discovery', () => ({ configuredSyncApps: () => ['notifuse', 'prospection'] }));
+vi.mock('@/lib/sync/appartenance', () => ({ humainsDe: async (app: string) => { const r = await m.decouvrir(app); return 'error' in r ? { raison: r.error } : { humains: [{ email: 'autre@x.fr', hub_user_id: null }, { email: 'A@x.fr', hub_user_id: 'un-autre' }, ...(r.found ? [{ email: 'a@X.fr', hub_user_id: null }, { email: 'jean@ancien.test', hub_user_id: null }, { email: 'moi@x.fr' }] : [])] }; } }));
+
 
 import { APPS_PAR_ADRESSE, direArret, verifierApps } from '@/lib/adresses/garde';
 

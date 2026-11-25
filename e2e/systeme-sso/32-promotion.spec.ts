@@ -25,15 +25,16 @@ type App = keyof typeof COPIES;
 cas(null, 'adresse principale : promue si elle est prouvée, la même personne partout', async ({ browser }) => {
   if (/staging/.test(HUB_URL)) throw new NonAbouti('le Hub de staging n\'a ni Prospection, ni Analytics, ni Academy en face');
   const sabotage = process.env.SSO_SABOTAGE ?? '';
-  const P: Compte = await creerCompteProuve(browser, 'promp');
-  const B: Compte = await creerCompteProuve(browser, 'promb');
+  const P: Compte = await creerCompteProuve(browser, 'pprom');
+  const B: Compte = await creerCompteProuve(browser, 'bprom');
+  // Étiquettes distinctes dès la 1re lettre : l'id d'espace Mail est le début de l'adresse coupé à 20 caractères, deux comptes s'y confondraient (25/11).
   // A a son propre espace Mail et Prospection ; elle entre au CRM par l'organisation T.
-  const A: Compte = await creerCompteProuve(browser, 'proma');
+  const A: Compte = await creerCompteProuve(browser, 'aprom');
   const de = async (c: Compte) => { const t = (await lookup(c.email)).json?.tenants?.[0]; if (!t) throw new NonAbouti('compte de test sans tenant'); await marquerTest(t.id); return t as { id: string; slug: string }; };
   const T = await de(P);
   const T2 = await de(B);
   const A1 = A.email.toLowerCase();
-  const [A2, A3, P2] = ['proma2', 'proma3', 'promp2'].map((e) => adresseDe(e).toLowerCase());
+  const [A2, A3, P2] = ['aprom2', 'aprom3', 'pprom2'].map((e) => adresseDe(e).toLowerCase());
   [A2, A3, P2].forEach(noter);
 
   /** Les comptes d'une app, tels que `hub reconcile` les lit. Secret lu au moment du test, jamais affiché. */

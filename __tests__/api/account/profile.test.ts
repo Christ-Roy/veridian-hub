@@ -28,7 +28,9 @@ vi.mock('@/lib/admin/audit-log', () => ({ writeAuditLog: async (_d: unknown, l: 
 vi.mock('@/lib/auth/email-proof', () => ({ issueEmailProof: vi.fn(async () => true) }));
 // La VRAIE garde (lib/adresses/garde) : seules les apps sont jouées.
 vi.mock('@/lib/identity/push-user', () => ({ pushUserToApps: (...a: unknown[]) => pushMock(...a) }));
-vi.mock('@/lib/sync/discovery', () => ({ configuredSyncApps: () => ['notifuse', 'prospection', 'analytics', 'crm', 'academy'], discoverAppForEmail: (...a: unknown[]) => decouvrirMock(...a) }));
+vi.mock('@/lib/sync/discovery', () => ({ configuredSyncApps: () => ['notifuse', 'prospection', 'analytics', 'crm', 'academy'] }));
+vi.mock('@/lib/sync/appartenance', () => ({ humainsDe: async (app: string) => { const r = await decouvrirMock(app); return 'error' in r ? { raison: r.error } : { humains: [{ email: 'autre@x.fr', hub_user_id: null }, { email: 'A@x.fr', hub_user_id: 'un-autre' }, ...(r.found ? [{ email: 'a@X.fr', hub_user_id: null }, { email: 'jean@ancien.test', hub_user_id: null }, { email: 'moi@x.fr' }] : [])] }; } }));
+
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     user: {

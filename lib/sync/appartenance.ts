@@ -134,7 +134,8 @@ export function classer(app: SyncApp, lus: Lu[], hub: { users: HubUser[]; tenant
   return { espaces: liste.sort((a, b) => b.membres.length - a.membres.length || a.espace.localeCompare(b.espace)), comptes, absents, sansEspace };
 }
 
-async function humainsDe(app: SyncApp, fetchImpl: typeof fetch): Promise<{ humains: Partial<Humain>[] } | { raison: string }> {
+/** Tous les humains de l'app, reliés ou non, même sans espace. Une raison : pas lu, jamais « aucun ». */
+export async function humainsDe(app: SyncApp, fetchImpl: typeof fetch = fetch): Promise<{ humains: Partial<Humain>[] } | { raison: string }> {
   const url = readAppUrl(app);
   const secret = readAppSecret(app);
   if (!url || !secret) return { raison: 'app non configurée au Hub' };

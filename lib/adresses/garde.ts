@@ -3,7 +3,9 @@
  * le moindre changement.
  */
 import { pushUserToApps } from '@/lib/identity/push-user';
-import { configuredSyncApps, discoverAppForEmail } from '@/lib/sync/discovery';
+import { normaliserEmail } from '@/lib/auth/email-normalize';
+import { humainsDe } from '@/lib/sync/appartenance';
+import { configuredSyncApps } from '@/lib/sync/discovery';
 import type { SyncApp } from '@/lib/sync/types';
 
 /**
@@ -43,8 +45,11 @@ export async function verifierApps(u: { hubUserId: string | null; email: string 
   const vus = await Promise.all(apps.map(async (app) => {
     if (relies[app] === 'ok') return { app, etat: 'reliee' };
     if (u.hubUserId && relies[app] !== 'not_in_app') return { app, etat: 'muette' };
-    const d = await discoverAppForEmail(app, u.email, { fetchImpl: deps.fetchImpl });
-    return { app, etat: 'error' in d ? 'muette' : d.found ? 'non_reliee' : 'absente' };
+    // La liste des comptes, pas `by-email` : celle-ci ne montre qu'un compte qui a un espace (Analytics, 25/11).
+    const h = await humainsDe(app, deps.fetchImpl);
+    if ('raison' in h) return { app, etat: 'muette' };
+    const siens = h.humains.filter((x) => typeof x.email === 'string' && normaliserEmail(x.email) === normaliserEmail(u.email));
+    return { app, etat: siens.some((x) => !x.hub_user_id) ? 'non_reliee' : 'absente' };
   }));
   const chez = (...etats: string[]): SyncApp[] => vus.filter((x) => etats.includes(x.etat)).map((x) => x.app);
   const parAdresse = chez('reliee', 'non_reliee').filter((a) => APPS_PAR_ADRESSE.includes(a));

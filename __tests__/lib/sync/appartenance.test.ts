@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('@/lib/admin/check-admin', () => ({ isPlatformAdmin: (u: { email: string }) => u.email === 'patron@veridian.example' }));
 
-import { classer, releverAppartenance, type HubTenant, type HubUser } from '@/lib/sync/appartenance';
+import { humainsDe, classer, releverAppartenance, type HubTenant, type HubUser } from '@/lib/sync/appartenance';
 import type { TenantSnapshot } from '@/lib/sync/types';
 
 const u = (id: string, email: string, prouve = true): HubUser => ({ supabaseUserId: id, email, emailVerified: prouve ? new Date() : null });
@@ -135,4 +135,15 @@ describe('releverAppartenance', () => {
   });
 
   it('n\'écrit jamais', () => expect(ecriture).not.toHaveBeenCalled());
+});
+
+describe('humainsDe', () => {
+  it('tous les humains, reliés ou non ; une lecture ratée a une raison, jamais une liste vide', async () => {
+    vi.stubEnv('ANALYTICS_API_URL', 'https://analytics.test');
+    vi.stubEnv('ANALYTICS_HUB_API_SECRET', 's');
+    const lire = (r: () => Response | Promise<Response>) => humainsDe('analytics', (async () => r()) as unknown as typeof fetch);
+    expect(await lire(() => Response.json({ users: [{ email: 'a@x.fr', hub_user_id: null }] }))).toEqual({ humains: [{ email: 'a@x.fr', hub_user_id: null }] });
+    expect(await lire(() => Response.json({ users: [] }))).toEqual({ humains: [] });
+    for (const r of [() => new Response('', { status: 500 }), () => Response.json({ users: 'non' }), () => new Response('pas du json'), () => Promise.reject(new Error('coupé'))]) expect(await lire(r as never)).toHaveProperty('raison');
+  });
 });
