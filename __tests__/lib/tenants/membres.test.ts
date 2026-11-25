@@ -115,7 +115,7 @@ describe('un membre retiré ne revient pas tout seul', () => {
 });
 
 /** Des apps qui tiennent leur liste de membres. */
-function apps(etat: Record<string, string[]>, o: { sourd?: string; refuse?: string; dit?: Record<string, [number, string]>; sansLien?: string; muet?: string; cles?: Record<string, object> } = {}) {
+function apps(etat: Record<string, string[]>, o: { sourd?: string; refuse?: string; refuseSession?: string; dit?: Record<string, [number, string]>; sansLien?: string; muet?: string; cles?: Record<string, object> } = {}) {
   const posts: { app: string; chemin: string; corps: L }[] = [];
   const f = vi.fn(async (u: string, init: RequestInit = {}) => {
     const url = new URL(u);
@@ -133,6 +133,7 @@ function apps(etat: Record<string, string[]>, o: { sourd?: string; refuse?: stri
     const corps = JSON.parse(String(init.body));
     posts.push({ app, chemin: url.pathname, corps });
     if (o.refuse === app) return new Response('', { status: 500 });
+    if (o.refuseSession === app && url.pathname === '/api/hub/users/sync') return new Response('', { status: 405 });
     if (o.dit?.[app]) return Response.json({ error: o.dit[app][1] }, { status: o.dit[app][0] });
     if (o.sourd !== app && url.pathname.endsWith('/remove-member')) etat[app] = (etat[app] ?? []).filter((e) => e !== corps.email);
     return Response.json({ removed: true, ...(o.cles?.[app] ?? {}) });
@@ -149,7 +150,8 @@ describe('retirer', () => {
     const r = await retirerM(a.f);
     expect(r).toMatchObject({ deja: false, complet: true });
     expect(r.apps.map((x) => x.etat)).toEqual(['retire', 'retire', 'retire']);
-    expect(a.posts.map((p) => p.chemin).sort()).toEqual(['/api/tenants/T/remove-member', '/api/tenants/esp/remove-member', '/api/tenants/tp/remove-member']);
+    expect(a.posts.map((p) => p.chemin).sort()).toEqual(['/api/hub/users/sync', '/api/tenants/T/remove-member', '/api/tenants/esp/remove-member', '/api/tenants/tp/remove-member']);
+    expect(a.posts.filter((p) => p.chemin === '/api/hub/users/sync').map((p) => [p.app, p.corps]), 'CRM seul : sa session ouverte survivait au retrait').toEqual([['crm', { hub_user_id: 'u-m', revoke_sessions: true }]]);
     expect(a.posts[0].corps).toMatchObject({ user_email: 'm@x.fr', email: 'm@x.fr', hub_user_id: 'u-m' });
     expect(membres[0].deletedAt).toBeInstanceOf(Date);
     expect(audits[0]).toMatchObject({ action: 'membre.retire', targetId: 'T' });
@@ -160,6 +162,12 @@ describe('retirer', () => {
     const r = await retirerM(a.f, ['notifuse', 'crm']);
     expect(r.apps).toEqual([{ app: 'notifuse', etat: 'echec', detail: expect.stringContaining('sans lien avec le Hub') }, { app: 'crm', etat: 'absent' }]);
     expect([r.complet, a.posts]).toEqual([false, []]);
+  });
+
+  it('session CRM pas coupée : jamais dit « retiré », et le détail le dit', async () => {
+    const r = await retirerM(apps({ crm: ['m@x.fr'] }, { refuseSession: 'crm' }).f, ['crm']);
+    expect(r.apps[0]).toEqual({ app: 'crm', etat: 'echec', detail: expect.stringContaining('session ouverte') });
+    expect(r.complet).toBe(false);
   });
 
   it('les clés API restées actives sont dites app par app, jamais tues ; une clé n\'est pas un échec', async () => {
@@ -310,7 +318,7 @@ it('retirerDeLApp : cette app seule, relue ; l\'appartenance au Hub ne bouge pas
   await joindre();
   const a = apps({ crm: ['m@x.fr'], notifuse: ['m@x.fr'] });
   expect(await retirerDeLApp('crm', tenant as never, 'm@x.fr', 'u-m', { fetchImpl: a.f })).toMatchObject({ app: 'crm', etat: 'retire' });
-  expect(a.posts.map((p) => [p.app, p.chemin])).toEqual([['crm', '/api/tenants/T/remove-member']]);
+  expect(a.posts.map((p) => [p.app, p.chemin])).toEqual([['crm', '/api/tenants/T/remove-member'], ['crm', '/api/hub/users/sync']]);
   expect(membres[0].deletedAt ?? null).toBeNull();
   expect(await retirerDeLApp('crm', tenant as never, 'm@x.fr', 'u-m', { fetchImpl: apps({ crm: ['m@x.fr'] }, { refuse: 'crm' }).f })).toMatchObject({ etat: 'echec' });
 });

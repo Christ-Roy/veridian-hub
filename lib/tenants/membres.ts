@@ -13,6 +13,7 @@ import { writeAuditLog } from '@/lib/admin/audit-log';
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
 import { configuredSyncApps, discoverAppForEmail } from '@/lib/sync/discovery';
 import { suivreOrganisation } from '@/lib/organisations/emission';
+import { pushUserToApps } from '@/lib/identity/push-user';
 import { couperIntegrations } from '@/lib/delegation/interrupteur';
 import { revoquerPoignees } from '@/lib/delegation/poignee';
 import type { SyncApp, TenantSnapshot } from '@/lib/sync/types';
@@ -59,6 +60,11 @@ export class RefusMembre extends Error {
   }
 }
 
+/**
+ * Le retrait n'y coupe pas la session déjà ouverte : mesuré le 25/11, le membre retiré du CRM y lisait encore 15 s après. Le Hub coupe ses sessions de
+ * cette app (toutes : il y revient par le rebond, là où il est encore membre), jusqu'à ce que l'app le fasse elle-même pour cet espace.
+ */
+const SESSION_SURVIT: Partial<Record<SyncApp, true>> = { crm: true };
 /** Routes par app (lues dans leur code le 24/11). Absent : l'app ne sait pas le faire, et c'est dit. */
 const RETRAIT: Partial<Record<SyncApp, true>> = { notifuse: true, prospection: true, crm: true, academy: true };
 const SUSPENSION: Partial<Record<SyncApp, true>> = { notifuse: true, prospection: true, academy: true, crm: true };
@@ -165,6 +171,10 @@ async function retirerChez(app: SyncApp, t: Tenant, email: string, hubUserId: st
       if (!res.ok && res.status !== 404) return { app, etat: 'echec', detail: `http_${res.status}` };
       const lues = lireCles(await res.json().catch(() => null));
       if (lues) cles = cles ? { ...lues, actives: cles.actives + lues.actives } : lues;
+    }
+    if (SESSION_SURVIT[app]) {
+      const coupe = (await pushUserToApps({ hubUserId, revokeSessions: true }, { apps: [app], fetchImpl: deps.fetchImpl }))[app];
+      if (coupe !== 'ok' && coupe !== 'not_in_app') return { app, etat: 'echec', detail: 'retiré, mais sa session ouverte n\'a pas été coupée : rejouer' };
     }
     const apres = await espacesChez(app, t, email, hubUserId, deps);
     if (apres === null) return { app, etat: 'echec', detail: 'retiré, mais pas relu' };
