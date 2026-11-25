@@ -115,6 +115,24 @@ describe('check-no-stripe-live-key.sh', () => {
     expect(runCheck(root)).toBe(0);
   });
 
+  it.each(['été.ts', 'a"b.ts', '-tiret.ts', 'avec espace.ts', 'saut\nligne.ts'])('lit aussi un fichier nommé %j', (nom) => {
+    const root = track(makeRepo({ [nom]: `const k = "${FAKE_LIVE}";\n` }));
+    expect(runCheck(root)).toBe(1);
+  });
+
+  it('dit le fichier et les lignes, JAMAIS la clé : la sortie finit dans un journal de CI public', () => {
+    const root = track(makeRepo({ 'app/leak.ts': `\nconst k = "${FAKE_LIVE}";\nconst l = "${FAKE_LIVE}";\n` }));
+    let sortie = '';
+    try {
+      execFileSync('bash', ['scripts/ci/check-no-stripe-live-key.sh'], { cwd: root, stdio: 'pipe' });
+    } catch (err) {
+      const e = err as { stdout: Buffer; stderr: Buffer };
+      sortie = `${e.stdout}${e.stderr}`;
+    }
+    expect(sortie).toContain('app/leak.ts (lignes 2,3)');
+    expect(sortie).not.toContain(FAKE_BODY.slice(0, 12));
+  });
+
   it('détecte aussi pk_live_ et rk_live_', () => {
     const rootPk = track(makeRepo({
       'app/pub.ts': `const p = "${fakeKey('pk')}";\n`,
