@@ -21,6 +21,7 @@ const AVIS: Record<string, string> = {
   role_insuffisant: 'Seul le propriétaire ou un administrateur de cet espace règle ses liaisons.',
   cible_non_servie: 'Cette liaison n\'est pas encore disponible.',
   paire_inconnue: 'Cette liaison n\'existe pas.',
+  source_injoignable: 'L\'app source n\'a pas répondu : la liaison est restée éteinte. Réessayez dans quelques minutes.',
   refus: 'Réglage refusé. Rechargez la page.',
 };
 

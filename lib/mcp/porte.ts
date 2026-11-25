@@ -11,7 +11,8 @@ import { roleOrg } from '@/lib/tenants/roles';
 import { PLANNED_APPS, readAppPlan, tenantHasApp } from '@/lib/plans/app-plan';
 
 import { AppDebit, AppInjoignable, type SessionApp } from './client-app';
-import { listerIntegrations, reglerIntegration } from '@/lib/delegation/interrupteur';
+import { listerIntegrations } from '@/lib/delegation/interrupteur';
+import { reglerEtSuivre } from '@/lib/delegation/regler';
 
 import { hubIssuer, PROTOCOLES, SORTIE_MAX_CAR } from './config';
 import type { Appelant } from './oauth';
@@ -20,7 +21,7 @@ import { signatureOutil } from './signature';
 import { AUTORISER_MAX, CODE_MAX_CAR, DELAI_MS, executerProgramme, exigeAutorisation, ETAT_MAX_CAR, prendrePlace, presenter, REPONSE_MAX_OCTETS, type Contenu } from './programme';
 import { ouvrirMoteur, programmeConfigure } from './programme-moteur';
 
-export type DbPorte = Pick<PrismaClient, 'integrationPaire' | 'integrationDemande' | 'user' | 'mcpApp' | 'tenantApp' | 'tenant' | 'tenantTrial' | 'tenantMember' | 'auditLog'>;
+export type DbPorte = Pick<PrismaClient, 'integrationPaire' | 'integrationDemande' | 'evenementAbonnement' | 'user' | 'mcpApp' | 'tenantApp' | 'tenant' | 'tenantTrial' | 'tenantMember' | 'auditLog'>;
 
 type Rpc = { jsonrpc?: string; id?: string | number | null; method?: string; params?: Record<string, unknown> };
 
@@ -244,7 +245,7 @@ async function integrations(db: DbPorte, qui: Appelant, o: Outil, params: Record
   if (!id) return texte(`Préciser espace=<slug> parmi ${espaces.vivants.map((e) => e.slug).join(', ') || 'aucun'}.`, true);
   if (o.nom === HUB_LISTER.nom) return texte({ espace: espaces.vivants.find((e) => e.id === id)?.slug, liaisons: await listerIntegrations(db, id) });
   if (params.etat !== 'allumee' && params.etat !== 'eteinte') return texte('etat : allumee ou eteinte.', true);
-  const r = await reglerIntegration(db, { tenantId: id, paire: String(params.paire ?? ''), etat: params.etat, hubUserId: qui.hubUserId, client: qui.clientName ?? qui.clientId, origine: hubIssuer() });
+  const r = await reglerEtSuivre(db, { tenantId: id, paire: String(params.paire ?? ''), etat: params.etat, hubUserId: qui.hubUserId, client: qui.clientName ?? qui.clientId, origine: hubIssuer() });
   if ('refus' in r) return texte({ refus: r.refus }, true);
   return texte(r.etat === 'a_confirmer' ? { ...r, conseil: 'Donner ce lien au propriétaire de l\'espace : il l\'ouvre, connecté à Veridian, et confirme. Ensuite, allumer et éteindre sont directs.' } : r);
 }

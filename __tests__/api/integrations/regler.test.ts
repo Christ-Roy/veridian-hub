@@ -47,6 +47,14 @@ describe('POST /api/integrations/regler', () => {
     await jouer();
     expect(m.abonner).not.toHaveBeenCalled();
   });
+  it('rallumer sans que la source réponde : la liaison est éteinte aussitôt, et on le dit ; couper reste toujours possible', async () => {
+    m.abonner.mockResolvedValue('echec');
+    m.regler.mockImplementation(async (_d: unknown, x: unknown) => ({ etat: (x as { etat: string }).etat }));
+    expect(await jouer({ paire: 'notifuse>crm' })).toEqual([303, '/dashboard/liaisons?avis=source_injoignable']);
+    expect(m.regler.mock.calls.map((c) => (c[1] as { etat: string }).etat)).toEqual(['allumee', 'eteinte']);
+    expect(await jouer({ paire: 'notifuse>crm', etat: 'eteinte' })).toEqual([303, '/dashboard/liaisons?avis=eteinte']);
+    m.abonner.mockResolvedValue('sans_objet');
+  });
   it('un refus est dit', async () => {
     m.regler.mockResolvedValue({ refus: 'role_insuffisant' });
     expect(await jouer()).toEqual([303, '/dashboard/liaisons?avis=role_insuffisant']);

@@ -367,6 +367,8 @@ describe('espace suspendu ou membre retiré (VER-245)', () => {
 
 describe('liaisons entre apps (VER-245 b.2)', () => {
   const inter = vi.hoisted(() => ({ lister: vi.fn(), regler: vi.fn() }));
+  const abonner = vi.hoisted(() => vi.fn(async (..._a: unknown[]) => 'sans_objet'));
+  vi.mock('@/lib/evenements/allumage', () => ({ suivreAbonnement: (...a: unknown[]) => abonner(...a) }));
   vi.mock('@/lib/delegation/interrupteur', () => ({ listerIntegrations: (...a: unknown[]) => inter.lister(...a), reglerIntegration: (...a: unknown[]) => inter.regler(...a) }));
   beforeEach(() => { inter.lister.mockReset().mockResolvedValue([{ paire: 'prospection>crm', etat: 'eteinte' }]); inter.regler.mockReset().mockResolvedValue({ etat: 'eteinte' }); });
   const regler = (args: Record<string, unknown> = {}) => appel('executer_outil', { nom: 'hub.integrations_regler', arguments: { paire: 'prospection>crm', etat: 'eteinte' }, ...args }, appFactice()) as Promise<any>;

@@ -26,6 +26,40 @@ describe('POST /api/evenements/notifuse', () => {
     const r = await jouer('{}');
     expect([r.status, r.headers.get('retry-after')]).toEqual([503, '7']);
   });
+  it('CRM lent : 503 en_cours avant les 10 s de la source, le travail continue et n\'est lancé qu\'une fois', async () => {
+    vi.useFakeTimers();
+    try {
+      let finir!: (x: object) => void;
+      let fini = false;
+      m.recevoir.mockImplementation(() => new Promise((ok) => { finir = ok; }).then((x) => { fini = true; return x; }));
+      const p = jouer('{}');
+      await vi.advanceTimersByTimeAsync(8_100);
+      const r = await p;
+      expect([r.status, await r.json(), r.headers.get('retry-after'), fini]).toEqual([503, { error: 'en_cours' }, '30', false]);
+      finir({ statut: 200, corps: {} });
+      await vi.advanceTimersByTimeAsync(1);
+      expect([fini, m.recevoir.mock.calls.length]).toEqual([true, 1]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it('CRM lent puis en échec : dit au journal, jamais une promesse rejetée sans preneur', async () => {
+    vi.useFakeTimers();
+    const dit = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      let casser!: (e: Error) => void;
+      m.recevoir.mockImplementation(() => new Promise((_, ko) => { casser = ko; }));
+      const p = jouer('{}');
+      await vi.advanceTimersByTimeAsync(8_100);
+      expect((await p).status).toBe(503);
+      casser(new Error('base coupée'));
+      await vi.advanceTimersByTimeAsync(1);
+      expect(dit.mock.calls[0]).toContain('base coupée');
+    } finally {
+      dit.mockRestore();
+      vi.useRealTimers();
+    }
+  });
   it('trop gros : refusé sans rien lire', async () => {
     expect((await jouer(`"${'x'.repeat(16_001)}"`)).status).toBe(413);
     expect(m.recevoir).not.toHaveBeenCalled();
