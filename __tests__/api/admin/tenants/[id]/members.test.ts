@@ -13,6 +13,9 @@ vi.mock('@/lib/tenants/roles', () => ({ pousserRole: pousser }));
 const suivre = vi.hoisted(() => vi.fn(async (..._a: unknown[]): Promise<unknown[]> => []));
 vi.mock('@/lib/organisations/emission', () => ({ suivreOrganisation: suivre }));
 
+const presence = vi.hoisted(() => vi.fn(async (..._a: unknown[]): Promise<unknown[]> => []));
+vi.mock('@/lib/apps/presence', async (o) => ({ ...(await o<object>()), presenceDe: presence }));
+
 import { RefusMembre } from '@/lib/tenants/membres';
 
 const T = '11111111-1111-4111-8111-111111111111';
@@ -34,6 +37,13 @@ const refusAdmin = async () => {
 
 describe('POST members', () => {
   it('admin seulement', refusAdmin);
+  it('« créé » ne suffit pas : ce que chaque app voit est rendu, et un manque attendu fait 207', async () => {
+    presence.mockResolvedValueOnce([{ app: 'notifuse', etat: 'absente' }]);
+    const r = await jouer({ email: 'a@b.fr' });
+    expect([r.status, (await r.json()).presence]).toEqual([207, [{ app: 'notifuse', etat: 'absente' }]]);
+    presence.mockResolvedValueOnce([{ app: 'notifuse', etat: 'non_cochee' }, { app: 'crm', etat: 'sans_espace' }, { app: 'prospection', etat: 'presente' }]);
+    expect((await jouer({ email: 'a@b.fr' })).status, 'rien d\'attendu ne manque').toBe(200);
+  });
   it('pose un membre en opérateur, member par défaut', async () => {
     expect((await jouer({ email: 'a@b.fr' })).status).toBe(200);
     expect(m.rejoindre.mock.calls[0][1]).toMatchObject({ tenantId: T, hubUserId: U, role: 'member', origine: 'operateur' });
