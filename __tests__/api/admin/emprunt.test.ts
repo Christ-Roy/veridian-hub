@@ -49,6 +49,20 @@ describe('entrer', () => {
     expect(m.audit.mock.calls[0][0].data).toMatchObject({ action: 'admin.impersonate.start', actor: 'admin:robert@v', targetId: 'u-client', payload: { par: ADMIN, hubUserId: CLIENT, raison: 'il appelle', app: 'crm', tenantId: ORG, via: 'ecran' } });
   });
 
+  it('sans organisation choisie : la mienne ne suit pas chez le client', async () => {
+    const r = await e();
+    expect([r.status, r.cookies.get('veridian_org')?.value]).toEqual([200, '']);
+    expect(m.orgActive).not.toHaveBeenCalled();
+  });
+
+  it('la clé d\'administration n\'ouvre pas cette porte : une personne, jamais un secret', async () => {
+    process.env.ADMIN_SECRET = 'une-cle-d-administration';
+    m.auth.mockResolvedValue(null);
+    const q = requete('/api/admin/emprunt', { hubUserId: CLIENT, app: 'crm' });
+    q.headers.set('x-admin-secret', 'une-cle-d-administration');
+    expect((await entrer(q)).status).toBe(401);
+  });
+
   const refus: [string, () => Promise<Response>, number, string][] = [
     ['autre origine', () => e({}, { origin: 'https://mechant.fr' }), 403, 'forbidden_origin'],
     ['sans origine', () => e({}, { origin: null }), 403, 'forbidden_origin'],
