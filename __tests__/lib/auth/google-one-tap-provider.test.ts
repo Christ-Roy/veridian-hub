@@ -22,6 +22,7 @@ import {
   resolveGoogleClientId,
   verifyGoogleIdToken,
   type GoogleOneTapDeps,
+  ouChercher,
 } from '@/lib/auth/google-one-tap-provider';
 
 const CLIENT_ID = '123456789-abc.apps.googleusercontent.com';
@@ -224,6 +225,20 @@ describe('google-one-tap authorize()', () => {
     });
   });
 
+  it('adresse principale changée depuis : la même personne, par son identité Google, jamais un second compte', async () => {
+    const deps = makeDeps({ existingUser: { id: 'u9', email: 'neuve@x.fr', name: 'V', image: null, supabaseUserId: 'x' }, existingAccount: { id: 'a', user: { id: 'u9', emailVerified: new Date() } } as never });
+    expect(await authorizeOf(buildGoogleOneTapProvider(deps))({ credential: 'fake.jwt.token' })).toEqual(expect.objectContaining({ id: 'u9', email: 'neuve@x.fr' }));
+    expect((deps.prisma.user.findUnique as any).mock.calls[0][0].where).toEqual({ id: 'u9' });
+    expect(deps._userCreate).not.toHaveBeenCalled();
+  });
+
+  it('adresse secondaire de quelqu\'un, identité Google inconnue : ni compte ni session', async () => {
+    const deps = makeDeps({ existingUser: null, existingAccount: null });
+    (deps.prisma as any).userEmail = { findFirst: async () => ({ id: 's' }) };
+    expect(await authorizeOf(buildGoogleOneTapProvider(deps))({ credential: 'fake.jwt.token' })).toBeNull();
+    expect(deps._userCreate).not.toHaveBeenCalled();
+  });
+
   it('token invalide → refuse (return null), ne crée rien', async () => {
     const deps = makeDeps({ verifyThrows: 'signature invalide' });
     const authorize = authorizeOf(buildGoogleOneTapProvider(deps));
@@ -339,5 +354,15 @@ describe('verifyGoogleIdToken — validation crypto', () => {
       .setExpirationTime('1h')
       .sign(otherPair.privateKey);
     await expect(verifyGoogleIdToken(token, CLIENT_ID, publicKey)).rejects.toThrow();
+  });
+});
+
+describe('ouChercher', () => {
+  it('par l\'identité si l\'adresse principale est prouvée, sinon par l\'adresse ; secondaire de quelqu\'un : nulle part', async () => {
+    const db = (user: object | null, secondaire = false) => ({ account: { findUnique: async () => (user ? { user } : null) }, userEmail: { findFirst: async ({ where }: any) => (secondaire && where.email === 'a@x.fr' && where.detacheeLe === null ? { id: 's' } : null) } }) as never;
+    expect(await ouChercher(db({ id: 'u', emailVerified: new Date() }, true), 'sub', 'A@x.fr')).toEqual({ id: 'u' });
+    expect(await ouChercher(db({ id: 'u', emailVerified: null }), 'sub', 'a@x.fr')).toEqual({ email: 'a@x.fr' });
+    expect(await ouChercher(db(null), 'sub', 'a@x.fr')).toEqual({ email: 'a@x.fr' });
+    expect(await ouChercher(db(null, true), 'sub', 'A@x.fr')).toBeNull();
   });
 });

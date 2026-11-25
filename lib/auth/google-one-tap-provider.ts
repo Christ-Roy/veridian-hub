@@ -51,6 +51,7 @@ import {
 } from 'jose';
 import { z } from 'zod';
 import type { PrismaClient } from '@prisma/client';
+import { normaliserEmail } from '@/lib/auth/email-normalize';
 import { provisionDefaultWorkspace } from '@/lib/workspace/provision';
 
 /** Issuers acceptés pour un id_token Google OIDC. */
@@ -163,6 +164,24 @@ export async function verifyGoogleIdToken(
 }
 
 /**
+ * Où chercher la personne : par son identité Google d'abord. Son adresse principale a pu changer depuis (AD-M3) : chercher par l'adresse seule
+ * ouvrirait un second compte. Le lien ne vaut que si l'adresse principale est prouvée : sinon One Tap en ferait la preuve d'une autre adresse.
+ * Null : l'adresse secondaire de quelqu'un, qui n'ouvre ni compte ni session.
+ */
+export async function ouChercher(
+  prisma: Pick<PrismaClient, 'account'> & Partial<Pick<PrismaClient, 'userEmail'>>,
+  providerAccountId: string,
+  email: string,
+): Promise<{ id: string } | { email: string } | null> {
+  const lien = await prisma.account.findUnique({
+    where: { provider_providerAccountId: { provider: 'google', providerAccountId } },
+    select: { user: { select: { id: true, emailVerified: true } } },
+  });
+  if (lien?.user?.emailVerified) return { id: lien.user.id };
+  return (await prisma.userEmail?.findFirst({ where: { email: normaliserEmail(email), detacheeLe: null }, select: { id: true } })) ? null : { email };
+}
+
+/**
  * Construit le provider Credentials `google-one-tap`.
  *
  * **Ne pas exporter directement** — passer par `buildGoogleOneTapProvider()`
@@ -227,8 +246,14 @@ function buildProvider({
       // ─── 2. Retrouve ou crée le user ───────────────────────────────────
       // allowDangerousEmailAccountLinking est actif côté provider Google :
       // on s'aligne sur le même comportement (link par email vérifié).
+      const providerAccountId = typeof claims.sub === 'string' ? claims.sub : email;
+      const ou = await ouChercher(prisma, providerAccountId, email);
+      if (!ou) {
+        logger.warn('[google-one-tap] adresse secondaire d\'un compte : refus');
+        return null;
+      }
       let user = await prisma.user.findUnique({
-        where: { email },
+        where: ou,
         select: { id: true, email: true, name: true, image: true, supabaseUserId: true },
       });
 
@@ -263,7 +288,6 @@ function buildProvider({
       // ─── 3. Crée la row Account (provider=google) si absente ───────────
       // `sub` Google = providerAccountId stable. Cohérent avec ce que le
       // PrismaAdapter aurait créé via le bouton OAuth Google.
-      const providerAccountId = typeof claims.sub === 'string' ? claims.sub : email;
       const existingAccount = await prisma.account.findUnique({
         where: {
           provider_providerAccountId: {
