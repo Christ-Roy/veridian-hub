@@ -212,6 +212,14 @@ describe('NotifuseClient HMAC requests', () => {
     expect(res.user_id).toMatch(/^[0-9a-f-]{36}$/);
   });
 
+  it('attachOwner : un autre propriétaire humain, 409 rendu tel quel, jamais de transfert demandé ni rejoué (VER-263)', async () => {
+    const corps: unknown[] = [];
+    const fetchImpl = vi.fn(async (_u: string, init?: RequestInit) => { corps.push(JSON.parse(init!.body as string)); return jsonResponse(409, { error: 'owner_exists' }); });
+    const client = new NotifuseClient({ apiUrl: API_URL, hubSecret: SECRET, fetchImpl: fetchImpl as unknown as typeof fetch });
+    await expect(client.attachOwner({ tenantId: 'ws', ownerEmail: 'b@x.fr', role: 'owner' })).rejects.toMatchObject({ code: 409 });
+    expect(corps).toEqual([{ tenant_id: 'ws', owner_email: 'b@x.fr', role: 'owner' }]);
+  });
+
   it('attachOwner omet le champ role si non précisé (default Notifuse = owner)', async () => {
     const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
       const parsed = JSON.parse(init!.body as string);

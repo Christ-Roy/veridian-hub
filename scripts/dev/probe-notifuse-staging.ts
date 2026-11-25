@@ -109,25 +109,20 @@ async function main(): Promise<void> {
   }
 
   // 3. AttachOwner Bob — c'est ICI le scénario clé pour le repair :
-  //    workspace existe, owner humain présent (Alice), on veut en ajouter un autre (Bob).
-  //    Côté Notifuse 2026-05-18 : ce scénario peut renvoyer 500 si bug
-  //    "attach-owner d'un 2ème humain alors qu'un humain existe déjà"
-  //    (c'est ce que le test E2E hub-contract step 7 a montré).
-  //    Pour notre repair des 11 tenants prod : owner actuel = brunon5robert@gmail.com,
-  //    on veut attacher le VRAI owner humain → même topologie.
+  //    Propriétaire humain déjà là (Alice), on propose Bob : Mail refuse, 409 owner_exists, rien d'écrit.
   try {
     const a = await client.attachOwner({
       tenantId,
       ownerEmail: bobEmail,
       role: 'owner',
     });
-    ok(
-      'attachOwner(Bob) sur workspace avec Alice owner',
+    ko(
+      'attachOwner(Bob) sur workspace avec Alice owner (409 attendu)',
       `attached=${a.attached}, already=${a.already_attached}, transferred=${a.owner_transferred ?? false}, user_id=${a.user_id.slice(0, 8)}...`,
     );
   } catch (err) {
     const e = err as NotifuseError;
-    ko('attachOwner(Bob)', `${e.code} ${e.message} — c'est le bug à signaler si 500`);
+    (e.code === 409 ? ok : ko)('attachOwner(Bob) → 409 owner_exists', `${e.code} ${e.message}`);
   }
 
   // 4. Idempotence : attach Bob encore → already_attached=true

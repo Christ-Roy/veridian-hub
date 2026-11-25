@@ -25,7 +25,7 @@
  *
  * Sécurité :
  *   - N'écrit JAMAIS dans la DB Hub.
- *   - L'attach-owner côté Notifuse est additif (jamais destructif).
+ *   - Un autre propriétaire humain : Mail rend 409 owner_exists, noté en échec ; ce script ne transfère jamais.
  *   - Skip auto les tenants e2e (notifuse_user_email LIKE 'e2e-%').
  */
 

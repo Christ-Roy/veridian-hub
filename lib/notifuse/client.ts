@@ -136,9 +136,9 @@ export class NotifuseClient {
    * Répare un workspace existant en y attachant un user humain comme owner.
    *
    * Idempotent : si l'user est déjà owner du workspace, renvoie
-   * `already_attached: true` sans modif. Additif : ne retire jamais un owner
-   * existant (cf notifuse `service.AttachOwner` qui fait un transfer atomic
-   * quand un autre owner existe déjà).
+   * `already_attached: true` sans modif. Un AUTRE propriétaire humain : 409
+   * `owner_exists`, rien n'est écrit. Mail sait le transférer (`transfer: true`,
+   * qui rétrograde l'ancien) : le Hub ne l'envoie jamais.
    *
    * Use case principal : réparer les tenants prod où `Provision` historique
    * n'avait pas attaché l'owner humain au workspace (bug 2026-05-17, 11 tenants

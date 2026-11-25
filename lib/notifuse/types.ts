@@ -113,7 +113,7 @@ export interface MagicLinkResponse {
 
 /**
  * Réparation d'un workspace existant : attache un user humain comme owner.
- * Idempotent + additif (ne retire jamais d'owner existant).
+ * Idempotent ; un autre propriétaire humain : 409 `owner_exists`, jamais de transfert depuis le Hub.
  *
  * Endpoint Notifuse : POST /api/veridian/admin/attach-owner (HMAC Hub).
  * Cf notifuse-veridian/todo/done/2026-05-17-provision-owner-attach.md.
