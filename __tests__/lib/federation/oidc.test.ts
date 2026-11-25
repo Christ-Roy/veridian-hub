@@ -41,7 +41,7 @@ describe('demarrer', () => {
 describe('terminer', () => {
   it('témoin : l\'identité dite, adresse en minuscules', async () => {
     const x = await aller();
-    expect(await terminer(i, x.t, x.retour)).toEqual({ sub: 'u-1', email: 'jean@client.test', emailNie: false, nom: 'Jean' });
+    expect(await terminer(i, x.t, x.retour)).toEqual({ sub: 'u-1', email: 'jean@client.test', emailNie: false, nom: 'Jean', hd: null });
   });
   it.each<[Mensonge]>([['nonce'], ['audience'], ['emetteur'], ['signature'], ['expire']])('jeton faux (%s) : refusé', async (m) => {
     idp.mentir(m);

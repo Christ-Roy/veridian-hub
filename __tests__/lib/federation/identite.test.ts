@@ -50,6 +50,9 @@ describe('resoudreIdentite : qui entre', () => {
     expect(await aller({ sub: 's2', email: 'pre@client.test' })).toMatchObject({ neuf: true });
     expect(m.suivre).toHaveBeenCalledTimes(2);
   });
+  it('Google Workspace : le domaine gère le compte, il entre', async () => {
+    expect(await aller({ hd: 'client.test' }, { creationAuto: true, issuer: 'https://accounts.google.com' })).toMatchObject({ neuf: true });
+  });
   it('M2 : compte jamais prouvé, ouvert par un autre : le fournisseur du domaine est la première preuve, ce qui précédait tombe', async () => {
     expect(await aller({ email: 'flou@client.test' })).toMatchObject({ userId: 'U2', neuf: false });
     expect(liens('U2')).toEqual([fournisseur(I)]);
@@ -75,6 +78,8 @@ describe('resoudreIdentite : qui n\'entre pas', () => {
     ['sans adresse', { email: null }, { creationAuto: true }, 'adresse_absente'],
     ['adresse niée', { emailNie: true }, { creationAuto: true }, 'adresse_non_verifiee'],
     ['pas attendue', {}, {}, 'non_attendu'],
+    ['Google, compte personnel à adresse d\'entreprise', { hd: null }, { creationAuto: true, issuer: 'https://accounts.google.com' }, 'domaine_refuse'],
+    ['Google, autre Workspace', { hd: 'autre.test' }, { creationAuto: true, issuer: 'https://accounts.google.com' }, 'domaine_refuse'],
     ['organisation de test, vraie personne', { email: 'neuf@client.test' }, { creationAuto: true, test: true }, 'domaine_refuse'],
   ])('%s', async (_n, x, i, refus) => {
     expect(await aller(x, i)).toEqual({ refus });

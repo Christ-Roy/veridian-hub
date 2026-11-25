@@ -23,6 +23,7 @@ type Db = DbMembres & Pick<PrismaClient, 'account' | 'tenantPreinscription' | 'o
 /** La personne déjà connectée au Hub, preuve récente, jamais une session d'emprunt : la seule qui puisse relier un compte existant. */
 export type Connecte = { userId: string; email: string } | null;
 
+const GOOGLE = 'https://accounts.google.com';
 export const fournisseur = (i: Pick<IdpPret, 'id'>): string => `org:${i.id}`;
 
 export async function resoudreIdentite(db: Db, i: IdpPret, x: Identite, connecte: Connecte, deps: { env?: NodeJS.ProcessEnv; fetchImpl?: typeof fetch } = {}): Promise<{ userId: string; hubUserId: string; neuf: boolean } | { refus: RefusFederation }> {
@@ -37,6 +38,8 @@ export async function resoudreIdentite(db: Db, i: IdpPret, x: Identite, connecte
   if (!x.email || !/^[^\s@]+@[^\s@]+$/.test(x.email)) return { refus: 'adresse_absente' };
   if (x.emailNie) return { refus: 'adresse_non_verifiee' };
   if (!i.domaines.includes(x.email.split('@')[1])) return { refus: 'domaine_refuse' };
+  // Google affirme aussi des comptes PERSONNELS portant une adresse d'entreprise (email_verified vrai) : seul `hd` dit que le domaine les gère (M5).
+  if (i.issuer === GOOGLE && !(x.hd && i.domaines.includes(x.hd))) return { refus: 'domaine_refuse' };
   // Une organisation de test ne peut affirmer que des comptes de batterie, même dans nos domaines.
   if (i.test && !isTestAccount(x.email)) return { refus: 'domaine_refuse' };
 

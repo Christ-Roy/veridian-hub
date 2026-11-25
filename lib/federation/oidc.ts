@@ -45,13 +45,13 @@ export async function demarrer(i: IdpPret, retour: string, now = Date.now()): Pr
   return { url: url.href, cookie: sceller({ idp: i.id, state, nonce, verifier, exp: Math.floor(now / 1000) + TRANSACTION_S }) };
 }
 
-const Claims = z.object({ sub: z.string().min(1).max(255), email: z.string().max(254).optional(), email_verified: z.union([z.boolean(), z.string()]).optional(), name: z.string().max(200).optional() });
-export type Identite = { sub: string; email: string | null; emailNie: boolean; nom: string | null };
+const Claims = z.object({ sub: z.string().min(1).max(255), email: z.string().max(254).optional(), email_verified: z.union([z.boolean(), z.string()]).optional(), name: z.string().max(200).optional(), hd: z.string().max(253).optional() });
+export type Identite = { sub: string; email: string | null; emailNie: boolean; nom: string | null; /** Domaine Google Workspace qui gère ce compte. */ hd?: string | null };
 
 /** Échange le code. Lève si quoi que ce soit ne tient pas : code, state, nonce, émetteur, audience, signature, échéance. */
 export async function terminer(i: IdpPret, t: Transaction, url: URL): Promise<Identite> {
   const r = await oidc.authorizationCodeGrant(await configuration(i), url, { pkceCodeVerifier: t.verifier, expectedState: t.state, expectedNonce: t.nonce, idTokenExpected: true });
   const c = Claims.parse(r.claims());
   // Seule une adresse affirmée « non vérifiée » est niée ; un fournisseur d'entreprise ne la dit souvent pas, son domaine déclaré en tient lieu.
-  return { sub: c.sub, email: c.email?.trim().toLowerCase() || null, emailNie: c.email_verified === false || c.email_verified === 'false', nom: c.name ?? null };
+  return { sub: c.sub, email: c.email?.trim().toLowerCase() || null, emailNie: c.email_verified === false || c.email_verified === 'false', nom: c.name ?? null, hd: c.hd?.toLowerCase() ?? null };
 }
