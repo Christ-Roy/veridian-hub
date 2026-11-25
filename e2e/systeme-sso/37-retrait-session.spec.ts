@@ -5,7 +5,7 @@
  *   Hub : porte IA vers le CRM, Mail et Prospection. CRM : cookie, jeton d'accès (GraphQL, REST, identité, MCP), rafraîchissement, flux en direct,
  *   lien de connexion non consommé. Mail : jeton de session, boîte unifiée, flux en direct, accès de boîte IMAP créé par elle, lien non consommé.
  *   Prospection : session (liste des espaces, et une donnée de l'espace), lien non consommé.
- * NON SONDÉ : Academy (réservée à Robert, rien ne s'ouvre à un compte d'épreuve) ; Analytics (aucune route de retrait, le Hub dit `non_gere`) ; clés API
+ * NON SONDÉ : Academy (réservée à Robert, rien ne s'ouvre à un compte d'épreuve) ; Analytics (cas 38) ; clés API
  * d'espace (un membre ne peut pas en créer, comptées à l'auteur du geste) ; lien de fichier signé du CRM ; ce qu'un message Mail livrerait dans le flux.
  * Épreuve : `SSO_SABOTAGE=retrait-session` ne retire pas : le cas doit échouer, et CHAQUE porte doit y être vue lire jusqu'au bout.
  */

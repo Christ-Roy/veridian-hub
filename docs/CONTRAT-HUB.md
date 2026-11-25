@@ -1796,14 +1796,15 @@ et `hub suspension` passent par lui.
     l'espace, lien non consommé. Avant v42, cookie, jeton de 30 min et flux du CRM lisaient encore. Le Hub n'envoie plus `revoke_sessions` au retrait.
   - **OUVERT, mesuré** : Mail, l'accès de boîte (IMAP) créé par la personne ; Mail, le flux `mail.events` (contrôlé à l'ouverture seulement, 5 min).
     Posé à Notifuse. Le cas 37 reste rouge tant que c'est ouvert.
-  - **Ouvert, dit, non sondé** : clés API d'espace (convenu) ; CRM, lien de fichier signé, un jour au plus ; Analytics, aucune route de retrait (le
-    Hub rend `non_gere`), clé d'organisation et lien privé de site lus comme survivants.
+  - **Ouvert, dit, non sondé** : clés API d'espace (convenu) ; CRM, lien de fichier signé, un jour au plus ; Analytics,
+    clé d'organisation et liens de site (comptés, dits dans `avis`).
   - **Non mesurable par nous** : Academy, réservée (lu : sessions coupées et liens fermés au retrait, clés d'espace comptées) ; jetons que la personne
     ne tient pas (JWT Hub vers app, 5 min).
 - **Analytics** (VER-260, 25/11) : `POST /api/tenants/:hubTenantId/remove-member` et `/api/tenants/suspend|resume`, par le TENANT Hub, jamais par un site : un
   seul appel, sans découverte (`by-email` ne montre que les sites visibles). `tenant_not_found` ou `user_not_in_app` : absent, sauf compte de cette adresse
   sans lien (`user_not_in_app` alors qu'il y entre encore) et sauf espace sans organisation reliée : `non_gere`, « NON FERMÉ » dans `avis`, 207. Il rend aussi
-  les liens de site, dits dans `avis`, jamais coupés. Hors modules d'organisation : rien à décocher.
+  les liens de site, dits dans `avis`, jamais coupés. Hors modules d'organisation : rien à décocher. Cas 38, en prod (25/11) : session, clé personnelle (REST, MCP), porte IA et lien non
+  consommé refusés dès la réponse, 65 s, témoin intact ; suspendue, tout se ferme et les visites envoyées pendant sont comptées après la reprise.
 - **Qui ne sait pas** (25/11) : `attach-owner`, Academy. Une app sans route ne se dit « absente » que si aucune des personnes visées n'y a de compte.
 - **Clés API d'un retiré** : jamais coupées (des automatisations en vivent), toujours DITES. `remove-member` rend
   `active_api_keys` (toutes les clés actives de l'espace, hors clé du Hub) et `api_keys_url` (la page où les renouveler, en https sur
