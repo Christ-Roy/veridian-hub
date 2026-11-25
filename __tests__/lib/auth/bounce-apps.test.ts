@@ -150,6 +150,18 @@ describe('issueMagicLinkForApp — succès', () => {
     expect((init as RequestInit).method).toBe('POST');
   });
 
+  it('un emprunt part dans le corps signé, et l\'app dit si elle l\'a journalisé ; sans emprunt, rien (VER-263)', async () => {
+    const emprunt = { id: 'e-1', par: 'h-admin', expire_le: '2026-11-25T23:00:00.000Z' };
+    const appel = async (rendu: object, e?: typeof emprunt | null) => {
+      const f = vi.fn(async (_u: string, _i: RequestInit) => new Response(JSON.stringify({ magic_link_url: 'https://notifuse.veridian.site/t', ...rendu }), { status: 200 }));
+      const r = await issueMagicLinkForApp({ app: 'notifuse', hubUserId: 'u', email: 'a@b.c', emprunt: e }, { env: makeEnv(), fetchImpl: f as never });
+      return { trace: r.empruntJournalise, corps: JSON.parse(f.mock.calls[0][1].body as string) };
+    };
+    expect(await appel({ emprunt_journalise: true }, emprunt)).toMatchObject({ trace: true, corps: { emprunt } });
+    expect((await appel({ emprunt_journalise: 'oui' }, emprunt)).trace).toBe(false);
+    expect((await appel({}, null)).corps).toEqual({ hub_user_id: 'u', email: 'a@b.c' });
+  });
+
   it('pose les headers HMAC corrects (timestamp + signature)', async () => {
     const FIXED_NOW = 1_700_000_000_000;
     const fetchMock = vi.fn(async () =>

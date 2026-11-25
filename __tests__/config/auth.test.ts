@@ -202,6 +202,11 @@ describe('auth.ts — câblage claims impersonation', () => {
     expect(authSource).toMatch(/session\.user\.impersonated\s*=/);
   });
 
+  it('un emprunt expiré, ou dont l\'emprunteur n\'est plus administrateur, rend une session nulle (VER-263)', () => {
+    expect(authSource).toMatch(/if \(impersonationExpiree\(token\) \|\| empruntRetire\(token\)\) return null/);
+    expect(authSource).toMatch(/session\.user\.empruntId\s*=/);
+  });
+
   it('le callback session propage aussi impersonatedBy', () => {
     // L'identité de l'admin impersonateur doit remonter pour l'affichage
     // bannière + l'audit.

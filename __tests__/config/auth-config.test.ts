@@ -181,3 +181,24 @@ describe('auth.config.ts — authorized callback (middleware edge gate)', () => 
     });
   });
 });
+
+describe('auth.config.ts — emprunt (VER-263)', () => {
+  const garde = (methode: string, chemin: string, impersonated: boolean) =>
+    authConfig.callbacks?.authorized?.({ auth: { user: { email: 'c@c', impersonated }, expires: '' }, request: { method: methode, nextUrl: new URL(`https://app.veridian.site${chemin}`) } } as never) as unknown;
+
+  it('un geste refusé rend 403, sans passer la main à la route', async () => {
+    const r = garde('POST', '/api/account/password', true) as Response;
+    expect([r.status, ((await r.json()) as { error: string }).error]).toEqual([403, 'impersonation_interdite']);
+  });
+  it('regarder et sortir passent ; une session ordinaire n\'est pas touchée', () => {
+    expect([garde('GET', '/dashboard', true), garde('POST', '/api/auth/signout', true), garde('POST', '/api/account/password', false)]).toEqual([true, true, true]);
+  });
+  it('la session edge porte la marque, le jeton expiré tombe', async () => {
+    const s = (await authConfig.callbacks?.session?.({ session: { user: { email: 'c' } }, token: { impersonated: true } } as never)) as { user: { impersonated?: boolean } };
+    expect(s.user.impersonated).toBe(true);
+    const jwt = (token: object) => authConfig.callbacks?.jwt?.({ token } as never);
+    const t = Math.floor(Date.now() / 1000);
+    expect([jwt({ impersonated: true, authAt: t - 3700 }), jwt({ impersonated: true })]).toEqual([null, null]);
+    expect(jwt({ impersonated: true, authAt: t })).toMatchObject({ impersonated: true });
+  });
+});

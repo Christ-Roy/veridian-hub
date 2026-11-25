@@ -40,7 +40,7 @@ vi.mock('@/lib/admin/check-admin', () => ({
   administrateurDe: async (s: { user: { email: string } }) => ((await isPlatformAdminMock(s)) ? { userId: 'u1', hubUserId: 'h1', email: s.user.email } : null),
 }));
 
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { refusAdmin, requireAdmin, secretAdminValide } from '@/lib/admin/require-admin';
 
 const ORIG_SECRET = process.env.ADMIN_SECRET;
 
@@ -109,6 +109,13 @@ describe('requireAdmin — chemin session Auth.js', () => {
     expect(await res?.json()).toMatchObject({ error: 'recent_auth_required' });
   });
 
+
+  it('refusAdmin et secretAdminValide : le même refus partout, rien sans secret posé', async () => {
+    expect((['non_connecte', 'emprunt', 'pas_admin', 'preuve_ancienne'] as const).map((r) => refusAdmin(r).status)).toEqual([401, 403, 403, 403]);
+    expect([secretAdminValide('super-secret-for-tests'), secretAdminValide('autre'), secretAdminValide(null), secretAdminValide('')]).toEqual([true, false, false, false]);
+    delete process.env.ADMIN_SECRET;
+    expect([secretAdminValide(''), secretAdminValide('x')]).toEqual([false, false]);
+  });
 
   it('session d\'emprunt : 403, même chez un administrateur (VER-263 : cette garde-là l\'acceptait)', async () => {
     authMock.mockResolvedValueOnce({ user: { email: 'admin@x', id: 'u1', impersonated: true } });
