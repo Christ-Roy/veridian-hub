@@ -8,8 +8,6 @@ import { code, parcourir } from './source';
 
 /** Écrans volontairement sans lien. Chaque entrée dit pourquoi ; une entrée devenue inutile fait échouer le test. */
 const EXCEPTIONS: Record<string, string> = {
-  // VER-263, session Hub B : /dashboard/admin/** lui appartient, le lien vient avec son lot.
-  '/dashboard/admin/lookup': 'session Hub B',
   // Mail y envoie la personne (docs/CONTRAT-MAIL.md) ; pas proposé d'ici tant que l'accord de Google n'a pas été joué en vrai.
   '/dashboard/settings/mail': 'entrée depuis Mail',
   // Connexions extérieures fermées (VER-119) : l'entrée du menu vient avec leur ouverture, session Hub C.
