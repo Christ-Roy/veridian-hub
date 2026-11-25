@@ -36,6 +36,10 @@ describe('emettreOrganisation', () => {
     expect(a.posts[0]).toMatchObject({ u: 'https://a.test/api/hub/organisations/sync', corps: { hub_tenant_id: 'A', nom: 'Atelier' } });
     expect(db.organisationEmission.lignes).toEqual([expect.objectContaining({ tenantId: 'A', app: 'academy', etat: 'applique' })]);
   });
+  it.each([['membres_refuses', 2, '2 membre(s) refusé(s) par l\'app'], ['refused', 1, '1 membre(s) refusé(s) par l\'app'], ['refuses', 3, '3 membre(s) refusé(s) par l\'app'], ['refused', 0, null], ['membres_refuses', 'deux', null]] as const)('%s = %s : appliqué, et le refus partiel se lit', async (nom, n, detail) => {
+    expect((await emettre(app({ post: () => Response.json({ applied: true, [nom]: n }) }))).etat).toBe('applique');
+    expect(db.organisationEmission.lignes[0]).toMatchObject({ etat: 'applique', detail });
+  });
   it.each([
     ['l\'app dit oui et sert une autre version', app({ version: () => 1 }), 'echec'],
     ['pas de route de relecture', app({ version: () => 404 }), 'non_relu'],

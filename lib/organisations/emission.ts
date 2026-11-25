@@ -25,17 +25,25 @@ async function signer(app: Module, methode: 'GET' | 'POST', chemin: string, corp
   });
 }
 
+/** Le document est appliqué, mais des membres ont été refusés : l'app le compte (trois noms, lus dans leur code le 25/11), on ne le tait pas. */
+function membresRefuses(j: object): string | null {
+  const r = j as { membres_refuses?: unknown; refused?: unknown; refuses?: unknown };
+  const n = [r.membres_refuses, r.refused, r.refuses].find((x) => typeof x === 'number' && x > 0);
+  return n ? `${n} membre(s) refusé(s) par l'app` : null;
+}
+
 async function versApp(app: Module, d: NonNullable<Awaited<ReturnType<typeof documentOrg>>>, deps: Deps): Promise<Emission> {
   try {
     const res = await signer(app, 'POST', '/api/hub/organisations/sync', JSON.stringify(pourApp(d, app)), deps);
     const j = (await res.json().catch(() => null)) as { applied?: boolean; reason?: string; error?: string } | null;
     if (!res.ok || typeof j?.applied !== 'boolean') return { app, version: d.version, etat: 'echec', detail: j?.error ?? `http_${res.status}` };
     if (!j.applied && j.reason !== 'unchanged') return { app, version: d.version, etat: 'ignore', detail: j.reason ?? 'raison absente' };
+    const refus = membresRefuses(j);
     // « Appliqué » veut dire relu : la version que l'app SERT. Sans route de relecture, c'est dit.
     const relu = await signer(app, 'GET', `/api/hub/organisations/sync?hub_tenant_id=${encodeURIComponent(d.hub_tenant_id)}`, '', deps);
     const v = relu.ok ? ((await relu.json().catch(() => null)) as { version?: unknown } | null)?.version : undefined;
     if (v === undefined) return { app, version: d.version, etat: 'non_relu', detail: `relecture http_${relu.status}` };
-    return Number(v) === d.version ? { app, version: d.version, etat: 'applique' } : { app, version: d.version, etat: 'echec', detail: `l'app sert la version ${String(v).slice(0, 20)}` };
+    return Number(v) === d.version ? { app, version: d.version, etat: 'applique', ...(refus ? { detail: refus } : {}) } : { app, version: d.version, etat: 'echec', detail: `l'app sert la version ${String(v).slice(0, 20)}` };
   } catch (err) {
     return { app, version: d.version, etat: 'echec', detail: err instanceof Error ? err.message.slice(0, 160) : 'erreur' };
   }
