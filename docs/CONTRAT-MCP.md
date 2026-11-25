@@ -111,6 +111,9 @@ webhooks, apps, réglages : `lib/mcp/reserves.ts`, par motif) est refusé dans u
 chez Analytics, ce qui change un utilisateur ou son appartenance : au Hub seul. Un outil annoté lecture dont le nom porte un verbe d'écriture (`create`, `import`, `delete`…) se nomme aussi. Un programme n'appelle aucun outil de
 la porte. Journal : `mcp.tool.call` par appel avec l'identifiant du programme, `mcp.programme` (empreinte du code, noms
 autorisés, comptes) ; jamais le code ni les arguments. Mon IA n'offre pas cet outil.
+**Une app qui expose son API en un outil** (CRM : `api_lire`, `api_ecrire`, `api_supprimer`, VER-253) porte la cible dans la requête : le
+motif par nom ne la voit pas. Elle juge donc elle-même, par liste BLANCHE d'objets, champ racine et relations compris, en lecture aussi
+(un membre : id, name, userEmail ; aucun lien de fichier), masse par identifiants, 100 au plus. Preuve : cas 28.
 
 **Clients à l'ancienne liste** : un client garde `tools/list` en cache et la porte sans état ne peut pas l'avertir. Le même outil
 existe donc sous `hub.executer_programme`, trouvé par `chercher_outils`, décrit par `decrire_outil`, joué par `executer_outil`
