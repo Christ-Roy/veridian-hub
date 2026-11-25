@@ -74,7 +74,13 @@ cas(null, 'porte d\'organisation : retenue, part seule une fois, se quitte ; ses
     expect([await entrer(), idp.demandes()], 'déjà entrée : pas de nouveau consentement').toEqual(['/dashboard', n]);
 
     // Session finie : la page part seule, une fois, et la ramène.
-    const finir = () => oublier(c, /session-token/);
+    // La page ouverte réécrit le cookie de session à chaque requête : on la quitte d'abord, sinon elle le ressuscite (22:38, deux passages faux).
+    const finir = async () => {
+      await p.goto('about:blank');
+      await pause(1_500);
+      await oublier(c, /session-token/);
+      if (await session(c)) throw new NonAbouti('la session d\'épreuve ne s\'est pas oubliée');
+    };
     await finir();
     await oublier(c, /porte-pause/);
     await p.goto(`${HUB_URL}/login`, { waitUntil: 'networkidle' });
@@ -83,10 +89,11 @@ cas(null, 'porte d\'organisation : retenue, part seule une fois, se quitte ; ses
     expect((await session(c))?.email?.toLowerCase(), 'ramenée sans rien taper').toBe(M.email.toLowerCase());
     // Aussitôt après : jamais deux fois de suite.
     await finir();
+    const avant = idp.demandes();
     if (sabotage === 'porte-boucle') await oublier(c, /porte-pause/);
     await p.goto(`${HUB_URL}/login`, { waitUntil: 'networkidle' });
     await pause(7_000);
-    expect([new URL(p.url()).pathname, await p.getByRole('link', { name: /^Continuer avec/ }).count(), await session(c)], 'pas de boucle').toEqual(['/login', 1, null]);
+    expect([new URL(p.url()).pathname, idp.demandes() - avant, await p.getByRole('link', { name: /^Continuer avec/ }).count(), await session(c)], 'pas de boucle').toEqual(['/login', 0, 1, null]);
     // La sortie visible arrête le départ ; la connexion habituelle est là.
     await oublier(c, /porte-pause/);
     await p.goto(`${HUB_URL}/login`, { waitUntil: 'networkidle' });
