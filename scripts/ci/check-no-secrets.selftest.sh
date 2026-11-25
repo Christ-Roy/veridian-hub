@@ -24,7 +24,7 @@ fail=0
 
 run_case() {
   local name="$1" expect="$2" # expect = "refuse" | "passe"
-  git add -A >/dev/null 2>&1
+  git add -A >/dev/null 2>&1 || true  # le cas « illisible » est déjà dans l'index
   set +e
   out=$(./scripts/ci/check-no-secrets.sh 2>&1); rc=$?
   set -e
@@ -104,6 +104,23 @@ const vraiSecret =
   '3f7a1c9e5b2d8046af13e7c25986b4d0173ea9c8542f6b0d9e73a15c8b402f6e';
 EOF
 run_case "dérogation limitée à sa ligne" refuse
+
+# --- Cas 8 : un nom accentué n'est pas un angle mort (il l'était jusqu'au 25/11) ---
+printf 'const t = "%s";\n' "$H64" > 'été.ts'
+run_case "64 hex dans un fichier au nom accentué" refuse
+rm -f 'été.ts'
+
+# --- Cas 9 : secret en base64, mélange exigé ---------------------------------
+B64="$(printf 'Zq7%s' "$H64" | sed 's/[0-9]/K/2; s/a/Q/g')"
+printf 'const t = "%s";\n' "$B64" > cas.ts
+run_case "base64 à forte entropie" refuse
+
+# --- Cas 10 : ce qui ne peut pas être lu arrête le contrôle -------------------
+printf 'x\n' > cas.ts
+chmod 000 cas.ts
+git ls-files --error-unmatch cas.ts >/dev/null 2>&1 || { chmod 644 cas.ts; git add cas.ts; chmod 000 cas.ts; }
+if [ "$(id -u)" -ne 0 ]; then run_case "fichier illisible" refuse; fi
+rm -f cas.ts
 
 if [ "$fail" -ne 0 ]; then
   echo ""
