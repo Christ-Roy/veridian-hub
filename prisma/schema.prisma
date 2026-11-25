@@ -50,6 +50,9 @@ model User {
   // checkout via /api/billing/checkout, ou backfillé depuis Subscription.
   stripeCustomerId String? @unique @map("stripe_customer_id")
 
+  adresses    UserEmail[]
+  codeAdresse UserEmailCode?
+
   accounts   Account[]
   sessions   Session[]
   mfaCodes   MfaCode[]
@@ -601,6 +604,37 @@ model WebhookDedup {
   @@id([app, idempotencyKey])
   @@index([receivedAt])
   @@map("webhook_dedup")
+  @@schema("hub_app")
+}
+
+/// Adresse SECONDAIRE prouvée d'une personne (VER-227 S1b, lib/adresses). Active = une seule personne, tenu par la base (déclencheurs).
+model UserEmail {
+  id          String    @id @default(cuid())
+  userId      String    @map("user_id")
+  email       String
+  preuve      String
+  prouveeLe   DateTime  @map("prouvee_le")
+  detacheeLe  DateTime? @map("detachee_le")
+  detacheePar String?   @map("detachee_par")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_emails")
+  @@schema("hub_app")
+}
+
+/// Le code en attente d'une personne : un seul à la fois, empreinte seulement.
+model UserEmailCode {
+  userId        String   @id @map("user_id")
+  email         String
+  codeEmpreinte String   @map("code_empreinte")
+  essais        Int      @default(0)
+  expireLe      DateTime @map("expire_le")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_email_codes")
   @@schema("hub_app")
 }
 

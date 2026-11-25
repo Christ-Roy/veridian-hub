@@ -1854,6 +1854,9 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
   (30 jours). Aucun mail. Au premier passage avec cette adresse exacte, PROUVÉE (tableau de bord, ou rebond vers une app), la personne rejoint
   l'organisation en `member`, et les apps cochées l'apprennent avant qu'elle y arrive. Un retrait annule ; seul un geste neuf la rouvre.
   Jamais depuis une session d'emprunt. `hub org preinscrits|annuler`, liste à l'écran.
+- **Plusieurs adresses** (VER-227 S1b, `lib/adresses`) : une personne ajoute une adresse en prouvant, par un code reçu, qu'elle la tient. Une secondaire
+  ne connecte pas, ne reçoit aucun lien : elle fait reconnaître (pré-inscription, fédération). Une adresse active n'appartient qu'à une personne, tenu
+  par la BASE pour tous les chemins. PROMOTION et avis par mail (AD-M3) : pas écrits. Le code reçu dans une vraie boîte : NON PROUVÉ (pas de boîte d'épreuve).
 - **Apps ouvertes par l'organisation** (option A, parente 25/11, `lib/tenant-apps/organisation.ts`) : le CRM coché s'ouvre (tuile, IA, délégation) aux
   membres VIVANTS, lu à chaque fois : retrait, suspension ou case décochée referment. L'app garde ses droits. Academy garde sa réserve.
 - **Fédération OIDC** (VER-227 S2, `lib/federation`) : `hub org idp poser` déclare le fournisseur ET les domaines qu'il peut affirmer (un domaine, une

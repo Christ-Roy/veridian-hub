@@ -26,8 +26,10 @@ const userStore: Map<string, any> = new Map();
 const provisionCalls: Array<{ userId: string; email: string; name?: string | null }> = [];
 let provisionShouldThrow = false;
 
+const secondaires = vi.hoisted(() => new Set<string>());
 vi.mock('@/lib/prisma', () => ({
   prisma: {
+    userEmail: { findFirst: async ({ where }: any) => (secondaires.has(where.email) ? { userId: 'x' } : null) },
     user: {
       findUnique: vi.fn(async ({ where }: any) => userStore.get(where.email) ?? null),
       create: vi.fn(async ({ data, select }: any) => {
@@ -95,6 +97,14 @@ describe('POST /api/auth/signup', () => {
     const res = await POST(req);
     expect(res.status).toBeLessThan(300);
     expect(userStore.has('humain@exemple.fr')).toBe(true);
+  });
+
+  it('l\'adresse secondaire de quelqu\'un (S1b) : même réponse qu\'une adresse prise, aucun compte', async () => {
+    secondaires.add('pro@exemple.fr');
+    const { POST } = await import('@/app/api/auth/signup/route');
+    const res = await POST({ json: async () => ({ email: 'Pro@exemple.fr', password: 'Password1!', hp_reference: '' }), headers: new Headers({ 'x-forwarded-for': '10.99.0.44' }) } as any);
+    expect([res.status, (await res.json()).error, userStore.has('pro@exemple.fr')]).toEqual([409, 'An account with this email already exists', false]);
+    secondaires.clear();
   });
 
   it('rejects invalid JSON', async () => {

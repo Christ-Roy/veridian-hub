@@ -6,7 +6,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { createSignInCallback, PREUVE_REQUISE_PATH } from '@/lib/auth/sign-in-callback';
+import { ADRESSE_SECONDAIRE_PATH, createSignInCallback, PREUVE_REQUISE_PATH } from '@/lib/auth/sign-in-callback';
 
 function makeDeps(opts: {
   user?: { id: string; email: string; mfaEnabled: boolean } | null;
@@ -39,6 +39,19 @@ describe('createSignInCallback — scénarios OAuth', () => {
     expect(await cb({ user: { email: null } })).toBe(false);
     expect(await cb({ user: {} })).toBe(false);
     expect(deps._findUnique).not.toHaveBeenCalled();
+  });
+
+  it('S1b : compte neuf sur l\'adresse secondaire de quelqu\'un : ni compte, ni entrée dans le sien ; détachée ou libre : comme avant', async () => {
+    const cb = (titulaire: unknown) => {
+      const deps = makeDeps({ user: null });
+      const findFirst = vi.fn(async (..._a: unknown[]) => titulaire);
+      return { findFirst, cb: createSignInCallback({ ...deps, prisma: { ...(deps.prisma as object), userEmail: { findFirst } } as never }) };
+    };
+    const aller = (c: ReturnType<typeof cb>) => c.cb({ user: { email: 'Pro@client.fr' }, account: { provider: 'google', providerAccountId: 'g' }, profile: { email: 'Pro@client.fr', email_verified: true } });
+    const pris = cb({ userId: 'u' });
+    expect(await aller(pris)).toBe(ADRESSE_SECONDAIRE_PATH);
+    expect(pris.findFirst.mock.calls[0][0]).toMatchObject({ where: { email: 'pro@client.fr', detacheeLe: null } });
+    expect(await aller(cb(null))).toBe(true);
   });
 
   it('Scénario A — nouvel user signup Google : DB findUnique renvoie null → autorise (PrismaAdapter créera user)', async () => {

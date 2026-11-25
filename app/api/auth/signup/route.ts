@@ -24,6 +24,7 @@ import { z } from 'zod';
 
 import { PASSWORD_MAX, PASSWORD_MIN } from '@/lib/auth/password-policy';
 import { issueEmailProof } from '@/lib/auth/email-proof';
+import { titulaireSecondaire } from '@/lib/adresses';
 import { prisma } from '@/lib/prisma';
 import { signupLimiter, extractClientIp } from '@/lib/auth/rate-limit';
 import { SIGNUP_HONEYPOT_FIELD } from '@/lib/auth/signup-honeypot';
@@ -98,7 +99,8 @@ export async function POST(request: NextRequest) {
     select: { id: true },
   });
 
-  if (existing) {
+  // L'adresse secondaire de quelqu'un est prise aussi (S1b) : même réponse.
+  if (existing || (await titulaireSecondaire(prisma, normalizedEmail))) {
     return NextResponse.json(
       { error: 'An account with this email already exists' },
       { status: 409 }

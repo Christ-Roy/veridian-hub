@@ -21,7 +21,7 @@ export const ROLES = ['member', 'admin', 'owner'] as const;
 export type Role = (typeof ROLES)[number];
 export type Origine = 'invitation' | 'reprise' | 'operateur' | 'preinscription' | 'federation';
 
-export type DbMembres = Pick<PrismaClient, 'tenant' | 'tenantMember' | 'user' | 'auditLog' | 'crossAppInvitation' | 'delegationGrant' | 'integrationPaire' | 'tenantPreinscription'>;
+export type DbMembres = Pick<PrismaClient, 'tenant' | 'tenantMember' | 'user' | 'auditLog' | 'crossAppInvitation' | 'delegationGrant' | 'integrationPaire' | 'tenantPreinscription' | 'userEmail'>;
 type Deps = { fetchImpl?: typeof fetch; apps?: readonly SyncApp[]; env?: NodeJS.ProcessEnv };
 
 /** Ce que l'auteur du geste doit lire : les apps où l'accès n'est PAS coupé, et pourquoi (Analytics ne sait pas retirer). */
@@ -190,7 +190,8 @@ export async function retirer(db: DbMembres, d: { tenantId: string; hubUserId: s
   // Une invitation encore ouverte le ferait revenir chez l'app : elle expire avant tout le reste.
   const invitations = await fermerInvitations(db, t, u.email, deps);
   // Une pré-inscription encore ouverte le ferait revenir au prochain passage.
-  await db.tenantPreinscription.updateMany({ where: { tenantId: d.tenantId, email: u.email.trim().toLowerCase(), consommeeLe: null, annuleeLe: null }, data: { annuleeLe: new Date() } });
+  const secondaires = await db.userEmail.findMany({ where: { user: { supabaseUserId: d.hubUserId }, detacheeLe: null }, select: { email: true } });
+  await db.tenantPreinscription.updateMany({ where: { tenantId: d.tenantId, email: { in: [u.email.trim().toLowerCase(), ...secondaires.map((x) => x.email)] }, consommeeLe: null, annuleeLe: null }, data: { annuleeLe: new Date() } });
   const apps = await Promise.all((deps.apps ?? configuredSyncApps()).map((app) => retirerChez(app, t, u.email, d.hubUserId, d.motif ?? 'admin_action', deps)));
   if (!ligne && apps.every((a) => a.etat === 'absent')) throw new RefusMembre('pas_membre');
   const complet = apps.every((a) => a.etat === 'retire' || a.etat === 'absent');

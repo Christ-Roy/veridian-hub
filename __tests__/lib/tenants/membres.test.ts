@@ -17,6 +17,7 @@ let invitations: L[];
 let revoques: L[];
 let coupees: L[];
 let preinscrites: L[];
+let secondaires: L[] = [];
 const trouve = (w: L) => membres.find((m) => m.tenantId === w.tenantId_userId.tenantId && m.userId === w.tenantId_userId.userId) ?? null;
 const db = {
   tenant: { findFirst: async ({ where }: L) => (tenant && tenant.id === where.id ? tenant : null), update: async ({ data }: L) => Object.assign(tenant!, data) },
@@ -28,6 +29,7 @@ const db = {
   },
   delegationGrant: { updateMany: async ({ where }: L) => { revoques.push(where); return { count: 1 }; } },
   integrationPaire: { updateMany: async ({ where, data }: L) => { coupees.push([where, data]); return { count: 1 }; } },
+  userEmail: { findMany: async ({ where }: L) => secondaires.filter((x) => x.hub === where.user.supabaseUserId && !x.detacheeLe) },
   tenantPreinscription: { updateMany: async ({ where, data }: L) => { preinscrites.push([where, data]); return { count: 1 }; } },
   crossAppInvitation: {
     findMany: async ({ where }: L) => invitations.filter((i) => i.inviteeEmail.toLowerCase() === where.inviteeEmail.equals.toLowerCase() && !i.acceptedAt && i.expiresAt > where.expiresAt.gt),
@@ -295,7 +297,11 @@ it('un seul écrivain de tenant_members dans tout le code', () => {
 it('retirer annule la pré-inscription encore ouverte de cette adresse, dans cette organisation seule', async () => {
   membres = [{ tenantId: 'T', userId: 'u-m', role: 'member', deletedAt: null }];
   await retirer(db, { tenantId: 'T', hubUserId: 'u-m', acteur: 'op' }, { apps: [] });
-  expect(preinscrites).toEqual([[{ tenantId: 'T', email: 'm@x.fr', consommeeLe: null, annuleeLe: null }, { annuleeLe: expect.any(Date) }]]);
+  expect(preinscrites).toEqual([[{ tenantId: 'T', email: { in: ['m@x.fr'] }, consommeeLe: null, annuleeLe: null }, { annuleeLe: expect.any(Date) }]]);
+  secondaires = [{ hub: 'u-m', email: 'pro@client.fr' }, { hub: 'u-m', email: 'vieille@x.fr', detacheeLe: new Date() }, { hub: 'u-prop', email: 'p@x.fr' }];
+  await retirer(db, { tenantId: 'T', hubUserId: 'u-m', acteur: 'op' }, { apps: [] }).catch(() => undefined);
+  secondaires = [];
+  expect(preinscrites[1][0].email, 'toutes ses adresses, pas celles d\'un autre').toEqual({ in: ['m@x.fr', 'pro@client.fr'] });
 });
 it('une pré-inscription ne donne que member, et ne rend pas un retiré si elle date d\'avant', async () => {
   await expect(joindre({ origine: 'preinscription', role: 'admin' })).rejects.toMatchObject({ code: 'role_refuse' });

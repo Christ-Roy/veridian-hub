@@ -45,6 +45,17 @@ describe('consommerPreinscriptions', () => {
     expect([await passer('flou'), await passer('u'), await passer('inconnu')]).toEqual([[], [], []]);
     expect(db.tenantMember.lignes).toHaveLength(0);
   });
+  it('S1b : une adresse SECONDAIRE prouvée suffit ; détachée, ou celle d\'un autre : non', async () => {
+    await poser('pro@client.fr');
+    const d = db as any;
+    d.userEmail.lignes.push({ userId: 'autre', email: 'pro@client.fr', detacheeLe: null });
+    db.user.lignes[0].id = 'U';
+    expect(await passer(), 'celle d\'un autre').toEqual([]);
+    d.userEmail.lignes[0] = { userId: 'U', email: 'pro@client.fr', detacheeLe: apres(0) };
+    expect(await passer(), 'détachée').toEqual([]);
+    d.userEmail.lignes[0].detacheeLe = null;
+    expect(await passer()).toEqual(['T']);
+  });
   it('expirée ou annulée : rien ; un geste neuf la rouvre', async () => {
     await poser();
     expect(await passer('u', apres(31))).toEqual([]);

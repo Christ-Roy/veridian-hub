@@ -69,6 +69,21 @@ describe('resoudreIdentite : qui entre', () => {
   });
 });
 
+describe('resoudreIdentite : adresse secondaire (S1b)', () => {
+  it('c\'est un compte existant : jamais repris, jamais un second compte ; sa personne connectée le relie', async () => {
+    db.userEmail.lignes.push({ userId: 'U3', email: 'pro@client.test', detacheeLe: null });
+    expect(await aller({ email: 'pro@client.test' }, { creationAuto: true })).toEqual({ refus: 'compte_existant' });
+    expect(await aller({ email: 'pro@client.test' }, { creationAuto: true }, { userId: 'U1', email: 'jean@client.test' })).toEqual({ refus: 'compte_existant' });
+    expect(db.user.lignes).toHaveLength(3);
+    expect(await aller({ email: 'pro@client.test' }, {}, { userId: 'U3', email: 'ext@ailleurs.test' })).toMatchObject({ userId: 'U3' });
+  });
+  it('M2 ne s\'y applique pas : un compte non prouvé ne se purge pas par une secondaire', async () => {
+    db.userEmail.lignes.push({ userId: 'U2', email: 'sec@client.test', detacheeLe: null });
+    expect(await aller({ email: 'sec@client.test' })).toEqual({ refus: 'compte_existant' });
+    expect(liens('U2')).toEqual(['credentials', 'google']);
+  });
+});
+
 describe('resoudreIdentite : qui n\'entre pas', () => {
   it.each<[string, object, object, string]>([
     ['hors domaine', { email: 'ext@ailleurs.test' }, { creationAuto: true }, 'domaine_refuse'],

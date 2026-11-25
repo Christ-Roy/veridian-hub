@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 
 import { writeAuditLog } from '@/lib/admin/audit-log';
+import { titulaireSecondaire } from '@/lib/adresses';
 import { applyProviderEmailProof } from '@/lib/auth/email-proof-provider';
 import { suivreOrganisation } from '@/lib/organisations/emission';
 import { isTestAccount } from '@/lib/sync/test-residue';
@@ -19,7 +20,7 @@ import type { IdpPret } from './idp';
 import type { Identite } from './oidc';
 
 export type RefusFederation = 'adresse_absente' | 'adresse_non_verifiee' | 'domaine_refuse' | 'compte_existant' | 'autre_identite' | 'non_attendu' | 'retire' | 'organisation_indisponible';
-type Db = DbMembres & Pick<PrismaClient, 'account' | 'tenantPreinscription' | 'organisation' | 'organisationEmission'>;
+type Db = DbMembres & Pick<PrismaClient, 'account' | 'tenantPreinscription' | 'organisation' | 'organisationEmission' | 'userEmail'>;
 /** La personne déjà connectée au Hub, preuve récente, jamais une session d'emprunt : la seule qui puisse relier un compte existant. */
 export type Connecte = { userId: string; email: string } | null;
 
@@ -43,14 +44,15 @@ export async function resoudreIdentite(db: Db, i: IdpPret, x: Identite, connecte
   // Une organisation de test ne peut affirmer que des comptes de batterie, même dans nos domaines.
   if (i.test && !isTestAccount(x.email)) return { refus: 'domaine_refuse' };
 
-  const u = await db.user.findUnique({ where: { email: x.email }, select: { id: true, email: true, supabaseUserId: true, emailVerified: true } });
+  const secondaire = await titulaireSecondaire(db, x.email);
+  const u = await db.user.findUnique({ where: secondaire ? { id: secondaire } : { email: x.email }, select: { id: true, email: true, supabaseUserId: true, emailVerified: true } });
   if (u) {
     if (!u.supabaseUserId) return { refus: 'compte_existant' };
     // Une autre identité du MÊME fournisseur tient déjà ce compte : adresse recyclée (AD-M1), jamais reliée en silence.
     if (await db.account.findFirst({ where: { userId: u.id, provider }, select: { id: true } })) return { refus: 'autre_identite' };
-    const estElle = connecte?.userId === u.id && connecte.email.toLowerCase() === x.email;
+    const estElle = connecte?.userId === u.id && (secondaire === u.id || connecte.email.toLowerCase() === x.email);
     // Jamais prouvé : le fournisseur du domaine est la PREMIÈRE preuve. Ce qui avait été posé avant (mot de passe, liens, sessions) tombe (M2).
-    if (u.emailVerified && !estElle) return { refus: 'compte_existant' };
+    if ((u.emailVerified || secondaire) && !estElle) return { refus: 'compte_existant' };
     if (!u.emailVerified) await applyProviderEmailProof(db as never, u.id, provider, { providerAccountId: x.sub, sessions: 'toujours' });
     await relier(db, i, u.id, x.sub);
     return entrer(db, i, { userId: u.id, hubUserId: u.supabaseUserId, neuf: false }, deps);
