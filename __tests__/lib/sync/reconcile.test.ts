@@ -381,6 +381,24 @@ describe('runReconcile', () => {
     expect(tenantUpdateMock).not.toHaveBeenCalled();
   });
 
+  it('un compte sans lien (vu par l\'adresse, pas par hub_user_id) n\'est pas un espace disparu ; un vrai disparu, si', async () => {
+    process.env.NOTIFUSE_API_URL = 'https://notifuse.test';
+    process.env.NOTIFUSE_HUB_API_SECRET = 'test-secret';
+    tenantsRowsMock.push({ id: 't1', userId: 'uuid-1', notifusePlan: 'pro', prospectionPlan: null, notifuseWorkspaceSlug: 'slug-1', metadata: { notifuse_status: 'active' } });
+    usersRowsMock.push({ supabaseUserId: 'uuid-1', email: 'u1@x.com' });
+    const jouer = async (sansLien: boolean) => (await runReconcile({
+      prisma: fakePrisma as never,
+      apps: ['notifuse'],
+      fetchImpl: (async (u: string) => {
+        const q = new URL(u).searchParams;
+        if (!q.has('email')) return Response.json({ users: [] });
+        return sansLien && !q.has('hub_user_id') ? Response.json({ found: true, workspaces: [{ workspace_id: 'slug-1', plan: 'pro', status: 'active' }] }) : Response.json({ found: false });
+      }) as unknown as typeof fetch,
+    })).drifts.map((d) => d.kind).filter((k) => k === 'tenant_missing_app');
+    expect(await jouer(false), 'témoin').toEqual(['tenant_missing_app']);
+    expect(await jouer(true)).toEqual([]);
+  });
+
   it('detects drifts across multiple tenants without writing to Hub', async () => {
     // Configure ENV pour notifuse uniquement (les autres → not_configured).
     process.env.NOTIFUSE_API_URL = 'https://notifuse.test';
