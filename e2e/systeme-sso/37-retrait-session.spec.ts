@@ -1,6 +1,7 @@
 /**
  * Retirer un membre ferme sa session DÉJÀ OUVERTE dans chaque app, en secondes (25/11 : le CRM retirait bien la personne, et sa session lisait encore).
  * Mail, CRM, Prospection ; NON MESURÉ : Academy, réservée à Robert, n'ouvre rien à un compte d'épreuve (son code relit l'appartenance à chaque requête).
+ * Au CRM, deux portes : le cookie, et le jeton d'accès (30 min), que `revoke_sessions` ne coupe pas (CRM, 25/11 ; vu échouer sur crm v40).
  * La dernière lecture pendant 40 s (Prospection garde un contexte 30 s), le propriétaire témoin tout du long.
  * Épreuve : `SSO_SABOTAGE=retrait-session` ne retire pas : le cas doit échouer.
  */
@@ -8,7 +9,7 @@ import { expect, type BrowserContext } from '@playwright/test';
 
 import { APP_URL, HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
-import { activerTwentyAuHub, admin, adminOk, lookup, marquerTest } from './lib/hub-admin';
+import { activerTwentyAuHub, admin, adminOk, appelTwenty, lookup, marquerTest } from './lib/hub-admin';
 import { creerCompteProuve, noterEspaceTwenty, ouvrirApp, type Compte } from './lib/parcours';
 
 const BORNE = 5_000;
@@ -42,7 +43,13 @@ cas(null, 'retrait : la session ouverte du membre se ferme dans chaque app, en s
       const jeton = await page.evaluate(() => localStorage.getItem('auth_token'));
       await page.close();
       const me = (await (await ctx.request.get(`${APP_URL.prospection}/api/me`)).json().catch(() => null)) as { workspaces?: { id: string; name: string }[] } | null;
-      return { ctx, crm, jeton, espaces: (me?.workspaces ?? []).map((w) => w.id) };
+      // Le jeton d'accès du CRM, tel que son écran l'obtient du lien de connexion ; gardé en mémoire, jamais affiché.
+      const lien = (await (await appelTwenty('POST', '/api/sso/issue-magic-link', { hub_user_id: c.hubUserId, email: c.email, email_proven: true, next: `${crm}/` })).json().catch(() => null)) as { magic_link_url?: string } | null;
+      const rebond = lien?.magic_link_url ? await fetch(lien.magic_link_url, { redirect: 'manual', signal: AbortSignal.timeout(20_000) }) : null;
+      const cible = new URL(rebond?.headers.get('location') ?? 'https://absent.invalid/');
+      const echange = (await (await fetch(`${crm}/metadata`, { method: 'POST', headers: { 'content-type': 'application/json', origin: crm }, body: JSON.stringify({ query: 'mutation($l:String!,$o:String!){getAuthTokensFromLoginToken(loginToken:$l,origin:$o){tokens{accessOrWorkspaceAgnosticToken{token}}}}', variables: { l: cible.searchParams.get('loginToken') ?? '', o: crm } }), signal: AbortSignal.timeout(20_000) })).json().catch(() => null)) as { data?: { getAuthTokensFromLoginToken?: { tokens?: { accessOrWorkspaceAgnosticToken?: { token?: string } } } } } | null;
+      const jetonCrm = echange?.data?.getAuthTokensFromLoginToken?.tokens?.accessOrWorkspaceAgnosticToken?.token ?? null;
+      return { ctx, crm, jeton, jetonCrm, espaces: (me?.workspaces ?? []).map((w) => w.id) };
     };
     const [sP, sM] = [await entrer(P), await entrer(M)];
     const commun = sM.espaces.find((x) => sP.espaces.includes(x));
@@ -50,17 +57,18 @@ cas(null, 'retrait : la session ouverte du membre se ferme dans chaque app, en s
     const lit = {
       mail: async (s: typeof sP) => (await s.ctx.request.get(`${APP_URL.notifuse}/api/contacts.list?workspace_id=${T.notifuseWorkspaceSlug}&limit=1`, { headers: { Authorization: `Bearer ${s.jeton}` }, timeout: 15_000 })).status() === 200,
       crm: async (s: typeof sP) => Array.isArray(((await (await s.ctx.request.post(`${sP.crm}/graphql`, { headers: { origin: sP.crm, 'x-twenty-session-cookie': '1' }, data: { query: '{companies(first:1){edges{node{id}}}}' }, timeout: 15_000 })).json().catch(() => null)) as { data?: { companies?: { edges?: unknown[] } } } | null)?.data?.companies?.edges),
+      crm_jeton: async (s: typeof sP) => Array.isArray(((await (await fetch(`${sP.crm}/graphql`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${s.jetonCrm}` }, body: JSON.stringify({ query: '{companies(first:1){edges{node{id}}}}' }), signal: AbortSignal.timeout(15_000) })).json().catch(() => null)) as { data?: { companies?: { edges?: unknown[] } } } | null)?.data?.companies?.edges),
       prospection: async (s: typeof sP) => (((await (await s.ctx.request.get(`${APP_URL.prospection}/api/me`, { timeout: 15_000 })).json().catch(() => null)) as { workspaces?: { id: string }[] } | null)?.workspaces ?? []).some((w) => w.id === commun),
     };
     type App = keyof typeof lit;
     const APPS = Object.keys(lit) as App[];
     const tous = async (s: typeof sP) => Object.fromEntries(await Promise.all(APPS.map(async (x) => [x, await lit[x](s).catch(() => false)]))) as Record<App, boolean>;
-    const oui = { mail: true, crm: true, prospection: true };
+    const oui = { mail: true, crm: true, crm_jeton: true, prospection: true };
     expect([await tous(sP), await tous(sM)], 'contrôle positif : le propriétaire et le membre lisent partout').toEqual([oui, oui]);
 
     const ret = process.env.SSO_SABOTAGE === 'retrait-session' ? null : await admin<{ apps: { app: string; etat: string; detail?: string }[] }>('POST', `tenants/${T.id}/remove-member`, { hub_user_id: M.hubUserId });
     const t0 = Date.now();
-    const dernier: Record<App, number> = { mail: 0, crm: 0, prospection: 0 };
+    const dernier: Record<App, number> = { mail: 0, crm: 0, crm_jeton: 0, prospection: 0 };
     const temoin: Record<App, boolean> = { ...oui };
     await Promise.all(APPS.map(async (x) => {
       while (Date.now() - t0 < 40_000) {

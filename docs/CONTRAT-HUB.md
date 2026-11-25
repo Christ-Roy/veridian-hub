@@ -1790,8 +1790,9 @@ et `hub suspension` passent par lui.
   `attach-member`, `organisations/sync` répondent `423 workspace_suspended` ; le rebond le dit (« Espace suspendu »), le Hub n'émet rien d'une organisation
   suspendue, et réémet à la reprise. `409 not_suspended_by_hub` (espace fermé par un autre chemin) est DIT et sort des cibles ; `410` : rien à fermer. Cas 34.
 - **Session ouverte d'un retiré** : mesuré le 25/11, le CRM (v39) la laissait lire après `remove-member`. Le Hub envoie donc `users/sync { revoke_sessions }`
-  au CRM juste après (toutes ses sessions CRM ; le rebond le fait rentrer là où il est encore membre), et dit `echec` si la coupure n'a pas pris. À retirer
-  quand le CRM coupe lui-même, dans cet espace. Mail et Prospection ferment
+  au CRM juste après (toutes ses sessions CRM ; le rebond le fait rentrer là où il est encore membre), et dit `echec` si la coupure n'a pas pris. **Elle ne coupe
+  que le cookie** : un jeton d'accès déjà émis lit encore (30 min au plus, CRM), et le flux en direct (cas 37, porte `crm_jeton`). À retirer quand le CRM
+  coupe lui-même, dans cet espace (correctif en CI le 25/11). Mail et Prospection ferment
   d'elles-mêmes (cas 37) ; Academy : réservée, non mesurée.
 - **Qui ne sait pas** (25/11) : retrait et suspension, Analytics ; `attach-owner`, Academy.
 - **Clés API d'un retiré** : jamais coupées (des automatisations en vivent), toujours DITES. `remove-member` rend
