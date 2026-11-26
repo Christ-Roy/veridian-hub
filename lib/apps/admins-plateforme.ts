@@ -15,7 +15,7 @@ import type { SyncApp } from '@/lib/sync/types';
 /** Les apps qui servent la route. Les autres se disent « pas encore ». */
 export const APPS_ADMIN: readonly SyncApp[] = ['notifuse'];
 
-export type EtatAdmin = 'admin' | 'proprietaire' | 'retire_par_le_client' | 'pas_de_compte' | 'sans_espace' | 'non_branchee' | 'echec';
+export type EtatAdmin = 'admin' | 'proprietaire' | 'retire_par_le_client' | 'pas_membre' | 'pas_de_compte' | 'sans_espace' | 'non_branchee' | 'echec';
 export type Designation = { app: SyncApp; hubUserId: string; etat: EtatAdmin; detail?: string };
 type Db = Pick<PrismaClient, 'tenant' | 'user'>;
 type Deps = { fetchImpl?: typeof fetch; acteur: string; raison?: string | null; timeoutMs?: number };
@@ -43,7 +43,7 @@ async function signe(app: SyncApp, methode: 'GET' | 'POST', chemin: string, corp
 
 const code = (j: Record<string, unknown> | null) => (typeof j?.error === 'string' ? j.error : typeof j?.code === 'string' ? j.code : null);
 
-/** Une personne, un espace Mail. Membre d'abord s'il n'y est pas (jamais un « member » poussé sur quelqu'un qui y est déjà : il rétrograderait un propriétaire). */
+/** Une personne, un espace Mail : relue, désignée, relue. */
 async function designerDansMail(espace: string, admin: { hubUserId: string; email: string }, d: Deps): Promise<Designation> {
   const de = (etat: EtatAdmin, detail?: string): Designation => ({ app: 'notifuse', hubUserId: admin.hubUserId, etat, ...(detail ? { detail } : {}) });
   const lu = await signe('notifuse', 'GET', `/api/hub/workspace-admins?workspace_id=${encodeURIComponent(espace)}`, undefined, d);
@@ -53,17 +53,14 @@ async function designerDansMail(espace: string, admin: { hubUserId: string; emai
   const moi = (lu.json!.members as Membre[]).find((m) => m.hub_user_id === admin.hubUserId);
   if (moi?.admin_withdrawn) return de('retire_par_le_client');
   if (moi?.role === 'owner') return de('proprietaire');
-  if (!moi) {
-    const ajout = await signe('notifuse', 'POST', `/api/tenants/${encodeURIComponent(espace)}/sync-member`, { email: admin.email, hub_user_id: admin.hubUserId, email_proven: true, role: 'member' }, d);
-    if (ajout.status === 409 && code(ajout.json) === 'admin_withdrawn') return de('retire_par_le_client');
-    if (ajout.status === 404 && code(ajout.json) === 'user_not_in_app') return de('pas_de_compte', 'aucun compte Mail relié à cette personne');
-    if (ajout.status !== 200) return de('echec', `ajout comme membre refusé (${ajout.status}${code(ajout.json) ? ` ${code(ajout.json)}` : ''})`);
-  }
+  // Le Hub n'ajoute personne chez une app (un seul écrivain des membres : lib/tenants/membres.ts, jamais de sync-member) : il désigne qui y est déjà.
+  if (!moi) return de('pas_membre', 'pas membre de l\'espace Mail : l\'y faire entrer (organisation ou invitation), puis rejouer');
   const r = await signe('notifuse', 'POST', '/api/hub/workspace-admins', {
     workspace_id: espace, hub_user_id: admin.hubUserId, action: 'grant', actor_hub_user_id: d.acteur, reason: d.raison?.trim() || 'administrateur de plateforme (Hub)', reinstate: false,
   }, d);
   if (r.status === 409 && code(r.json) === 'admin_withdrawn') return de('retire_par_le_client');
   if (r.status === 404 && code(r.json) === 'user_not_in_app') return de('pas_de_compte', 'aucun compte Mail relié à cette personne');
+  if (r.status === 404 && code(r.json) === 'not_a_member') return de('pas_membre', 'sorti de l\'espace entre la lecture et la désignation');
   if (r.status !== 200) return de('echec', `désignation refusée (${r.status}${code(r.json) ? ` ${code(r.json)}` : ''})`);
   // Relu : « admin » ne se dit que si l'app le rend.
   const apres = await signe('notifuse', 'GET', `/api/hub/workspace-admins?workspace_id=${encodeURIComponent(espace)}`, undefined, d);

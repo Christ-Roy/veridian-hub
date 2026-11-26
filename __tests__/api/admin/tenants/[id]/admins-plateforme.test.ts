@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { NextRequest, NextResponse } from 'next/server';
-import { beforeEach, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const m = vi.hoisted(() => ({ admin: vi.fn(), designer: vi.fn(), audit: vi.fn() }));
 vi.mock('@/lib/admin/require-admin', () => ({ requireAdmin: () => m.admin() }));
@@ -15,6 +15,7 @@ const T = '11111111-1111-4111-8111-111111111111';
 const jouer = (corps: unknown = {}, h: Record<string, string> = {}, id = T) => POST(new NextRequest('https://h/x', { method: 'POST', body: JSON.stringify(corps), headers: h }), { params: Promise.resolve({ id }) });
 beforeEach(() => { vi.clearAllMocks(); m.admin.mockResolvedValue(null); m.designer.mockResolvedValue([{ app: 'notifuse', hubUserId: 'h', etat: 'admin' }]); });
 
+describe('POST /api/admin/tenants/[id]/admins-plateforme', () => {
 it('posé : 200, audité, l\'auteur est la personne connectée ; par la clé, l\'outil', async () => {
   const r = await jouer({ raison: 'appel' });
   expect([r.status, await r.json()]).toEqual([200, { designations: [{ app: 'notifuse', hubUserId: 'h', etat: 'admin' }] }]);
@@ -42,4 +43,5 @@ it('identifiant faux, champ inconnu : 400 ; organisation inconnue : 404 ; sans d
 it('jamais de remise forcée : le corps ne porte que la raison', async () => {
   expect((await jouer({ raison: 'x', actor_hub_user_id: 'h' })).status).toBe(400);
   expect(m.designer).not.toHaveBeenCalled();
+});
 });

@@ -2230,8 +2230,8 @@ GET  /api/hub/workspace-admins?workspace_id=X   →  {members: [{hub_user_id, ro
   (outil `hub`). Refus : 404 `user_not_in_app` | `not_a_member` | `tenant_not_found` ; 409 `admin_withdrawn` | `is_owner`.
 - **Retrait par le client** : l'app le garde, et tout chemin de synchronisation (sync-member, poussée d'organisation, attach-member, nouveau `grant`) rend
   409 `admin_withdrawn`. Seul `reinstate: true`, geste humain explicite, le remet ; **le Hub ne l'envoie jamais.**
-- **Côté Hub** (`lib/apps/admins-plateforme.ts`) : relire ; absent, l'ajouter comme membre (`sync-member`, `member`, jamais sur quelqu'un déjà là : cela
-  rétrograderait un propriétaire) ; `grant` ; relire, « admin » ne se dit que relu. Appelé à l'ouverture d'un client (`POST /api/admin/tenants/{id}/ouvrir`,
+- **Côté Hub** (`lib/apps/admins-plateforme.ts`) : relire ; `grant` ; relire, « admin » ne se dit que relu. Le Hub n'ajoute personne chez une app (un seul
+  écrivain des membres, jamais de `sync-member`) : pas membre de l'espace = `pas_membre`, à faire entrer par l'organisation ou une invitation, puis rejouer. Appelé à l'ouverture d'un client (`POST /api/admin/tenants/{id}/ouvrir`,
   donc `nouveau-client`) et par `POST /api/admin/tenants/{id}/admins-plateforme` (`hub admin-partout`). Audit `admin.tenant.admins_plateforme`.
 - **Apps** : Mail SERVI (26/11, fiche Mail 95). Prospection, Analytics, Academy, CRM : à servir sur la même route, puis ajoutées à `APPS_ADMIN`.
 

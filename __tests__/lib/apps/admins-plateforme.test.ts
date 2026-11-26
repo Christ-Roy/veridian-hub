@@ -34,19 +34,22 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs());
 
 describe('designerAdminsPlateforme', () => {
-  it('absent : membre, puis admin, relu ; chaque appel signé, jamais propriétaire', async () => {
+  it('membre : désigné admin, relu ; chaque appel signé ; jamais propriétaire, jamais remis de force', async () => {
     let n = 0;
-    rep = (a) => (a.methode === 'GET' ? (n++ === 0 ? membres({ hub_user_id: CLIENT, role: 'owner' }) : membres({ hub_user_id: ROBERT, role: 'admin', admin_granted: true })) : [200, { role_after: 'admin' }]);
+    rep = (a) => (a.methode === 'GET' ? (n++ === 0 ? membres({ hub_user_id: CLIENT, role: 'owner' }, { hub_user_id: ROBERT, role: 'member' }) : membres({ hub_user_id: ROBERT, role: 'admin', admin_granted: true })) : [200, { role_after: 'admin' }]);
     expect(await jouer()).toEqual([{ app: 'notifuse', hubUserId: ROBERT, etat: 'admin' }]);
-    expect(posts()).toEqual(['/api/tenants/ws/sync-member', '/api/hub/workspace-admins']);
+    expect(posts()).toEqual(['/api/hub/workspace-admins']);
     expect(appels.every((a) => a.signe)).toBe(true);
-    expect(appels[1].corps).toMatchObject({ hub_user_id: ROBERT, role: 'member', email_proven: true });
-    expect(appels[2].corps).toEqual({ workspace_id: 'ws', hub_user_id: ROBERT, action: 'grant', actor_hub_user_id: ROBERT, reason: 'appel du client', reinstate: false });
-    expect(JSON.stringify(appels.map((a) => a.corps))).not.toMatch(/owner|reinstate":true|transfer/);
+    expect(appels[1].corps).toEqual({ workspace_id: 'ws', hub_user_id: ROBERT, action: 'grant', actor_hub_user_id: ROBERT, reason: 'appel du client', reinstate: false });
   });
-  it('déjà membre : aucun « member » poussé (il rétrograderait un propriétaire)', async () => {
+  it('pas membre : le Hub n\'ajoute personne (aucun sync-member, aucun attach-member), il le dit', async () => {
+    rep = () => membres({ hub_user_id: CLIENT, role: 'owner' });
+    expect((await jouer())![0].etat).toBe('pas_membre');
+    expect(posts()).toEqual([]);
+  });
+  it('déjà admin : rejoué sans rien changer d\'autre', async () => {
     rep = (a) => (a.methode === 'GET' ? membres({ hub_user_id: ROBERT, role: 'admin' }) : [200, {}]);
-    await jouer();
+    expect((await jouer())![0].etat).toBe('admin');
     expect(posts()).toEqual(['/api/hub/workspace-admins']);
   });
   it('propriétaire : rien n\'est envoyé, il le reste', async () => {
@@ -58,7 +61,7 @@ describe('designerAdminsPlateforme', () => {
     rep = () => membres({ hub_user_id: ROBERT, role: 'member', admin_withdrawn: true });
     expect((await jouer())![0].etat).toBe('retire_par_le_client');
     expect(posts()).toEqual([]);
-    rep = (a) => (a.methode === 'GET' ? membres() : [409, { error: 'admin_withdrawn' }]);
+    rep = (a) => (a.methode === 'GET' ? membres({ hub_user_id: ROBERT, role: 'member' }) : [409, { error: 'admin_withdrawn' }]);
     expect((await jouer())![0].etat).toBe('retire_par_le_client');
     expect(appels.some((a) => a.corps?.reinstate === true)).toBe(false);
   });
@@ -76,7 +79,7 @@ describe('designerAdminsPlateforme', () => {
     expect((await jouer())![0].etat).toBe(etat);
   });
   it('sans compte Mail relié : dit, rien de créé', async () => {
-    rep = (a) => (a.methode === 'GET' ? membres() : [404, { error: 'user_not_in_app' }]);
+    rep = (a) => (a.methode === 'GET' ? membres({ hub_user_id: ROBERT, role: 'member' }) : [404, { error: 'user_not_in_app' }]);
     expect((await jouer())![0].etat).toBe('pas_de_compte');
   });
   it('le propriétaire est l\'administrateur lui-même : rien ; organisation sans Mail : sans_espace ; inconnue : null', async () => {
