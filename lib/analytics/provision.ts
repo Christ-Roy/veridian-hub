@@ -47,7 +47,11 @@ export async function provisionnerAnalytics(
   let json: unknown = null;
   try { json = JSON.parse(brut); } catch { /* corps non JSON */ }
   // Route absente : Analytics ne sait pas encore créer depuis le Hub. Ce n'est pas un échec de l'ouverture, c'est un geste qui manque.
-  if (res.status === 404 && !json) return { ok: false, attente: 'Analytics ne crée pas encore les comptes depuis le Hub (route provision absente)' };
+  // Fastify rend aussi une route inconnue en JSON (`{"message":"Route POST:/api/tenants/provision not found","error":"Not Found"}`) : mesuré
+  // en prod le 26/11, où ce 404 passait pour un refus.
+  const j = (json ?? {}) as { message?: unknown; error?: unknown };
+  const routeAbsente = res.status === 404 && (!json || (typeof j.message === 'string' && /^Route .* not found$/i.test(j.message)) || j.error === 'Not Found');
+  if (routeAbsente) return { ok: false, attente: 'Analytics ne crée pas encore les comptes depuis le Hub (route provision absente)' };
   if (!res.ok) return { ok: false, error: `analytics_${res.status}${(json as { error?: string } | null)?.error ? `_${(json as { error: string }).error}` : ''}` };
   const r = Reponse.safeParse(json);
   if (!r.success) return { ok: false, error: 'analytics_reponse_illisible' };

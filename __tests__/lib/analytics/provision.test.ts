@@ -34,6 +34,11 @@ describe('provisionnerAnalytics', () => {
   it('route absente chez Analytics : attente nommée, rien écrit', async () => {
     const r = await provisionnerAnalytics(db, qui, 'T', { env: ENV, fetchImpl: (async () => new Response('Not Found', { status: 404 })) as never });
     expect(r).toMatchObject({ ok: false, attente: expect.stringContaining('route provision absente') });
+    // Mesuré en prod le 26/11 : le 404 de Fastify pour une route inconnue est du JSON.
+    const fastify = Response.json({ message: 'Route POST:/api/tenants/provision not found', error: 'Not Found', statusCode: 404 }, { status: 404 });
+    expect(await provisionnerAnalytics(db, qui, 'T', { env: ENV, fetchImpl: (async () => fastify) as never })).toMatchObject({ ok: false, attente: expect.stringContaining('route provision absente') });
+    // Un 404 MÉTIER (personne ou organisation inconnue) reste un refus dit.
+    expect(await provisionnerAnalytics(db, qui, 'T', { env: ENV, fetchImpl: (async () => Response.json({ error: 'tenant_not_found' }, { status: 404 })) as never })).toEqual({ ok: false, error: 'analytics_404_tenant_not_found' });
     expect((db as { tenant: { update: { mock: { calls: unknown[] } } } }).tenant.update.mock.calls).toHaveLength(0);
   });
   it('refus nommé, réponse illisible, Analytics non configuré : jamais un succès', async () => {
