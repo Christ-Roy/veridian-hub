@@ -403,7 +403,12 @@ export async function seDeconnecterDeApp(ctx: BrowserContext, app: AppKey, hote?
     await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
     await page.waitForTimeout(3_000);
   } catch (e) {
-    throw new NonAbouti(`bouton de déconnexion de ${app} introuvable : ${(e as Error).message.split('\n')[0]}`);
+    // La première ligne de Playwright ne dit que « Timeout » : la raison (masqué, intercepté par, instable) est plus bas, et l'écran avec.
+    const m = (e as Error).message;
+    const raison = m.split('\n').map((l) => l.trim()).filter((l) => /intercepts pointer|not visible|not stable|outside of the viewport|resolved to|detached/.test(l)).slice(-2).join(' ; ');
+    const capture = `.run/captures/deconnexion-${app}.png`;
+    await page.screenshot({ path: capture, fullPage: false }).catch(() => {});
+    throw new NonAbouti(`bouton de déconnexion de ${app} introuvable : ${m.split('\n')[0]}${raison ? ` (${raison.slice(0, 300)})` : ''} ; écran : ${capture}`);
   } finally {
     await page.close();
   }
