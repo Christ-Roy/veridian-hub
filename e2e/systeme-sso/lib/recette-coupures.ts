@@ -22,6 +22,8 @@ import { adresseDe, creerCompteProuve, ouvrirApp, PAGE_PROTEGEE, voirApp, type C
 import type { Recette } from './recette';
 import { ouvrirSaml } from './saml-jetable';
 
+const ACADEMY_URL = process.env.ACADEMY_URL || 'https://academy.app.veridian.site';
+
 type Json = any;
 type Issue = { app: string; etat: string; detail?: string };
 const ORIGINE = { origin: new URL(HUB_URL).origin };
@@ -598,7 +600,7 @@ async function tenir(r: Recette, c: Compte, apps: AppKey[], ouverts: BrowserCont
   return t;
 }
 
-function construirePortes(T: { slug: string; notifuseWorkspaceSlug?: string }, apps: AppKey[], origineCrm: string, communs: string[], an: { org: string } | null): Porte[] {
+function construirePortes(T: { slug: string; notifuseWorkspaceSlug?: string }, apps: AppKey[], origineCrm: string, communs: string[], an: { org: string } | null, academy = false): Porte[] {
   const MAIL = T.notifuseWorkspaceSlug ?? '';
   const mailApi = async (s: Tenue, chemin: string) => (s.jetonMail ? (await fetch(`${APP_URL.notifuse}${chemin}`, { headers: { Authorization: `Bearer ${s.jetonMail}` }, signal: AbortSignal.timeout(15_000) })).status === 200 : false);
   const ia = async (s: Tenue, nom: string, args: object) => {
@@ -625,6 +627,25 @@ function construirePortes(T: { slug: string; notifuseWorkspaceSlug?: string }, a
   }
   if (apps.includes('analytics') && an) {
     p.push({ groupe: 'Analytics', nom: 'analytics_sites', tous: 700, lit: async (s) => (await s.ctx.request.get(`${APP_URL.analytics}/api/organizations/${an.org}/sites`, { timeout: 15_000 })).status() === 200 });
+  }
+  // Academy (parente, 26/11 : sa réserve laisse passer les organisations e2e, 91df9a2). Un espace suspendu y est en LECTURE SEULE, avec le
+  // bandeau « Cet espace est suspendu » : la porte est fermée si le rebond du Hub est refusé ou si le bandeau s'affiche. Relue toutes les
+  // 31 s : le rebond a un anti-boucle de 30 s par app.
+  if (academy) {
+    p.push({
+      groupe: 'Academy',
+      nom: 'academy_espace',
+      tous: 31_000,
+      lit: async (s) => {
+        const page = await s.ctx.newPage();
+        try {
+          await page.goto(`${HUB_URL}/login?next=${encodeURIComponent(`${ACADEMY_URL}/`)}`, { waitUntil: 'domcontentloaded', timeout: 45_000 }).catch(() => undefined);
+          return page.url().startsWith(ACADEMY_URL) && !/Cet espace est suspendu/.test(await page.content().catch(() => ''));
+        } finally {
+          await page.close();
+        }
+      },
+    });
   }
   if (apps.includes('twenty')) p.push({ groupe: 'Porte MCP', nom: 'ia_crm', tous: 6_000, lit: (s) => ia(s, 'twenty.find_many_people', { limit: 1, select: ['id'] }) });
   if (apps.includes('notifuse')) p.push({ groupe: 'Porte MCP', nom: 'ia_mail', tous: 6_000, lit: (s) => ia(s, 'notifuse.contacts_list', { limit: 1 }) });
@@ -827,7 +848,10 @@ export async function suspensionOrganisation(r: Recette): Promise<string> {
   surProd();
   const T = await organisation(r);
   const apps = await appsDe(r);
-  const an0 = apps.includes('analytics') ? await analyticsDe(r) : null;
+  // Analytics : mesurée dès que la recette a une organisation Analytics, même si le document de l'organisation ne la cite pas (le Hub la
+  // suspend quand même : 26/11, « analytics=suspendu » sans porte lue).
+  const an0 = await analyticsDe(r);
+  if (an0 && !apps.includes('analytics')) apps.push('analytics');
   const ouverts: BrowserContext[] = [];
   let levee = false;
   let repriseDite = '';
@@ -839,7 +863,7 @@ export async function suspensionOrganisation(r: Recette): Promise<string> {
     const raisons: Record<string, string> = {};
     for (const [g, x] of Object.entries(sP.raisons)) raisons[g] = x;
     const communs = sP.espaces;
-    const portes = construirePortes(T, apps, sP.crm?.origine ?? '', communs, an0);
+    const portes = construirePortes(T, apps, sP.crm?.origine ?? '', communs, an0, true);
     const { mesurees, nonLues } = await controlePositif(portes, [sP]);
     if (!mesurees.length) throw new NonAbouti(`aucune porte lue avant la suspension : ${Object.entries(raisons).map(([g, x]) => `${g} ${x}`).join(' ; ')}`);
 
@@ -848,9 +872,9 @@ export async function suspensionOrganisation(r: Recette): Promise<string> {
     let resultat: undefined | { v: Verdict[]; supp: string[]; dit: string; retour: string };
     try {
       const { dernier } = await sonder(mesurees, sP, null);
-      const v = bilan(apps.map((a) => GROUPES[a]).concat('Porte MCP'), portes, mesurees, nonLues, dernier, raisons);
-      const ac = (susp.json.apps ?? []).find((a) => a.app === 'academy');
-      const supp = [`Academy=non mesuré (${ac ? `le Hub dit « ${ac.etat} », aucune porte lue chez elle` : 'le Hub ne la cite pas'}) [attendu : réservée à Robert]`];
+      const v = bilan(apps.map((a) => GROUPES[a]).concat('Academy', 'Porte MCP'), portes, mesurees, nonLues, dernier, raisons);
+      // Academy est maintenant une porte mesurée (bandeau de lecture seule ou rebond refusé) : plus de ligne « non mesuré » d'office.
+      const supp: string[] = [];
 
       // Revenir par le Hub dans le CRM : le Hub lit pourquoi et n'entre pas (l'anti-boucle du rebond dure 30 s).
       let retour = 'CRM absent de l\'organisation';

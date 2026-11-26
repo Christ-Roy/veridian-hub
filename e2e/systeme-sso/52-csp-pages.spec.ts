@@ -21,7 +21,7 @@ const PAGES = [
 /** Avertissement attendu d'une politique Report-Only, pas une violation. */
 const BRUIT = /'upgrade-insecure-requests' is ignored when delivered in a report-only policy/;
 
-cas('hub', 'CSP : chaque page du Hub vue par un client se charge sans aucune violation de la politique', async ({ browser }) => {
+cas(null, 'CSP : chaque page du Hub vue par un client se charge sans aucune violation de la politique', async ({ browser }) => {
   const E = await creerCompteProuve(browser, 'csp');
   const ctx = await contexteDe(browser, E);
   // La fenêtre de l'assistant, telle qu'une app l'insère pour l'organisation du compte (VER-203).
@@ -29,7 +29,8 @@ cas('hub', 'CSP : chaque page du Hub vue par un client se charge sans aucune vio
   const violations: string[] = [];
   let entetes = 0;
   try {
-    for (const [i, chemin] of pages.entries()) {
+    for (let i = 0; i < pages.length; i++) {
+      const chemin = pages[i];
       const page = await ctx.newPage();
       page.on('console', (m) => {
         const t = m.text();
