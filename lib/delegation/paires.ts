@@ -65,7 +65,9 @@ export const paireServie = (p: Paire, env: NodeJS.ProcessEnv = process.env, test
  * `etat.ts`, Robert 25/11) ; le propriétaire le coupe d'un clic et la coupure tient. Mesuré le 26/11 sur une organisation de test.
  */
 export const evenementOuvert = (cle: string, tenantId: string, env: NodeJS.ProcessEnv = process.env, test = false): boolean => {
-  const l = (env.DELEGATION_EVENEMENTS ?? '').split(',').map((x) => x.trim());
+  // Guillemets tolérés : la valeur est entre guillemets dans le job, sinon le `#` d'une clé (`notifuse>crm#activite`) ouvre un commentaire
+  // dans le fichier d'environnement de Nomad et tronque la liste (26/11 : « notifuse>crm » restait seul, ouvert à toutes les organisations).
+  const l = (env.DELEGATION_EVENEMENTS ?? '').replace(/^\s*"|"\s*$/g, '').split(',').map((x) => x.trim());
   return l.includes(cle) || l.includes(`${cle}@${tenantId}`) || (test && l.includes(`${cle}@test`));
 };
 /** Ce qu'une organisation peut régler : une action servie, ou un événement ouvert pour elle. L'ÉCHANGE d'un jeton, lui, reste aux actions. */

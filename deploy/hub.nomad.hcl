@@ -278,7 +278,7 @@ DELEGATION_SOURCES=crm
 # est allumé par défaut où Mail et le CRM sont ouverts (PAR_DEFAUT, lib/delegation/etat.ts), le propriétaire le coupe d'un clic. Seule ouverte (25/11) : celle de Robert ; le CRM sert sa garde (940b9eb,
 # Liaisons 0.5.0 chez lui), parcours vert en staging (cas 27). Ouvrir une autre organisation : le CRM d'abord. Depuis le 26/11, aussi les organisations
 # marquées de test (`@test`) : parcours Mail complet de la session Mail et recette de A à Z (cas 50) en prod, sans aucun client.
-DELEGATION_EVENEMENTS=notifuse>crm@359b76d5-bab7-4773-a889-cf4cf0248869,notifuse>crm@test,notifuse>crm#activite@test
+DELEGATION_EVENEMENTS="notifuse>crm@359b76d5-bab7-4773-a889-cf4cf0248869,notifuse>crm@test,notifuse>crm#activite@test"
 # Signature des appels du Hub vers les apps (lib/hmac/signature-hub.ts) : v2 (méthode, chemin, query, empreinte du corps, usage unique) pour
 # les apps listées, v1 ailleurs. N'ajouter une app qu'une fois sa vérification v2 servie et MESURÉE en prod (outil : v2 2xx, rejeu 401, autre
 # route 401, v1 2xx). Mail (bd3e66dc) et Academy (1e707d7) mesurés le 26/11. Analytics : v2 refusée en prod le 26/11, pas encore. Retour

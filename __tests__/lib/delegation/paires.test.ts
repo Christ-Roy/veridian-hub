@@ -85,3 +85,16 @@ describe('registre des paires', () => {
   });
   it('CLE_MCP : chaque app a son adresse au registre', () => expect(CLE_MCP).toEqual({ crm: 'twenty', notifuse: 'notifuse', prospection: 'prospection', academy: 'academy' }));
 });
+
+describe('evenementOuvert (26/11)', () => {
+  it('la liste entre guillemets se lit comme sans ; une clé à # ouvre sa seule paire, jamais la paire courte', () => {
+    const env = { DELEGATION_EVENEMENTS: '"notifuse>crm@T1,notifuse>crm#activite@test"' } as NodeJS.ProcessEnv;
+    expect([
+      evenementOuvert('notifuse>crm', 'T1', env),
+      evenementOuvert('notifuse>crm#activite', 'X', env, true),
+      evenementOuvert('notifuse>crm', 'AUTRE', env, true),
+      evenementOuvert('notifuse>crm', 'AUTRE', env),
+    ]).toEqual([true, true, false, false]);
+  });
+});
+
