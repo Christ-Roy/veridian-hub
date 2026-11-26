@@ -2233,6 +2233,27 @@ GET  /api/hub/workspace-admins?workspace_id=X   →  {members: [{hub_user_id, ro
   donc `nouveau-client`) et par `POST /api/admin/tenants/{id}/admins-plateforme` (`hub admin-partout`). Audit `admin.tenant.admins_plateforme`.
 - **Apps** : Mail SERVI (26/11, fiche Mail 95). Prospection, Analytics, Academy, CRM : à servir sur la même route, puis ajoutées à `APPS_ADMIN`.
 
+### 5.24 Fils de l'assistant « Mon IA » rangés dans l'app (VER-203, 26/11)
+
+La fenêtre de l'assistant (`/ia/chat`, servie par le Hub et insérée dans l'app) ne garde aucun message : chaque fil vit **dans la base de
+l'app hôte** (Robert, 22/11). Le Hub lit et écrit le fil par deux routes que l'app sert. Servies : Academy. À servir : Prospection, Mail, Analytics.
+Le CRM n'en est pas (chat natif, fils rangés par lui, `/api/ia/v1`). Code Hub : `lib/ia/fils.ts`, appelé par `app/api/ia/fil` et `app/api/ia/chat`.
+
+- **Signature** : la signature du Hub (§6.1.1, v2 dès que l'app est dans `HMAC_V2_APPS` : méthode, chemin, query, empreinte du corps, usage
+  unique). L'app refuse tout appel non signé (401), et toute origine navigateur : ces routes ne sont appelées que par le Hub, serveur à serveur.
+- **`GET <APP>/api/hub/ia/fils/:session?hub_user_id=&tenant_id=`** : `200 { messages: UIMessage[] }` si le fil existe pour CE triplet
+  (session, `hub_user_id`, `tenant_id`), `404` sinon. `session` est l'identifiant de session du Hub (UUID). `tenant_id` est l'organisation du
+  Hub (jamais l'identifiant d'espace de l'app). Un fil d'une autre personne ou d'une autre organisation rend `404`, comme un fil absent (pas de `403` : on ne dit pas qu'il existe).
+- **`PUT <APP>/api/hub/ia/fils/:session`** corps `{ hub_user_id, tenant_id, messages: UIMessage[] }` : remplace le fil entier, crée s'il manque.
+  `200 {}`. Un `PUT` sur une session déjà rangée pour un autre triplet rend `409 fil_autre_auteur`, sans rien écrire.
+  Le Hub envoie le fil complet après chaque tour (`onEnd`) ; un échec n'interrompt pas la réponse, il est journalisé (`[ia][fil]`).
+- **`UIMessage`** : le format du SDK `ai` (v5, `{ id, role, parts[], metadata? }`), stocké tel quel (JSON). L'app ne l'interprète pas, sauf pour
+  l'afficher si elle le souhaite. Borne : 1 Mo par fil (`413` au-delà), 200 messages au plus (le Hub ne coupe pas, l'app refuse).
+- **Données** : le fil est une donnée de l'organisation et de la personne. Il suit leur sort (suppression de l'organisation : fils supprimés ; retrait
+  d'un membre : ses fils dans cette organisation supprimés). Jamais de clé d'IA dans un fil : le Hub ne l'y met pas, l'app n'en attend pas.
+- **Épreuve côté app** (attendue avant qu'elle soit déclarée servie) : non signé → 401 ; rejeu v2 → 401 ; fil d'un autre `hub_user_id` → 404 ;
+  `PUT` puis `GET` du même triplet → mêmes messages ; corps de plus de 1 Mo → 413. Côté Hub, `__tests__/lib/ia/fils.test.ts`.
+
 ## 6. Authentification — 3 patterns
 
 ### 6.1 Pattern A — HMAC Hub (machine-to-machine)
