@@ -36,7 +36,7 @@ export function enteteCsp(env: Record<string, string | undefined> = process.env)
 export function nonce(): string {
   const o = new Uint8Array(16);
   crypto.getRandomValues(o);
-  return btoa(String.fromCharCode(...o));
+  return btoa(String.fromCharCode.apply(null, Array.from(o)));
 }
 
 export type Violation = { directive: string; bloque: string; page: string; source: string | null };
