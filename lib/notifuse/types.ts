@@ -101,6 +101,8 @@ export interface StatusResponse {
 export interface AttachOwnerInput {
   tenantId: string;
   ownerEmail: string;
+  /** La personne, par son identifiant Hub (`users.supabase_user_id`), jamais par sa seule adresse (VER-255) : Mail l'exigera. */
+  hubUserId: string;
   /** "owner" par défaut côté Notifuse si omis. */
   role?: 'owner' | 'admin';
 }

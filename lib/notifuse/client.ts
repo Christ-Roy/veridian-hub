@@ -154,7 +154,9 @@ export class NotifuseClient {
     const body: Record<string, unknown> = {
       tenant_id: input.tenantId,
       owner_email: input.ownerEmail,
+      hub_user_id: input.hubUserId,
     };
+    if (!input.hubUserId) throw new Error('NotifuseClient.attachOwner: hubUserId est requis (VER-255)');
     if (input.role) {
       body.role = input.role;
     }

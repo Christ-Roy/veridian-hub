@@ -53,6 +53,7 @@ async function main(): Promise<void> {
     await client.attachOwner({
       tenantId: 'fake-tenant-' + Date.now(),
       ownerEmail: 'probe@test.io',
+      hubUserId: '00000000-0000-4000-8000-000000000001',
     });
     ko('attachOwner(tenant inexistant)', 'aurait dû throw 404');
   } catch (err) {
@@ -67,6 +68,7 @@ async function main(): Promise<void> {
   const tenantId = `e2e${ts}probe`;
   const aliceEmail = `${tenantId}-alice@e2e.test`;
   const bobEmail = `${tenantId}-bob@e2e.test`;
+  const BOB_HUB = '00000000-0000-4000-8000-00000000b0b0';
 
   // 1. Provision (état initial : Alice est owner)
   try {
@@ -114,6 +116,7 @@ async function main(): Promise<void> {
     const a = await client.attachOwner({
       tenantId,
       ownerEmail: bobEmail,
+      hubUserId: BOB_HUB,
       role: 'owner',
     });
     ko(
@@ -127,7 +130,7 @@ async function main(): Promise<void> {
 
   // 4. Idempotence : attach Bob encore → already_attached=true
   try {
-    const a2 = await client.attachOwner({ tenantId, ownerEmail: bobEmail });
+    const a2 = await client.attachOwner({ tenantId, ownerEmail: bobEmail, hubUserId: BOB_HUB });
     if (a2.already_attached === true) {
       ok('attachOwner(Bob) idempotent', `already_attached=${a2.already_attached}`);
     } else {

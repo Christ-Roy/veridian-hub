@@ -162,6 +162,7 @@ describe('NotifuseClient HMAC requests', () => {
       expect(parsed).toEqual({
         tenant_id: 'robertbrunon',
         owner_email: 'robert.brunon@veridian.site',
+        hub_user_id: '11111111-1111-4111-8111-111111111111',
         role: 'owner',
       });
       return jsonResponse(200, {
@@ -179,6 +180,7 @@ describe('NotifuseClient HMAC requests', () => {
     const res = await client.attachOwner({
       tenantId: 'robertbrunon',
       ownerEmail: 'robert.brunon@veridian.site',
+      hubUserId: '11111111-1111-4111-8111-111111111111',
       role: 'owner',
     });
 
@@ -204,8 +206,15 @@ describe('NotifuseClient HMAC requests', () => {
     const corps: unknown[] = [];
     const fetchImpl = vi.fn(async (_u: string, init?: RequestInit) => { corps.push(JSON.parse(init!.body as string)); return jsonResponse(409, { error: 'owner_exists' }); });
     const client = new NotifuseClient({ apiUrl: API_URL, hubSecret: SECRET, fetchImpl: fetchImpl as unknown as typeof fetch });
-    await expect(client.attachOwner({ tenantId: 'ws', ownerEmail: 'b@x.fr', role: 'owner' })).rejects.toMatchObject({ code: 409 });
-    expect(corps).toEqual([{ tenant_id: 'ws', owner_email: 'b@x.fr', role: 'owner' }]);
+    await expect(client.attachOwner({ tenantId: 'ws', ownerEmail: 'b@x.fr', hubUserId: '11111111-1111-4111-8111-111111111111', role: 'owner' })).rejects.toMatchObject({ code: 409 });
+    expect(corps).toEqual([{ tenant_id: 'ws', owner_email: 'b@x.fr', hub_user_id: '11111111-1111-4111-8111-111111111111', role: 'owner' }]);
+  });
+
+  it('attachOwner désigne la personne par son hub_user_id et ne part jamais sans lui (VER-255)', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(200, {}));
+    const client = new NotifuseClient({ apiUrl: API_URL, hubSecret: SECRET, fetchImpl: fetchImpl as unknown as typeof fetch });
+    await expect(client.attachOwner({ tenantId: 'ws', ownerEmail: 'a@b.io', hubUserId: '' })).rejects.toThrow(/hubUserId/);
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it('attachOwner omet le champ role si non précisé (default Notifuse = owner)', async () => {
@@ -215,6 +224,7 @@ describe('NotifuseClient HMAC requests', () => {
       expect(parsed).toEqual({
         tenant_id: 'ws-1',
         owner_email: 'alice@test.io',
+        hub_user_id: '11111111-1111-4111-8111-111111111111',
       });
       return jsonResponse(200, {
         tenant_id: 'ws-1',
@@ -226,7 +236,7 @@ describe('NotifuseClient HMAC requests', () => {
       });
     });
     const client = new NotifuseClient({ apiUrl: API_URL, hubSecret: SECRET, fetchImpl });
-    const res = await client.attachOwner({ tenantId: 'ws-1', ownerEmail: 'alice@test.io' });
+    const res = await client.attachOwner({ tenantId: 'ws-1', ownerEmail: 'alice@test.io', hubUserId: '11111111-1111-4111-8111-111111111111' });
     expect(res.role).toBe('owner');
   });
 
@@ -242,7 +252,7 @@ describe('NotifuseClient HMAC requests', () => {
       }),
     );
     const client = new NotifuseClient({ apiUrl: API_URL, hubSecret: SECRET, fetchImpl });
-    const res = await client.attachOwner({ tenantId: 'ws-1', ownerEmail: 'alice@test.io' });
+    const res = await client.attachOwner({ tenantId: 'ws-1', ownerEmail: 'alice@test.io', hubUserId: '11111111-1111-4111-8111-111111111111' });
     expect(res.attached).toBe(false);
     expect(res.already_attached).toBe(true);
   });
@@ -256,7 +266,7 @@ describe('NotifuseClient HMAC requests', () => {
       maxRetries: 0,
     });
     await expect(
-      client.attachOwner({ tenantId: 'missing', ownerEmail: 'a@b.io' }),
+      client.attachOwner({ tenantId: 'missing', ownerEmail: 'a@b.io', hubUserId: '11111111-1111-4111-8111-111111111111' }),
     ).rejects.toMatchObject({ name: 'NotifuseError', code: 404 });
   });
 
