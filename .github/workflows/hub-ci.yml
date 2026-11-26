@@ -311,10 +311,13 @@ jobs:
       # DeploymentID sont exécutés CÔTÉ BASTION : ne pas les redupliquer ici.
       # ⚠️ On dépose le HCL DU REPO (qui déclare `variable "image_tag"`) sur stdin.
       - name: Put job HCL (verbe put-job)
+        # Rangé sous le tag (veridian-ci-deploy, 26/11) : deux exécutions parallèles ne partagent plus le même fichier.
+        env:
+          IMAGE_TAG: ${{ needs.docker.outputs.version }}
         run: |
           ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=20 -o StrictHostKeyChecking=accept-new \
             "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}" \
-            "put-job prod" < "$JOB_FILE"
+            "put-job prod ${IMAGE_TAG}" < "$JOB_FILE"
 
       - name: Deploy (verbe deploy)
         env:
@@ -334,10 +337,12 @@ jobs:
 
       - name: Cleanup remote HCL (verbe cleanup)
         if: always()
+        env:
+          IMAGE_TAG: ${{ needs.docker.outputs.version }}
         run: |
           ssh -i ~/.ssh/id_ed25519 -o BatchMode=yes -o IdentitiesOnly=yes -o ServerAliveInterval=30 -o ServerAliveCountMax=20 \
             "${{ secrets.NOMAD_BASTION_USER }}@${{ secrets.NOMAD_BASTION_HOST }}" \
-            "cleanup prod" || true
+            "cleanup prod ${IMAGE_TAG}" || true
 
       # Smoke public (le monitor Nomad a déjà garanti que le NOUVEL alloc est
       # healthy ; ce curl est une double-vérif via l'ingress public).
