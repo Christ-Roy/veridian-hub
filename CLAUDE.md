@@ -23,7 +23,8 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
 - **Batterie** : `pnpm test:systeme` (`SSO_NAVIGATEUR=distant`), depuis le bastion, sur ce qui est servi (staging : `HUB_URL=…`). Après une
   modification, rejouer chaque `SSO_SABOTAGE=<scénario>` : il doit échouer. Elle échoue s'il reste un compte. Les essais 48, 49 et la
   **recette de A à Z** (cas 50, prod, une organisation jetable, tableau et captures dans `.run/recette/`) ne tournent que nommés (`… 50-`).
-  « Servi » = déploiement Nomad `successful`, jamais le seul `/api/health` (le canari répond avant la bascule).
+  « Servi » = déploiement Nomad `successful`, jamais le seul `/api/health` (le canari répond avant la bascule). Pendant qu'elle tourne,
+  ni ses specs ni ses scripts ne se modifient : bash relit un script en cours (26/11).
 - **Signature vers les apps** (26/11) : `lib/hmac/signature-hub.ts`, seul signataire. `HMAC_V2_APPS` (job) liste les apps en v2 (méthode,
   chemin, query, empreinte du corps, usage unique : ts neuf à chaque essai) ; vide = v1. Prod : les cinq apps (CRM le 26/11) ; n'ajouter une app qu'après
   sa vérification v2 servie ET mesurée. Une app ferme la v1 après un jour sans v1 reçue.
@@ -61,10 +62,10 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
 - **Connexions extérieures** (`docs/CONNECTEURS.md`) : FERMÉES (Robert ouvre), aucun appel réel en épreuve. 43.
 - **CSP** (VER-265) : nonce (`lib/security/csp.ts`), bloquante (`CSP_MODE=appliquer`, retour `rapport`) ; rapports `[csp_violation]` ;
   garde : cas 52 ; zod sans eval (`lib/zod-sans-eval.ts`).
-- **Garde rapide** : `__tests__/contrat/` (révocation sans `iat`, `authAt`, cibles du rebond, origines) ; tout nouvel
+- **Garde rapide** : `__tests__/contrat/` (révocation sans `iat`, `authAt`, rebond, origines) ; tout nouvel
   `encode(` de JWT de session s'y ajoute. Détail : `docs/PARCOURS-IDENTITE.md`.
 - **Sonde de prod** : « Sonde identité » de `hub-ci.yml` ; reconcile alerte au-dessus de `RESIDUE_SEUIL` (0).
-- **Coupure** : aucune (pg-saas Patroni, bleu-vert). Changer les tags Traefik coupe 12 s : regrouper. `e2e/` ne redéploie rien.
+- **Coupure** : aucune (pg-saas Patroni, bleu-vert). Tags Traefik : 12 s de coupure, regrouper. La batterie ne redéploie rien.
 
 ## Que faire si
 
@@ -94,14 +95,10 @@ Outil admin : `hub` (`hub doctor` d'abord : santé, secret, auth admin). Aucune 
   Nomad, compte non créé). Un filtre : `bash scripts/test-systeme-sso.sh 08-`.
 - **Jeton Nomad 403** : `nomad-v` relit `~/credentials/nomad-bastion.env` ; `nomad-v acl status`. Jamais le jeton management.
 
-## Commandes
-
-Dév : `dev -d <domaine> pnpm dev` · `pnpm test` (nice 19).
-
 ## Où travailler (18/11)
 
-Dossier principal, sur `main`, jamais en worktree ; `git fetch && git status -sb` sans écart avant de commencer. La branche
-extraite ici pilote le démarrage de toutes les sessions (`infra-status.sh`).
+Dossier principal, sur `main`, jamais en worktree ; `git fetch && git status -sb` sans écart avant de commencer.
+Dév : `dev -d <domaine> pnpm dev` · `pnpm test` (nice 19).
 
 ## Déploiement : la prod vient de `main`
 

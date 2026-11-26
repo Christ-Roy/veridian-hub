@@ -14,6 +14,8 @@ on:
       - '**/*.md'
       # La batterie système ne part pas dans l'image : la modifier ne doit pas couper la prod.
       - 'e2e/systeme-sso/**'
+      - 'scripts/test-systeme-sso.sh'
+      - 'scripts/navigateur-distant.sh'
   pull_request:
     branches: [main]
     paths-ignore:
@@ -24,6 +26,8 @@ on:
       - '**/*.md'
       # La batterie système ne part pas dans l'image : la modifier ne doit pas couper la prod.
       - 'e2e/systeme-sso/**'
+      - 'scripts/test-systeme-sso.sh'
+      - 'scripts/navigateur-distant.sh'
   workflow_dispatch:
 
 # Un push sur main n'annule plus un déploiement lancé (24/11/2026). Sur main, seuls `test` et `docker` d'un run dépassé
