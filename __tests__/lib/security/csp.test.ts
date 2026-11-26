@@ -46,4 +46,10 @@ describe('ancetres', () => {
     expect([politique('N', false, '/login').includes("frame-ancestors 'self';"), politique('N', false, '/ia/chat').includes('frame-ancestors \'self\' https://*.app.veridian.site')]).toEqual([true, true]);
   });
 });
+describe('politique (chemin)', () => {
+  it('sans chemin, la politique protège comme une page ordinaire : le Hub seul peut l\'encadrer', () => {
+    expect(politique('N', false)).toContain("frame-ancestors 'self';");
+    expect(politique('N', false)).not.toContain("frame-ancestors 'self' https://*.app.veridian.site");
+  });
+});
 
