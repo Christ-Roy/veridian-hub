@@ -4,11 +4,14 @@
  * cas passent par ici.
  */
 import { createHash, randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { expect, type Browser } from '@playwright/test';
 
 import { HUB_URL } from './cibles';
 import { NonAbouti } from './etat';
+import { RUN_DIR } from './versions';
 
 const RETOUR = 'http://127.0.0.1:53682/callback';
 
@@ -31,7 +34,34 @@ export async function outil(jeton: string, name: string, args: Record<string, un
 }
 
 /** `SSO_MCP_CLIENT` réutilise un client déjà enregistré, comme le fait un vrai client IA. Un seul enregistrement par nom et par exécution : le Hub les borne par adresse (429 vu le 25/11), et plusieurs personnes partagent un client. */
-const enregistres = new Map<string, string>();
+/**
+ * Clients enregistrés, gardés SUR DISQUE par Hub et par nom (26/11) : en mémoire seulement, chaque redémarrage du processus de travail
+ * (après un échec) réenregistrait ; la batterie complète a atteint la limite du Hub et quatre cas sont sortis NON ABOUTIS (429).
+ * Un client a 7 jours au plus ; refusé par le Hub, il est oublié et réenregistré (`oublierClient`).
+ */
+const FICHIER_CLIENTS = join(RUN_DIR, 'mcp-clients.json');
+const SEPT_JOURS = 7 * 86_400_000;
+type Clients = Record<string, { id: string; le: number }>;
+const lireClients = (): Clients => { try { return existsSync(FICHIER_CLIENTS) ? JSON.parse(readFileSync(FICHIER_CLIENTS, 'utf8')) : {}; } catch { return {}; } };
+const cleClient = (clientName: string) => `${HUB_URL}|${clientName}`;
+const enregistres = {
+  get(clientName: string): string | undefined {
+    const c = lireClients()[cleClient(clientName)];
+    return c && Date.now() - c.le < SEPT_JOURS ? c.id : undefined;
+  },
+  set(clientName: string, id: string) {
+    const tous = lireClients();
+    tous[cleClient(clientName)] = { id, le: Date.now() };
+    mkdirSync(RUN_DIR, { recursive: true });
+    writeFileSync(FICHIER_CLIENTS, JSON.stringify(tous));
+  },
+};
+export function oublierClient(clientName: string) {
+  const tous = lireClients();
+  delete tous[cleClient(clientName)];
+  mkdirSync(RUN_DIR, { recursive: true });
+  writeFileSync(FICHIER_CLIENTS, JSON.stringify(tous));
+}
 async function enregistrer(adresse: string, clientName: string): Promise<string> {
   const demander = () => fetch(adresse, {
     method: 'POST',
@@ -78,6 +108,11 @@ export async function obtenirJetonMcp(browser: Browser, E: { etat: unknown }, cl
       if (r.url().includes('/oauth/authorize') && r.status() === 303 && loc.startsWith(RETOUR)) retour = loc;
     });
     await page.goto(url, { waitUntil: 'networkidle' });
+    // Un client gardé que le Hub ne connaît plus : pas de bouton. On l'oublie pour que le passage suivant le réenregistre.
+    if (!(await page.getByRole('button', { name: 'Autoriser' }).isVisible({ timeout: 15_000 }).catch(() => false))) {
+      oublierClient(clientName);
+      throw new NonAbouti(`consentement MCP sans bouton (client ${client} inconnu du Hub ?) : oublié, réenregistré au prochain passage`);
+    }
     await page.getByRole('button', { name: 'Autoriser' }).click();
     await expect.poll(() => retour, { timeout: 20_000 }).not.toBe('');
   } finally {
@@ -91,6 +126,9 @@ export async function obtenirJetonMcp(browser: Browser, E: { etat: unknown }, cl
     body: new URLSearchParams({ grant_type: 'authorization_code', code, client_id: client, redirect_uri: RETOUR, code_verifier: verifier, resource: prm.resource }).toString(),
     signal: AbortSignal.timeout(20_000),
   });
-  if (tok.status !== 200) throw new NonAbouti(`échange MCP refusé : HTTP ${tok.status}`);
+  if (tok.status !== 200) {
+    if (tok.status === 400 || tok.status === 401) oublierClient(clientName);
+    throw new NonAbouti(`échange MCP refusé : HTTP ${tok.status}`);
+  }
   return (await tok.json()).access_token as string;
 }
