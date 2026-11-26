@@ -38,13 +38,15 @@ vi.mock('next/navigation', () => ({
 
 // next/script rend une balise <script> en mode JSDOM
 vi.mock('next/script', () => ({
-  default: ({ id, children, dangerouslySetInnerHTML }: {
+  default: ({ id, children, dangerouslySetInnerHTML, nonce }: {
     id?: string;
     children?: React.ReactNode;
     dangerouslySetInnerHTML?: { __html: string };
+    nonce?: string;
   }) => (
     <script
       data-testid={`next-script-${id}`}
+      data-nonce={nonce}
       dangerouslySetInnerHTML={dangerouslySetInnerHTML}
     >
       {children}
@@ -68,6 +70,12 @@ describe('GoogleTagManager', () => {
     } else {
       process.env.NEXT_PUBLIC_GTM_ID = originalGtmId;
     }
+  });
+
+  it('le script inline de GTM porte le nonce de la CSP (VER-265) : sans lui, la CSP le bloque', () => {
+    process.env.NEXT_PUBLIC_GTM_ID = 'GTM-TEST';
+    const { getByTestId } = render(<GoogleTagManager nonce="N0NCE" />);
+    expect(getByTestId('next-script-gtm-script').getAttribute('data-nonce')).toBe('N0NCE');
   });
 
   it('retourne null + log console.error quand NEXT_PUBLIC_GTM_ID est absent', () => {

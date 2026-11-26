@@ -25,7 +25,8 @@ export { CHEMINS_SANS_GTM, estCheminSensible } from '@/lib/gtm';
  * `/onboard` est listé par avance — le flow de première connexion prévoit un
  * lien à 30 jours, donc un secret bien plus juteux qu'un reset à 1 h.
  */
-export function GoogleTagManager() {
+/** `nonce` : celui de la CSP (VER-265), lu par le layout ; sans lui, le script inline de GTM est bloqué. */
+export function GoogleTagManager({ nonce }: { nonce?: string } = {}) {
   const gtmId = process.env.NEXT_PUBLIC_GTM_ID;
   const pathname = usePathname();
 
@@ -55,6 +56,7 @@ export function GoogleTagManager() {
       {/* Google Tag Manager Script */}
       <Script
         id="gtm-script"
+        nonce={nonce}
         strategy="afterInteractive"
         dangerouslySetInnerHTML={{
           __html: `

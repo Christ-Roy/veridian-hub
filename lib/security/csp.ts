@@ -15,12 +15,13 @@ export function politique(nonce: string, dev = process.env.NODE_ENV === 'develop
     // Le rechargement à chaud du mode développement évalue du code ; la production, jamais.
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${dev ? " 'unsafe-eval'" : ''}`,
     // React pose des attributs style qu'aucun nonce ne couvre ; un style ne s'exécute pas.
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    // Google One Tap (/login) : sa feuille, son statut et son cadre viennent de accounts.google.com (relevé en Report-Only le 26/11).
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://accounts.google.com/gsi/",
     "font-src 'self' data: https://fonts.gstatic.com",
     // Avatars des fournisseurs (Google, Microsoft), pixels de mesure : des images, jamais du code.
     "img-src 'self' data: blob: https:",
-    "connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com",
-    "frame-src 'self' https://*.app.veridian.site https://www.googletagmanager.com https://js.stripe.com",
+    "connect-src 'self' https://accounts.google.com/gsi/ https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com",
+    "frame-src 'self' https://accounts.google.com/gsi/ https://*.app.veridian.site https://www.googletagmanager.com https://js.stripe.com",
     "object-src 'none'",
     "base-uri 'self'",
     ...(dev ? [] : ['upgrade-insecure-requests']),

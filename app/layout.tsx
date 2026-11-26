@@ -1,4 +1,5 @@
 import { Metadata } from 'next';
+import { headers } from 'next/headers';
 import { Toaster } from '@/components/ui/sonner';
 import { ThemeProvider } from '@/components/theme-provider';
 import { EnvProvider, EnvConfig } from '@/contexts/EnvContext';
@@ -61,6 +62,8 @@ export const metadata: Metadata = {
  * Les layouts spécifiques (marketing, dashboard) ajoutent leur propre UI.
  */
 export default async function RootLayout({ children }: PropsWithChildren) {
+  // Nonce de la CSP (VER-265), posé par le middleware : chaque script inline du layout le porte, sinon la CSP le bloque.
+  const nonce = (await headers()).get('x-nonce') ?? undefined;
   // 1. Capture environment variables from the Server (Docker Container)
   // This runs in Node.js where process.env is fully populated at RUNTIME
   const runtimeEnv: EnvConfig = {
@@ -91,6 +94,7 @@ export default async function RootLayout({ children }: PropsWithChildren) {
         {/* This makes env vars available synchronously to ALL client-side code */}
         <script
           id="env-script"
+          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: `window.__ENV__ = ${JSON.stringify(runtimeEnv)};`,
           }}
@@ -104,6 +108,7 @@ export default async function RootLayout({ children }: PropsWithChildren) {
         <EnvProvider initialEnv={runtimeEnv}>
           <Providers>
             <ThemeProvider
+              nonce={nonce}
               attribute="class"
               defaultTheme="light"
               enableSystem={false}
@@ -119,7 +124,7 @@ export default async function RootLayout({ children }: PropsWithChildren) {
         </EnvProvider>
 
         {/* Google Tag Manager Script */}
-        <GoogleTagManager />
+        <GoogleTagManager nonce={nonce} />
       </body>
     </html>
   );

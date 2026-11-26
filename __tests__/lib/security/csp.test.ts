@@ -11,6 +11,10 @@ describe('politique', () => {
     const p = politique('ABC', false);
     expect([p.includes("script-src 'self' 'nonce-ABC' 'strict-dynamic';"), p.includes("object-src 'none'"), p.includes('report-uri /api/csp'), /report-to|unsafe-inline'[^;]*;?\s*$/.test(p.split('; ').find((d) => d.startsWith('script-src'))!), p.includes('unsafe-eval')]).toEqual([true, true, true, false, false]);
     expect(politique('ABC', true)).toContain("'unsafe-eval'");
+    // Google One Tap sur /login (relevé en Report-Only le 26/11) : feuille, statut et cadre, jamais du script hors nonce.
+    const d = (n: string) => p.split('; ').find((x) => x.startsWith(n))!;
+    expect([d('style-src'), d('connect-src'), d('frame-src')].every((x) => x.includes('https://accounts.google.com/gsi/'))).toBe(true);
+    expect(d('script-src')).not.toContain('accounts.google.com');
   });
 });
 describe('enteteCsp', () => {
