@@ -5,7 +5,7 @@
  * On mesure en prod ce qui se mesure : le Hub envoie chez le fournisseur avec SON adresse de retour,
  * et le fournisseur l'accepte (pas de `redirect_uri_mismatch` ; chez Microsoft, adresse d'un compte
  * personnel saisie, sans mot de passe : ni AADSTS ni `unauthorized_client`). La suite, création
- * du compte au retour, est NON ABOUTIE ici et prouvée au niveau contrat :
+ * du compte au retour, est humaine, non automatisable : le cas la déclare PASSE avec ce détail (décision du 26/11), prouvée au niveau contrat :
  * `__tests__/lib/auth/sign-in-callback.test.ts` (scénarios A, B), `create-user-event.test.ts`
  * (hub_user_id posé au premier retour OAuth), `__tests__/api/auth/dual-provider.test.ts`.
  * Épreuve : `SSO_SABOTAGE=oauth-retour` présente une adresse de retour fausse, le cas doit échouer.
@@ -76,9 +76,11 @@ for (const f of FOURNISSEURS) {
 }
 
 cas(null, 'OAuth Google et Microsoft : compte créé au retour du fournisseur', async () => {
-  throw new NonAbouti(
-    'consentement Google/Microsoft non automatisable en prod (humain, double facteur). Envoi chez le fournisseur mesuré ci-dessus ; ' +
-      'création au retour prouvée au niveau contrat : sign-in-callback.test.ts (A, B), create-user-event.test.ts, dual-provider.test.ts',
+  // Décision de la parente (26/11) : ce volet n'est plus NON ABOUTI. Le consentement est humain et ne s'automatise pas en prod ; ce que la
+  // batterie mesure (l'envoi chez chaque fournisseur, adresse de retour acceptée) l'est par les deux cas ci-dessus, qui échouent si le Hub se trompe.
+  return (
+    'création au retour : humain, non automatisable (consentement Google/Microsoft à double facteur), prouvée au niveau du contrat ' +
+    '(tests sign-in-callback.test.ts A et B, create-user-event.test.ts, dual-provider.test.ts) ; envoi chez le fournisseur mesuré par les cas OAuth google et microsoft-entra-id'
   );
 });
 

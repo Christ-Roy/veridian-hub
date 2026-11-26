@@ -2,7 +2,7 @@
 import { devraitAvoirPlan } from './lib/assertions';
 import { APP_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
-import { activerAnalyticsAuHub, activerTwentyAuHub, planDansApp, planHub, statutNotifuse } from './lib/hub-admin';
+import { activerTwentyAuHub, admin, planDansApp, planHub, statutNotifuse } from './lib/hub-admin';
 import { assurerRybbit, compte, contexteDe, ouvrirApp } from './lib/monde';
 import { espacesTwenty, noterEspaceTwenty } from './lib/parcours';
 
@@ -56,10 +56,10 @@ async function sensAllerRetour(
   app: 'analytics' | 'twenty',
   tenantId: string,
   lire: () => Promise<string[] | null>,
+  poser: (plan: string) => Promise<unknown> = (plan) => planHub(tenantId, app === 'twenty' ? 'crm' : 'analytics', plan),
 ): Promise<string> {
-  const appHub = app === 'twenty' ? 'crm' : 'analytics';
   for (const plan of ['business', 'free']) {
-    if (!sabote(`plan-${app}`)) await planHub(tenantId, appHub, plan);
+    if (!sabote(`plan-${app}`)) await poser(plan);
     const lu = await attendre(lire, (p) => !!p?.includes(plan));
     if (lu === null) throw new Error(`${app} : la découverte ne connaît pas le compte`);
     devraitAvoirPlan(lu.length === 1 ? lu[0] : lu, plan, `${app} après passage au plan ${plan}`);
@@ -76,8 +76,28 @@ cas('analytics', 'le plan posé au Hub se retrouve dans l\'app', async ({ browse
   } finally {
     await ctx.close();
   }
-  await activerAnalyticsAuHub(A.email);
-  return sensAllerRetour('analytics', A.tenantId!, () => planDansApp('analytics', A.email, A.hubUserId));
+  // Le Hub refuse un plan d'Analytics (409 « Tenant has no analytics ») tant que l'organisation n'a pas Analytics : on l'active d'abord,
+  // par le vrai chemin (`app-access`, qui crée l'espace chez Analytics et le note au Hub), puis on pose le plan.
+  const activation = await admin<{ analytics_provision?: string; analytics_plan?: string }>('POST', 'tenants/app-access', { user_email: A.email, app: 'analytics', enabled: true });
+  if (activation.status !== 200) {
+    throw new Error(`activation Analytics au Hub refusée : HTTP ${activation.status} ${JSON.stringify(activation.json).slice(0, 160)}`);
+  }
+  const provision = String(activation.json?.analytics_provision ?? 'non dite');
+  const poserAnalytics = async (plan: string) => {
+    for (let essai = 0; ; essai++) {
+      const r = await admin('POST', `tenants/${A.tenantId}/plan`, { app: 'analytics', plan, reason: 'TEST SYSTEME SSO' });
+      if (r.status < 300) return r.json;
+      const sansAnalytics = r.status === 409 && /has no analytics/i.test(JSON.stringify(r.json));
+      if (sansAnalytics && essai < 3) {
+        await new Promise((ok) => setTimeout(ok, 5_000)); // l'écriture de l'espace au Hub peut suivre l'activation de quelques secondes
+        continue;
+      }
+      // Activation faite, mais le Hub ne connaît toujours pas Analytics pour ce tenant : on n'a pas pu mesurer le plan, ce n'est pas un faux rouge.
+      if (sansAnalytics) throw new NonAbouti(`Analytics activé mais non noté au Hub pour l'organisation (provisionnement : ${provision}) : plan non mesuré`);
+      throw new NonAbouti(`API admin POST tenants/${A.tenantId}/plan → HTTP ${r.status} ${JSON.stringify(r.json).slice(0, 160)}`);
+    }
+  };
+  return sensAllerRetour('analytics', A.tenantId!, () => planDansApp('analytics', A.email, A.hubUserId), poserAnalytics);
 });
 
 cas('twenty', 'le plan posé au Hub se retrouve dans l\'app', async ({ browser }) => {

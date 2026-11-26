@@ -1,6 +1,9 @@
 /**
- * F3 (VER-245) : une réponse humaine reçue dans Mail crée une tâche au CRM, une seule fois, et plus rien quand la liaison est coupée. Staging :
- * l'organisation est marquée de test, les espaces naissent pour ce cas. Mail est joué par l'épreuve, avec le secret que Mail rend au Hub.
+ * F3 (VER-245) : une réponse humaine reçue dans Mail crée une tâche au CRM, une seule fois, et plus rien quand la liaison est coupée. Staging, ou prod
+ * (26/11 : `notifuse>crm@test` est dans `DELEGATION_EVENEMENTS`) : l'organisation est marquée de test, les espaces naissent pour ce cas. Mail est joué par
+ * l'épreuve, avec le secret que Mail rend au Hub ; aucun mail ne part (la livraison est simulée et signée ici). En prod, le registre MCP n'est jamais
+ * écrit : l'entrée `twenty` est lue (absente, NON ABOUTI) et le volet « CRM éteint au registre » n'est pas joué. Si le CRM répond `crm_app_not_available`
+ * (l'app Liaisons n'est pas installée dans un espace neuf), le cas rend NON ABOUTI avec cette raison, jamais un faux vert ni un faux rouge.
  * `SSO_OUTIL_MAIL=<notifuse-veridian>/scripts/e2e/reponse-recue-staging.py` joue en plus la vraie émission de Mail.
  * `SSO_GARDER_MAIL=1` garde l'espace Mail, pour une vraie émission par la session Notifuse.
  * Épreuve : `SSO_SABOTAGE=reponse-humaine` ne confirme pas la liaison : le cas doit échouer.
@@ -12,16 +15,17 @@ import { expect } from '@playwright/test';
 
 import { APP_URL, HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
-import { activerTwentyAuHub, admin, adminOk, lookup, marquerTest, secretServiStaging } from './lib/hub-admin';
+import { activerTwentyAuHub, admin, adminOk, lookup, marquerTest, secretDe, secretServiStaging } from './lib/hub-admin';
 import { obtenirJetonMcp, outil } from './lib/mcp';
 import { creerCompteProuve, noterEspaceTwenty, type Compte } from './lib/parcours';
 
 const PAIRE = 'notifuse>crm';
 
 cas(null, 'une réponse humaine reçue dans Mail devient une tâche au CRM, une fois, et plus rien une fois coupée', async ({ browser }) => {
-  if (!/staging/.test(HUB_URL)) throw new NonAbouti('F3 n\'est joué par l\'épreuve qu\'en staging');
-  const MAIL = /staging/.test(APP_URL.notifuse) ? APP_URL.notifuse : 'https://notifuse.staging.veridian.site';
-  const mail = secretServiStaging('NOTIFUSE_HUB_API_SECRET');
+  const STAGING = /staging/.test(HUB_URL);
+  let MAIL = STAGING ? (/staging/.test(APP_URL.notifuse) ? APP_URL.notifuse : 'https://notifuse.staging.veridian.site') : APP_URL.notifuse;
+  const mail = STAGING ? secretServiStaging('NOTIFUSE_HUB_API_SECRET') : secretDe('NOTIFUSE_HUB_API_SECRET');
+  const CRM_STAGING = 'https://crm.staging.veridian.site/mcp';
   const versMail = async (methode: string, chemin: string, corps?: object) => {
     const body = corps ? JSON.stringify(corps) : '';
     const ts = String(Date.now());
@@ -37,16 +41,25 @@ cas(null, 'une réponse humaine reçue dans Mail devient une tâche au CRM, une 
   const slug = `e2erep${Date.now().toString(36)}`;
   let cree = false;
   try {
+    if (!STAGING) {
+      // Prod : le registre se LIT. Le CRM et Mail y ont leur entrée, sinon le cas n'a pas de quoi se mesurer et ne la fabrique pas.
+      const apps = (await adminOk<{ apps: { appKey: string; mcpUrl?: string; enabled?: boolean }[] }>('GET', 'mcp-apps')).apps;
+      const twenty = apps.find((a) => a.appKey === 'twenty');
+      if (!twenty?.mcpUrl || twenty.enabled === false) throw new NonAbouti('CRM absent (ou éteint) du registre MCP de prod : rien n\'est réinscrit, cas non joué');
+      const notifuse = apps.find((a) => a.appKey === 'notifuse');
+      if (notifuse?.mcpUrl) MAIL = new URL(notifuse.mcpUrl).origin;
+    }
     const P: Compte = await creerCompteProuve(browser, 'repprop');
+    if (!STAGING && !P.email.startsWith('e2e-sso-')) throw new NonAbouti('compte de test hors e2e-sso-… : refus de jouer en prod');
     await activerTwentyAuHub(P.email);
     const T = (await lookup(P.email)).json?.tenants?.[0];
     if (!T) throw new NonAbouti('compte de test sans tenant');
     noterEspaceTwenty(P.email, T.id);
     await marquerTest(T.id);
-    const crm = (enabled: boolean) => adminOk('POST', 'mcp-apps', { app_key: 'twenty', label: 'CRM', mcp_url: 'https://crm.staging.veridian.site/mcp', acces: 'tous', enabled });
-    await inscrire('twenty', 'CRM', 'https://crm.staging.veridian.site/mcp');
+    const crm = (enabled: boolean) => adminOk('POST', 'mcp-apps', { app_key: 'twenty', label: 'CRM', mcp_url: CRM_STAGING, acces: 'tous', enabled });
+    if (STAGING) await inscrire('twenty', 'CRM', CRM_STAGING);
     const prov = await versMail('POST', '/api/tenants/provision', { tenant_id: slug, owner_email: P.email, owner_hub_user_id: P.hubUserId, workspace_name: 'TEST réponse', plan: 'free', email_proven: true, metadata: { hub_user_id: P.hubUserId } });
-    if (prov.status >= 300) throw new NonAbouti(`espace Mail de staging : HTTP ${prov.status} ${JSON.stringify(prov.json).slice(0, 200)}`);
+    if (prov.status >= 300) throw new NonAbouti(`espace Mail de test : HTTP ${prov.status} ${JSON.stringify(prov.json).slice(0, 200)}`);
     cree = true;
     const lien = await versMail('POST', '/api/tenants/update-plan', { tenant_id: slug, plan: 'free', hub_tenant_id: T.id });
     if (lien.status >= 300) throw new NonAbouti(`lien de l'espace Mail : HTTP ${lien.status}`);
@@ -60,8 +73,20 @@ cas(null, 'une réponse humaine reçue dans Mail devient une tâche au CRM, une 
         await page.goto(`${HUB_URL}/dashboard/liaisons`, { waitUntil: 'networkidle' });
         const formulaire = page.locator('form', { has: page.locator(`input[value="${PAIRE}"]`) });
         expect(await formulaire.count(), `liaison proposée : ${(await page.locator('main').innerText().catch(() => page.url())).slice(0, 400)}`).toBe(1);
+        // Prod : la liaison est allumée par défaut dans une organisation neuve ; rien à allumer, la coupure et le rallumage se mesurent plus bas.
+        if (!STAGING && confirmer && bouton === 'Allumer' && (await formulaire.getByRole('button', { name: 'Allumer' }).count()) === 0 && (await formulaire.getByRole('button', { name: 'Couper' }).count()) > 0) return;
         await formulaire.getByRole('button', { name: bouton }).click();
-        if (!confirmer) return void (await expect(page.getByRole('status')).toContainText(bouton === 'Couper' ? 'coupée' : 'allumée'));
+        if (!confirmer) {
+          // Prod : une liaison coupée après un allumage par défaut n'a jamais été consentie, le rallumage passe alors par la confirmation.
+          if (!STAGING && bouton === 'Allumer') {
+            const issue = await Promise.race([page.waitForURL(/\/liaisons\/confirmer\//).then(() => 'confirmer'), page.getByRole('status').waitFor().then(() => 'direct')]);
+            if (issue === 'confirmer') {
+              await page.getByRole('button', { name: 'Allumer' }).click();
+              return void (await expect(page.getByText('Liaison allumée')).toBeVisible());
+            }
+          }
+          return void (await expect(page.getByRole('status')).toContainText(bouton === 'Couper' ? 'coupée' : 'allumée'));
+        }
         await page.waitForURL(/\/liaisons\/confirmer\//);
         if (process.env.SSO_SABOTAGE === 'reponse-humaine') return;
         await page.getByRole('button', { name: 'Allumer' }).click();
@@ -88,14 +113,18 @@ cas(null, 'une réponse humaine reçue dans Mail devient une tâche au CRM, une 
     const livrer = async (id: string, data: object = {}) => {
       let r = await recevoir(id, data);
       for (let i = 0; i < 8 && r[0] >= 500; i++) {
+        // Le CRM dit que l'app Liaisons n'est pas installée dans cet espace : ni réessai utile, ni verdict possible sur la tâche.
+        if (r[1]?.error === 'crm_app_not_available') throw new NonAbouti('crm_app_not_available : l\'app Liaisons n\'est pas installée dans l\'espace CRM de cette organisation de test, la tâche n\'a pas pu être mesurée');
         await new Promise((ok) => setTimeout(ok, 15_000));
         r = await recevoir(id, data);
       }
+      if (r[1]?.error === 'crm_app_not_available') throw new NonAbouti('crm_app_not_available : l\'app Liaisons n\'est pas installée dans l\'espace CRM de cette organisation de test, la tâche n\'a pas pu être mesurée');
       return r;
     };
     const jeton = await obtenirJetonMcp(browser, P, 'TEST F3');
     const compter = async (quoi: 'tasks' | 'people') => {
       const t = (await outil(jeton, 'executer_outil', { nom: `twenty.find_many_${quoi}`, arguments: { limit: 100, select: ['id', ...(quoi === 'tasks' ? ['title'] : ['emails'])] }, espace: T.slug })).texte.replace(/\\"/g, '"');
+      if (/app_not_available/.test(t)) throw new NonAbouti(`crm_app_not_available : lecture CRM ${quoi} impossible, l'app Liaisons n'est pas installée dans cet espace`);
       if (!/"success":\s*true|"records"|"count"|"result"/.test(t)) throw new NonAbouti(`lecture CRM ${quoi} : ${t.slice(0, 200)}`);
       return { n: new Set(t.match(/"id":\s*"[0-9a-f-]{36}"/g) ?? []).size, t };
     };
@@ -127,12 +156,15 @@ cas(null, 'une réponse humaine reçue dans Mail devient une tâche au CRM, une 
     // CRM éteint au registre du Hub : 5xx, la source réessaie, rien n'est perdu.
     const perdu = randomUUID();
     const autreFil = { thread_id: `t2_${n}`, email: `autre@reponse${n}.invalid` };
-    await crm(false);
-    try {
-      expect((await recevoir(perdu, autreFil))[0], 'CRM fermé : la source réessaiera').toBe(503);
-    } finally {
-      await crm(true);
+    if (STAGING) {
+      await crm(false);
+      try {
+        expect((await recevoir(perdu, autreFil))[0], 'CRM fermé : la source réessaiera').toBe(503);
+      } finally {
+        await crm(true);
+      }
     }
+    // Prod : le registre n'est jamais écrit, donc « CRM éteint » n'est pas joué ; la livraison suivante est la première de ce fil.
     const rattrape = await livrer(perdu, autreFil);
     expect([rattrape[0], ['cree', 'rejoue'].includes(rattrape[1].effet) || rattrape[1].raison === 'deja_traite'], `rattrapée : ${JSON.stringify(rattrape[1])}`).toEqual([200, true]);
     expect((await compter('tasks')).n, 'rattrapée : une seule tâche de plus').toBe(apres.n + 1);
@@ -149,8 +181,8 @@ cas(null, 'une réponse humaine reçue dans Mail devient une tâche au CRM, une 
 
     // La vraie émission de Mail (déclencheur, livreur, signature, HTTP, réessais), jouée par son outil : rien n'est signé par l'épreuve. Seule la
     // lecture IMAP ne l'est pas. Le contact connu du CRM retrouve sa fiche, l'inconnu en reçoit une.
-    const outilMail = process.env.SSO_OUTIL_MAIL;
-    let vraie = 'vraie émission non jouée (SSO_OUTIL_MAIL absent)';
+    const outilMail = STAGING ? process.env.SSO_OUTIL_MAIL : undefined; // jamais en prod : la vraie émission fait partir du courrier
+    let vraie = STAGING ? 'vraie émission non jouée (SSO_OUTIL_MAIL absent)' : 'vraie émission non jouée en prod (aucun mail)';
     if (outilMail) {
       const personnes = (await compter('people')).n;
       const emettre = (email: string, ...x: string[]) => {
@@ -174,7 +206,7 @@ cas(null, 'une réponse humaine reçue dans Mail devient une tâche au CRM, une 
       expect([p2.n - personnes, p2.t.includes(`neuf@reponse${n}.invalid`), p2.t.includes(`auto@reponse${n}.invalid`)], 'une personne de plus, l\'inconnue').toEqual([1, true, false]);
       vraie = 'vraie émission de Mail livrée (contact connu, inconnu), réponse automatique sans effet';
     }
-    return `espace ${slug}${process.env.SSO_GARDER_MAIL === '1' ? ` (gardé, tenant ${T.id})` : ''} : une tâche, une personne, rejeu et suite du fil sans rien de plus, CRM fermé 503 puis rattrapée, coupée sans effet, ancien secret refusé, ${vraie}`;
+    return `espace ${slug}${process.env.SSO_GARDER_MAIL === '1' ? ` (gardé, tenant ${T.id})` : ''} : une tâche, une personne, rejeu et suite du fil sans rien de plus, ${STAGING ? 'CRM fermé 503 puis rattrapée' : 'CRM fermé au registre non joué (registre de prod en lecture seule), fil suivant livré'}, coupée sans effet, ancien secret refusé, ${vraie}`;
   } finally {
     for (const k of poses) await admin('DELETE', `mcp-apps?app_key=${k}`);
     if (cree && process.env.SSO_GARDER_MAIL !== '1') {

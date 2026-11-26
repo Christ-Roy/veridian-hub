@@ -1,6 +1,8 @@
 /**
  * Prospection vers Mail (VER-245 b.2, F2) : un VRAI jeton de la porte, joué sur la route d'actions de Mail. Importe sans envoyer, une fois
- * par jeton, une fois par clé, et plus rien après le retrait. Staging seulement : l'espace Mail naît pour ce cas et meurt avec lui.
+ * par jeton, une fois par clé, et plus rien après le retrait. Staging, ou prod (26/11) : `notifuse` est dans `DELEGATION_CIBLES` de la prod. L'espace
+ * Mail naît pour ce cas et meurt avec lui ; en prod, sur une organisation marquée de test et des comptes e2e-sso-, sans aucun envoi (l'import ne
+ * fait partir aucun mail), et le registre MCP de prod n'est jamais écrit : l'entrée `notifuse` est lue, absente elle rend NON ABOUTI.
  * `SSO_GARDER_MAIL=1` garde l'espace.
  * Épreuve : `SSO_SABOTAGE=delegation-mail` rejoue le premier jeton au lieu d'en demander un neuf : le cas doit échouer.
  */
@@ -10,17 +12,18 @@ import { expect } from '@playwright/test';
 
 import { APP_URL, HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
-import { activerTwentyAuHub, admin, adminOk, lookup, secretServiStaging } from './lib/hub-admin';
+import { activerTwentyAuHub, admin, adminOk, lookup, marquerTest, secretDe, secretServiStaging } from './lib/hub-admin';
 import { creerCompteProuve, noterEspaceTwenty, type Compte } from './lib/parcours';
 
 const PAIRE = 'prospection>notifuse';
 
 cas(null, 'délégation vers Mail : importe sans envoyer, une fois par jeton et par clé, plus rien après le retrait', async ({ browser }) => {
-  if (!/staging/.test(HUB_URL)) throw new NonAbouti('Mail n\'est ouvert à la délégation qu\'en staging');
-  const MAIL = /staging/.test(APP_URL.notifuse) ? APP_URL.notifuse : 'https://notifuse.staging.veridian.site';
-  const ACTIONS = `${MAIL}/api/veridian/actions`;
-  const prospection = secretServiStaging('PROSPECTION_TENANT_API_SECRET');
-  const mail = secretServiStaging('NOTIFUSE_HUB_API_SECRET');
+  const STAGING = /staging/.test(HUB_URL);
+  let MAIL = STAGING ? (/staging/.test(APP_URL.notifuse) ? APP_URL.notifuse : 'https://notifuse.staging.veridian.site') : APP_URL.notifuse;
+  let ACTIONS = `${MAIL}/api/veridian/actions`;
+  const secret = (nom: string) => (STAGING ? secretServiStaging(nom) : secretDe(nom));
+  const prospection = secret('PROSPECTION_TENANT_API_SECRET');
+  const mail = secret('NOTIFUSE_HUB_API_SECRET');
   const versMail = async (methode: string, chemin: string, corps?: object) => {
     const body = corps ? JSON.stringify(corps) : '';
     const ts = String(Date.now());
@@ -31,18 +34,27 @@ cas(null, 'délégation vers Mail : importe sans envoyer, une fois par jeton et 
   let cree = false;
   let pose = false;
   try {
+    if (!STAGING) {
+      // Prod : le registre se LIT, jamais ne s'écrit. L'adresse d'action de Mail est celle que le Hub y a (même origine que son MCP).
+      const entree = (await adminOk<{ apps: { appKey: string; mcpUrl?: string; enabled?: boolean }[] }>('GET', 'mcp-apps')).apps.find((a) => a.appKey === 'notifuse');
+      if (!entree?.mcpUrl || entree.enabled === false) throw new NonAbouti('Mail absent (ou éteint) du registre MCP de prod : rien n\'est réinscrit, cas non joué');
+      MAIL = new URL(entree.mcpUrl).origin;
+      ACTIONS = new URL('/api/veridian/actions', entree.mcpUrl).toString();
+    }
     const P: Compte = await creerCompteProuve(browser, 'mailprop');
     const M: Compte = await creerCompteProuve(browser, 'mailmembre');
-    await activerTwentyAuHub(P.email); // fait naître le tenant du staging
+    if (!STAGING && !(P.email.startsWith('e2e-sso-') && M.email.startsWith('e2e-sso-'))) throw new NonAbouti('comptes de test hors e2e-sso-… : refus de jouer en prod');
+    await activerTwentyAuHub(P.email); // fait naître le tenant
     const T = (await lookup(P.email)).json?.tenants?.[0];
     if (!T) throw new NonAbouti('compte de test sans tenant');
     noterEspaceTwenty(P.email, T.id);
+    if (!STAGING) await marquerTest(T.id); // organisation de test : jamais un client
     const prov = await versMail('POST', '/api/tenants/provision', { tenant_id: slug, owner_email: P.email, owner_hub_user_id: P.hubUserId, workspace_name: 'TEST délégation', plan: 'free', email_proven: true, metadata: { hub_user_id: P.hubUserId } });
-    if (prov.status >= 300) throw new NonAbouti(`espace Mail de staging : HTTP ${prov.status} ${prov.texte}`);
+    if (prov.status >= 300) throw new NonAbouti(`espace Mail de test : HTTP ${prov.status} ${prov.texte}`);
     cree = true;
     const lien = await versMail('POST', '/api/tenants/update-plan', { tenant_id: slug, plan: 'free', hub_tenant_id: T.id });
     if (lien.status >= 300) throw new NonAbouti(`lien de l'espace Mail : HTTP ${lien.status} ${lien.texte}`);
-    if (!(await adminOk<{ apps: { appKey: string }[] }>('GET', 'mcp-apps')).apps.some((a) => a.appKey === 'notifuse')) {
+    if (STAGING && !(await adminOk<{ apps: { appKey: string }[] }>('GET', 'mcp-apps')).apps.some((a) => a.appKey === 'notifuse')) {
       await adminOk('POST', 'mcp-apps', { app_key: 'notifuse', label: 'Mail', mcp_url: `${MAIL}/api/mcp`, acces: 'tous', enabled: true });
       pose = true;
     }
@@ -52,10 +64,15 @@ cas(null, 'délégation vers Mail : importe sans envoyer, une fois par jeton et 
     try {
       const page = await ctx.newPage();
       await page.goto(`${HUB_URL}/dashboard/liaisons`, { waitUntil: 'networkidle' });
-      await page.locator('form', { has: page.locator(`input[value="${PAIRE}"]`) }).getByRole('button', { name: 'Allumer' }).click();
-      await page.waitForURL(/\/liaisons\/confirmer\//);
-      await page.getByRole('button', { name: 'Allumer' }).click();
-      await expect(page.getByText('Liaison allumée')).toBeVisible();
+      const formulaire = page.locator('form', { has: page.locator(`input[value="${PAIRE}"]`) });
+      // Prod : la paire est allumée par défaut dans une organisation neuve (PAR_DEFAUT), il n'y a alors rien à allumer. Le jeton, lui, se mesure plus bas.
+      const dejaAllumee = !STAGING && (await formulaire.getByRole('button', { name: 'Allumer' }).count()) === 0 && (await formulaire.getByRole('button', { name: 'Couper' }).count()) > 0;
+      if (!dejaAllumee) {
+        await formulaire.getByRole('button', { name: 'Allumer' }).click();
+        await page.waitForURL(/\/liaisons\/confirmer\//);
+        await page.getByRole('button', { name: 'Allumer' }).click();
+        await expect(page.getByText('Liaison allumée')).toBeVisible();
+      }
     } finally {
       await ctx.close();
     }
