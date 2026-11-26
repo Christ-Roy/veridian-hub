@@ -45,4 +45,20 @@ describe('POST /api/ia/etat', () => {
     expect((await lire()).status).toBe(429);
     expect(m.espace).not.toHaveBeenCalled();
   });
+  it('chaque réponse laisse une ligne [ia][etat] : app, statut, état ou erreur ; jamais la personne ni l\'organisation', async () => {
+    const log = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    await lire();
+    m.espace.mockResolvedValue(null);
+    await lire();
+    m.appel.mockResolvedValue({ statut: 401, error: 'invalid_signature' });
+    await lire();
+    const lignes = log.mock.calls.map((c) => JSON.parse(String(c[0])));
+    expect(lignes).toEqual([
+      { tag: '[ia][etat]', app: 'academy', statut: 200, quoi: 'sans_moteur' },
+      { tag: '[ia][etat]', app: 'academy', statut: 404, quoi: 'espace_inconnu' },
+      { tag: '[ia][etat]', app: 'inconnue', statut: 401, quoi: 'invalid_signature' },
+    ]);
+    expect(JSON.stringify(lignes).includes(U) || JSON.stringify(lignes).includes(T)).toBe(false);
+    log.mockRestore();
+  });
 });
