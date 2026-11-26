@@ -748,6 +748,13 @@ versionné `/api/v1/tenants/*` à partir du jour où on bumpe v2).
 | 8 | `DELETE /api/tenants/{id}` | HMAC Hub | `hub delete-tenant` (suppression d'un compte au Hub) | ✅ Notifuse (soft-delete), Twenty ; Prospection passe par le soft-delete §5.8.1 |
 | 9 | `POST /api/sso/issue-magic-link` | HMAC Hub | Bounce OAuth depuis Hub (cf. §6bis.8.3) | ✅ |
 
+**Analytics, provisionnement dès l'ouverture (26/11, parente, défaut remonté par Analytics)** : `POST /api/tenants/provision`, signé
+§6.1.1, corps `{ hub_user_id, email, name, hub_tenant_id, organization_name }`. L'app crée (ou retrouve) la personne PAR son `hub_user_id`
+(jamais par l'adresse ; adresse déjà prise par un autre compte : `409 email_conflict`) et l'organisation dont elle est propriétaire,
+reliée à `hub_tenant_id` (même règle que `link-hub` : jamais écrasé) ; idempotent ; `200 { organization_id }`. Aucun site n'est exigé :
+le client entre dans une organisation vide. Le Hub l'appelle depuis `ouvrir` et `app-access` (adresse prouvée seulement,
+`lib/analytics/provision.ts`) et note `metadata.analytics.workspace_id`. Route absente (404 sans JSON) : « attente » nommée, rien d'inventé.
+
 ### 5.1 `POST /api/tenants/provision`
 
 > **Identifiant d'espace Mail (25/11)** : choisi par le Hub, tiré de l'id du tenant (`workspaceIdDuTenant`), jamais de l'adresse ; un espace déjà noté garde le

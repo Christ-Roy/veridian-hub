@@ -18,6 +18,7 @@ import { lienApp } from '@/lib/apps/lien-app';
 import { montrerInclusAvecSite } from '@/lib/apps/inclus-avec-site';
 import { organisationsSeules } from '@/lib/tenants/membre-seul';
 import { resolveAnalyticsCardTarget } from '@/lib/analytics/dashboard-target';
+import { idEspaceMeta } from '@/lib/apps/espace-note';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 /**
@@ -145,8 +146,9 @@ export default async function DashboardPage({
   // l'app d'analytics reconnaît cet email et lui donne au moins un site, la
   // carte s'affiche même sans activation manuelle. Un client qui a un site
   // doit le voir ; l'inverse était un oubli d'activation silencieux.
+  // Un espace Analytics noté (provisionnement, `hub link`) suffit : sans site, le client doit pouvoir entrer (parente, 26/11).
   const showActiveAnalyticsBase =
-    isAnalyticsEnabled || hasLifetimeSiteVitrine || hasServiceAnalytics;
+    isAnalyticsEnabled || hasLifetimeSiteVitrine || hasServiceAnalytics || !!idEspaceMeta(tenant?.metadata, 'analytics');
   const showActiveCms = isCmsEnabled || hasLifetimeSiteVitrine || hasServiceCms;
 
   const emailProven = await isEmailProvenForSession(user.id);

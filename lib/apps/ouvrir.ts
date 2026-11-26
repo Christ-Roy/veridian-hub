@@ -5,6 +5,7 @@
 import type { PrismaClient } from '@prisma/client';
 
 import { ensureAcademyWorkspace } from '@/lib/academy/provision';
+import { provisionnerAnalytics } from '@/lib/analytics/provision';
 import { ensureCrmWorkspace } from '@/lib/crm/provision';
 import type { SyncApp } from '@/lib/sync/types';
 import { PAR_CLE } from '@/lib/auth/emprunt-bornes';
@@ -37,7 +38,12 @@ export async function ouvrirApps(db: PrismaClient, tenantId: string, apps: reado
     prospection: async () => { const r = await provisionProspectionTenant(u.email, hubUserId); return { ok: r.success, error: r.error }; },
     crm: async () => (u.emailVerified ? await ensureCrmWorkspace(db, qui, { actorEmail: deps.acteur }) : { ok: false, attente: 'adresse à prouver : sa première connexion' }) as never,
     academy: async () => (u.emailVerified ? await ensureAcademyWorkspace(db, qui, { actorEmail: deps.acteur }) : { ok: false, attente: 'adresse à prouver : sa première connexion' }) as never,
-    analytics: async () => ({ ok: false, attente: 'site à créer dans Analytics (skill rybbit)' }),
+    // Dès le provisionnement (parente 26/11) : Analytics crée la personne et son organisation, reliée ; route absente = attente nommée.
+    analytics: async () => {
+      if (!u.emailVerified) return { ok: false, attente: 'adresse à prouver : sa première connexion' };
+      const r = await provisionnerAnalytics(db, qui, tenantId);
+      return r.ok ? { ok: true } : { ok: false, attente: r.attente, error: r.error };
+    },
   };
   const res: Ouverture[] = [];
   // Une app après l'autre : deux créations en même temps se disputent le même tenant.
