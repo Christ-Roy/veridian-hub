@@ -71,7 +71,8 @@ for (const { app, chemin } of APPS.filter((x) => !process.env.SSO_MON_IA_APP || 
       // 1. Sans moteur : l'élément flottant dit « sans_moteur », le bouton « Relier mon IA » ouvre la carte, et jamais un cadre (avant ni après le clic).
       const p1 = await pageApp(ctx, app, chemin);
       const zone = p1.locator('[data-mon-ia]').first();
-      if (!(await zone.waitFor({ timeout: 20_000 }).then(() => true, () => false))) {
+      // Présent dans la page, pas forcément visible : chez Academy la marque est un conteneur sans taille autour d'un bouton fixe (27/11).
+      if (!(await zone.waitFor({ state: 'attached', timeout: 20_000 }).then(() => true, () => false))) {
         // Ce que la page montre à la place : l'adresse atteinte et le début du texte, pour qu'un NON ABOUTI se diagnostique sans rejouer.
         await p1.screenshot({ path: `.run/captures/mon-ia-${app}-sans-marque.png` });
         const u = new URL(p1.url());
