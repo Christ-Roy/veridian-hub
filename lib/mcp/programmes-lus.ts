@@ -3,7 +3,8 @@
  * Le Hub écrit `mcp.programme.debut` au lancement et `mcp.programme` à la fin (même identifiant `programme`). Un début sans fin
  * plus jeune que l'échéance du moteur est EN COURS ; plus vieux, il a été PERDU (moteur ou Hub arrêté pendant qu'il tournait).
  * Sert d'abord à choisir une fenêtre sans programme client avant de remplacer le moteur (cas 20, parente, 26/11).
- * Aucune adresse ni aucun code rendu : un compte d'épreuve se reconnaît à son adresse (`estCompteDeTest`), le reste est « client ».
+ * Aucune adresse ni aucun code rendu : un compte d'épreuve est noté à l'écriture (`essai`, par `estCompteDeTest`), sinon reconnu à son
+ * adresse ; le reste est « client ».
  */
 import { estCompteDeTest } from '@/lib/email/compte-de-test';
 
@@ -49,7 +50,11 @@ export async function lireProgrammes(db: DbProgrammes, depuis: Date, maintenant 
   for (const l of lignes) {
     const id = champ(l.payload, 'programme');
     if (typeof id !== 'string') continue;
-    const p = parId.get(id) ?? { programme: id, qui: l.targetId && essai.has(l.targetId) ? 'essai' : 'client', debut: null, fin: null, etat: null, ms: null };
+    // Noté à l'écriture depuis le 26/11 (le compte d'essai est supprimé après sa batterie) ; avant, retrouvé par l'adresse du compte.
+    const note = champ(l.payload, 'essai');
+    const qui: ProgrammeLu['qui'] = (typeof note === 'boolean' ? note : !!l.targetId && essai.has(l.targetId)) ? 'essai' : 'client';
+    const p = parId.get(id) ?? { programme: id, qui, debut: null, fin: null, etat: null, ms: null };
+    if (qui === 'essai') p.qui = 'essai';
     if (l.action === ACTION_DEBUT) p.debut = l.createdAt.toISOString();
     else {
       p.fin = l.createdAt.toISOString();

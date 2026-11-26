@@ -633,7 +633,7 @@ describe('executer_programme', () => {
     expect(l.find((x) => x.action === 'mcp.programme').payload).toMatchObject({ programme: r.programme, etat: 'termine', appels: 2, echecs: 0, autoriser: ['analytics.creer_objectif'] });
     // Le début est tracé AVANT le premier appel : un programme qui tourne se voit (cas 20, remplacement du moteur).
     const debut = l.findIndex((x) => x.action === 'mcp.programme.debut' && x.payload.programme === r.programme);
-    expect([debut >= 0, debut < l.findIndex((x) => x.action === 'mcp.tool.call')]).toEqual([true, true]);
+    expect([debut >= 0, debut < l.findIndex((x) => x.action === 'mcp.tool.call'), typeof l[debut]?.payload.essai]).toEqual([true, true, 'boolean']);
     expect(JSON.stringify(l)).not.toMatch(/SECRET_DU_CODE|CONFIDENTIEL|secret/);
   });
 

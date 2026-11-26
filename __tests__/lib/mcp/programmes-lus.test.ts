@@ -28,6 +28,10 @@ describe('lireProgrammes', () => {
     ]), a(120), T0);
     expect([r.aucun_client_en_cours, r.dernier_client, r.termines]).toEqual([true, a(90).toISOString(), { essai: 0, client: 1 }]);
   });
+  it('essai noté à l\'écriture : reconnu même après la suppression du compte', async () => {
+    const r = await lireProgrammes(db([ligne('mcp.programme.debut', 'u-supprime', 'p1', 1, { essai: true }), ligne('mcp.programme.debut', 'u-supprime', 'p2', 1, { essai: false })]), a(120), T0);
+    expect(r.en_cours.map((p) => [p.programme, p.qui])).toEqual([['p1', 'essai'], ['p2', 'client']]);
+  });
   it('un compte introuvable compte client, jamais essai ; aucune adresse ne sort', async () => {
     const r = await lireProgrammes(db([ligne('mcp.programme.debut', 'u-supprime', 'p1', 1)]), a(120), T0);
     expect([r.en_cours[0].qui, r.aucun_client_en_cours, JSON.stringify(r).includes('@')]).toEqual(['client', false, false]);

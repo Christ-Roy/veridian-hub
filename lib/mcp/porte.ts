@@ -15,6 +15,7 @@ import { listerIntegrations } from '@/lib/delegation/interrupteur';
 import { reglerEtSuivre } from '@/lib/delegation/regler';
 
 import type { DbObligation } from '@/lib/federation/obligation';
+import { estCompteDeTest } from '@/lib/email/compte-de-test';
 
 import { hubIssuer, PROTOCOLES, SORTIE_MAX_CAR } from './config';
 import type { Appelant } from './oauth';
@@ -317,7 +318,7 @@ async function programme(db: DbPorte, qui: Appelant, cat: Catalogue, args: Recor
   const id = randomUUID();
   // Le début se trace avant de jouer : sans lui, un programme en cours est invisible (le moteur ne se remplace que hors programme client).
   await db.auditLog
-    .create({ data: { action: ACTION_DEBUT, actor: `oauth:${qui.clientId}`, targetType: 'user', targetId: qui.hubUserId, payload: { programme: id, tenant_id: choisi.tenantId ?? null, code_car: code.length } } })
+    .create({ data: { action: ACTION_DEBUT, actor: `oauth:${qui.clientId}`, targetType: 'user', targetId: qui.hubUserId, payload: { programme: id, essai: estCompteDeTest(qui.email), tenant_id: choisi.tenantId ?? null, code_car: code.length } } })
     .catch((err) => console.error('[mcp] journal impossible', err));
   const abandon = new AbortController();
   // Une session par app pour tout le programme : sans cela, trois requêtes par appel useraient le débit de l'app.
@@ -370,6 +371,7 @@ async function programme(db: DbPorte, qui: Appelant, cat: Catalogue, args: Recor
           targetId: qui.hubUserId,
           payload: {
             programme: id,
+            essai: estCompteDeTest(qui.email),
             code_sha256: createHash('sha256').update(code).digest('hex'),
             code_car: code.length,
             tenant_id: choisi.tenantId ?? null,
