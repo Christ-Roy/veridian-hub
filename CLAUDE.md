@@ -47,23 +47,24 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   et registre (`hub mcp-app add`), ne code aucun outil d'app, présente à l'app un JWT ES256 (`MCP_SIGNING_JWK`).
   `tenant_id` signé seulement si l'IA choisit un espace ; espace non relié → `hub relier --app <app>`. Liens d'ajout : `GET /api/mcp/liens-installation` (public).
 - **Mode programme** (24/11, VER-241) : le code d'un client tourne dans le groupe `programme` (rise), sans réseau ni secret ;
-  anciens clients par `hub.executer_programme`. Fermé par défaut : seule `app/api/mcp` l'offre, jamais Mon IA. Preuve sur ce
-  qui est servi : `scripts/epreuve-programme.sh hub` (0/1/2), cas 18 à 20. Une app qui coupe ses réponses lit `X-Veridian-MCP-Appel`.
+  anciens clients par `hub.executer_programme`. Fermé par défaut : seule `app/api/mcp` l'offre. Preuve : `scripts/epreuve-programme.sh
+  hub`, cas 18 à 20. Une app qui coupe ses réponses lit `X-Veridian-MCP-Appel`.
   Trace : début et fin au journal, `hub raw GET programmes` ; cas 20 jamais pendant un programme client.
 - **Mon IA** (VER-203, `docs/MON-IA.md`) : le connecteur d'abord, jamais de clé proposée quand il suffit ; une clé ne sert qu'au chat natif
   du CRM (`/api/ia/v1`). `hub ia brancher <email> --fournisseur <f> --depuis <VARIABLE>`. Ateliers : un par tenant, rise.
 - **Appartenance, rôle, délégation** (VER-245, contrat §5.19.3 à §5.19.5) : `lib/tenants/membres.ts` seul écrivain de
   `tenant_members`. Rôle porté aux apps (`ROLE_PORTE`) : fermé sans Robert. Liaisons (`DELEGATION_CIBLES`) : ouvertes, éteintes jusqu'au
   clic du propriétaire ; jamais de jeton à `act` sans « garde servie ». Organisation unique (§5.19.6, `hub org`). Cas 21 à 26.
-- **Adresses** (§5.19.6 à 8) : changement fermé chez Academy et par compte non relié ; l'ancienne est prévenue et annule 72 h (`lib/adresses/annulation.ts`). 30 à 33, 42.
-- **Fournisseur d'une organisation** (§5.19.6) : OIDC ou SAML, posé par nous (`hub org idp`) ou par le propriétaire à l'écran (sans domaine, essai d'abord). Session bornée à l'organisation. 39, 41.
+- **Adresses** (§5.19.6 à 8) : changement fermé chez Academy et pour un compte non relié ; l'ancienne adresse annule 72 h. 30 à 33, 42.
+- **Fournisseur d'une organisation** (§5.19.6) : OIDC ou SAML, `hub org idp` ou à l'écran (essai d'abord). Session bornée à l'organisation. 39, 41.
 - **Connexion obligatoire** (§5.19.6, VER-261) : `hub org connexion`. Toute lecture d'espaces prend une `Preuve` (`lib/federation/obligation.ts`). 46.
 - **Connexions extérieures** (`docs/CONNECTEURS.md`) : FERMÉES (Robert ouvre), aucun appel réel en épreuve. 43.
+- **CSP** (VER-265) : nonce (`lib/security/csp.ts`), bloquante (`CSP_MODE=appliquer`, retour `rapport`) ; rapports `[csp_violation]` ;
+  garde : cas 52 ; zod sans eval (`lib/zod-sans-eval.ts`).
 - **Garde rapide** : `__tests__/contrat/` (révocation sans `iat`, `authAt`, cibles du rebond, origines) ; tout nouvel
   `encode(` de JWT de session s'y ajoute. Détail : `docs/PARCOURS-IDENTITE.md`.
-- **Sonde de prod** : « Sonde identité » de `hub-ci.yml` (lecture seule) ; reconcile alerte au-dessus de `RESIDUE_SEUIL` (0).
-- **Coupure** : aucune (08/11). Base sur pg-saas (Patroni), app en bleu-vert (canari, health check Traefik). Changer les
-  tags Traefik coupe 12 s : regrouper. `e2e/systeme-sso/**` ne redéploie rien.
+- **Sonde de prod** : « Sonde identité » de `hub-ci.yml` ; reconcile alerte au-dessus de `RESIDUE_SEUIL` (0).
+- **Coupure** : aucune (pg-saas Patroni, bleu-vert). Changer les tags Traefik coupe 12 s : regrouper. `e2e/` ne redéploie rien.
 
 ## Que faire si
 
@@ -131,5 +132,5 @@ Jamais de limite visible. Stripe → Hub → apps, jamais Stripe → app.
 ## CI/CD
 
 `hub-ci.yml` : test → audit → docker → trivy → deploy-prod (`main`) → e2e-prod-smoke → rollback. CVE de l'image servie : `secu`.
-Logs `nomad-v logs <alloc stack>`, redeploy `nomad-v run hub`.
+Journaux : jeton de déploiement (`read-logs`) ou Loki (`obs search`). Redeploy `nomad-v run hub`.
 

@@ -285,7 +285,7 @@ DELEGATION_EVENEMENTS=notifuse>crm@359b76d5-bab7-4773-a889-cf4cf0248869,notifuse
 # arrière : retirer l'app, puis déployer.
 HMAC_V2_APPS=notifuse,academy,analytics,prospection,crm
 # CSP (VER-265) : rapport = Report-Only (violations dans les journaux, [csp_violation]) ; appliquer = bloquante, après un parcours relu.
-CSP_MODE=rapport
+CSP_MODE=appliquer
 # Adresses à qui le Hub n'écrit jamais (lib/email/send.ts) : la boîte perso de Robert pour le compte « Préprod CRM » (24/11).
 MAILS_BLOQUES_SHA256=ff9b9ff3e94543f4
 {{ with nomadVar "nomad/jobs/hub" }}
