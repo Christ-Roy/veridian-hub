@@ -90,6 +90,14 @@ describe('setAppPlan', () => {
     expect(corps).toMatchObject({ trial_status: 'trial_active', trial_ends_at: '2026-12-01T00:00:00.000Z' });
   });
 
+  it('base sans $executeRaw : le plan accepté par l\'app ne s\'écrit jamais en réécrivant metadata entier (26/11)', async () => {
+    const { db, ligne } = fausseBase({ analytics: { linked_at: 'x' }, autre: 1 });
+    const update = vi.fn();
+    const sans = { ...db, $executeRaw: undefined, tenant: { ...db.tenant, update } };
+    await expect(setAppPlan(sans, { tenantId: 't-1', app: 'analytics', plan: 'business', planSource: 'grant_manual' }, { env, fetchImpl: reponse(200, {}) as never })).rejects.toThrow();
+    expect([update.mock.calls.length, ligne.metadata]).toEqual([0, { analytics: { linked_at: 'x' }, autre: 1 }]);
+  });
+
   it('accepté par l\'app : écrit metadata.<app>_plan sans perdre le reste', async () => {
     const { db, ligne } = fausseBase({ analytics: { linked_at: 'x' }, autre: 1 });
     const r = await setAppPlan(db, { tenantId: 't-1', app: 'analytics', plan: 'business', planSource: 'grant_manual', setBy: 'admin' }, { env, fetchImpl: reponse(200, {}) as never });
