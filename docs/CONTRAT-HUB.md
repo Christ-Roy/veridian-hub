@@ -2254,6 +2254,35 @@ Le CRM n'en est pas (chat natif, fils rangés par lui, `/api/ia/v1`). Code Hub :
 - **Épreuve côté app** (attendue avant qu'elle soit déclarée servie) : non signé → 401 ; rejeu v2 → 401 ; fil d'un autre `hub_user_id` → 404 ;
   `PUT` puis `GET` du même triplet → mêmes messages ; corps de plus de 1 Mo → 413. Côté Hub, `__tests__/lib/ia/fils.test.ts`.
 
+### 5.25 Activité Mail par lots vers le CRM (Mail → Hub → CRM, Robert 26/11 ; validé par Mail le 26/11)
+
+Chaque fiche CRM reçoit un dossier « Mail » : une ligne par message (envoyé, remis, ouvert, cliqué, rejeté, désinscrit, reçu), **jamais le corps**.
+Mail envoie l'activité au Hub par lots, le Hub la relaie au CRM. À servir côté Hub (route ci-dessous) ; côté Mail, outbox après la revérification DKIM.
+
+- **Route** : `POST {HUB}/api/evenements/notifuse/lot`, corps JSON, signée comme le canal d'événements existant (`/api/evenements/notifuse`) :
+  Standard Webhooks (`webhook-id`, `webhook-timestamp`, `webhook-signature`), secret **propre à l'espace**, posé par le Hub à l'abonnement
+  (`abonnerParDefaut`), `webhook-id` = `lot_id`. Un secret fuité ne touche qu'un espace ; sa rotation existe déjà.
+- **Corps** : `{ workspace_id, lot_id (UUID, rejouable), evenements: [...] }`. Le Hub retrouve l'organisation par l'abonnement de l'espace ;
+  un `hub_tenant_id` envoyé et différent rend `409 tenant_incoherent`, rien n'est traité.
+- **Un événement** : `{ event, occurred_at (RFC 3339), rfc_message_id, thread_id, recipient_email, from_email, from_name, subject, nature, list_id?,
+  automation_id?, broadcast_id?, bounce_type? (hard|soft), host? }`.
+  `event` ∈ `message.sent|delivered|opened|clicked|bounced|unsubscribed|received` ; `nature` ∈ `campaign|sequence|transactional|reply_human|reply_auto|bounce`.
+  `host` (clic seulement) : l'hôte du lien, **jamais l'URL** (ses paramètres peuvent porter des jetons). `subject` tronqué à 200 caractères.
+- **Bornes** : 200 événements et 1 Mo par lot (`413` au-delà). `occurred_at` de plus de 7 jours, ou de plus de 5 min dans le futur : événement ignoré, compté.
+- **Idempotence** : `(workspace_id, rfc_message_id, event)` ; un doublon est accepté sans effet. Plusieurs ouvertures ou clics d'un message ne font
+  qu'une ligne (la première) ; Mail dédoublonne aussi en amont.
+- **Réponses** : `200 { acceptes, doublons, ignores: [{ index, raison }] }`. `400` (lot illisible), `409`, `413` : refus définitif du lot entier,
+  Mail l'abandonne en le journalisant, sans rejeu. `401` : signature refusée, Mail alerte puis rejoue après resynchronisation de l'abonnement.
+  `429` et `5xx` : rejeu avec attente croissante, `Retry-After` respecté.
+- **Relais au CRM** (parente, 26/11) : seuls les destinataires qui **existent déjà** dans l'espace CRM de l'organisation reçoivent une ligne (correspondance
+  d'adresse) ; seule une réponse humaine (`nature = reply_human`) crée une personne, comme le relais actuel des réponses (VER-247). La liaison
+  `notifuse>crm` doit être allumée (sinon : accepté au Hub, rien relayé, compté).
+- **Données** : `recipient_email` ne sert qu'à retrouver la personne ; le Hub ne le journalise pas. Le canal `message.received` actuel reste
+  en parallèle jusqu'à la bascule.
+- **Épreuves** (avant de dire « servi ») : signature d'un autre espace → 401 ; même lot rejoué → 200, tout en `doublons` ; 201 événements → 413 ;
+  `hub_tenant_id` faux → 409 ; destinataire absent du CRM → ignoré, aucune personne créée ; `reply_human` → personne créée. Preuve en prod : un envoi
+  réel suivi d'une ouverture, lus dans la fiche CRM (cas de batterie).
+
 ## 6. Authentification — 3 patterns
 
 ### 6.1 Pattern A — HMAC Hub (machine-to-machine)
