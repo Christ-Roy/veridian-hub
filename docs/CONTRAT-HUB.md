@@ -535,7 +535,8 @@ au Hub**. Les tables `users` locales restent, comme des copies alimentées par l
 - **Suppression d'un compte** (`hub delete-tenant`, `lib/apps/deprovision.ts`) : avant de retirer le compte, le Hub
   retire ses espaces dans les apps. Prospection : soft-delete §5.8.1, purge à 90 jours (immédiate pour un compte de
   test). Notifuse : `DELETE /api/tenants/<slug>`, que Notifuse traite en soft-delete. Twenty : `DELETE
-  /api/tenants/<tenant Hub>`. Rybbit : le signal « supprimé » coupe l'accès, sites et rapports gardés. Un échec
+  /api/tenants/<tenant Hub>`. Rybbit (27/11) : `DELETE /api/tenants/<tenant Hub>` ; `purge` si tous les membres sont des
+  comptes de test, sinon `conserve` (accès coupé, organisation suspendue, sites et rapports gardés, fils Mon IA supprimés). Un échec
   d'app ne bloque pas la suppression au Hub, il est rendu dans `apps` et `hub reconcile` le voit. Test :
   `__tests__/lib/apps/deprovision.test.ts`.
 - **Exception opérateur** : l'accès de secours du §1.4, jamais pour un client.

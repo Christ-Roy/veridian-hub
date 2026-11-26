@@ -19,6 +19,8 @@ const env = {
   CRM_HUB_API_SECRET: 'sc',
   ACADEMY_API_URL: 'https://academy.test',
   ACADEMY_HUB_API_SECRET: 'sa',
+  ANALYTICS_API_URL: 'https://analytics.test',
+  ANALYTICS_HUB_API_SECRET: 'sy',
 } as NodeJS.ProcessEnv;
 const MAINTENANT = new Date('2026-11-09T18:00:00Z');
 const tenant = { id: 't1', notifuseWorkspaceSlug: 'ws1', prospectionProvisionedAt: new Date(), metadata: { crm: { workspace_id: 'w' } } };
@@ -40,6 +42,14 @@ describe('deprovisionnerCompte', () => {
     const h = init.headers as Record<string, string>;
     expect(h['X-Veridian-Hub-Signature']).toBe(createHmac('sha256', 'sa').update(`${h['X-Veridian-Timestamp']}.`).digest('hex'));
     expect(issues.filter((i) => i.app === 'academy')).toEqual([{ app: 'academy', cible: 't1', ok: true, detail: 'http_200' }]);
+  });
+
+  it('Analytics : son organisation est retirée (27/11 : organisation, membres et fils Mon IA restaient) ; le mode rendu est gardé', async () => {
+    const f = vi.fn(async () => new Response('{"deleted":false,"mode":"conserve"}', { status: 200 }));
+    const t = { ...tenant, notifuseWorkspaceSlug: null, prospectionProvisionedAt: null, metadata: { analytics: { workspace_id: 'o' } } };
+    const issues = await deprovisionnerCompte({ email: 'client@exemple.fr', tenants: [t] }, { env, fetchImpl: f as never, maintenant: () => MAINTENANT });
+    expect((f.mock.calls as unknown as [string, RequestInit][]).map(([u, i]) => `${i.method} ${u}`)).toEqual(['DELETE https://analytics.test/api/tenants/t1']);
+    expect(issues).toEqual([{ app: 'analytics', cible: 't1', ok: true, detail: 'http_200 conserve' }]);
   });
 
   it('client réel : Prospection soft-delete à 90 jours, Notifuse (DELETE, soft-delete chez lui) et Twenty retirés', async () => {

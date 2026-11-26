@@ -9,8 +9,9 @@
  * - Notifuse : `DELETE /api/tenants/<slug>`, que Notifuse traite en soft-delete (`SoftDelete`, écritures
  *   refusées en 402 `tenant_soft_deleted`).
  * - Twenty : suppression de l'espace (`DELETE /api/tenants/<tenant Hub>`), s'il a été créé.
- * - Rybbit : rien ici. Le signal « supprimé » coupe déjà l'accès, et Rybbit garde sites et rapports
- *   par conception (`hubUsers.ts`).
+ * - Rybbit (Analytics) : `DELETE /api/tenants/<tenant Hub>` (27/11 ; avant, rien : organisation, membres et fils Mon IA
+ *   restaient). Rybbit décide selon §3.8 : `purge` si tous les membres sont des comptes de test, sinon `conserve`
+ *   (organisation suspendue, sites et rapports gardés, fils Mon IA supprimés). 200 et 404 valent « fait ».
  * Chaque issue est rendue : un échec ne bloque pas la suppression au Hub, `hub reconcile` le voit.
  */
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
@@ -28,7 +29,7 @@ export type TenantADeprovisionner = {
   metadata: unknown;
 };
 
-export type IssueApp = { app: 'prospection' | 'notifuse' | 'crm' | 'academy'; cible: string; ok: boolean; detail: string };
+export type IssueApp = { app: 'prospection' | 'notifuse' | 'crm' | 'academy' | 'analytics'; cible: string; ok: boolean; detail: string };
 
 type Deps = {
   env?: NodeJS.ProcessEnv;
@@ -40,8 +41,8 @@ function message(err: unknown): string {
   return err instanceof Error ? err.message.slice(0, 160) : 'erreur';
 }
 
-/** Retire l'espace d'une app à espace par utilisateur (CRM, Academy) : `DELETE /api/tenants/:id`. */
-async function supprimerEspace(app: 'crm' | 'academy', hubTenantId: string, deps: Deps): Promise<{ ok: boolean; detail: string }> {
+/** Retire l'espace d'une app à espace par organisation (CRM, Academy, Analytics) : `DELETE /api/tenants/:id`. */
+async function supprimerEspace(app: 'crm' | 'academy' | 'analytics', hubTenantId: string, deps: Deps): Promise<{ ok: boolean; detail: string }> {
   const config = resolveAppConfig(app, deps.env ?? process.env);
   if (!config) return { ok: false, detail: `${app}_not_configured` };
   const cible = `${config.apiUrl}/api/tenants/${encodeURIComponent(hubTenantId)}`;
@@ -53,8 +54,9 @@ async function supprimerEspace(app: 'crm' | 'academy', hubTenantId: string, deps
     },
     signal: AbortSignal.timeout(90_000),
   });
-  // 404 : l'espace n'existe pas (ou plus) : rien à retirer.
-  return { ok: res.ok || res.status === 404, detail: `http_${res.status}` };
+  // 404 : l'espace n'existe pas (ou plus) : rien à retirer. Le mode rendu (Analytics : purge | conserve) est gardé dans le détail.
+  const mode = res.ok ? ((await res.json().catch(() => null)) as { mode?: unknown } | null)?.mode : undefined;
+  return { ok: res.ok || res.status === 404, detail: `http_${res.status}${typeof mode === 'string' ? ` ${mode.slice(0, 20)}` : ''}` };
 }
 
 export async function deprovisionnerCompte(
@@ -104,7 +106,7 @@ export async function deprovisionnerCompte(
 
   for (const t of compte.tenants) {
     const meta = t.metadata && typeof t.metadata === 'object' ? (t.metadata as Record<string, unknown>) : {};
-    for (const app of ['crm', 'academy'] as const) {
+    for (const app of ['crm', 'academy', 'analytics'] as const) {
       if (!meta[app]) continue;
       try {
         const r = await supprimerEspace(app, t.id, deps);
