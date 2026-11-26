@@ -2281,7 +2281,7 @@ X-Veridian-Hub-Signature: hex(hmac_sha256(secret,
   signataire du Hub) une fois la vérification de l'app servie ET mesurée (v2 200, rejeu 401, autre query 401, v1 200) ; après une journée
   sans appel v1 du Hub dans ses journaux, l'app refuse la v1 (Mail : `VERIDIAN_HMAC_REQUIRE_V2=true`).
 - **État au 26/11** : le Hub signe en v2 vers Mail (bd3e66dc), Academy (1e707d7, qui refuse la v1 depuis 12a92cf), Analytics (692c968)
-  et Prospection (283c169), mesurées en prod (v2 200, rejeu 401, autre route 401). CRM : v1 seule, à aligner. Référence de vérification : `notifuse-veridian/internal/http/middleware/veridian_hmac.go` (`veridianHubMACv2`).
+  Prospection (283c169) et CRM (v54), mesurées en prod (v2 200, rejeu 401, autre route 401). Toutes les apps reçoivent la v2. Référence de vérification : `notifuse-veridian/internal/http/middleware/veridian_hmac.go` (`veridianHubMACv2`).
 
 ### 6.2 Pattern B — Bearer api_key tenant (Hub user-to-app)
 

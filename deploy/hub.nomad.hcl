@@ -283,7 +283,7 @@ DELEGATION_EVENEMENTS=notifuse>crm@359b76d5-bab7-4773-a889-cf4cf0248869,notifuse
 # les apps listées, v1 ailleurs. N'ajouter une app qu'une fois sa vérification v2 servie et MESURÉE en prod (outil : v2 2xx, rejeu 401, autre
 # route 401, v1 2xx). Mail (bd3e66dc) et Academy (1e707d7) mesurés le 26/11. Analytics : v2 refusée en prod le 26/11, pas encore. Retour
 # arrière : retirer l'app, puis déployer.
-HMAC_V2_APPS=notifuse,academy,analytics,prospection
+HMAC_V2_APPS=notifuse,academy,analytics,prospection,crm
 # Adresses à qui le Hub n'écrit jamais (lib/email/send.ts) : la boîte perso de Robert pour le compte « Préprod CRM » (24/11).
 MAILS_BLOQUES_SHA256=ff9b9ff3e94543f4
 {{ with nomadVar "nomad/jobs/hub" }}
