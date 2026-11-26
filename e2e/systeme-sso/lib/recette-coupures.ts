@@ -435,13 +435,15 @@ export async function ssoObligatoire(r: Recette): Promise<string> {
       rebond: (await rebond(ctx)).chemin === '/auth/organisation' ? 'fermée' : 'ouverte',
       mcp: (await mcp(jeton)) ? 'fermée' : 'ouverte',
       choix: /avis=active/.test(await activer(ctx)) ? 'ouverte' : 'fermée',
-      ecran: (await ou(ctx, `${HUB_URL}/dashboard/organisation`)).html.includes(`value="${T.id}"`) ? 'ouverte' : 'fermée',
       assistant: (await fil(ctx)) === 404 ? 'fermée' : 'ouverte',
     };
     if (grant) p.echange = (await echanger()) === 'organisation_fournisseur' ? 'fermée' : 'ouverte';
+    // « écran » : le cas 46 lit l'identifiant de l'organisation dans le sélecteur de /dashboard/organisation, qu'il n'y a que pour une personne
+    // de PLUSIEURS organisations. Pour un salarié d'une seule, la page dit la même chose ouverte ou fermée : porte non mesurable, écartée et
+    // dite (26/11, mesurée à tort « fermée » en libre). Le cas 46 la garde.
     return p;
   };
-  const toutes = (x: 'ouverte' | 'fermée'): Record<string, string> => Object.fromEntries((['rebond', 'mcp', 'choix', 'ecran', 'assistant', ...(grant ? ['echange'] : [])] as Porte[]).map((k) => [k, x]));
+  const toutes = (x: 'ouverte' | 'fermée'): Record<string, string> => Object.fromEntries((['rebond', 'mcp', 'choix', 'assistant', ...(grant ? ['echange'] : [])] as Porte[]).map((k) => [k, x]));
   const passer = async (ctx: BrowserContext, sub: string): Promise<string> => {
     idp.dire(sub);
     await ctx.clearCookies({ name: /veridian-next/ });
