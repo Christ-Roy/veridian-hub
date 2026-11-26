@@ -66,8 +66,7 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
 - **Connexions extérieures** (`docs/CONNECTEURS.md`) : FERMÉES (Robert ouvre), aucun appel réel en épreuve. 43.
 - **Garde rapide** : `__tests__/contrat/` (révocation sans `iat`, `authAt`, cibles du rebond, origines) ; tout nouvel
   `encode(` de JWT de session s'y ajoute. Détail : `docs/PARCOURS-IDENTITE.md`.
-- **Sonde de prod** : « Sonde identité » de `hub-ci.yml` (lecture seule) ; le cron de reconcile alerte au-dessus de
-  `RESIDUE_SEUIL` (0).
+- **Sonde de prod** : « Sonde identité » de `hub-ci.yml` (lecture seule) ; reconcile alerte au-dessus de `RESIDUE_SEUIL` (0).
 - **Coupure** : aucune (08/11). Base sur pg-saas (Patroni), app en bleu-vert (canari, health check Traefik). Changer les
   tags Traefik coupe 12 s : regrouper. `e2e/systeme-sso/**` ne redéploie rien.
 
@@ -76,7 +75,7 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
 Outil admin : `hub` (`hub doctor` d'abord : santé, secret, auth admin). Aucune de ces commandes n'affiche de secret.
 
 - **Un client ne peut plus se connecter** : `hub tenant <email>` (adresse prouvée ? apps liées ?), `hub audit --since <date>`.
-  Adresse non prouvée : aucun lien d'app, `hub invite <email>` renouvelle l'accès (`--no-email` : lien seul). Entrer chez lui : `/dashboard/admin/clients` ou `hub open <email>` (`docs/PARCOURS-IDENTITE.md`, cas 45).
+  Adresse non prouvée : aucun lien d'app, `hub invite <email>` renouvelle l'accès (`--no-email` : lien seul). Entrer chez lui : `/dashboard/admin/clients` ou `hub open <email>` (cas 45). Admin dans ses espaces, jamais propriétaire, jamais remis après un retrait : `hub admin-partout` (§5.23).
 - **Un rebond échoue** : `/auth/bounce/error?code=` dit pourquoi (`not_configured` : variable `<APP>_API_URL` ou
   `<APP>_HUB_API_SECRET` absente du job ; `unreachable` : l'app ; refus d'identité : voir « Rebond refusé »).
   `nomad-v logs hub` (tag `[bounce][refus]`). 3 rebonds rapides : anti-boucle, 30 s.
