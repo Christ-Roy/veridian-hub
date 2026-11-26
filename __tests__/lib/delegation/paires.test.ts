@@ -48,6 +48,13 @@ describe('registre des paires', () => {
     const o = (v?: string, test = false, id = 'T') => evenementOuvert('notifuse>crm', id, e(v), test);
     expect([o(), o(''), o('notifuse>crm'), o('notifuse>crm@T'), o('notifuse>crm@T', false, 'T2'), o('notifuse>crm@test'), o('notifuse>crm@test', true), o('notifuse>crm2')]).toEqual([false, false, true, true, false, false, true, false]);
   });
+  // Réglage servi en prod depuis le 26/11 (deploy/hub.nomad.hcl) : l'organisation de Robert ET les organisations de test, jamais un client de plus.
+  it('evenementOuvert, réglage de prod : une organisation nommée plus les marquées de test, aucune autre', () => {
+    const e = { NODE_ENV: 'test', DELEGATION_EVENEMENTS: 'notifuse>crm@359b76d5-bab7-4773-a889-cf4cf0248869,notifuse>crm@test' } as NodeJS.ProcessEnv;
+    const o = (id: string, test: boolean) => evenementOuvert('notifuse>crm', id, e, test);
+    expect([o('359b76d5-bab7-4773-a889-cf4cf0248869', false), o('ff6eaeff-274c-4115-8db0-e4de0c58c48b', true), o('20199a32-0000-4000-8000-000000000000', false)]).toEqual([true, true, false]);
+    expect(paireReglable(paire('notifuse>crm')!, '20199a32-0000-4000-8000-000000000000', e)).toBe(false);
+  });
   it('paireReglable : un événement ouvert se règle, sans jamais devenir une paire qui s\'échange', () => {
     const e = { NODE_ENV: 'test', DELEGATION_CIBLES: 'crm', DELEGATION_EVENEMENTS: 'notifuse>crm@T' } as NodeJS.ProcessEnv;
     const p = paire('notifuse>crm')!;
