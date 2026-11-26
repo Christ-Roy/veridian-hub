@@ -149,7 +149,8 @@ export default async function DashboardPage({
   // Un espace Analytics noté (provisionnement, `hub link`) suffit : sans site, le client doit pouvoir entrer (parente, 26/11).
   const showActiveAnalyticsBase =
     isAnalyticsEnabled || hasLifetimeSiteVitrine || hasServiceAnalytics || !!idEspaceMeta(tenant?.metadata, 'analytics');
-  const showActiveCms = isCmsEnabled || hasLifetimeSiteVitrine || hasServiceCms;
+  // Le CMS s'éteint (parente, 26/11) : visible seulement là où il est actif (activé par un opérateur, ou configuré), jamais proposé.
+  const showActiveCms = isCmsEnabled || hasServiceCms || !!idEspaceMeta(tenant?.metadata, 'cms');
 
   const emailProven = await isEmailProvenForSession(user.id);
   // Cible de la carte Analytics. On demande à l'app d'analytics quels sites
@@ -316,7 +317,6 @@ export default async function DashboardPage({
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {!showActiveAnalytics && <ShadowAppCard app={APPS.analytics} />}
-            {!showActiveCms && <ShadowAppCard app={APPS.cms} />}
           </div>
         </section>
       )}

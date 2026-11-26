@@ -3,9 +3,8 @@
  * Veridian affichée sous le wordmark dans les pages auth.
  *
  * Comportement vérifié :
- *  - rend les 5 apps de l'écosystème (mail, prospection, analytics, crm, cms)
- *  - les apps live (mail, prospection, analytics, crm) n'ont PAS le badge "Bientôt"
- *  - l'app à venir (cms) affiche le badge "Bientôt"
+ *  - rend les 4 apps proposées (mail, prospection, analytics, crm) ; le CMS s'éteint, il n'est plus proposé (26/11)
+ *  - aucune n'a le badge "Bientôt"
  *  - chaque app est préfixée "veridian"
  */
 import React from 'react';
@@ -14,25 +13,22 @@ import { render, screen } from '@testing-library/react';
 import { AppTree } from '@/components/auth/AppTree';
 
 describe('AppTree', () => {
-  it('rend les 5 apps de l\'écosystème', () => {
+  it('rend les 4 apps proposées, et plus le CMS (il s\'éteint, 26/11)', () => {
     render(<AppTree />);
-    for (const label of ['mail', 'prospection', 'analytics', 'crm', 'cms']) {
+    for (const label of ['mail', 'prospection', 'analytics', 'crm']) {
       expect(screen.getByText(`.${label}`)).toBeInTheDocument();
     }
+    expect(screen.queryByText('.cms')).toBeNull();
   });
 
   it('affiche le préfixe "veridian" pour chaque app', () => {
     render(<AppTree />);
-    // 5 occurrences du préfixe "veridian"
-    expect(screen.getAllByText('veridian')).toHaveLength(5);
+    expect(screen.getAllByText('veridian')).toHaveLength(4);
   });
 
-  it('marque exactement les apps à venir (cms) avec le badge "Bientôt"', () => {
+  it('aucune app annoncée « Bientôt » (le CRM est ouvert, le CMS n\'est plus proposé)', () => {
     render(<AppTree />);
-    const soonBadges = screen.getAllByText('Bientôt');
-    // Le CRM est ouvert à tout compte (25/11 : l'écran d'accueil le disait encore « bientôt »).
-    expect(soonBadges).toHaveLength(1);
-    expect(screen.getByText('.crm').closest('li')?.textContent).not.toContain('Bientôt');
+    expect(screen.queryAllByText('Bientôt')).toHaveLength(0);
   });
 
   it('les apps live (mail/prospection/analytics) n\'ont pas de badge "Bientôt"', () => {
