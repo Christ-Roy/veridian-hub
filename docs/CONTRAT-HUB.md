@@ -2251,6 +2251,29 @@ Le secret `HUB_API_SECRET` est généré au provisioning de l'app et stocké :
 **Rotation** : tous les 6 mois. Procédure de bascule via variable `HUB_API_SECRET_NEXT`
 acceptée en parallèle pendant 24h. Coordonné par l'agent Hub.
 
+#### 6.1.1 Signature v2 (VER-264, 26/11) : la seule à viser
+
+La v1 ci-dessus ne lie ni la méthode, ni le chemin, ni la query, et une signature se rejoue 5 min : captée sur un GET, elle vaut pour un
+DELETE d'un autre tenant ; un corps `{"reason":…}` vaut pour une autre route. **La v2 la remplace.**
+
+```
+X-Veridian-Sig-Version: 2
+X-Veridian-Timestamp: <unix_ms>
+X-Veridian-Hub-Signature: hex(hmac_sha256(secret,
+    timestamp + "\n" + MÉTHODE_EN_MAJUSCULES + "\n" + chemin_encodé + "\n" + query_brute_sans_? + "\n" + hex(sha256(corps_brut))))
+```
+
+- `chemin_encodé` et `query_brute` : exactement ce qui part sur le fil (Go : `r.URL.EscapedPath()` et `r.URL.RawQuery` ; Node :
+  `new URL(url).pathname` et `search` sans le `?`). Corps vide : `sha256("")`.
+- **Usage unique** (c'est le « nonce ») : l'app garde les signatures v2 servies sur 2 × la fenêtre de 5 min et refuse un rejeu
+  (`401 Signature already used`). Côté Hub, chaque envoi ET chaque réessai est resigné avec un timestamp neuf.
+- Vérification en temps constant, fenêtre de 5 min comme en v1.
+- **Bascule par app** : l'app accepte v1 ET v2 ; le Hub signe en v2 pour les apps de `HMAC_V2_APPS` (`lib/hmac/signature-hub.ts`, seul
+  signataire du Hub) une fois la vérification de l'app servie ET mesurée (v2 200, rejeu 401, autre query 401, v1 200) ; après une journée
+  sans appel v1 du Hub dans ses journaux, l'app refuse la v1 (Mail : `VERIDIAN_HMAC_REQUIRE_V2=true`).
+- **État au 26/11** : Mail vérifie la v2 (bd3e66dc) et le Hub la signe vers Mail (3840079, mesuré). Prospection, CRM, Analytics, Academy :
+  v1 seule, à aligner. Référence de vérification : `notifuse-veridian/internal/http/middleware/veridian_hmac.go` (`veridianHubMACv2`).
+
 ### 6.2 Pattern B — Bearer api_key tenant (Hub user-to-app)
 
 Pour `generateMagicLink` uniquement. Le Hub a stocké l'`api_key` reçue au
