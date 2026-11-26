@@ -1,11 +1,13 @@
 /**
  * Mon IA depuis une app (VER-203, CONTRAT-HUB §5.24 et §5.24.1) : l'app ne montre la fenêtre du Hub que si elle peut répondre.
  * Compte d'essai neuf, app ouverte par le rebond :
- * 1. sans moteur : la carte « Relier mon IA » (lien vers {HUB}/dashboard/ia), et AUCUN cadre {HUB}/ia/chat dans la page ;
- * 2. une clé branchée (modèle `:free`, 0 $) : le bouton « Mon IA » insère le cadre pour l'organisation, une question passe par la porte,
+ * 1. sans moteur : `[data-mon-ia="sans_moteur"]`, le bouton « Relier mon IA » ouvre `[data-carte="relier-mon-ia"]` (lien vers
+ *    {HUB}/dashboard/ia, nouvel onglet), et AUCUN cadre {HUB}/ia/chat, avant ni après le clic ;
+ * 2. une clé branchée (modèle `:free`, 0 $), après le cache de 60 s de l'app : `[data-mon-ia="prete"]`, le bouton « Mon IA » ouvre le
+ *    dialogue et insère le cadre pour l'organisation (jamais avant le clic), une question passe par la porte,
  *    et le fil est rangé chez l'app puis relu par le Hub (GET <app>/api/hub/ia/fils/:session).
- * Le branchement et l'activation sont retirés à la fin. Une app qui ne sert encore ni bouton ni carte : NON ABOUTI (pas encore servie).
- * Épreuve : `SSO_SABOTAGE=carte-absente` attend le cadre sans moteur : le cas doit échouer.
+ * Le branchement et l'activation sont retirés à la fin. Une app qui ne sert encore aucun `[data-mon-ia]` : NON ABOUTI (pas encore servie). Sélecteurs : ceux d'Analytics (26/11), communs aux apps.
+ * Épreuve : `SSO_SABOTAGE=carte-absente` attend « prete » sans moteur : le cas doit échouer.
  */
 import { expect, type BrowserContext, type Page } from '@playwright/test';
 
@@ -37,33 +39,38 @@ for (const { app, chemin } of APPS) {
     try {
       await ouvrirApp(ctx, app);
 
-      // 1. Sans moteur : la carte, jamais le cadre (l'app a lu POST /api/ia/etat → sans_moteur).
+      // 1. Sans moteur : l'élément flottant dit « sans_moteur », le bouton « Relier mon IA » ouvre la carte, et jamais un cadre (avant ni après le clic).
       const p1 = await pageApp(ctx, app, chemin);
-      const carte = p1.getByText(/Relier mon IA/).first();
-      const vue = await carte.waitFor({ timeout: 20_000 }).then(() => true, () => false);
-      const bouton = await p1.getByRole('button', { name: /Mon IA/ }).count();
-      if (!vue && bouton === 0) throw new NonAbouti(`${app} ne sert encore ni la carte « Relier mon IA » ni le bouton « Mon IA »`);
-      await p1.waitForTimeout(3_000);
-      if (process.env.SSO_SABOTAGE === 'carte-absente') expect(await cadreDe(p1).count(), 'épreuve : cadre attendu sans moteur').toBeGreaterThan(0);
-      expect(vue, 'sans moteur : la carte « Relier mon IA » est visible').toBe(true);
-      expect(await cadreDe(p1).count(), 'sans moteur : aucun cadre de la fenêtre').toBe(0);
-      const lien = await p1.getByRole('link', { name: /Relier mon IA/ }).first().getAttribute('href').catch(() => null);
-      expect(lien ?? '', 'la carte mène au connecteur du Hub').toContain(`${HUB_URL}/dashboard/ia`);
-      expect((await p1.locator('body').innerText()).toLowerCase(), 'jamais le mot « clé » proposé').not.toMatch(/\bcl[ée] d'api\b|\bvotre cl[ée]\b/);
+      const zone = p1.locator('[data-mon-ia]').first();
+      if (!(await zone.waitFor({ timeout: 20_000 }).then(() => true, () => false))) throw new NonAbouti(`${app} ne sert encore aucun élément [data-mon-ia]`);
+      if (process.env.SSO_SABOTAGE === 'carte-absente') expect(await zone.getAttribute('data-mon-ia'), 'épreuve : « prete » attendu sans moteur').toBe('prete');
+      expect(await zone.getAttribute('data-mon-ia'), 'sans moteur : l\'app a lu sans_moteur').toBe('sans_moteur');
+      expect(await cadreDe(p1).count(), 'sans moteur, avant le clic : aucun cadre').toBe(0);
+      await p1.getByRole('button', { name: 'Relier mon IA', exact: true }).click({ timeout: 10_000 });
+      const carte = p1.locator('[data-carte="relier-mon-ia"]');
+      await expect(carte, 'la carte du connecteur').toBeVisible({ timeout: 10_000 });
+      const lien = carte.getByRole('link', { name: 'Relier mon IA', exact: true });
+      expect([await lien.getAttribute('href'), await lien.getAttribute('target')], 'la carte mène au connecteur du Hub, nouvel onglet').toEqual([`${HUB_URL}/dashboard/ia`, '_blank']);
+      expect((await carte.innerText()).toLowerCase(), 'jamais le mot « clé » proposé').not.toMatch(/\bcl[ée]s?\b/);
+      await p1.waitForTimeout(2_000);
+      expect(await cadreDe(p1).count(), 'sans moteur, après le clic : aucun cadre').toBe(0);
       await p1.screenshot({ path: `.run/captures/mon-ia-${app}-sans-moteur.png` });
       await p1.close();
 
-      // 2. Une clé branchée : le bouton insère le cadre pour l'organisation ; une question ; le fil rangé chez l'app.
+      // 2. Une clé branchée : « prete » (après le cache de 60 s de l'app), le bouton « Mon IA » ouvre le dialogue et le cadre pour l'organisation.
       const b = await api.post(`${HUB_URL}/api/ia/branchement`, { data: { fournisseur: 'openrouter', modele: MODELE_GRATUIT, cle: secretDe('OPENROUTER_API_KEY') } });
       if (b.status() !== 200) throw new NonAbouti(`branchement : HTTP ${b.status()}`);
-      await new Promise((ok) => setTimeout(ok, 61_000)); // l'app peut garder l'état 60 s (§5.24.1)
+      await new Promise((ok) => setTimeout(ok, 61_000)); // l'app garde l'état 60 s (§5.24.1)
       const p2 = await pageApp(ctx, app, chemin);
-      await p2.getByRole('button', { name: /Mon IA/ }).first().click({ timeout: 20_000 });
+      await expect(p2.locator('[data-mon-ia]').first(), 'avec un moteur : l\'app a lu prete').toHaveAttribute('data-mon-ia', 'prete', { timeout: 20_000 });
+      expect(await cadreDe(p2).count(), 'avant le clic : pas de cadre inséré').toBe(0);
+      await p2.getByRole('button', { name: 'Mon IA', exact: true }).click({ timeout: 10_000 });
+      await expect(p2.getByRole('dialog', { name: 'Mon IA' }), 'le dialogue « Mon IA »').toBeVisible({ timeout: 10_000 });
       const cadre = cadreDe(p2).first();
       await cadre.waitFor({ timeout: 30_000 });
       const src = new URL((await cadre.getAttribute('src')) ?? '');
       expect([src.searchParams.get('app'), src.searchParams.get('tenant')], 'cadre ouvert pour l\'app et l\'organisation du compte').toEqual([app, E.tenantId]);
-      await expect(p2.frameLocator(`iframe[src^="${HUB_URL}/ia/chat"]`).first().getByLabel('Votre question'), 'avec un moteur : la saisie').toBeVisible({ timeout: 30_000 });
+      await expect(p2.frameLocator(`iframe[src^="${HUB_URL}/ia/chat"]`).first().getByLabel('Votre question'), 'avec un moteur : la saisie dans le cadre').toBeVisible({ timeout: 30_000 });
       await p2.screenshot({ path: `.run/captures/mon-ia-${app}.png` });
       await p2.close();
 

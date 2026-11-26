@@ -2274,6 +2274,11 @@ l'abonnement ouvert dans cet espace) ; le connecteur, lui, ne la fait pas répon
   - `eteinte` : ni cadre ni carte (la personne l'a éteint pour cette app ; elle le rallume au Hub).
   - Hub injoignable, `5xx` ou réponse illisible : ni cadre ni carte, l'app se tait (on n'affiche pas une fenêtre qui pourrait refuser).
   - L'état peut être gardé 60 s au plus par l'app pour une même personne et organisation.
+- **Marques communes** (celles d'Analytics, 26/11 ; la batterie du Hub les lit, cas 56) : un élément `[data-mon-ia="prete"|"sans_moteur"]`
+  sur toute page connectée avec une organisation active (absent sur `/login`, en mode intégré, et pour tout autre état) ; `prete` :
+  bouton `Mon IA`, dont le clic ouvre un `role=dialog` nommé « Mon IA » et n'insère le cadre qu'à ce moment ; `sans_moteur` : bouton
+  `Relier mon IA`, dont le clic ouvre `[data-carte="relier-mon-ia"]` avec le lien `Relier mon IA` (`href="{HUB}/dashboard/ia"`,
+  `target="_blank"`), sans aucun cadre ni avant ni après le clic.
 - **La fenêtre elle-même** suit la même règle (`lib/ia/etat-fenetre.ts`, une seule source) : ouverte sans moteur, elle ne montre aucune
   saisie, seulement le renvoi « Relier mon IA » (`data-refus="sans_moteur"`) ; éteinte, le lien « Rallumer ».
 - **Épreuve côté app** (avant de dire « servi ») : un compte sans moteur voit la carte et jamais le cadre ; le même compte, une clé branchée,
