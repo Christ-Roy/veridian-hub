@@ -65,7 +65,7 @@ export default async function Liaisons({ searchParams }: { searchParams: Promise
   const visibles = espaces.filter((e) => e.liaisons.length > 0);
   return (
     <div className="flex flex-col gap-6 p-4 md:p-8">
-      <DashboardPageHeader title="Liaisons" icon={Link2Icon} description="Ce que vos apps font l'une dans l'autre. Rien n'est jamais supprimé, aucun mail n'est envoyé." />
+      <DashboardPageHeader title="Liaisons" icon={Link2Icon} description="Ce que vos apps font l'une dans l'autre. Rien n'est jamais supprimé ; seule une liaison qui le dit peut envoyer des mails, et elle reste éteinte tant que vous ne l'allumez pas." />
       {avis ? <p role="status" className="text-sm">{avis}</p> : null}
       {visibles.length === 0 ? <p className="text-muted-foreground">Aucune liaison n&apos;est encore disponible pour vos espaces.</p> : null}
       {visibles.map((e) => {

@@ -47,6 +47,10 @@ describe('/dashboard/liaisons', () => {
     expect(await boutons()).toEqual([false, false]);
     expect(await html()).toContain('Prospection vers CRM');
   });
+  it('l\'en-tête ne promet plus « aucun mail » : une liaison de séquences en envoie (26/11)', async () => {
+    const h = await html();
+    expect([h.includes('aucun mail n'), h.includes('seule une liaison qui le dit peut envoyer des mails')]).toEqual([false, true]);
+  });
   it('rien de servi : une phrase, aucun bouton mort', async () => {
     m.lister.mockResolvedValue([ligne({ etat: 'indisponible' })]);
     expect(await html()).toContain('Aucune liaison');
