@@ -62,12 +62,12 @@ demarrer() {
   # Depuis la racine du dépôt : lourd y copie l'arbre, installe ses dépendances, donc la même version de Playwright.
   ( cd "$RACINE" && exec lourd --navigateur sh -c "exec timeout -k 5 $DUREE npx --no-install playwright run-server --host 0.0.0.0 --port $PORT_CONTENEUR --path /$alea" ) >"$D/lourd.log" 2>&1 &
   echo $! >"$D/lourd.pid"
-  local fin=$(( $(date +%s) + ATTENTE )) id="" ip="" ctn=""
+  local fin=$(( $(date +%s) + ATTENTE )) id="" ip="" ctn="" alloc="" rep=""
   while [ "$(date +%s)" -lt "$fin" ]; do
     kill -0 "$(cat "$D/lourd.pid")" 2>/dev/null || { dit "lourd s'est arrêté avant que le serveur réponde ($(tail -n 2 "$D/lourd.log" | tr '\n' ' ')) : NON ABOUTI"; arreter; return 2; }
     [ -n "$id" ] || { id="$(sed -n 's/^\[lourd\] \(lourd-navigateur\/dispatch-[^,]*\),.*/\1/p' "$D/lourd.log" | head -1)"; [ -z "$id" ] || echo "$id" >"$D/job"; }
     if [ -n "$id" ] && [ -z "$ip" ]; then
-      local alloc; alloc="$(nomad_lourd job allocs -json "$id" 2>/dev/null | python3 -c 'import sys,json;a=json.load(sys.stdin);print(a[0]["ID"] if a else "")' 2>/dev/null)"
+      alloc="$(nomad_lourd job allocs -json "$id" 2>/dev/null | python3 -c 'import sys,json;a=json.load(sys.stdin);print(a[0]["ID"] if a else "")' 2>/dev/null)"
       [ -z "$alloc" ] || ip="$("${SSH[@]}" "n=\$(docker ps --format '{{.Names}}' | grep -- '$alloc' | grep -v garde | head -1); [ -n \"\$n\" ] && docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' \"\$n\"" 2>/dev/null)"
     fi
     if [ -n "$ip" ] && [ ! -s "$D/tunnel.pid" ]; then
@@ -77,12 +77,13 @@ demarrer() {
     fi
     if [ -s "$D/tunnel.pid" ]; then
       # Un TCP ouvert sur le tunnel ne prouve rien : on exige la poignée de main WebSocket (101) du serveur Playwright.
-      local rep; rep="$(curl -s -i -m 4 -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' "http://127.0.0.1:$lp/$alea" 2>/dev/null | head -1)"
+      rep="$(curl -s -i -m 4 -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' "http://127.0.0.1:$lp/$alea" 2>/dev/null | head -1)"
       case "$rep" in *101*) printf 'ws://127.0.0.1:%s/%s' "$lp" "$alea" >"$D/ws"; chmod 600 "$D/ws"; dit "serveur prêt sur $NOEUD (job $id)"; return 0 ;; esac
     fi
     sleep 5
   done
-  dit "serveur injoignable après ${ATTENTE} s : NON ABOUTI"; arreter; return 2
+  # L'étape qui a manqué, pour que le NON ABOUTI se diagnostique sans rejouer (26/11 : 15 min muettes, serveur pourtant à l'écoute).
+  dit "serveur injoignable après ${ATTENTE} s : NON ABOUTI (job=${id:-aucun} alloc=${alloc:-aucune} ip=${ip:-aucune} tunnel=$([ -s "$D/tunnel.pid" ] && echo ouvert || echo absent) dernière réponse=$(printf %s "${rep:-aucune}" | head -1 | tr -d "\r" | cut -c1-60))"; arreter; return 2
 }
 
 case "${1:-}" in
