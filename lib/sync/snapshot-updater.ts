@@ -31,6 +31,7 @@ import { Prisma } from '@prisma/client';
 
 import { prisma } from '@/lib/prisma';
 import type { SyncApp } from '@/lib/sync/types';
+import { fusionnerMetadata } from '@/lib/tenants/metadata-fusion';
 
 /** Métadonnées tenant — JSONB plat, valeurs strings/numbers/arrays. */
 type TenantMetadata = Record<string, unknown>;
@@ -123,15 +124,12 @@ export async function applySuspended(
   }
   const meta = resolved.metadata;
   const next: TenantMetadata = {
-    ...meta,
     [`${app}_status`]: 'suspended',
     [`${app}_suspended_at`]: data?.suspended_at ?? occurredAt,
     [`${app}_suspended_reason`]: data?.reason ?? null,
   };
-  await prisma.tenant.update({
-    where: { id: resolved.id },
-    data: { metadata: next as object },
-  });
+  // Les seules clés de cet événement, fusionnées par la base : jamais le JSON entier relu avant (lib/tenants/metadata-fusion.ts).
+  await fusionnerMetadata(prisma, resolved.id, next);
 }
 
 /** Reset des champs suspend (status → active). */
@@ -150,16 +148,13 @@ export async function applyResumed(
   }
   const meta = resolved.metadata;
   const next: TenantMetadata = {
-    ...meta,
     [`${app}_status`]: 'active',
     [`${app}_suspended_at`]: null,
     [`${app}_suspended_reason`]: null,
     [`${app}_resumed_at`]: data?.resumed_at ?? occurredAt,
   };
-  await prisma.tenant.update({
-    where: { id: resolved.id },
-    data: { metadata: next as object },
-  });
+  // Les seules clés de cet événement, fusionnées par la base : jamais le JSON entier relu avant (lib/tenants/metadata-fusion.ts).
+  await fusionnerMetadata(prisma, resolved.id, next);
 }
 
 /** Marque `<app>_soft_deleted_at`. Status passe à 'deleted'. */
@@ -178,15 +173,12 @@ export async function applySoftDeleted(
   }
   const meta = resolved.metadata;
   const next: TenantMetadata = {
-    ...meta,
     [`${app}_status`]: 'deleted',
     [`${app}_soft_deleted_at`]: data?.soft_deleted_at ?? occurredAt,
     [`${app}_soft_deleted_reason`]: data?.reason ?? null,
   };
-  await prisma.tenant.update({
-    where: { id: resolved.id },
-    data: { metadata: next as object },
-  });
+  // Les seules clés de cet événement, fusionnées par la base : jamais le JSON entier relu avant (lib/tenants/metadata-fusion.ts).
+  await fusionnerMetadata(prisma, resolved.id, next);
 }
 
 /** Marque `<app>_purged_at`. Status reste 'deleted'. */
@@ -205,15 +197,12 @@ export async function applyPurged(
   }
   const meta = resolved.metadata;
   const next: TenantMetadata = {
-    ...meta,
     [`${app}_status`]: 'deleted',
     [`${app}_purged_at`]: data?.purged_at ?? occurredAt,
     [`${app}_purged_rows`]: data?.rows_deleted ?? null,
   };
-  await prisma.tenant.update({
-    where: { id: resolved.id },
-    data: { metadata: next as object },
-  });
+  // Les seules clés de cet événement, fusionnées par la base : jamais le JSON entier relu avant (lib/tenants/metadata-fusion.ts).
+  await fusionnerMetadata(prisma, resolved.id, next);
 }
 
 /** Append-only `<app>_owner_history` (10 derniers). */
@@ -241,14 +230,11 @@ export async function applyOwnerChanged(
     10,
   );
   const next: TenantMetadata = {
-    ...meta,
     [`${app}_owner_changed_at`]: occurredAt,
     [`${app}_owner_history`]: history,
   };
-  await prisma.tenant.update({
-    where: { id: resolved.id },
-    data: { metadata: next as object },
-  });
+  // Les seules clés de cet événement, fusionnées par la base : jamais le JSON entier relu avant (lib/tenants/metadata-fusion.ts).
+  await fusionnerMetadata(prisma, resolved.id, next);
 }
 
 /** Soft alert, on garde juste les coords du dernier événement. */
@@ -269,16 +255,13 @@ export async function applyQuotaExceeded(
   }
   const meta = resolved.metadata;
   const next: TenantMetadata = {
-    ...meta,
     [`${app}_quota_exceeded_at`]: occurredAt,
     [`${app}_quota_type`]: data?.quota_type ?? null,
     [`${app}_quota_current`]: data?.current ?? null,
     [`${app}_quota_limit`]: data?.limit ?? null,
   };
-  await prisma.tenant.update({
-    where: { id: resolved.id },
-    data: { metadata: next as object },
-  });
+  // Les seules clés de cet événement, fusionnées par la base : jamais le JSON entier relu avant (lib/tenants/metadata-fusion.ts).
+  await fusionnerMetadata(prisma, resolved.id, next);
 }
 
 export type MemberEventKind = 'added' | 'removed';
@@ -311,11 +294,8 @@ export async function applyMemberEvent(
     50,
   );
   const next: TenantMetadata = {
-    ...meta,
     [`${app}_member_events`]: events,
   };
-  await prisma.tenant.update({
-    where: { id: resolved.id },
-    data: { metadata: next as object },
-  });
+  // Les seules clés de cet événement, fusionnées par la base : jamais le JSON entier relu avant (lib/tenants/metadata-fusion.ts).
+  await fusionnerMetadata(prisma, resolved.id, next);
 }

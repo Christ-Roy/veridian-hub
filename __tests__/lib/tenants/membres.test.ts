@@ -40,7 +40,18 @@ const db = {
     findMany: async ({ where }: L) => invitations.filter((i) => i.inviteeEmail.toLowerCase() === where.inviteeEmail.equals.toLowerCase() && !i.acceptedAt && i.expiresAt > where.expiresAt.gt),
     updateMany: async ({ where, data }: L) => { for (const i of invitations) if (where.id.in.includes(i.id)) Object.assign(i, data); },
   },
-  auditLog: { create: async ({ data }: L) => { audits.push(data); } },
+  auditLog: {
+    create: async ({ data }: L) => { audits.push({ ...data, createdAt: new Date(Date.now() + audits.length) }); },
+    findFirst: async ({ where }: L) => [...audits].reverse().find((a) => a.targetId === where.targetId && where.action.in.includes(a.action)) ?? null,
+  },
+  // La fusion par la base (lib/tenants/metadata-fusion.ts) : un JSON fusionné, ou des clés retirées, jamais le JSON entier remplacé.
+  $executeRaw: async (q: { values: unknown[] }) => {
+    const [v] = q.values;
+    const m = ((tenant!.metadata ??= {}) as L);
+    if (typeof v === 'string') Object.assign(m, JSON.parse(v));
+    else for (const k of v as string[]) delete m[k];
+    return 1;
+  },
 } as unknown as DbMembres;
 
 beforeEach(() => {
@@ -332,6 +343,22 @@ describe('suspension', () => {
     expect((await basculer(false, b.f)).apps.slice(0, 2).map((x) => x.etat)).toEqual(['repris', 'repris']);
     expect(b.posts.filter((p) => p.app !== 'analytics').map((p) => p.corps.tenant_id).sort()).toEqual(['esp', 'tp']);
     expect(tenant!.metadata).toEqual({ crm: { workspace_id: 'w-crm' } });
+  });
+
+  it('note perdue dans metadata entre la suspension et la reprise (événement d\'app réécrit) : la reprise rouvre quand même, par le journal', async () => {
+    const etat: Record<string, string[]> = { notifuse: ['prop@x.fr'], prospection: ['prop@x.fr'] };
+    await basculer(true, apps(etat).f);
+    expect(audits.find((a) => a.action === 'tenant.suspendu')?.payload.cibles).toMatchObject({ prospection: ['tp'] });
+    delete (tenant!.metadata as L).hub_suspension; // 26/11 14:22 : l'avis « suspendu » de Mail a réécrit metadata depuis une lecture périmée.
+    etat.prospection = []; // Prospection ne montre plus un tenant suspendu.
+    const b = apps(etat);
+    const r = await basculer(false, b.f);
+    expect(r.apps.find((x) => x.app === 'prospection')?.etat).toBe('repris');
+    expect(b.posts.filter((p) => p.app === 'prospection').map((p) => [p.chemin, p.corps.tenant_id])).toEqual([['/api/tenants/resume', 'tp']]);
+    // Une reprise complète clôt le journal : un nouveau « reprendre » ne revise rien.
+    const c = apps(etat);
+    await basculer(false, c.f);
+    expect(c.posts.filter((p) => p.app === 'prospection')).toEqual([]);
   });
 
   it('reprise ratée chez une app : sa cible reste notée, un rejeu la vise encore', async () => {

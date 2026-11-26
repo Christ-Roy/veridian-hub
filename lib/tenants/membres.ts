@@ -16,13 +16,14 @@ import { suivreOrganisation } from '@/lib/organisations/emission';
 import { couperIntegrations } from '@/lib/delegation/interrupteur';
 import { revoquerPoignees } from '@/lib/delegation/poignee';
 import type { SyncApp, TenantSnapshot } from '@/lib/sync/types';
+import { fusionnerMetadata, retirerDeMetadata } from '@/lib/tenants/metadata-fusion';
 
 const DELAI_MS = 15_000;
 export const ROLES = ['member', 'admin', 'owner'] as const;
 export type Role = (typeof ROLES)[number];
 export type Origine = 'invitation' | 'reprise' | 'operateur' | 'preinscription' | 'federation';
 
-export type DbMembres = Pick<PrismaClient, 'organisationAcces' | 'tenant' | 'tenantMember' | 'user' | 'auditLog' | 'crossAppInvitation' | 'delegationGrant' | 'integrationPaire' | 'tenantPreinscription' | 'userEmail'>;
+export type DbMembres = Pick<PrismaClient, 'organisationAcces' | 'tenant' | 'tenantMember' | 'user' | 'auditLog' | 'crossAppInvitation' | 'delegationGrant' | 'integrationPaire' | 'tenantPreinscription' | 'userEmail' | '$executeRaw'>;
 type Deps = { fetchImpl?: typeof fetch; apps?: readonly SyncApp[]; env?: NodeJS.ProcessEnv };
 
 /** Ce que l'auteur du geste doit lire : les apps où l'accès n'est PAS coupé, et pourquoi (Analytics ne sait pas retirer). */
@@ -289,6 +290,23 @@ export async function retirer(db: DbMembres, d: { tenantId: string; hubUserId: s
 }
 
 /** Les cibles suspendues, notées sur le tenant : une app peut cacher l'espace qu'on vient de suspendre (Prospection, 24/11). */
+/**
+ * Les cibles d'une reprise : la note de metadata, unie à celles de la dernière suspension inscrite au journal, tant qu'aucune reprise
+ * complète ne l'a suivie. Le journal n'est jamais réécrit : une note perdue dans metadata ne laisse plus un espace fermé (26/11, 14:22 :
+ * Prospection jamais rouverte).
+ */
+async function ciblesDeReprise(db: DbMembres, t: Tenant): Promise<Partial<Record<SyncApp, string[]>>> {
+  const n = ciblesNotees(t);
+  const derniere = await db.auditLog.findFirst({ where: { targetId: t.id, action: { in: ['tenant.suspendu', 'tenant.repris'] } }, orderBy: { createdAt: 'desc' }, select: { action: true, payload: true } });
+  const p = (derniere?.payload ?? {}) as { complet?: boolean; cibles?: Partial<Record<SyncApp, string[]>> };
+  if (!derniere || (derniere.action === 'tenant.repris' && p.complet) || !p.cibles || typeof p.cibles !== 'object') return n;
+  const out: Partial<Record<SyncApp, string[]>> = { ...n };
+  for (const [app, ids] of Object.entries(p.cibles) as [SyncApp, unknown][]) {
+    if (Array.isArray(ids)) out[app] = Array.from(new Set([...(out[app] ?? []), ...ids.filter((x): x is string => typeof x === 'string')]));
+  }
+  return out;
+}
+
 function ciblesNotees(t: Tenant): Partial<Record<SyncApp, string[]>> {
   const n = ((t.metadata ?? {}) as { hub_suspension?: { cibles?: Partial<Record<SyncApp, string[]>> } }).hub_suspension?.cibles;
   return n && typeof n === 'object' ? n : {};
@@ -310,10 +328,9 @@ async function basculerAnalytics(t: Tenant, gens: Personne[], suspendre: boolean
   return { issue: vus.orphelins > 0 ? { app, etat: 'non_gere', detail: `organisation suspendue ; ${orphelinsDits(vus.orphelins)}` } : { app, etat: 'suspendu' }, cibles: [t.id] };
 }
 
-async function basculerChez(app: SyncApp, t: Tenant, proprietaire: { email: string }, gens: Personne[], suspendre: boolean, deps: Deps): Promise<{ issue: IssueApp; cibles: string[] }> {
+async function basculerChez(app: SyncApp, t: Tenant, proprietaire: { email: string }, gens: Personne[], suspendre: boolean, notees: string[], deps: Deps): Promise<{ issue: IssueApp; cibles: string[] }> {
   // Rien n'y a été fermé : rien à y rouvrir.
   if (!SUSPENSION[app]) return { issue: suspendre ? await nonFerme(app, gens, 'aucune route de suspension dans cette app', deps) : { app, etat: 'absent' }, cibles: [] };
-  const notees = ciblesNotees(t)[app] ?? [];
   try {
     if (app === 'analytics') return await basculerAnalytics(t, gens, suspendre, notees, deps);
     // La suspension vise un ESPACE de ce tenant : un propriétaire sans lien dans l'app n'empêche pas de le fermer.
@@ -365,17 +382,19 @@ export async function basculerSuspension(db: DbMembres, d: { tenantId: string; s
   const lignes = d.suspendre ? await db.tenantMember.findMany({ where: { tenantId: t.id, deletedAt: null }, select: { userId: true } }) : [];
   const membres = lignes.length ? await db.user.findMany({ where: { supabaseUserId: { in: lignes.map((l) => l.userId) } }, select: { email: true, supabaseUserId: true } }) : [];
   const gens = [{ email: proprietaire.email, hubUserId: t.userId }, ...membres.flatMap((m) => (m.supabaseUserId ? [{ email: m.email, hubUserId: m.supabaseUserId }] : []))];
-  const res = await Promise.all(liste.map((app) => basculerChez(app, t, proprietaire, gens, d.suspendre, deps)));
-  const cibles = { ...ciblesNotees(t) };
+  // La reprise vise ce que la suspension a noté : la note de metadata ET celle du journal (que rien ne réécrit, 26/11).
+  const notees = d.suspendre ? ciblesNotees(t) : await ciblesDeReprise(db, t);
+  const res = await Promise.all(liste.map((app) => basculerChez(app, t, proprietaire, gens, d.suspendre, notees[app] ?? [], deps)));
+  const cibles = { ...notees };
   res.forEach((r, i) => { if (r.cibles.length) cibles[liste[i]] = r.cibles; else delete cibles[liste[i]]; });
-  const { hub_suspension: _avant, ...reste } = (t.metadata ?? {}) as Record<string, unknown>;
-  const metadata = Object.keys(cibles).length ? { ...reste, hub_suspension: { cibles } } : reste;
-  await db.tenant.update({ where: { id: t.id }, data: { metadata: metadata as never } });
+  // Fusion par la base, jamais le JSON entier relu au début : un événement d'app traité entre-temps n'efface plus la note (26/11).
+  if (Object.keys(cibles).length) await fusionnerMetadata(db, t.id, { hub_suspension: { cibles } });
+  else await retirerDeMetadata(db, t.id, ['hub_suspension']);
   const apps = res.map((r) => r.issue);
   // Ce qu'une app suspendue a refusé d'appliquer (423, la version n'avance pas chez elle) repart à la reprise.
   if (!d.suspendre) await suivreOrganisation(db as unknown as PrismaClient, t.id, deps);
   const complet = apps.every((a) => a.etat === 'suspendu' || a.etat === 'repris' || a.etat === 'absent');
-  await writeAuditLog(db as PrismaClient, { action: d.suspendre ? 'tenant.suspendu' : 'tenant.repris', actor: d.acteur, targetType: 'tenant', targetId: t.id, payload: { deja, complet, apps, motif: d.motif ?? null } });
+  await writeAuditLog(db as PrismaClient, { action: d.suspendre ? 'tenant.suspendu' : 'tenant.repris', actor: d.acteur, targetType: 'tenant', targetId: t.id, payload: { deja, complet, apps, motif: d.motif ?? null, cibles } });
   return { deja, apps, complet, avis: nonCoupees(apps) };
 }
 

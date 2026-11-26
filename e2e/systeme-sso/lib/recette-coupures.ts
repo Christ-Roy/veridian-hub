@@ -871,11 +871,19 @@ export async function suspensionOrganisation(r: Recette): Promise<string> {
       }
       resultat = { v, supp, dit: (susp.json.apps ?? []).map((x) => `${x.app}=${x.etat}`).join(' '), retour };
     } finally {
-      const rep = await admin<{ apps?: Issue[] }>('POST', `tenants/${T.id}/suspension`, { suspendre: false });
-      levee = [200, 207].includes(rep.status);
-      repriseDite = (rep.json?.apps ?? []).map((x) => `${x.app}=${x.etat}`).join(' ');
       suspendues = (susp.json.apps ?? []).filter((x) => x.etat === 'suspendu').map((x) => x.app);
-      repris = rep.json?.apps ?? [];
+      // Épreuve `SSO_SABOTAGE=reprise-oubliee` : le Hub ne reprend rien, mais la recette le croit sur parole (« repris » partout). Seule la
+      // relecture DANS chaque app peut faire tomber l'étape : c'est elle qui aurait vu Prospection restée fermée le 26/11 à 14:22.
+      if (process.env.SSO_SABOTAGE === 'reprise-oubliee') {
+        levee = true;
+        repriseDite = suspendues.map((a) => `${a}=repris (épreuve : non appelé)`).join(' ');
+        repris = suspendues.map((app) => ({ app, etat: 'repris' }) as Issue);
+      } else {
+        const rep = await admin<{ apps?: Issue[] }>('POST', `tenants/${T.id}/suspension`, { suspendre: false });
+        levee = [200, 207].includes(rep.status);
+        repriseDite = (rep.json?.apps ?? []).map((x) => `${x.app}=${x.etat}`).join(' ');
+        repris = rep.json?.apps ?? [];
+      }
     }
     if (!levee) throw new NonAbouti('la suspension n\'a pas pu être levée par le Hub (HTTP refusé) : `fermerCoupures` réessaie');
     // Tout ce qui a été suspendu est repris, dit par le Hub.
@@ -895,7 +903,7 @@ export async function suspensionOrganisation(r: Recette): Promise<string> {
     if (manque.length) throw new Error(`reprise : le propriétaire ne relit pas ${manque.join(', ')} 90 s après la levée [${repriseDite}]`);
     return `suspension Hub [${apres.dit}] ; ${detail} ; ${apres.retour} ; reprise [${repriseDite}] : ${mesurees.length} portes relues par le propriétaire`;
   } finally {
-    if (!levee) await admin('POST', `tenants/${T.id}/suspension`, { suspendre: false }).catch(() => undefined);
+    if (!levee || process.env.SSO_SABOTAGE === 'reprise-oubliee') await admin('POST', `tenants/${T.id}/suspension`, { suspendre: false }).catch(() => undefined);
     await an0?.op.dispose();
     for (const c of ouverts) await c.close().catch(() => undefined);
   }

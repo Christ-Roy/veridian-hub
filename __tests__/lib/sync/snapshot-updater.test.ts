@@ -67,6 +67,17 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 
+// La fusion par la base (lib/tenants/metadata-fusion.ts), simulée en mémoire : les clés du patch posées, les autres intactes.
+const patches: Record<string, unknown>[] = [];
+vi.mock('@/lib/tenants/metadata-fusion', () => ({
+  fusionnerMetadata: vi.fn(async (_db: unknown, id: string, patch: Record<string, unknown>) => {
+    const t = tenants.find((x) => x.id === id);
+    if (!t) throw new Error('Tenant not found in mock fusion');
+    patches.push(patch);
+    t.metadata = { ...t.metadata, ...patch };
+  }),
+}));
+
 // Mock Prisma SQL helper
 vi.mock('@prisma/client', () => ({
   Prisma: {
@@ -161,6 +172,20 @@ describe('applySuspended', () => {
     const first = JSON.stringify(tenants[0].metadata);
     await applySuspended('notifuse', uuid, payload, '2026-05-23T10:00:00Z');
     expect(JSON.stringify(tenants[0].metadata)).toBe(first);
+  });
+});
+
+describe('fusion par la base (26/11, note de suspension effacée)', () => {
+  it('un événement n\'écrit que ses propres clés : une clé posée par le Hub entre-temps (hub_suspension) survit', async () => {
+    patches.length = 0;
+    tenants.push({ id: '11111111-2222-4333-8444-555555555555', notifuseWorkspaceSlug: 'fus', metadata: { crm: { workspace_id: 'w' } } } as never);
+    const t = tenants[tenants.length - 1];
+    const lecture = vi.mocked((await import('@/lib/prisma')).prisma.tenant.findFirst);
+    // La lecture de l'événement se fait AVANT que le Hub note sa suspension ; l'écriture arrive APRÈS.
+    lecture.mockImplementationOnce(async () => { const copie = { ...t, metadata: { ...t.metadata } }; t.metadata = { ...t.metadata, hub_suspension: { cibles: { prospection: ['tp'] } } }; return copie as never; });
+    await applySuspended('notifuse', 'fus', { reason: 'admin_action' }, '2026-11-26T14:22:30Z');
+    expect(Object.keys(patches[0]).sort()).toEqual(['notifuse_status', 'notifuse_suspended_at', 'notifuse_suspended_reason']);
+    expect(t.metadata).toMatchObject({ crm: { workspace_id: 'w' }, hub_suspension: { cibles: { prospection: ['tp'] } }, notifuse_status: 'suspended' });
   });
 });
 
