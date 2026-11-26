@@ -8,6 +8,7 @@ import { ensureAcademyWorkspace } from '@/lib/academy/provision';
 import { ensureCrmWorkspace } from '@/lib/crm/provision';
 import type { SyncApp } from '@/lib/sync/types';
 import { PAR_CLE } from '@/lib/auth/emprunt-bornes';
+import { abonnerParDefaut } from '@/lib/evenements/naissance';
 import { designerAdminsPlateforme, type Designation } from './admins-plateforme';
 import { provisionNotifuseTenant, provisionProspectionTenant } from '@/utils/tenants/provision';
 
@@ -63,5 +64,9 @@ export async function ouvrirApps(db: PrismaClient, tenantId: string, apps: reado
   const admins = res.some((x) => x.app === 'notifuse' && x.etat !== 'echec')
     ? ((await designerAdminsPlateforme(db, tenantId, { fetchImpl: deps.fetchImpl, acteur: deps.auteur ?? PAR_CLE, raison: 'ouverture du client' }).catch(() => null)) ?? [])
     : [];
+  // Mail et CRM ouverts : l'événement « Mail vers CRM » actif par défaut a besoin de son abonnement chez Mail. Rejouable (une organisation déjà
+  // abonnée ou réglée n'est pas touchée) ; ré-ouvrir rattrape une organisation née avant l'ouverture de l'événement (26/11 : ff6eaeff, réponses
+  // de Mail refusées 401 faute d'abonnement au Hub). Ne fait jamais échouer l'ouverture.
+  if (res.some((x) => x.app === 'notifuse' && x.etat !== 'echec')) await abonnerParDefaut(db, tenantId).catch(() => undefined);
   return { apps: res, verdict: verdict(res), admins };
 }

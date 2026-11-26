@@ -2,13 +2,14 @@
 /** Ouvrir un client : chaque app relue, jamais « créé » sur parole. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const m = vi.hoisted(() => ({ designer: vi.fn(async () => []), mail: vi.fn(), atlas: vi.fn(), crm: vi.fn(), academy: vi.fn(), presente: vi.fn(), vivant: vi.fn() }));
+const m = vi.hoisted(() => ({ abonner: vi.fn(async () => 'fait'), designer: vi.fn(async () => []), mail: vi.fn(), atlas: vi.fn(), crm: vi.fn(), academy: vi.fn(), presente: vi.fn(), vivant: vi.fn() }));
 vi.mock('@/utils/tenants/provision', () => ({ provisionNotifuseTenant: (...a: unknown[]) => m.mail(...a), provisionProspectionTenant: (...a: unknown[]) => m.atlas(...a) }));
 vi.mock('@/lib/crm/provision', () => ({ ensureCrmWorkspace: (...a: unknown[]) => m.crm(...a) }));
 vi.mock('@/lib/academy/provision', () => ({ ensureAcademyWorkspace: (...a: unknown[]) => m.academy(...a) }));
 vi.mock('@/lib/apps/presence', async (o) => ({ ...(await o<object>()), presenteDans: (...a: unknown[]) => m.presente(...a), espaceMailVivant: (...a: unknown[]) => m.vivant(...a) }));
 
 vi.mock('@/lib/apps/admins-plateforme', () => ({ designerAdminsPlateforme: (...a: unknown[]) => m.designer(...a) }));
+vi.mock('@/lib/evenements/naissance', () => ({ abonnerParDefaut: (...a: unknown[]) => m.abonner(...a) }));
 
 import { ouvrirApps, verdict } from '@/lib/apps/ouvrir';
 
@@ -26,6 +27,19 @@ beforeEach(() => {
   m.vivant.mockResolvedValue(true);
 });
 const ouvrir = async (...apps: any[]) => { const r = (await ouvrirApps(db, 'T', apps))!; return [r.apps.map((x) => [x.app, x.etat]), r.verdict]; };
+
+// 26/11 : une organisation née avant l'ouverture de l'événement « Mail vers CRM » n'avait jamais d'abonnement ; ses réponses étaient refusées 401.
+describe('ouvrirApps : abonnement à l\'événement Mail vers CRM', () => {
+  it('Mail ouvert : l\'abonnement par défaut est rattrapé ; Mail absent ou en échec : rien ; sa panne ne défait pas l\'ouverture', async () => {
+    await ouvrirApps(db, 'T', ['notifuse']);
+    expect(m.abonner).toHaveBeenCalledWith(db, 'T');
+    m.abonner.mockClear();
+    await ouvrirApps(db, 'T', ['prospection']);
+    expect(m.abonner).not.toHaveBeenCalled();
+    m.abonner.mockRejectedValueOnce(new Error('Mail muet'));
+    expect((await ouvrirApps(db, 'T', ['notifuse']))!.verdict).toBe('complet');
+  });
+});
 
 describe('ouvrirApps : administrateurs de plateforme', () => {
   it('Mail ouvert : posés admin avec l\'auteur donné ; Mail absent ou en échec : personne n\'est désigné', async () => {
