@@ -97,7 +97,7 @@ export async function provisionAppWorkspace(
   return { ok: true, workspaceId: data.workspace_id, created: data.created === true };
 }
 
-type EspaceDb = Pick<PrismaClient, 'tenant' | 'tenantApp' | 'tenantTrial' | 'subscription'>;
+type EspaceDb = Pick<PrismaClient, 'tenant' | 'tenantApp' | 'tenantTrial' | 'subscription' | '$executeRaw'>;
 
 /**
  * Garantit l'espace d'un utilisateur à adresse prouvée : à l'activation admin, à la première ouverture

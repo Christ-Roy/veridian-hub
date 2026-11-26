@@ -171,7 +171,7 @@ export async function pushAppPlan(
   return { ok: true, previousPlan: data?.previous_plan ?? null };
 }
 
-type PlanDb = Pick<PrismaClient, 'tenant' | 'tenantTrial' | 'subscription'>;
+type PlanDb = Pick<PrismaClient, 'tenant' | 'tenantTrial' | 'subscription' | '$executeRaw'>;
 
 /**
  * Pose le plan d'une app pour un tenant : poussée à l'app, puis écriture au Hub si elle l'accepte.

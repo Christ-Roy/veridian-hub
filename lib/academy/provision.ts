@@ -8,7 +8,7 @@ import type { PrismaClient } from '@prisma/client';
 import { ensureAppWorkspace, ESPACE_APPS, type EspaceProvisionResult } from '@/lib/apps/espace-app';
 
 export function ensureAcademyWorkspace(
-  db: Pick<PrismaClient, 'tenant' | 'tenantApp' | 'tenantTrial' | 'subscription'>,
+  db: Pick<PrismaClient, 'tenant' | 'tenantApp' | 'tenantTrial' | 'subscription' | '$executeRaw'>,
   user: { hubUserId: string; email: string; name?: string | null },
   opts: { actorEmail?: string | null; env?: NodeJS.ProcessEnv; fetchImpl?: typeof fetch } = {},
 ): Promise<EspaceProvisionResult> {

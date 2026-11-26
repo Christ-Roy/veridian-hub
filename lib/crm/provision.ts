@@ -30,7 +30,7 @@ export function provisionCrmWorkspace(
  * reconcile lit, et active l'app `twenty` pour que la carte du tableau de bord reste juste.
  */
 export function ensureCrmWorkspace(
-  db: Pick<PrismaClient, 'tenant' | 'tenantApp' | 'tenantTrial' | 'subscription'>,
+  db: Pick<PrismaClient, 'tenant' | 'tenantApp' | 'tenantTrial' | 'subscription' | '$executeRaw'>,
   user: { hubUserId: string; email: string; name?: string | null },
   opts: { actorEmail?: string | null; env?: NodeJS.ProcessEnv; fetchImpl?: typeof fetch } = {},
 ): Promise<CrmProvisionResult> {
