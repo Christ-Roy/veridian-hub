@@ -107,7 +107,10 @@ export async function deprovisionnerCompte(
   for (const t of compte.tenants) {
     const meta = t.metadata && typeof t.metadata === 'object' ? (t.metadata as Record<string, unknown>) : {};
     for (const app of ['crm', 'academy', 'analytics'] as const) {
-      if (!meta[app]) continue;
+      // Analytics crée aussi l'organisation à la première entrée par le rebond, sans que le Hub la note (27/11 : un compte du cas 56
+      // supprimé sans appel). Sa route est idempotente (404 = absent) : appelée pour chaque organisation dès qu'Analytics est configuré.
+      const toujours = app === 'analytics' && resolveAppConfig('analytics', env) !== null;
+      if (!meta[app] && !toujours) continue;
       try {
         const r = await supprimerEspace(app, t.id, deps);
         issues.push({ app, cible: t.id, ...r });

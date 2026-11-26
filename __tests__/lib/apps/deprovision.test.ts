@@ -19,9 +19,9 @@ const env = {
   CRM_HUB_API_SECRET: 'sc',
   ACADEMY_API_URL: 'https://academy.test',
   ACADEMY_HUB_API_SECRET: 'sa',
-  ANALYTICS_API_URL: 'https://analytics.test',
-  ANALYTICS_HUB_API_SECRET: 'sy',
 } as NodeJS.ProcessEnv;
+/** Analytics configuré : son DELETE part pour chaque organisation, notée ou non (27/11). */
+const envA = { ...env, ANALYTICS_API_URL: 'https://analytics.test', ANALYTICS_HUB_API_SECRET: 'sy' } as NodeJS.ProcessEnv;
 const MAINTENANT = new Date('2026-11-09T18:00:00Z');
 const tenant = { id: 't1', notifuseWorkspaceSlug: 'ws1', prospectionProvisionedAt: new Date(), metadata: { crm: { workspace_id: 'w' } } };
 
@@ -47,9 +47,16 @@ describe('deprovisionnerCompte', () => {
   it('Analytics : son organisation est retirée (27/11 : organisation, membres et fils Mon IA restaient) ; le mode rendu est gardé', async () => {
     const f = vi.fn(async () => new Response('{"deleted":false,"mode":"conserve"}', { status: 200 }));
     const t = { ...tenant, notifuseWorkspaceSlug: null, prospectionProvisionedAt: null, metadata: { analytics: { workspace_id: 'o' } } };
-    const issues = await deprovisionnerCompte({ email: 'client@exemple.fr', tenants: [t] }, { env, fetchImpl: f as never, maintenant: () => MAINTENANT });
+    const issues = await deprovisionnerCompte({ email: 'client@exemple.fr', tenants: [t] }, { env: envA, fetchImpl: f as never, maintenant: () => MAINTENANT });
     expect((f.mock.calls as unknown as [string, RequestInit][]).map(([u, i]) => `${i.method} ${u}`)).toEqual(['DELETE https://analytics.test/api/tenants/t1']);
     expect(issues).toEqual([{ app: 'analytics', cible: 't1', ok: true, detail: 'http_200 conserve' }]);
+  });
+
+  it('Analytics : appelé aussi pour une organisation que le Hub n\'a pas notée (créée par Analytics à l\'entrée par le rebond) ; 404 = absent', async () => {
+    const f = vi.fn(async () => new Response('{"error":"tenant_not_found"}', { status: 404 }));
+    const t = { ...tenant, notifuseWorkspaceSlug: null, prospectionProvisionedAt: null, metadata: {} };
+    const issues = await deprovisionnerCompte({ email: 'e2e-sso-x@veridian.site', tenants: [t] }, { env: envA, fetchImpl: f as never, maintenant: () => MAINTENANT });
+    expect(issues).toEqual([{ app: 'analytics', cible: 't1', ok: true, detail: 'http_404' }]);
   });
 
   it('client réel : Prospection soft-delete à 90 jours, Notifuse (DELETE, soft-delete chez lui) et Twenty retirés', async () => {
