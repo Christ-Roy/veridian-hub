@@ -39,6 +39,15 @@ vi.mock('@/lib/admin/check-admin', () => ({
 const tenantStore: Map<string, any> = new Map();
 const provisioningLogs: any[] = [];
 
+// La fusion par la base (lib/tenants/metadata-fusion.ts), simulée : les clés du patch posées, les autres intactes.
+vi.mock('@/lib/tenants/metadata-fusion', () => ({
+  fusionnerMetadata: vi.fn(async (_db: unknown, id: string, patch: Record<string, unknown>) => {
+    const cur = tenantStore.get(id);
+    if (!cur) throw new Error('Tenant not found in store');
+    tenantStore.set(id, { ...cur, metadata: { ...(cur.metadata ?? {}), ...patch } });
+  }),
+}));
+
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     tenant: {

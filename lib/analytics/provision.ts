@@ -12,13 +12,14 @@ import type { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 
 import { nomDEspace } from '@/lib/apps/nom-espace';
+import { fusionnerMetadata } from '@/lib/tenants/metadata-fusion';
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
 import { entetesSignature } from '@/lib/hmac/signature-hub';
 
 export type IssueProvisionAnalytics = { ok: true; organizationId: string } | { ok: false; attente?: string; error?: string };
 
 const Reponse = z.object({ organization_id: z.union([z.string().min(1).max(128), z.number().int()]) });
-type Db = Pick<PrismaClient, 'tenant'>;
+type Db = Pick<PrismaClient, 'tenant' | '$executeRaw'>;
 
 export async function provisionnerAnalytics(
   db: Db,
@@ -59,6 +60,7 @@ export async function provisionnerAnalytics(
   const organizationId = String(r.data.organization_id);
   const meta = (t.metadata && typeof t.metadata === 'object' && !Array.isArray(t.metadata) ? t.metadata : {}) as Record<string, unknown>;
   const avant = (meta.analytics && typeof meta.analytics === 'object' ? meta.analytics : {}) as Record<string, unknown>;
-  await db.tenant.update({ where: { id: tenantId }, data: { metadata: { ...meta, analytics: { ...avant, workspace_id: organizationId, provisioning_source: 'hub-provision', linked_at: new Date().toISOString() } } as never }, select: { id: true } });
+  // La seule clé analytics, fusionnée par la base : le reste de metadata n'est jamais réécrit depuis cette lecture (26/11).
+  await fusionnerMetadata(db, tenantId, { analytics: { ...avant, workspace_id: organizationId, provisioning_source: 'hub-provision', linked_at: new Date().toISOString() } });
   return { ok: true, organizationId };
 }

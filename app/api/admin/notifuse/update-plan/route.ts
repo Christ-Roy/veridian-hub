@@ -9,6 +9,7 @@ import {
 } from '@/lib/notifuse/admin-helpers';
 import { isNotifusePlan, NOTIFUSE_PLANS } from '@/lib/notifuse/types';
 import { prisma } from '@/lib/prisma';
+import { fusionnerMetadata } from '@/lib/tenants/metadata-fusion';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -113,18 +114,13 @@ export async function POST(request: NextRequest) {
     : [];
   const nextHistory = [...existingHistory, historyEntry].slice(-50);
 
-  await prisma.tenant.update({
-    where: { id: resolved.hubTenantId },
-    data: {
-      metadata: {
-        ...resolved.metadata,
-        notifuse_plan: body.plan,
-        notifuse_plan_source: planSource,
-        notifuse_plan_set_at: historyEntry.set_at,
-        notifuse_plan_set_by: setBy,
-        notifuse_plan_history: nextHistory,
-      } as object,
-    },
+  // Les seules clés du plan Mail, fusionnées par la base : le reste de metadata n'est jamais réécrit depuis cette lecture (26/11).
+  await fusionnerMetadata(prisma, resolved.hubTenantId, {
+    notifuse_plan: body.plan,
+    notifuse_plan_source: planSource,
+    notifuse_plan_set_at: historyEntry.set_at,
+    notifuse_plan_set_by: setBy,
+    notifuse_plan_history: nextHistory,
   });
 
   // Best-effort log (table déjà utilisée par provision.ts).

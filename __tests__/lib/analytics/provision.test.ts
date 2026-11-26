@@ -12,6 +12,8 @@ const db = {
     findFirst: vi.fn(async () => ({ name: 'Org', metadata: meta })),
     update: vi.fn(async ({ data }: { data: { metadata: Record<string, unknown> } }) => { meta = data.metadata; return { id: 'T' }; }),
   },
+  // La fusion par la base : seule la clé analytics est posée.
+  $executeRaw: vi.fn(async (q: { values: unknown[] }) => { meta = { ...meta, ...JSON.parse(String(q.values[0])) }; return 1; }),
 } as never;
 const qui = { hubUserId: 'h-1', email: 'a@x.fr', name: 'A' };
 
@@ -45,7 +47,7 @@ describe('provisionnerAnalytics', () => {
     expect(await provisionnerAnalytics(db, qui, 'T', { env: ENV, fetchImpl: (async () => fastify) as never })).toMatchObject({ ok: false, attente: expect.stringContaining('route provision absente') });
     // Un 404 MÉTIER (personne ou organisation inconnue) reste un refus dit.
     expect(await provisionnerAnalytics(db, qui, 'T', { env: ENV, fetchImpl: (async () => Response.json({ error: 'tenant_not_found' }, { status: 404 })) as never })).toEqual({ ok: false, error: 'analytics_404_tenant_not_found' });
-    expect((db as { tenant: { update: { mock: { calls: unknown[] } } } }).tenant.update.mock.calls).toHaveLength(0);
+    expect((db as { $executeRaw: { mock: { calls: unknown[] } } }).$executeRaw.mock.calls).toHaveLength(0);
   });
   it('refus nommé, réponse illisible, Analytics non configuré : jamais un succès', async () => {
     expect(await provisionnerAnalytics(db, qui, 'T', { env: ENV, fetchImpl: (async () => Response.json({ error: 'email_conflict' }, { status: 409 })) as never })).toEqual({ ok: false, error: 'analytics_409_email_conflict' });

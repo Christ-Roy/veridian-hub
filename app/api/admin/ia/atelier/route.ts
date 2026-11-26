@@ -11,6 +11,7 @@ import { requireAdmin } from '@/lib/admin/require-admin';
 import { writeAuditLog } from '@/lib/admin/audit-log';
 import { capaciteAtelier, ouvertDans } from '@/lib/ia/atelier';
 import { prisma } from '@/lib/prisma';
+import { fusionnerMetadata } from '@/lib/tenants/metadata-fusion';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -43,8 +44,8 @@ export async function POST(req: NextRequest) {
   if (r.data.ouvert && !ouverts.includes(t.id) && ouverts.length >= capaciteAtelier()) {
     return NextResponse.json({ error: 'capacite_atteinte', capacite: capaciteAtelier(), ouverts }, { status: 409 });
   }
-  const metadata = { ...((t.metadata as Record<string, unknown> | null) ?? {}), ia_atelier: { ouvert: r.data.ouvert, le: new Date().toISOString(), par: 'admin' } };
-  await prisma.tenant.update({ where: { id: t.id }, data: { metadata } });
+  // La seule clé ia_atelier, fusionnée par la base (26/11).
+  await fusionnerMetadata(prisma, t.id, { ia_atelier: { ouvert: r.data.ouvert, le: new Date().toISOString(), par: 'admin' } });
   await writeAuditLog(prisma, {
     action: 'admin.ia.atelier',
     actor: 'admin',
