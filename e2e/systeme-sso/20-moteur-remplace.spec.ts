@@ -9,6 +9,7 @@ import { execFileSync } from 'node:child_process';
 import { expect } from '@playwright/test';
 
 import { HUB_URL } from './lib/cibles';
+import { adminOk } from './lib/hub-admin';
 import { cas, NonAbouti } from './lib/etat';
 import { obtenirJetonMcp, outil } from './lib/mcp';
 import { creerCompteProuve } from './lib/parcours';
@@ -36,6 +37,9 @@ cas(null, 'porte MCP : le moteur remplacé pendant un programme rend un état et
 
   const avant = allocProgramme();
   if (!avant) throw new NonAbouti('allocation programme introuvable');
+  // Fenêtre (parente, 26/11) : jamais pendant un programme client. La trace du Hub (début et fin de chaque programme) le dit.
+  const fenetre = await adminOk<{ en_cours: { qui: string }[]; aucun_client_en_cours: boolean; dernier_client: string | null }>('GET', `programmes?depuis=${new Date(Date.now() - 3600_000).toISOString()}`);
+  if (!fenetre.aucun_client_en_cours) throw new NonAbouti(`un programme client tourne (${fenetre.en_cours.filter((p) => p.qui === 'client').length}) : le moteur ne se remplace pas maintenant`);
   const sante: number[] = [];
   let fini = false;
   const sonde = (async () => {
@@ -68,6 +72,7 @@ cas(null, 'porte MCP : le moteur remplacé pendant un programme rend un état et
   expect(suite, `après ${raisons.join(', ')}`).toMatchObject({ etat: 'termine', resultat: 'fini' });
   expect(suite.appels.faits, 'reprend où il en était, ne refait pas').toBe(30 - coupe.reprise.i);
   expect(allocProgramme(), 'une autre allocation').not.toBe(avant);
+  expect(Date.now() - arret, 'coupure du moteur sous 2 min (parente, 26/11)').toBeLessThan(120_000);
   expect(sante.filter((s) => s !== 200), `${sante.length} sondes de /api/health`).toEqual([]);
-  return `coupé à ${rendu} ms avec reprise i=${coupe.reprise.i} ; moteur revenu ${Math.round((Date.now() - arret) / 1000)} s après (${raisons.length} refus : ${[...new Set(raisons)].join(', ') || 'aucun'}) ; /api/health 200 sur ${sante.length} sondes`;
+  return `fenêtre : aucun programme client en cours (dernier client ${fenetre.dernier_client ?? 'aucun sur 1 h'}) ; coupé à ${rendu} ms avec reprise i=${coupe.reprise.i} ; moteur revenu ${Math.round((Date.now() - arret) / 1000)} s après (${raisons.length} refus : ${[...new Set(raisons)].join(', ') || 'aucun'}) ; /api/health 200 sur ${sante.length} sondes`;
 }, { timeout: 420_000 });

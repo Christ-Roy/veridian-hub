@@ -314,6 +314,10 @@ async function programme(db: DbPorte, qui: Appelant, cat: Catalogue, args: Recor
   if (!place.ok) return texte(place.message, true);
 
   const id = randomUUID();
+  // Le début se trace avant de jouer : sans lui, un programme en cours est invisible (le moteur ne se remplace que hors programme client).
+  await db.auditLog
+    .create({ data: { action: 'mcp.programme.debut', actor: `oauth:${qui.clientId}`, targetType: 'user', targetId: qui.hubUserId, payload: { programme: id, tenant_id: choisi.tenantId ?? null, code_car: code.length } } })
+    .catch((err) => console.error('[mcp] journal impossible', err));
   const abandon = new AbortController();
   // Une session par app pour tout le programme : sans cela, trois requêtes par appel useraient le débit de l'app.
   const sessions = new Map<string, Promise<SessionOutils>>();

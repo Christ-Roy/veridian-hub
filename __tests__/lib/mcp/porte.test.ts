@@ -631,6 +631,9 @@ describe('executer_programme', () => {
     const l = db.auditLog.lignes as any[];
     expect(l.filter((x) => x.action === 'mcp.tool.call').map((x) => [x.payload.outil, x.payload.programme])).toEqual(expect.arrayContaining([['analytics.visites_du_site', r.programme], ['analytics.creer_objectif', r.programme]]));
     expect(l.find((x) => x.action === 'mcp.programme').payload).toMatchObject({ programme: r.programme, etat: 'termine', appels: 2, echecs: 0, autoriser: ['analytics.creer_objectif'] });
+    // Le début est tracé AVANT le premier appel : un programme qui tourne se voit (cas 20, remplacement du moteur).
+    const debut = l.findIndex((x) => x.action === 'mcp.programme.debut' && x.payload.programme === r.programme);
+    expect([debut >= 0, debut < l.findIndex((x) => x.action === 'mcp.tool.call')]).toEqual([true, true]);
     expect(JSON.stringify(l)).not.toMatch(/SECRET_DU_CODE|CONFIDENTIEL|secret/);
   });
 
