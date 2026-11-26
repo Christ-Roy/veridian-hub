@@ -320,8 +320,8 @@ pour le stade actuel. Trigger de réévaluation : 10+ clients payants.
                     │  - DB hub_app.users         │
                     │  - DB hub_app.subscriptions │
                     └────┬────────────────────┬───┘
-                         │ 2. provision       │ 4. generateMagicLink
-                         │    (HMAC)          │    (Bearer api_key)
+                         │ 2. provision       │ 4. rebond signé
+                         │    (HMAC)          │    (/api/auth/bounce)
                          │ 3. update-plan     │
                          │    (HMAC)          │
                          │ 6. webhook events  │
@@ -602,11 +602,11 @@ Noms uniques pour toutes les apps : pas de route équivalente sous un autre chem
    → Hub appelle POST notifuse/api/tenants/provision (HMAC)
    → Notifuse crée workspace + user owner + api_key
    → Hub stocke api_key + workspace_id dans hub_app.tenants
-   → Front ouvre l'auto_login_url dans nouvel onglet (TTL 60s)
+   → Front ouvre `open_url` (`/login?next=`, le rebond signé) dans un nouvel onglet
 
 4. User a un workspace Notifuse fonctionnel, trial 15j, plan "free".
    Ses prochains clics "Open Notifuse" depuis le Hub passent par
-   POST notifuse/api/workspaces.generateMagicLink (Bearer api_key).
+   le rebond signé du Hub (`lienApp('notifuse')`, §5.6), qui exige une session à adresse prouvée.
 ```
 
 ### 4.2 Endpoints Hub côté user
@@ -744,7 +744,7 @@ versionné `/api/v1/tenants/*` à partir du jour où on bumpe v2).
 | 4 | `POST /api/tenants/suspend` | HMAC Hub | Stripe webhook → past_due/canceled | ✅ |
 | 5 | `POST /api/tenants/resume` | HMAC Hub | Stripe webhook → resumed | ✅ |
 | 6 | `GET /api/tenants/{id}/health` | HMAC Hub | Cron Hub 1×/h ou check manuel | ✅ |
-| 7 | `POST /api/workspaces.generateMagicLink` | Bearer api_key | User click "Open <App>" | ✅ |
+| 7 | (supprimé) `POST /api/workspaces.generateMagicLink` | Bearer api_key | Remplacé par le rebond signé (§5.6) | n/a |
 | 8 | `DELETE /api/tenants/{id}` | HMAC Hub | `hub delete-tenant` (suppression d'un compte au Hub) | ✅ Notifuse (soft-delete), Twenty ; Prospection passe par le soft-delete §5.8.1 |
 | 9 | `POST /api/sso/issue-magic-link` | HMAC Hub | Bounce OAuth depuis Hub (cf. §6bis.8.3) | ✅ |
 
@@ -782,8 +782,7 @@ versionné `/api/v1/tenants/*` à partir du jour où on bumpe v2).
   "api_key_email": "string (email technique de l'api_key)",
   "plan": "string (echo)",
   "created": true,
-  "magic_link": "string (URL signin one-shot, TTL ~15min)",
-  "auto_login_url": "string (URL self-contained, TTL ~60s)"
+  "magic_link": "string (ancien champ de Notifuse, ignoré par le Hub : l'ouverture passe par le rebond, §5.6)"
 }
 ```
 
@@ -906,26 +905,17 @@ Annule l'effet de `suspend`. Idempotent.
 Le Hub appelle cet endpoint en cron horaire pour les tenants actifs et stocke
 le résultat (table `hub_app.tenant_health_check` à créer côté Hub, roadmap P2).
 
-### 5.6 `POST /api/workspaces.generateMagicLink`
+### 5.6 Ouverture de Mail par le rebond signé
 
-**Auth** : `Authorization: Bearer <tenant_api_key>` (pas HMAC).
+Le Hub n'appelle plus `POST /api/workspaces.generateMagicLink` et ne lit plus `auto_login_url` (réponse de
+provision comprise) : un test de contrat (`__tests__/contrat/mail-par-rebond.test.ts`) échoue si l'un des deux
+réapparaît dans `app/`, `lib/`, `components/` ou `utils/`.
 
-**Request** : `{ "user_email": "string" }`
-
-**Response 200** :
-```json
-{
-  "magic_link": "string (URL signin one-shot, TTL ~15min)",
-  "auto_login_url": "string (URL self-contained, TTL ~60s)",
-  "expires_at": "ISO8601"
-}
-```
-
-**Response 404** : user pas membre du workspace.
-**Response 409** : api_key attachée à plusieurs workspaces (ambigu).
-
-L'`api_key` **doit être scoped à un seul workspace** côté app. Si l'app détecte
-qu'une api_key est partagée entre workspaces → 409 systématique.
+Le bouton « Ouvrir Mail » appelle `POST /api/admin/notifuse/magic-link` `{ tenantId }` (session à adresse prouvée,
+propriétaire ou admin plateforme, workspace rattaché) et reçoit `{ url }` : `lienApp('notifuse')`, soit
+`/login?next=<NOTIFUSE_API_URL>/console/`. Le navigateur passe par `/api/auth/bounce/prepare` puis `complete`, où
+`issueMagicLinkForApp('notifuse', …)` émet le lien à usage unique, jamais le Hub lui-même. `POST /api/tenants/start`
+rend de même `notifuse.open_url`. Aucun jeton n'est gardé ni rendu par le Hub.
 
 ### 5.7 Cycle de vie tenant (machine à états)
 
@@ -1056,8 +1046,7 @@ Tous obligatoires en v1.1. Tous sous HMAC Hub (§6.1). Remplacent le `DELETE
   dégradé §5.9 (obfuscation serveur des champs sensibles).
 - **Toutes les routes API en écriture** doivent retourner `402 Payment Required`
   avec le body standard §5.10 (`{ error: "tenant_soft_deleted", upgrade_url: "<hub_pricing_url>" }`).
-- L'`api_key` reste **valide pour le Hub** (`generateMagicLink` continue de
-  fonctionner — c'est ce qui permet à l'user de revenir voir son paywall).
+- Le rebond signé continue de fonctionner : c'est ce qui permet à l'user de revenir voir son paywall.
 - Le user qui consomme un magic link reçoit une session JWT normale, mais
   toutes ses requêtes sont en mode dégradé.
 

@@ -60,7 +60,7 @@ export function TenantCard({
       });
       const data = await res.json();
 
-      const targetUrl = data.autoLoginUrl || data.magicLink;
+      const targetUrl = data.url;
       if (!res.ok || !targetUrl) {
         const fallback = (env.NEXT_PUBLIC_NOTIFUSE_URL || 'https://notifuse.app.veridian.site') + '/console';
         window.open(fallback, '_blank');
@@ -144,7 +144,7 @@ export function TenantCard({
             Indisponible dans cet environnement
           </Button>
         ) : (
-          <StartTrialButton app="notifuse" openAfter="auto_login_url" />
+          <StartTrialButton app="notifuse" openAfter="notifuse" />
         )}
       </CardFooter>
     </Card>

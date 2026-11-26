@@ -38,8 +38,6 @@ export async function provisionNotifuseTenant(
   success: boolean;
   workspaceId?: string;
   apiKey?: string;
-  magicLink?: string;
-  autoLoginUrl?: string;
   error?: string;
 }> {
   try {
@@ -113,8 +111,6 @@ export async function provisionNotifuseTenant(
       success: true,
       workspaceId: result.workspace_id,
       apiKey: result.api_key,
-      magicLink: result.magic_link,
-      autoLoginUrl: result.auto_login_url,
     };
   } catch (error: any) {
     const message =

@@ -8,8 +8,8 @@
  *   - vérifie ownership (sessionUser.supabaseUserId === tenant.userId)
  *     OU rôle admin platform
  *   - vérifie que le tenant a un workspace Notifuse provisionné
- *     (notifuseApiKey + notifuseUserEmail)
- *   - délègue à `NotifuseClient.generateMagicLink` qui appelle Notifuse
+ *     (notifuseWorkspaceSlug)
+ *   - rend l'adresse du rebond signé (`lienApp('notifuse')`), jamais un lien Notifuse
  *
  * **ASSERTS** (8 invariants de contrat) :
  *  1. POST sans session → 401 Unauthorized
@@ -23,10 +23,10 @@
  *     Tenant Notifuse workspace not provisioned
  *  7. POST happy path retourne 200 OU 502 (selon état Notifuse staging)
  *     mais JAMAIS 401/403/404 si setup correct
- *  8. Réponse 200 contient `expiresAt` (TTL court — pas de magic-link
- *     éternel ni de leak du token signé en clair)
+ *  8. Réponse 200 contient `url` (le rebond `/login?next=`, aucun jeton
+ *     en clair)
  *
- * **NOTE** : on ne teste pas le contenu de l'autoLoginUrl côté Notifuse
+ * **NOTE** : on ne teste pas le contenu de l'ouverture côté Notifuse
  * (down-stream session ouverte) car ça dépend de Notifuse staging et
  * du provisioning preset. Spec cible le contrat Hub strict.
  */

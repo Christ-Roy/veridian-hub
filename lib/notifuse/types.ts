@@ -56,12 +56,6 @@ export interface ProvisionResponse {
   owner_user_id: string;
   api_key: string;
   api_key_email: string;
-  /** Fallback magic link `/console/signin?email=X&code=Y` (saisie manuelle code). */
-  magic_link: string;
-  /** Self-contained URL `/veridian/auto-login?token=<HMAC>` qui logge directement
-   * le user via localStorage (TTL 60s). C'est l'URL que le Hub utilise pour
-   * son bouton "Open Notifuse" sans saisie. */
-  auto_login_url: string;
   plan: NotifusePlan;
   created: boolean;
 }
@@ -95,20 +89,6 @@ export interface StatusResponse {
   suspended_reason?: string;
   deleted_at?: string;
   quota_resets_at?: string;
-}
-
-export interface MagicLinkInput {
-  apiKey: string;
-  /** La personne (CONTRAT-HUB §5.19.7) ; l'adresse n'est qu'informative. */
-  hubUserId?: string;
-  userEmail: string;
-}
-
-export interface MagicLinkResponse {
-  magic_link: string;
-  /** Self-contained auto-login URL (préférée — pas de saisie de code). */
-  auto_login_url: string;
-  expires_at: string;
 }
 
 /**

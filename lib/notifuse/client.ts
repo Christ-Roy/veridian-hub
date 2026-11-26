@@ -3,9 +3,7 @@
  *
  * Couvre les endpoints HMAC-signés exposés par le fork Notifuse pour piloter le
  * cycle de vie des tenants depuis le Hub (provision, plan, suspend, resume,
- * delete, status) ainsi que l'endpoint authentifié par API key tenant
- * (generateMagicLink) pour fabriquer un lien d'auto-login depuis la console
- * client.
+ * delete, status). L'ouverture de Mail passe par le rebond signé (lib/auth/bounce-apps.ts).
  *
  * Voir docs/saas-standards.md §6.1 pour le format HMAC partagé.
  */
@@ -16,8 +14,6 @@ import {
   AttachOwnerInput,
   AttachOwnerResponse,
   HealthResponse,
-  MagicLinkInput,
-  MagicLinkResponse,
   NotifuseError,
   ProvisionInput,
   ProvisionResponse,
@@ -123,15 +119,6 @@ export class NotifuseClient {
     );
   }
 
-  async generateMagicLink(input: MagicLinkInput): Promise<MagicLinkResponse> {
-    return this.apiKeyRequest<MagicLinkResponse>(
-      'POST',
-      '/api/workspaces.generateMagicLink',
-      { ...(input.hubUserId ? { hub_user_id: input.hubUserId } : {}), user_email: input.userEmail },
-      input.apiKey,
-    );
-  }
-
   /**
    * Répare un workspace existant en y attachant un user humain comme owner.
    *
@@ -201,22 +188,6 @@ export class NotifuseClient {
     const headers: Record<string, string> = {
       'X-Veridian-Timestamp': timestamp,
       'X-Veridian-Hub-Signature': signature,
-    };
-    if (rawBody) {
-      headers['Content-Type'] = 'application/json';
-    }
-    return this.executeWithRetry<T>(method, path, headers, rawBody);
-  }
-
-  private async apiKeyRequest<T>(
-    method: 'GET' | 'POST' | 'DELETE',
-    path: string,
-    body: unknown,
-    apiKey: string,
-  ): Promise<T> {
-    const rawBody = body == null ? '' : JSON.stringify(body);
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${apiKey}`,
     };
     if (rawBody) {
       headers['Content-Type'] = 'application/json';

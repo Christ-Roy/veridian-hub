@@ -9,8 +9,8 @@ import { celebrate } from '@/lib/confetti';
 interface StartTrialButtonProps {
   app: 'notifuse' | 'prospection';
   label?: string;
-  /** Après succès, dans un nouvel onglet : le lien rendu par l'app (`auto_login_url`), ou une adresse. */
-  openAfter?: 'auto_login_url' | string | null;
+  /** Après succès, dans un nouvel onglet : le rebond de Mail (`notifuse`), ou une adresse. */
+  openAfter?: 'notifuse' | string | null;
 }
 
 export function StartTrialButton({
@@ -47,7 +47,7 @@ export function StartTrialButton({
       });
 
       if (openAfter) {
-        const url = openAfter === 'auto_login_url' ? data.notifuse?.auto_login_url : openAfter;
+        const url = openAfter === 'notifuse' ? data.notifuse?.open_url : openAfter;
         if (url) {
           window.open(url, '_blank', 'noopener');
         }

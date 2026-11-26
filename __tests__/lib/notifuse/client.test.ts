@@ -110,35 +110,12 @@ describe('NotifuseClient HMAC requests', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
-  it('uses Bearer auth (not HMAC) for generateMagicLink', async () => {
-    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
-      const headers = init!.headers as Record<string, string>;
-      expect(headers['Authorization']).toBe('Bearer tenant-api-key');
-      expect(headers['X-Veridian-Hub-Signature']).toBeUndefined();
-      expect(headers['X-Veridian-Timestamp']).toBeUndefined();
-      return jsonResponse(200, {
-        magic_link: 'https://notifuse.example.com/m?t=abc',
-        expires_at: '2030-01-01T00:00:00Z',
-      });
-    });
-
-    const client = new NotifuseClient({ apiUrl: API_URL, hubSecret: SECRET, fetchImpl });
-    const res = await client.generateMagicLink({
-      apiKey: 'tenant-api-key',
-      userEmail: 'owner@example.com',
-    });
-
-    expect(res.magic_link).toContain('https://');
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-  });
-
-  it('désigne la personne par hub_user_id (CONTRAT-HUB §5.19.7), au lien direct comme au provisionnement', async () => {
+  it('désigne la personne par hub_user_id (CONTRAT-HUB §5.19.7) au provisionnement', async () => {
     const corps: Record<string, unknown>[] = [];
     const fetchImpl = vi.fn(async (_u: string, init?: RequestInit) => { corps.push(JSON.parse(String(init!.body))); return jsonResponse(200, { magic_link: 'https://notifuse.example.com/m' }); });
     const client = new NotifuseClient({ apiUrl: API_URL, hubSecret: SECRET, fetchImpl });
-    await client.generateMagicLink({ apiKey: 'k', hubUserId: 'h-1', userEmail: 'o@x.fr' });
     await client.provisionWorkspace({ tenantId: 't', ownerEmail: 'o@x.fr', hubUserId: 'h-1' });
-    expect(corps).toEqual([{ hub_user_id: 'h-1', user_email: 'o@x.fr' }, expect.objectContaining({ owner_hub_user_id: 'h-1', metadata: { hub_user_id: 'h-1' } })]);
+    expect(corps).toEqual([expect.objectContaining({ owner_hub_user_id: 'h-1', metadata: { hub_user_id: 'h-1' } })]);
   });
 
   it('throws NotifuseError with code 0 on timeout', async () => {
