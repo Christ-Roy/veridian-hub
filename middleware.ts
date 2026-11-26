@@ -33,7 +33,7 @@ export async function avecCsp(req: RequeteAuth): Promise<Response> {
     }
   }
   const n = nonce();
-  const csp = politique(n);
+  const csp = politique(n, process.env.NODE_ENV === 'development', req.nextUrl.pathname);
   const nom = enteteCsp();
   // Next lit le nonce dans l'en-tête CSP de la requête (bloquant ou Report-Only) et l'appose à ses propres scripts.
   const h = new Headers(req.headers);

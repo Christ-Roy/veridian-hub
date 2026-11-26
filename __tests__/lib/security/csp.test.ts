@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { CHEMIN_RAPPORT, enteteCsp, nonce, politique, resumerRapport } from '@/lib/security/csp';
+import { ancetres, CHEMIN_RAPPORT, enteteCsp, nonce, politique, resumerRapport } from '@/lib/security/csp';
 
 describe('politique', () => {
   it('scripts par nonce seulement, aucun plugin, report-uri sans report-to ; eval seulement en développement', () => {
@@ -38,6 +38,12 @@ describe('resumerRapport', () => {
 describe('CHEMIN_RAPPORT', () => {
   it('est une route servie par le Hub : un rapport envoyé ailleurs se perdrait sans bruit', () => {
     expect(existsSync(join(process.cwd(), 'app', ...CHEMIN_RAPPORT.split('/').filter(Boolean), 'route.ts'))).toBe(true);
+  });
+});
+describe('ancetres', () => {
+  it('le Hub seul encadre ses pages ; seule la fenêtre de l\'assistant s\'ouvre aux apps ; la politique les porte (26/11)', () => {
+    expect([ancetres('/login'), ancetres('/ia/chat'), ancetres('/ia/chat/x')]).toEqual(["frame-ancestors 'self'", "frame-ancestors 'self' https://*.app.veridian.site", "frame-ancestors 'self'"]);
+    expect([politique('N', false, '/login').includes("frame-ancestors 'self';"), politique('N', false, '/ia/chat').includes('frame-ancestors \'self\' https://*.app.veridian.site')]).toEqual([true, true]);
   });
 });
 

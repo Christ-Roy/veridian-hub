@@ -4,12 +4,20 @@
  * (report-uri seul : avec report-to, Chrome retarde ou perd le rapport, mesuré par Prospection le 26/11).
  * Posée d'abord en Report-Only (`CSP_MODE` absent ou `rapport`) ; `CSP_MODE=appliquer` la rend bloquante, après un parcours relu.
  * Pas de `form-action` : Chrome l'applique aux redirections qui suivent un formulaire, et la connexion d'une organisation part vers
- * son propre fournisseur (OIDC ou SAML, adresse propre à chaque client). `frame-ancestors` reste dans next.config.js (par chemin :
- * /ia/chat s'affiche dans les apps).
+ * son propre fournisseur (OIDC ou SAML, adresse propre à chaque client). `frame-ancestors` est dans la politique, par chemin (`ancetres`).
  */
 export const CHEMIN_RAPPORT = '/api/csp';
 
-export function politique(nonce: string, dev = process.env.NODE_ENV === 'development'): string {
+/**
+ * Qui peut encadrer la page : le Hub seul, sauf la fenêtre de l'assistant (/ia/chat), qu'affichent les apps (*.app.veridian.site).
+ * DANS la CSP : l'en-tête de next.config.js qui le portait a le même nom, et la CSP bloquante le remplaçait (26/11, frame-ancestors
+ * disparu de /login et /ia/chat, vu par la sonde d'identité de la CI).
+ */
+export function ancetres(chemin = '/'): string {
+  return chemin === '/ia/chat' ? "frame-ancestors 'self' https://*.app.veridian.site" : "frame-ancestors 'self'";
+}
+
+export function politique(nonce: string, dev = process.env.NODE_ENV === 'development', chemin = '/'): string {
   return [
     "default-src 'self'",
     // Le rechargement à chaud du mode développement évalue du code ; la production, jamais.
@@ -23,6 +31,7 @@ export function politique(nonce: string, dev = process.env.NODE_ENV === 'develop
     "connect-src 'self' https://accounts.google.com/gsi/ https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com",
     "frame-src 'self' https://accounts.google.com/gsi/ https://*.app.veridian.site https://www.googletagmanager.com https://js.stripe.com",
     "object-src 'none'",
+    ancetres(chemin),
     "base-uri 'self'",
     ...(dev ? [] : ['upgrade-insecure-requests']),
     `report-uri ${CHEMIN_RAPPORT}`,

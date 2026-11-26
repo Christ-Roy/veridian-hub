@@ -109,3 +109,12 @@ describe('middleware (avecCsp)', () => {
   });
 });
 
+describe('middleware : frame-ancestors dans la CSP (26/11, la CSP bloquante remplaçait l\'en-tête de next.config.js)', () => {
+  it('/login : le Hub seul ; /ia/chat : les apps aussi', async () => {
+    vi.stubEnv('CSP_MODE', 'appliquer');
+    const login = (await avecCsp(req('/login'))).headers.get('content-security-policy')!;
+    const chat = (await avecCsp(req('/ia/chat', { id: 'u' }))).headers.get('content-security-policy')!;
+    expect([/frame-ancestors 'self'(;|$)/.test(login), chat.includes("frame-ancestors 'self' https://*.app.veridian.site")]).toEqual([true, true]);
+  });
+});
+
