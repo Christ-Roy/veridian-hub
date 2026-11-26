@@ -45,7 +45,7 @@ function ecrireMemoire(cle: string, v: string | null) {
 
 const MESSAGES_ERREUR: Record<string, string> = {
   chat_desactive: "Vous avez éteint l'assistant pour cette app. Rallumez-le dans votre espace Veridian, rubrique Assistants IA.",
-  pas_de_branchement: "Aucune IA n'est branchée. Branchez la vôtre dans votre espace Veridian, rubrique Assistants IA.",
+  pas_de_branchement: "Aucun moteur n'est plus branché à votre compte : rechargez la fenêtre. Votre IA reliée, elle, travaille depuis son propre écran.",
   plafond: 'Trop de questions en peu de temps : réessayez dans un instant.',
   session_inconnue: 'Cette conversation ne peut pas être reprise ici.',
 };

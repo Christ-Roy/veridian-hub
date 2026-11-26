@@ -8,6 +8,7 @@ import { expect } from '@playwright/test';
 
 import { HUB_URL } from './lib/cibles';
 import { cas } from './lib/etat';
+import { secretDe } from './lib/hub-admin';
 import { contexteDe } from './lib/monde';
 import { creerCompteProuve } from './lib/parcours';
 
@@ -24,13 +25,20 @@ const BRUIT = /'upgrade-insecure-requests' is ignored when delivered in a report
 cas(null, 'CSP : chaque page du Hub vue par un client se charge sans aucune violation de la politique', async ({ browser }) => {
   const E = await creerCompteProuve(browser, 'csp');
   const ctx = await contexteDe(browser, E);
-  // La fenêtre de l'assistant, telle qu'une app l'insère pour l'organisation du compte (VER-203).
-  const pages = [...PAGES, ...(E.tenantId ? [`/ia/chat?app=notifuse&tenant=${E.tenantId}`] : [])];
+  // La fenêtre de l'assistant, telle qu'une app l'insère pour l'organisation du compte (VER-203) : sans moteur (le renvoi au connecteur),
+  // puis avec une clé branchée (modèle gratuit) pour charger le composant de chat et le SDK `ai` (garde de zod sans eval, 26/11).
+  const fenetre = E.tenantId ? `/ia/chat?app=notifuse&tenant=${E.tenantId}` : null;
+  const pages = [...PAGES, ...(fenetre ? [fenetre, fenetre] : [])];
+  const MODELE_GRATUIT = 'nvidia/nemotron-3-ultra-550b-a55b:free';
   const violations: string[] = [];
   let entetes = 0;
   try {
     for (let i = 0; i < pages.length; i++) {
       const chemin = pages[i];
+      if (fenetre && i === pages.length - 1) {
+        const b = await ctx.request.post(`${HUB_URL}/api/ia/branchement`, { data: { fournisseur: 'openrouter', modele: MODELE_GRATUIT, cle: secretDe('OPENROUTER_API_KEY') } });
+        expect(b.status(), 'clé branchée pour charger la fenêtre de discussion').toBe(200);
+      }
       const page = await ctx.newPage();
       page.on('console', (m) => {
         const t = m.text();
@@ -43,12 +51,16 @@ cas(null, 'CSP : chaque page du Hub vue par un client se charge sans aucune viol
         await page.evaluate(() => { const d = document.createElement('div'); d.innerHTML = '<img src="/x-csp-epreuve.png" onerror="window.__x=1">'; document.body.appendChild(d); });
       }
       await page.waitForTimeout(2_000);
+      if (fenetre && i === pages.length - 1) {
+        await expect(page.getByLabel('Votre question'), 'fenêtre avec moteur : la discussion est chargée').toBeVisible({ timeout: 20_000 });
+      }
       await page.close();
     }
   } finally {
+    if (fenetre) await ctx.request.delete(`${HUB_URL}/api/ia/branchement?fournisseur=openrouter`).catch(() => undefined);
     await ctx.close();
   }
   expect(entetes, 'chaque page porte la CSP à nonce').toBe(pages.length);
   expect(violations, `${violations.length} violation(s)`).toEqual([]);
-  return `${pages.length} pages (fenêtre de l'assistant comprise), CSP à nonce sur chacune, 0 violation dans la console`;
+  return `${pages.length} pages (fenêtre de l'assistant sans puis avec moteur), CSP à nonce sur chacune, 0 violation dans la console`;
 });

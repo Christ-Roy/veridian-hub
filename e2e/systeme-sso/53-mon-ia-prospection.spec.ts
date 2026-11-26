@@ -1,6 +1,7 @@
 /**
  * Mon IA dans Prospection (VER-203 a, contrat §5.24) : le bouton « Mon IA » d'Atlas ouvre la fenêtre du Hub, l'IA branchée (modèle gratuit,
  * 0 $, comme la recette) répond par la porte MCP, et le fil se range CHEZ Prospection : le Hub le relit par GET /api/hub/ia/fils.
+ * Avant tout branchement, la fenêtre renvoie au connecteur (« Relier mon IA », refus `sans_moteur`) ; branchée, elle propose la discussion.
  * Compte d'essai ; le branchement et l'activation sont retirés à la fin.
  * Épreuve : `SSO_SABOTAGE=fil-autre-session` relit une autre session : le fil ne doit pas revenir, le cas doit échouer.
  */
@@ -34,13 +35,24 @@ cas('prospection', 'Mon IA : la fenêtre du Hub dans Atlas, une question, et le 
     const src = (await cadre.getAttribute('src')) ?? '';
     expect(new URL(src).searchParams.get('app'), 'cadre ouvert pour Prospection').toBe('prospection');
     expect(new URL(src).searchParams.get('tenant'), 'cadre ouvert pour l\'organisation du compte').toBe(E.tenantId);
-    await page.waitForTimeout(2_000);
-    await page.screenshot({ path: '.run/captures/mon-ia-prospection.png' });
+    // Sans moteur, la fenêtre ne promet rien : elle renvoie au connecteur, jamais vers une clé (règle de Robert du 25/11).
+    const sansMoteur = page.frameLocator(`iframe[src^="${HUB_URL}/ia/chat"]`).first().locator('[data-refus="sans_moteur"]');
+    await expect(sansMoteur, 'sans moteur : la fenêtre renvoie au connecteur').toContainText('Relier mon IA', { timeout: 30_000 });
+    await page.screenshot({ path: '.run/captures/mon-ia-prospection-sans-moteur.png' });
     await page.close();
 
     // 2. L'IA branchée (modèle gratuit), puis une question par le chemin de la fenêtre.
     const b = await api.post(`${HUB_URL}/api/ia/branchement`, { data: { fournisseur: 'openrouter', modele: MODELE_GRATUIT, cle } });
     if (b.status() !== 200) throw new NonAbouti(`branchement : HTTP ${b.status()}`);
+    // La même fenêtre, ouverte depuis Atlas, propose maintenant la discussion.
+    const page2 = await ctx.newPage();
+    await page2.goto(`${APP_URL.prospection}/`, { waitUntil: 'networkidle' });
+    await page2.getByRole('button', { name: /^Plus tard$/ }).click({ timeout: 5_000 }).catch(() => {});
+    await page2.getByRole('button', { name: /Mon IA/ }).first().click({ timeout: 20_000 });
+    const saisie = page2.frameLocator(`iframe[src^="${HUB_URL}/ia/chat"]`).first().getByLabel('Votre question');
+    await expect(saisie, 'avec un moteur : la fenêtre propose la discussion').toBeVisible({ timeout: 30_000 });
+    await page2.screenshot({ path: '.run/captures/mon-ia-prospection.png' });
+    await page2.close();
     const question = { app: 'prospection', tenantId: E.tenantId, messages: [{ id: 'q1', role: 'user', parts: [{ type: 'text', text: 'Quels sont mes plans Veridian ? Utilise hub.mon_compte par les outils, puis réponds en une phrase.' }] }] };
     const c = await api.post(`${HUB_URL}/api/ia/chat`, { data: question, timeout: 120_000 });
     const flux = await c.text();
