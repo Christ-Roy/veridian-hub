@@ -14,39 +14,58 @@ import { randomUUID } from 'node:crypto';
 
 import { expect, type BrowserContext, type Page } from '@playwright/test';
 
-import { APP_URL, HUB_URL, type AppKey } from './lib/cibles';
+import { APP_URL, HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
-import { secretDe } from './lib/hub-admin';
+import { adminOk, secretDe } from './lib/hub-admin';
 import { contexteDe } from './lib/monde';
 import { creerCompteProuve, ouvrirApp } from './lib/parcours';
 
 const MODELE_GRATUIT = 'nvidia/nemotron-3-ultra-550b-a55b:free'; // même modèle que la recette (0 $, vérifié le 22/11)
-/** Les apps à fenêtre dont le bouton est annoncé servi. Academy et Mail s'ajoutent ici quand elles le servent. */
-const APPS: { app: AppKey & ('analytics' | 'notifuse' | 'prospection'); chemin: string }[] = [
+const ACADEMY_URL = process.env.ACADEMY_URL || 'https://academy.app.veridian.site';
+type AppFenetre = 'analytics' | 'notifuse' | 'prospection' | 'academy';
+/** Les apps à fenêtre dont le bouton est annoncé servi. `chemin` : une page connectée où vivent les marques communes. Mail s'ajoute ici quand il le sert. */
+const APPS: { app: AppFenetre; chemin: string }[] = [
   { app: 'analytics', chemin: '/' },
   { app: 'prospection', chemin: '/' }, // Atlas : reprend le cas 53 (26/11), Prospection sert la règle depuis 316bbf4
+  // Academy : une organisation dont tous les membres sont e2e-sso entre par le rebond (exemption d'épreuve, b6996c1, parente 26/11).
+  { app: 'academy', chemin: '/cours/environnement/dossier-au-tresor' },
 ];
+const urlDe = (app: AppFenetre) => (app === 'academy' ? ACADEMY_URL : APP_URL[app]);
+
+/** Ouvre l'app pour l'organisation du compte, puis y entre par le rebond du Hub. Academy : ouverte par la route d'administration (comme la recette, cas 50). */
+async function entrerDans(ctx: BrowserContext, app: AppFenetre, tenantId: string): Promise<void> {
+  if (app !== 'academy') return void (await ouvrirApp(ctx, app));
+  const o = await adminOk<{ apps: { app: string; etat: string; detail?: string }[] }>('POST', `tenants/${tenantId}/ouvrir`, { apps: ['academy'] });
+  const a = o.apps.find((x) => x.app === 'academy');
+  if (a?.etat !== 'ouverte') throw new NonAbouti(`Academy non ouverte pour l'organisation : ${a?.etat ?? 'absente'} ${a?.detail ?? ''}`);
+  const page = await ctx.newPage();
+  await page.goto(`${HUB_URL}/login?next=${encodeURIComponent(`${ACADEMY_URL}/`)}`, { waitUntil: 'domcontentloaded' });
+  const cible = new URL(ACADEMY_URL).host;
+  await page.waitForURL((u) => u.host === cible || /\/auth\/bounce\/error/.test(u.pathname), { timeout: 60_000 });
+  if (/\/auth\/bounce\/error/.test(new URL(page.url()).pathname)) throw new Error(`rebond vers Academy refusé : ${new URL(page.url()).searchParams.get('code')}`);
+  await page.close();
+}
 
 /** Une proposition de clé, mot entier (frontières Unicode) : « votre clé », « une clé », « clé d'API », « API key ». « sans clé » n'en est pas une. */
 const PROPOSE_UNE_CLE = /(?<![\p{L}\p{N}])(?:votre|vos|une|la|des|sa|ta)\s+cl[ée]s?(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])cl[ée]s?\s+(?:d['\u2019]\s?api|api)(?![\p{L}\p{N}])|\bapi[\s-]?key\b/iu;
 
 const cadreDe = (page: Page) => page.locator(`iframe[src^="${HUB_URL}/ia/chat"]`);
 
-async function pageApp(ctx: BrowserContext, app: AppKey, chemin: string): Promise<Page> {
+async function pageApp(ctx: BrowserContext, app: AppFenetre, chemin: string): Promise<Page> {
   const page = await ctx.newPage();
-  await page.goto(`${APP_URL[app]}${chemin}`, { waitUntil: 'networkidle' });
+  await page.goto(`${urlDe(app)}${chemin}`, { waitUntil: 'networkidle' });
   await page.getByRole('button', { name: /^Plus tard$/ }).click({ timeout: 5_000 }).catch(() => {});
   return page;
 }
 
 for (const { app, chemin } of APPS) {
-  cas(app, `Mon IA depuis ${app} : la carte sans moteur, jamais la fenêtre ; avec une clé, la fenêtre répond et le fil est rangé chez l'app`, async ({ browser }) => {
+  cas(app === 'academy' ? null : app, `Mon IA depuis ${app} : la carte sans moteur, jamais la fenêtre ; avec une clé, la fenêtre répond et le fil est rangé chez l'app`, async ({ browser }) => {
     const E = await creerCompteProuve(browser, `monia-${app}`);
     if (!E.tenantId) throw new NonAbouti('compte d\'essai sans organisation');
     const ctx = await contexteDe(browser, E);
     const api = ctx.request;
     try {
-      await ouvrirApp(ctx, app);
+      await entrerDans(ctx, app, E.tenantId);
 
       // 1. Sans moteur : l'élément flottant dit « sans_moteur », le bouton « Relier mon IA » ouvre la carte, et jamais un cadre (avant ni après le clic).
       const p1 = await pageApp(ctx, app, chemin);
