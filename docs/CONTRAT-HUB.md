@@ -2213,6 +2213,28 @@ L'admin Prospection garde le contrôle souverain sur ses rôles internes
 
 ---
 
+### 5.23 Administrateur de plateforme dans l'espace d'un client (VER-263, 26/11)
+
+Robert, 25/11 : « tout faire comme propriétaire et me faire virer par ce dernier ». Le Hub désigne ses administrateurs de plateforme par `hub_user_id`
+(`PLATFORM_ADMINS`). Chaque app qui a des rôles les pose **admin** dans l'espace de chaque client : tous les droits d'un propriétaire, sauf supprimer l'espace,
+transférer la propriété, retirer ou modifier un propriétaire. **Jamais propriétaire.**
+
+**Route de l'app** (HMAC §6.1, la même pour toutes) :
+
+```
+POST /api/hub/workspace-admins  {workspace_id, hub_user_id, action: "grant"|"revoke", actor_hub_user_id, reason, reinstate: false}
+GET  /api/hub/workspace-admins?workspace_id=X   →  {members: [{hub_user_id, role, admin_granted, admin_withdrawn}]}
+```
+
+- Jamais d'adresse, rien n'est créé : la personne doit être membre de l'espace. `actor_hub_user_id` : l'administrateur connecté, ou `cle:ADMIN_SECRET`
+  (outil `hub`). Refus : 404 `user_not_in_app` | `not_a_member` | `tenant_not_found` ; 409 `admin_withdrawn` | `is_owner`.
+- **Retrait par le client** : l'app le garde, et tout chemin de synchronisation (sync-member, poussée d'organisation, attach-member, nouveau `grant`) rend
+  409 `admin_withdrawn`. Seul `reinstate: true`, geste humain explicite, le remet ; **le Hub ne l'envoie jamais.**
+- **Côté Hub** (`lib/apps/admins-plateforme.ts`) : relire ; absent, l'ajouter comme membre (`sync-member`, `member`, jamais sur quelqu'un déjà là : cela
+  rétrograderait un propriétaire) ; `grant` ; relire, « admin » ne se dit que relu. Appelé à l'ouverture d'un client (`POST /api/admin/tenants/{id}/ouvrir`,
+  donc `nouveau-client`) et par `POST /api/admin/tenants/{id}/admins-plateforme` (`hub admin-partout`). Audit `admin.tenant.admins_plateforme`.
+- **Apps** : Mail SERVI (26/11, fiche Mail 95). Prospection, Analytics, Academy, CRM : à servir sur la même route, puis ajoutées à `APPS_ADMIN`.
+
 ## 6. Authentification — 3 patterns
 
 ### 6.1 Pattern A — HMAC Hub (machine-to-machine)

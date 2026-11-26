@@ -7,13 +7,15 @@ import type { PrismaClient } from '@prisma/client';
 import { ensureAcademyWorkspace } from '@/lib/academy/provision';
 import { ensureCrmWorkspace } from '@/lib/crm/provision';
 import type { SyncApp } from '@/lib/sync/types';
+import { PAR_CLE } from '@/lib/auth/emprunt-bornes';
+import { designerAdminsPlateforme, type Designation } from './admins-plateforme';
 import { provisionNotifuseTenant, provisionProspectionTenant } from '@/utils/tenants/provision';
 
 import { espaceMailVivant, espaceNote, presenteDans } from './presence';
 
 export type Ouverture = { app: SyncApp; etat: 'ouverte' | 'attente' | 'echec'; detail?: string };
 export type Verdict = 'complet' | 'en_partie' | 'non_abouti';
-type Deps = { fetchImpl?: typeof fetch; acteur?: string };
+type Deps = { fetchImpl?: typeof fetch; acteur?: string; auteur?: string };
 
 /** Un échec l'emporte ; puis l'attente ; puis le complet. Rien d'ouvert du tout n'est jamais « complet ». */
 export function verdict(l: readonly Ouverture[]): Verdict {
@@ -21,7 +23,7 @@ export function verdict(l: readonly Ouverture[]): Verdict {
   return l.some((x) => x.etat === 'attente') ? 'en_partie' : 'complet';
 }
 
-export async function ouvrirApps(db: PrismaClient, tenantId: string, apps: readonly SyncApp[], deps: Deps = {}): Promise<{ apps: Ouverture[]; verdict: Verdict } | null> {
+export async function ouvrirApps(db: PrismaClient, tenantId: string, apps: readonly SyncApp[], deps: Deps = {}): Promise<{ apps: Ouverture[]; verdict: Verdict; admins: Designation[] } | null> {
   const champs = { id: true, userId: true, notifuseWorkspaceSlug: true, prospectionProvisionedAt: true, metadata: true } as const;
   const lire = () => db.tenant.findFirst({ where: { id: tenantId, deletedAt: null, status: 'active' }, select: champs });
   const avant = await lire();
@@ -57,5 +59,9 @@ export async function ouvrirApps(db: PrismaClient, tenantId: string, apps: reado
       res.push({ app, etat: 'echec', detail: err instanceof Error ? err.message.slice(0, 160) : 'erreur' });
     }
   }
-  return { apps: res, verdict: verdict(res) };
+  // Mail ouvert : les administrateurs de plateforme y sont posés ADMIN, jamais propriétaires (§5.23). Un échec se dit, il ne défait pas l'ouverture.
+  const admins = res.some((x) => x.app === 'notifuse' && x.etat !== 'echec')
+    ? ((await designerAdminsPlateforme(db, tenantId, { fetchImpl: deps.fetchImpl, acteur: deps.auteur ?? PAR_CLE, raison: 'ouverture du client' }).catch(() => null)) ?? [])
+    : [];
+  return { apps: res, verdict: verdict(res), admins };
 }

@@ -2,11 +2,13 @@
 /** Ouvrir un client : chaque app relue, jamais « créé » sur parole. */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const m = vi.hoisted(() => ({ mail: vi.fn(), atlas: vi.fn(), crm: vi.fn(), academy: vi.fn(), presente: vi.fn(), vivant: vi.fn() }));
+const m = vi.hoisted(() => ({ designer: vi.fn(async () => []), mail: vi.fn(), atlas: vi.fn(), crm: vi.fn(), academy: vi.fn(), presente: vi.fn(), vivant: vi.fn() }));
 vi.mock('@/utils/tenants/provision', () => ({ provisionNotifuseTenant: (...a: unknown[]) => m.mail(...a), provisionProspectionTenant: (...a: unknown[]) => m.atlas(...a) }));
 vi.mock('@/lib/crm/provision', () => ({ ensureCrmWorkspace: (...a: unknown[]) => m.crm(...a) }));
 vi.mock('@/lib/academy/provision', () => ({ ensureAcademyWorkspace: (...a: unknown[]) => m.academy(...a) }));
 vi.mock('@/lib/apps/presence', async (o) => ({ ...(await o<object>()), presenteDans: (...a: unknown[]) => m.presente(...a), espaceMailVivant: (...a: unknown[]) => m.vivant(...a) }));
+
+vi.mock('@/lib/apps/admins-plateforme', () => ({ designerAdminsPlateforme: (...a: unknown[]) => m.designer(...a) }));
 
 import { ouvrirApps, verdict } from '@/lib/apps/ouvrir';
 
@@ -24,6 +26,28 @@ beforeEach(() => {
   m.vivant.mockResolvedValue(true);
 });
 const ouvrir = async (...apps: any[]) => { const r = (await ouvrirApps(db, 'T', apps))!; return [r.apps.map((x) => [x.app, x.etat]), r.verdict]; };
+
+describe('ouvrirApps : administrateurs de plateforme', () => {
+  it('Mail ouvert : posés admin avec l\'auteur donné ; Mail absent ou en échec : personne n\'est désigné', async () => {
+    m.presente.mockResolvedValue(true);
+    m.designer.mockResolvedValue([{ app: 'notifuse', hubUserId: 'r', etat: 'admin' }]);
+    const r = (await ouvrirApps(db, 'T', ['notifuse'], { auteur: 'h-robert' }))!;
+    expect(r.admins).toEqual([{ app: 'notifuse', hubUserId: 'r', etat: 'admin' }]);
+    expect(m.designer.mock.calls[0][2]).toMatchObject({ acteur: 'h-robert' });
+    m.designer.mockClear();
+    await ouvrirApps(db, 'T', ['prospection']);
+    m.mail.mockResolvedValue({ success: false, error: 'non' });
+    t = { ...t, notifuseWorkspaceSlug: null };
+    await ouvrirApps(db, 'T', ['notifuse']);
+    expect(m.designer).not.toHaveBeenCalled();
+  });
+  it('sans auteur : l\'outil nommé par sa clé ; une panne de désignation ne défait pas l\'ouverture', async () => {
+    m.presente.mockResolvedValue(true);
+    m.designer.mockRejectedValue(new Error('panne'));
+    const r = (await ouvrirApps(db, 'T', ['notifuse']))!;
+    expect([r.verdict, r.admins, m.designer.mock.calls[0][2].acteur]).toEqual(['complet', [], 'cle:ADMIN_SECRET']);
+  });
+});
 
 describe('ouvrirApps', () => {
   it('tout créé et relu : complet ; rejouée : rien n\'est recréé', async () => {
