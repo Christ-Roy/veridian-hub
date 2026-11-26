@@ -72,11 +72,16 @@ export async function recevoirNotifuse(db: Db, h: Headers, brut: string, env: No
   } catch (err) {
     await liberer(db, cle).catch(() => undefined);
     const code = err instanceof AppInjoignable ? err.code : undefined;
-    await db.integrationPaire.updateMany({ where: { tenantId: abo.tenantId, paire: p.cle }, data: { derniereErreur: code ? `crm_${code}` : 'crm_injoignable' } }).catch(() => undefined);
+    const erreur = code ? `crm_${code}` : 'crm_injoignable';
+    // Une liaison active PAR DÉFAUT n'a pas de ligne : un simple updateMany n'écrivait l'erreur nulle part (recette du 26/11 : cinq échecs sans
+    // trace). Ligne `defaut` comme noterPassage, qui garde l'état par défaut ; et l'audit, sans adresse ni contenu.
+    await db.integrationPaire.upsert({ where: { tenantId_paire: { tenantId: abo.tenantId, paire: p.cle } }, create: { tenantId: abo.tenantId, paire: p.cle, etat: 'defaut', changePar: 'hub defaut', derniereErreur: erreur }, update: { derniereErreur: erreur } }).catch(() => undefined);
+    await writeAuditLog(db as PrismaClient, { action: 'evenement.echec', actor: `app:${SOURCE}`, targetType: 'tenant', targetId: abo.tenantId, payload: { paire: p.cle, evenement_id: reponse.evenementId, erreur } }).catch(() => undefined);
     if (err instanceof AppDebit) return refus(503, 'crm_rate_limited', Math.ceil(err.attenteMs / 1000));
     // L'app du CRM s'installe : passager. Le reste (désinstallée, espace non relié) demande un geste, la source garde son rythme de réessai.
     if (code === 'app_installing' || code === 'app_install_failed') return refus(503, `crm_${code}`, 60);
-    return refus(502, code ? `crm_${code}` : 'crm_unreachable');
+    // 503, jamais 502 : Cloudflare remplace un 502 de l'origine par sa propre page, et la source perdait le code (26/11, « 502 » HTML en prod).
+    return refus(503, code ? `crm_${code}` : 'crm_unreachable');
   }
   // Le CRM a répondu : plus rien ci-dessous ne doit rendre un 5xx (la source rejouerait une écriture faite).
   // Le disjoncteur compte les écritures : une réponse que le CRM écarte ou a déjà n'en est pas une.

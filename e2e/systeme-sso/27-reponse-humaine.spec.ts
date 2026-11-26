@@ -121,7 +121,7 @@ cas(null, 'une réponse humaine reçue dans Mail devient une tâche au CRM, une 
 
     // Un vrai refus du CRM, dit en 200 (success:false, thread_invalide) : jamais pris pour un succès, la source réessaiera.
     const refuse = await recevoir(randomUUID(), { thread_id: 'fil/1', email: `refus@reponse${n}.invalid` });
-    expect(refuse, 'refus du CRM en texte').toEqual([502, { error: 'crm_unreachable' }]);
+    expect(refuse, 'refus du CRM en texte').toEqual([503, { error: 'crm_unreachable' }]);
     expect((await compter('tasks')).n, 'refusée : rien au CRM').toBe(apres.n);
 
     // CRM éteint au registre du Hub : 5xx, la source réessaie, rien n'est perdu.
@@ -129,7 +129,7 @@ cas(null, 'une réponse humaine reçue dans Mail devient une tâche au CRM, une 
     const autreFil = { thread_id: `t2_${n}`, email: `autre@reponse${n}.invalid` };
     await crm(false);
     try {
-      expect((await recevoir(perdu, autreFil))[0], 'CRM fermé : la source réessaiera').toBe(502);
+      expect((await recevoir(perdu, autreFil))[0], 'CRM fermé : la source réessaiera').toBe(503);
     } finally {
       await crm(true);
     }
@@ -174,7 +174,7 @@ cas(null, 'une réponse humaine reçue dans Mail devient une tâche au CRM, une 
       expect([p2.n - personnes, p2.t.includes(`neuf@reponse${n}.invalid`), p2.t.includes(`auto@reponse${n}.invalid`)], 'une personne de plus, l\'inconnue').toEqual([1, true, false]);
       vraie = 'vraie émission de Mail livrée (contact connu, inconnu), réponse automatique sans effet';
     }
-    return `espace ${slug}${process.env.SSO_GARDER_MAIL === '1' ? ` (gardé, tenant ${T.id})` : ''} : une tâche, une personne, rejeu et suite du fil sans rien de plus, CRM fermé 502 puis rattrapée, coupée sans effet, ancien secret refusé, ${vraie}`;
+    return `espace ${slug}${process.env.SSO_GARDER_MAIL === '1' ? ` (gardé, tenant ${T.id})` : ''} : une tâche, une personne, rejeu et suite du fil sans rien de plus, CRM fermé 503 puis rattrapée, coupée sans effet, ancien secret refusé, ${vraie}`;
   } finally {
     for (const k of poses) await admin('DELETE', `mcp-apps?app_key=${k}`);
     if (cree && process.env.SSO_GARDER_MAIL !== '1') {
