@@ -28,7 +28,8 @@ cas('prospection', T, async ({ browser }) => {
     expect(me?.tenantId, 'Prospection : tenant du compte').toBeTruthy();
     expect(me?.workspaces?.length, 'Prospection : au moins un espace de travail').toBeGreaterThan(0);
     const trial = await (await ctx.request.get(`${APP_URL.prospection}/api/trial`)).json();
-    expect(trial?.plan, 'Prospection : plan lisible').toBeTruthy();
+    // Aucun plan par défaut (22/11) : un compte neuf n'a pas de plan tant que personne n'en pose un ; la réponse le dit, sans erreur.
+    expect(trial && (trial.plan === null || trial.plan === undefined || typeof trial.plan === 'string'), `Prospection : état d'essai lisible ${JSON.stringify(trial).slice(0, 120)}`).toBe(true);
     ok = true;
     return `session ${A.email}, tenant ${me.tenantId}, plan ${trial.plan}`;
   } finally {

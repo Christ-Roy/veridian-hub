@@ -53,7 +53,8 @@ cas(null, 'organisation : réglée une fois au Hub, reçue et relue par l\'app, 
     await page.waitForURL(/avis=/);
     expect(new URL(page.url()).searchParams.get('avis'), 'avis rendu par l\'écran').toBe('enregistre');
     await expect(page.getByText('Enregistré', { exact: false }).first()).toBeVisible();
-    logo = (await page.locator('img[alt^="Logo de"]').getAttribute('src')) ?? '';
+    // Le menu montre aussi le logo de l'organisation : on lit celui de l'écran.
+    logo = (await page.getByRole('main').locator('img[alt^="Logo de"]').first().getAttribute('src')) ?? '';
   } finally {
     await ctx.close();
   }
