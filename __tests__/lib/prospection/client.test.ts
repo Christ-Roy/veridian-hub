@@ -1,5 +1,5 @@
 import { createHmac } from 'crypto';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   ProspectionClient,
@@ -7,6 +7,7 @@ import {
   readProspectionSecret,
   createProspectionClientFromEnv,
 } from '@/lib/prospection/client';
+import { exigeV1, exigeV2 } from '../hmac/aide-v2';
 
 const SECRET = 'test-hub-secret';
 const API_URL = 'https://prospection.example.com';
@@ -167,5 +168,43 @@ describe('readProspectionSecret / createProspectionClientFromEnv', () => {
     process.env.PROSPECTION_HUB_API_SECRET = 'secret';
     const client = createProspectionClientFromEnv();
     expect(client).toBeInstanceOf(ProspectionClient);
+  });
+});
+
+describe('ProspectionClient, version de signature', () => {
+  const appeler = async (maxRetries: number, premier: number) => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(1_700_000_000_000);
+    const vus: { url: string; method: string; h: Record<string, string>; corps: string }[] = [];
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      vus.push({ url, method: String(init?.method), h: init!.headers as Record<string, string>, corps: String(init?.body ?? '') });
+      vi.setSystemTime(Date.now() + 7);
+      return jsonResponse(vus.length === 1 ? premier : 200, { ok: true });
+    });
+    const client = new ProspectionClient({ apiUrl: 'https://prospection.example.com', hubSecret: 'test-hub-secret', fetchImpl, maxRetries });
+    await client.softDeleteTenant('x@y.fr', { purgeEligibleAt: '2027-01-01T00:00:00Z' }).catch(() => undefined);
+    return vus;
+  };
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+  });
+  it('HMAC_V2_APPS=prospection : l\'appel part en v2, lié à sa méthode et à son chemin', async () => {
+    vi.stubEnv('HMAC_V2_APPS', 'prospection');
+    const [v] = await appeler(0, 200);
+    exigeV2(v.h, 'test-hub-secret', v.method, v.url, v.corps);
+  });
+  it('variable absente, ou nommant une autre app : v1', async () => {
+    vi.stubEnv('HMAC_V2_APPS', 'crm');
+    const [v] = await appeler(0, 200);
+    exigeV1(v.h, 'test-hub-secret', v.corps);
+  });
+  it('v2 : chaque nouvel essai après un 503 prend un timestamp et une signature neufs', async () => {
+    vi.stubEnv('HMAC_V2_APPS', 'prospection');
+    const [a, b] = await appeler(2, 503);
+    expect(b).toBeDefined();
+    expect(a.h['X-Veridian-Timestamp']).not.toBe(b.h['X-Veridian-Timestamp']);
+    expect(a.h['X-Veridian-Hub-Signature']).not.toBe(b.h['X-Veridian-Hub-Signature']);
+    exigeV2(b.h, 'test-hub-secret', b.method, b.url, b.corps);
   });
 });

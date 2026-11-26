@@ -15,7 +15,7 @@
  *     PROSPECTION_TENANT_API_SECRET (legacy, fallback)
  */
 
-import { createHmac } from 'crypto';
+import { entetesSignature } from '@/lib/hmac/signature-hub';
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const DEFAULT_MAX_RETRIES = 2;
@@ -139,12 +139,22 @@ export class ProspectionClient {
 
   // --- internals ---
 
-  private signRequest(body: string): { timestamp: string; signature: string } {
-    const timestamp = Date.now().toString();
-    const signature = createHmac('sha256', this.hubSecret)
-      .update(`${timestamp}.${body}`)
-      .digest('hex');
-    return { timestamp, signature };
+  /**
+   * Les en-têtes d'UNE tentative : signature neuve (timestamp neuf) à chaque envoi et à chaque nouvel essai,
+   * la v2 étant à usage unique côté serveur (`lib/hmac/signature-hub.ts`).
+   */
+  private entetes(method: string, url: string, rawBody: string): Record<string, string> {
+    const headers: Record<string, string> = entetesSignature({
+      secret: this.hubSecret,
+      methode: method,
+      url,
+      corps: rawBody,
+      app: 'prospection',
+    });
+    if (rawBody) {
+      headers['Content-Type'] = 'application/json';
+    }
+    return headers;
   }
 
   private async hmacRequest<T>(
@@ -153,21 +163,12 @@ export class ProspectionClient {
     body: unknown,
   ): Promise<T> {
     const rawBody = body == null ? '' : JSON.stringify(body);
-    const { timestamp, signature } = this.signRequest(rawBody);
-    const headers: Record<string, string> = {
-      'X-Veridian-Timestamp': timestamp,
-      'X-Veridian-Hub-Signature': signature,
-    };
-    if (rawBody) {
-      headers['Content-Type'] = 'application/json';
-    }
-    return this.executeWithRetry<T>(method, path, headers, rawBody);
+    return this.executeWithRetry<T>(method, path, rawBody);
   }
 
   private async executeWithRetry<T>(
     method: string,
     path: string,
-    headers: Record<string, string>,
     rawBody: string,
   ): Promise<T> {
     const url = `${this.apiUrl}${path}`;
@@ -180,7 +181,7 @@ export class ProspectionClient {
       try {
         const response = await this.fetchImpl(url, {
           method,
-          headers,
+          headers: this.entetes(method, url, rawBody),
           body: rawBody && method !== 'GET' ? rawBody : undefined,
           signal: controller.signal,
         });

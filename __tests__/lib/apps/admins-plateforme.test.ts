@@ -4,6 +4,7 @@ import { createHmac } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { designationEnEchec, designerAdminsPlateforme } from '@/lib/apps/admins-plateforme';
+import { exigeV1, exigeV2 } from '../hmac/aide-v2';
 
 const ROBERT = '53245ae1-6bf8-4ec6-870f-32d75b7c0281';
 const CLIENT = '11111111-2222-4333-8444-555555555555';
@@ -96,5 +97,29 @@ describe('designerAdminsPlateforme', () => {
     vi.stubEnv('NOTIFUSE_HUB_API_SECRET', '');
     rep = () => membres();
     expect((await jouer())![0].etat).toBe('non_branchee');
+  });
+});
+
+describe('designerAdminsPlateforme, version de signature', () => {
+  const capter = async () => {
+    const vus: { url: string; methode: string; brut: string; h: Record<string, string> }[] = [];
+    const f = (async (url: string, i: RequestInit) => {
+      vus.push({ url, methode: i.method!, brut: (i.body as string) ?? '', h: i.headers as Record<string, string> });
+      return new Response(JSON.stringify(i.method === 'GET' ? { workspace_id: 'ws', members: [{ hub_user_id: ROBERT, role: 'member' }] } : {}), { status: 200 });
+    }) as unknown as typeof fetch;
+    await designerAdminsPlateforme(db, 'T', { fetchImpl: f, acteur: ROBERT, raison: 'appel du client' });
+    return vus;
+  };
+  it('HMAC_V2_APPS=notifuse : le GET et le POST partent en v2, chacun lié à sa méthode et à son chemin', async () => {
+    vi.stubEnv('HMAC_V2_APPS', 'notifuse');
+    const vus = await capter();
+    expect(vus.map((v) => v.methode)).toContain('GET');
+    expect(vus.map((v) => v.methode)).toContain('POST');
+    for (const v of vus) exigeV2(v.h, 's3cret', v.methode, v.url, v.brut);
+  });
+  it('variable absente : v1', async () => {
+    const vus = await capter();
+    expect(vus.length).toBeGreaterThan(0);
+    for (const v of vus) exigeV1(v.h, 's3cret', v.brut);
   });
 });

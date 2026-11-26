@@ -1,11 +1,12 @@
 // @vitest-environment node
 import { createHmac } from 'node:crypto';
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { emettreOrganisation, suivreOrganisation } from '@/lib/organisations/emission';
 
 import { base } from './fausse';
+import { exigeV1, exigeV2 } from '../hmac/aide-v2';
 
 const ENV = { NODE_ENV: 'test', ACADEMY_API_URL: 'https://a.test', ACADEMY_HUB_API_SECRET: 's', AUTH_URL: 'https://hub.test' } as NodeJS.ProcessEnv;
 let db: ReturnType<typeof base>;
@@ -77,4 +78,36 @@ it('suivreOrganisation : une base en panne ne fait pas échouer le changement de
   vi.spyOn(console, 'error').mockImplementation(() => {});
   expect(await suivreOrganisation({ organisation: { findUnique: async () => { throw new Error('base'); } } } as never, 'A')).toEqual([]);
   vi.restoreAllMocks();
+});
+
+describe('emettreOrganisation, version de signature', () => {
+  const emettreVu = async () => {
+    const vus: { url: string; methode: string; corps: string; h: Record<string, string> }[] = [];
+    let version: unknown = 0;
+    const f = (async (url: string, i: RequestInit) => {
+      const methode = i.method ?? 'GET';
+      const corps = methode === 'POST' ? String(i.body) : '';
+      vus.push({ url, methode, corps, h: i.headers as Record<string, string> });
+      if (methode === 'POST') {
+        version = JSON.parse(corps).version;
+        return Response.json({ applied: true });
+      }
+      return Response.json({ version });
+    }) as unknown as typeof fetch;
+    await emettreOrganisation(db as never, 'A', { env: ENV, fetchImpl: f });
+    return vus;
+  };
+  afterEach(() => vi.unstubAllEnvs());
+  it('HMAC_V2_APPS=academy : le POST du document et le GET de relecture partent en v2, la query du GET comprise', async () => {
+    vi.stubEnv('HMAC_V2_APPS', 'academy');
+    const vus = await emettreVu();
+    expect(vus.map((v) => v.methode)).toEqual(['POST', 'GET']);
+    expect(vus[1].url).toContain('?hub_tenant_id=A');
+    for (const v of vus) exigeV2(v.h, 's', v.methode, v.url, v.corps);
+  });
+  it('variable absente : v1', async () => {
+    const vus = await emettreVu();
+    expect(vus.length).toBe(2);
+    for (const v of vus) exigeV1(v.h, 's', v.corps);
+  });
 });

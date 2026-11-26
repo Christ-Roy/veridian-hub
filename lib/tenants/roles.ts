@@ -3,11 +3,10 @@
  * son rôle natif, au rebond et à chaque changement, et le Hub RELIT. Fermé par défaut, organisation par organisation
  * (`ROLE_PORTE`) : personne n'est promu chez un client sans Robert. Les organisations MARQUÉES de test au Hub sont ouvertes.
  */
-import { createHmac } from 'node:crypto';
-
 import type { PrismaClient } from '@prisma/client';
 
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
+import { entetesSignature } from '@/lib/hmac/signature-hub';
 import { oublierUtilisateur } from '@/lib/mcp/cache';
 import { discoverAppForEmail } from '@/lib/sync/discovery';
 import type { SyncApp } from '@/lib/sync/types';
@@ -49,10 +48,10 @@ async function pousserChez(app: SyncApp, o: Organisation, qui: { email: string; 
     // Academy n'existe qu'en prod : son absence se dit, sans faire échouer le rôle ailleurs. Celle du CRM est une panne.
     if (!config) return app === 'academy' ? { app, etat: 'sans_effet', detail: 'Academy absente de cet environnement' } : { app, etat: 'echec', detail: `${app}_not_configured` };
     const body = JSON.stringify({ hub_tenant_id: o.hub_tenant_id, hub_user_id: qui.hubUserId, email: qui.email, role: o.role, version: o.version });
-    const ts = String(Date.now());
-    const res = await (deps.fetchImpl ?? fetch)(`${config.apiUrl}/api/hub/members/role`, {
+    const cible = `${config.apiUrl}/api/hub/members/role`;
+    const res = await (deps.fetchImpl ?? fetch)(cible, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Veridian-Timestamp': ts, 'X-Veridian-Hub-Signature': createHmac('sha256', config.hubSecret).update(`${ts}.${body}`).digest('hex') },
+      headers: { 'Content-Type': 'application/json', ...entetesSignature({ secret: config.hubSecret, methode: 'POST', url: cible, corps: body, app }) },
       body,
       signal: AbortSignal.timeout(DELAI_MS),
     });

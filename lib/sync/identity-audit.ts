@@ -12,7 +12,7 @@
 
 import type { PrismaClient } from '@prisma/client';
 
-import { configuredSyncApps, readAppSecret, readAppUrl, signGet } from '@/lib/sync/discovery';
+import { configuredSyncApps, enteteGet, readAppSecret, readAppUrl } from '@/lib/sync/discovery';
 import type { IdentityAudit, IdentityAuditApp, SyncApp } from '@/lib/sync/types';
 
 const TIMEOUT_MS = 10_000;
@@ -83,10 +83,10 @@ async function auditApp(
   const secret = readAppSecret(app);
   if (!url || !secret) return emptyAudit('not_configured');
 
-  const { timestamp, signature } = signGet(secret);
+  const cible = `${url}/api/hub/users`;
   try {
-    const res = await fetchImpl(`${url}/api/hub/users`, {
-      headers: { 'X-Veridian-Timestamp': timestamp, 'X-Veridian-Hub-Signature': signature },
+    const res = await fetchImpl(cible, {
+      headers: enteteGet(app, secret, cible),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     if (res.status === 404 || res.status === 405 || res.status === 501) {

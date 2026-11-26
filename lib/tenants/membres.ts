@@ -5,12 +5,11 @@
  * Un retrait coupe d'abord au Hub (la porte MCP et tout jeton suivant refusent aussitôt), puis chez chaque app, et RELIT l'app :
  * « retiré » veut dire relu absent. Une app qui ne sait pas retirer, ou qui échoue, est dite ; rejouer le retrait est sans effet de bord.
  */
-import { createHmac } from 'node:crypto';
-
 import type { PrismaClient } from '@prisma/client';
 
 import { writeAuditLog } from '@/lib/admin/audit-log';
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
+import { entetesSignature } from '@/lib/hmac/signature-hub';
 import { humainsDe } from '@/lib/sync/appartenance';
 import { configuredSyncApps, discoverAppForEmail } from '@/lib/sync/discovery';
 import { suivreOrganisation } from '@/lib/organisations/emission';
@@ -116,10 +115,10 @@ async function signer(app: SyncApp, methode: string, chemin: string, corps: Reco
   const config = resolveAppConfig(app, deps.env ?? process.env);
   if (!config) throw new Error(`${app}_not_configured`);
   const body = JSON.stringify(corps);
-  const ts = String(Date.now());
-  return (deps.fetchImpl ?? fetch)(`${config.apiUrl}${chemin}`, {
+  const cible = `${config.apiUrl}${chemin}`;
+  return (deps.fetchImpl ?? fetch)(cible, {
     method: methode,
-    headers: { 'Content-Type': 'application/json', 'X-Veridian-Timestamp': ts, 'X-Veridian-Hub-Signature': createHmac('sha256', config.hubSecret).update(`${ts}.${body}`).digest('hex') },
+    headers: { 'Content-Type': 'application/json', ...entetesSignature({ secret: config.hubSecret, methode, url: cible, corps: body, app }) },
     body,
     signal: AbortSignal.timeout(DELAI_MS),
   });

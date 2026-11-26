@@ -8,12 +8,11 @@
  * Deux apps suivent ce contrat : le CRM (Twenty) et Academy. Une troisième s'ajoute à `ESPACE_APPS`,
  * pas en recopiant ce fichier.
  */
-import { createHmac } from 'node:crypto';
-
 import type { PrismaClient } from '@prisma/client';
 
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
 import { abonnerParDefaut } from '@/lib/evenements/naissance';
+import { entetesSignature } from '@/lib/hmac/signature-hub';
 import { pushUserToApps } from '@/lib/identity/push-user';
 import { oublierUtilisateur } from '@/lib/mcp/cache';
 import { choisirPlanInitial, setAppPlan, type PlanApp } from '@/lib/plans/app-plan';
@@ -69,17 +68,16 @@ export async function provisionAppWorkspace(
     email_proven: true,
     metadata: { hub_user_id: input.hubUserId },
   });
-  const timestamp = String((opts.nowMs ?? Date.now)());
-  const signature = createHmac('sha256', config.hubSecret).update(`${timestamp}.${body}`).digest('hex');
+  const cible = `${config.apiUrl}${PROVISION_PATH}`;
+  const signature = entetesSignature({ secret: config.hubSecret, methode: 'POST', url: cible, corps: body, app: cfg.app, maintenant: (opts.nowMs ?? Date.now)() });
 
   let response: Response;
   try {
-    response = await (opts.fetchImpl ?? fetch)(`${config.apiUrl}${PROVISION_PATH}`, {
+    response = await (opts.fetchImpl ?? fetch)(cible, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Veridian-Timestamp': timestamp,
-        'X-Veridian-Hub-Signature': signature,
+        ...signature,
       },
       body,
       signal: AbortSignal.timeout(cfg.timeoutMs),

@@ -30,7 +30,7 @@
  *      strict : si le secret canonique n'est pas trouvé, on échoue net.
  */
 
-import { createHmac } from 'crypto';
+import { entetesSignature } from '@/lib/hmac/signature-hub';
 
 const ISSUE_MAGIC_LINK_PATH = '/api/sso/issue-magic-link';
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -222,10 +222,7 @@ export async function issueMagicLinkForApp(
     ...(input.emprunt ? { emprunt: input.emprunt } : {}),
   });
 
-  const timestamp = String(nowMs());
-  const signature = createHmac('sha256', config.hubSecret)
-    .update(`${timestamp}.${body}`)
-    .digest('hex');
+  const signature = entetesSignature({ secret: config.hubSecret, methode: 'POST', url, corps: body, app: input.app, maintenant: nowMs() });
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -236,8 +233,7 @@ export async function issueMagicLinkForApp(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Veridian-Timestamp': timestamp,
-        'X-Veridian-Hub-Signature': signature,
+        ...signature,
       },
       body,
       signal: controller.signal,

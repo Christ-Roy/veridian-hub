@@ -7,6 +7,7 @@ import { createHmac } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 
 import { bundleTier, pushAppPlan, readAppPlan, setAppPlan, tenantHasApp } from '@/lib/plans/app-plan';
+import { exigeV1, exigeV2 } from '../hmac/aide-v2';
 
 const env = {
   ANALYTICS_API_URL: 'https://analytics.app.veridian.site/',
@@ -125,5 +126,29 @@ describe('lecture et palier', () => {
     expect(bundleTier('veridian-business', false)).toBe('free');
     expect(bundleTier('notifuse-pro', true)).toBeNull();
     expect(bundleTier(null, true)).toBeNull();
+  });
+});
+
+describe('pushAppPlan, version de signature', () => {
+  const pousser = async (app: 'analytics' | 'crm') => {
+    const fetchImpl = reponse(200, { plan: 'pro', previous_plan: 'free' });
+    await pushAppPlan({ app, hubTenantId: 't-1', hubUserId: 'hub-1', plan: 'pro', planSource: 'grant_manual', reason: 'test' }, { env, fetchImpl: fetchImpl as never, nowMs: () => 1_800_000_000_000 });
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    return { url, init, h: init.headers as Record<string, string> };
+  };
+  it('HMAC_V2_APPS=crm : le CRM reçoit la v2, Analytics reste en v1', async () => {
+    vi.stubEnv('HMAC_V2_APPS', 'crm');
+    try {
+      const c = await pousser('crm');
+      exigeV2(c.h, 'secret-crm', 'POST', c.url, String(c.init.body));
+      const a = await pousser('analytics');
+      exigeV1(a.h, 'secret-analytics', String(a.init.body));
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('variable absente : v1 sur `${ts}.${corps}`', async () => {
+    const c = await pousser('crm');
+    exigeV1(c.h, 'secret-crm', String(c.init.body));
   });
 });

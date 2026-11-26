@@ -2,7 +2,7 @@
 /** Appartenance : un seul écrivain, un retrait relu, une suspension dite app par app. */
 import { readFileSync } from 'node:fs';
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const org = vi.hoisted(() => ({ suivre: vi.fn(async (..._a: unknown[]) => []) }));
 vi.mock('@/lib/organisations/emission', () => ({ suivreOrganisation: org.suivre }));
@@ -10,6 +10,7 @@ vi.mock('@/lib/organisations/emission', () => ({ suivreOrganisation: org.suivre 
 import { basculerSuspension, avisCles, nonCoupees, oublierCompte, rejoindre, retirer, retirerDeLApp, type DbMembres } from '@/lib/tenants/membres';
 
 import { parcourir } from '../../contrat/source';
+import { exigeV1, exigeV2 } from '../hmac/aide-v2';
 
 type L = Record<string, any>;
 let tenant: L | null;
@@ -439,4 +440,30 @@ it('une fédération ne donne que member, et ne fait JAMAIS revenir un retiré',
   await expect(joindre({ origine: 'federation', role: 'admin' })).rejects.toMatchObject({ code: 'role_refuse' });
   membres = [{ tenantId: 'T', userId: 'u-m', role: 'member', deletedAt: new Date('2026-11-20') }];
   await expect(joindre({ origine: 'federation', emiseLe: new Date() })).rejects.toMatchObject({ code: 'retire' });
+});
+
+describe('retirerDeLApp, version de signature', () => {
+  afterEach(() => vi.unstubAllEnvs());
+  const retirerCrm = async () => {
+    await joindre();
+    const a = apps({ crm: ['m@x.fr'] });
+    const vus: { url: string; methode: string; corps: string; h: Record<string, string> }[] = [];
+    const f = (async (url: string, init?: RequestInit) => {
+      vus.push({ url, methode: init?.method ?? 'GET', corps: String(init?.body ?? ''), h: init?.headers as Record<string, string> });
+      return a.f(url, init);
+    }) as typeof fetch;
+    await retirerDeLApp('crm', tenant as never, 'm@x.fr', 'u-m', { fetchImpl: f });
+    return vus;
+  };
+  it('HMAC_V2_APPS=crm : chaque appel au CRM (le POST remove-member comme les lectures) part en v2', async () => {
+    vi.stubEnv('HMAC_V2_APPS', 'crm');
+    const vus = await retirerCrm();
+    expect(vus.some((v) => v.methode === 'POST' && v.url.endsWith('/api/tenants/T/remove-member'))).toBe(true);
+    for (const v of vus) exigeV2(v.h, 's', v.methode, v.url, v.corps);
+  });
+  it('variable absente : v1', async () => {
+    const vus = await retirerCrm();
+    expect(vus.length).toBeGreaterThan(0);
+    for (const v of vus) exigeV1(v.h, 's', v.corps);
+  });
 });

@@ -1,12 +1,13 @@
 // @vitest-environment node
 import { createHmac } from 'node:crypto';
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const poser = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/evenements/abonnement', () => ({ poserAbonnement: poser }));
 
 import { suivreAbonnement } from '@/lib/evenements/allumage';
+import { exigeV1, exigeV2 } from '../hmac/aide-v2';
 
 const ENV = { NODE_ENV: 'test', NOTIFUSE_API_URL: 'https://n.test', NOTIFUSE_HUB_API_SECRET: 's' } as NodeJS.ProcessEnv;
 const SECRET = `whsec_${Buffer.alloc(32, 1).toString('base64')}`;
@@ -37,5 +38,27 @@ describe('suivreAbonnement', () => {
   it('une autre paire : rien n\'est appelé', async () => {
     expect(await suivre(true, () => Response.json({}), 'prospection>crm')).toBe('sans_objet');
     expect(appels).toEqual([]);
+  });
+});
+
+describe('suivreAbonnement, version de signature', () => {
+  const allumer = async () => {
+    const vus: { url: string; h: Record<string, string>; corps: string }[] = [];
+    const f = (async (url: string, i: RequestInit) => {
+      vus.push({ url, h: i.headers as Record<string, string>, corps: String(i.body) });
+      return Response.json({ workspace_id: 'ws', secret: SECRET });
+    }) as unknown as typeof fetch;
+    await suivreAbonnement({} as never, { tenantId: 'T', paire: 'notifuse>crm', actif: true }, ENV, f);
+    return vus[0];
+  };
+  afterEach(() => vi.unstubAllEnvs());
+  it('HMAC_V2_APPS=notifuse : la demande d\'abonnement part en v2', async () => {
+    vi.stubEnv('HMAC_V2_APPS', 'notifuse');
+    const v = await allumer();
+    exigeV2(v.h, 's', 'POST', v.url, v.corps);
+  });
+  it('variable absente : v1', async () => {
+    const v = await allumer();
+    exigeV1(v.h, 's', v.corps);
   });
 });

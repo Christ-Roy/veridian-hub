@@ -8,7 +8,7 @@
 import type { PrismaClient } from '@prisma/client';
 
 import { estAdresseOperateur, isPlatformAdminId } from '@/lib/admin/check-admin';
-import { discoverAppForEmail, HUB_USER_ID_APPS, readAppSecret, readAppUrl, signGet } from '@/lib/sync/discovery';
+import { discoverAppForEmail, enteteGet, HUB_USER_ID_APPS, readAppSecret, readAppUrl } from '@/lib/sync/discovery';
 import { horsPerimetre } from '@/lib/sync/identity-audit';
 import { isTestAccount } from '@/lib/sync/test-residue';
 import type { SyncApp, TenantSnapshot } from '@/lib/sync/types';
@@ -139,10 +139,10 @@ export async function humainsDe(app: SyncApp, fetchImpl: typeof fetch = fetch): 
   const url = readAppUrl(app);
   const secret = readAppSecret(app);
   if (!url || !secret) return { raison: 'app non configurée au Hub' };
-  const { timestamp, signature } = signGet(secret);
+  const cible = `${url}/api/hub/users`;
   try {
-    const res = await fetchImpl(`${url}/api/hub/users`, {
-      headers: { 'X-Veridian-Timestamp': timestamp, 'X-Veridian-Hub-Signature': signature },
+    const res = await fetchImpl(cible, {
+      headers: enteteGet(app, secret, cible),
       signal: AbortSignal.timeout(DELAI_MS),
     });
     if (!res.ok) return { raison: `GET /api/hub/users : HTTP ${res.status}` };

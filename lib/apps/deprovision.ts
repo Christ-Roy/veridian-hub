@@ -13,10 +13,9 @@
  *   par conception (`hubUsers.ts`).
  * Chaque issue est rendue : un échec ne bloque pas la suppression au Hub, `hub reconcile` le voit.
  */
-import { createHmac } from 'node:crypto';
-
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
 import { estCompteDeTest } from '@/lib/email/compte-de-test';
+import { entetesSignature } from '@/lib/hmac/signature-hub';
 import { NotifuseClient } from '@/lib/notifuse/client';
 import { createProspectionClientFromEnv } from '@/lib/prospection/client';
 
@@ -45,13 +44,12 @@ function message(err: unknown): string {
 async function supprimerEspace(app: 'crm' | 'academy', hubTenantId: string, deps: Deps): Promise<{ ok: boolean; detail: string }> {
   const config = resolveAppConfig(app, deps.env ?? process.env);
   if (!config) return { ok: false, detail: `${app}_not_configured` };
-  const ts = String((deps.maintenant ?? (() => new Date()))().getTime());
-  const res = await (deps.fetchImpl ?? fetch)(`${config.apiUrl}/api/tenants/${encodeURIComponent(hubTenantId)}`, {
+  const cible = `${config.apiUrl}/api/tenants/${encodeURIComponent(hubTenantId)}`;
+  const res = await (deps.fetchImpl ?? fetch)(cible, {
     method: 'DELETE',
     headers: {
       'Content-Type': 'application/json',
-      'X-Veridian-Timestamp': ts,
-      'X-Veridian-Hub-Signature': createHmac('sha256', config.hubSecret).update(`${ts}.`).digest('hex'),
+      ...entetesSignature({ secret: config.hubSecret, methode: 'DELETE', url: cible, corps: '', app, maintenant: (deps.maintenant ?? (() => new Date()))().getTime() }),
     },
     signal: AbortSignal.timeout(90_000),
   });

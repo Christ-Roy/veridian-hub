@@ -3,6 +3,7 @@ import { createHmac } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { pushUserToApps } from '@/lib/identity/push-user';
+import { exigeV1, exigeV2 } from '../hmac/aide-v2';
 
 const respond = (status: number, body: unknown = {}) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -86,5 +87,50 @@ describe('pushUserToApps', () => {
       { apps: ['notifuse'], fetchImpl: fetchImpl as never, retryDelaysMs: [0, 0] },
     );
     expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('pushUserToApps, version de signature', () => {
+  beforeEach(() => {
+    vi.stubEnv('NOTIFUSE_API_URL', 'https://n.test');
+    vi.stubEnv('NOTIFUSE_HUB_API_SECRET', 'secret');
+    vi.spyOn(console, 'log').mockImplementation(() => undefined);
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+  });
+  const pousser = async (retryDelaysMs: readonly number[] = []) => {
+    const vus: { url: string; h: Record<string, string>; corps: string }[] = [];
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      vus.push({ url, h: init!.headers as Record<string, string>, corps: String(init!.body) });
+      vi.setSystemTime(Date.now() + 7);
+      return respond(vus.length === 1 && retryDelaysMs.length > 0 ? 500 : 200);
+    });
+    // Seul un retrait (sessions coupées) est rejoué : c'est lui qui prouve le nouvel essai.
+    await pushUserToApps(retryDelaysMs.length > 0 ? { hubUserId: 'u1', revokeSessions: true } : { hubUserId: 'u1', name: 'Nom' }, { apps: ['notifuse'], fetchImpl: fetchImpl as never, retryDelaysMs });
+    return vus;
+  };
+  it('HMAC_V2_APPS=notifuse : le POST users/sync part en v2', async () => {
+    vi.stubEnv('HMAC_V2_APPS', 'notifuse');
+    const [v] = await pousser();
+    exigeV2(v.h, 'secret', 'POST', v.url, v.corps);
+  });
+  it('variable absente : v1', async () => {
+    const [v] = await pousser();
+    exigeV1(v.h, 'secret', v.corps);
+  });
+  it('v2 : le nouvel essai après un échec est signé de neuf', async () => {
+    vi.stubEnv('HMAC_V2_APPS', 'notifuse');
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(1_700_000_000_000);
+    try {
+      const [a, b] = await pousser([0]);
+      expect(b).toBeDefined();
+      expect(a.h['X-Veridian-Hub-Signature']).not.toBe(b.h['X-Veridian-Hub-Signature']);
+      exigeV2(b.h, 'secret', 'POST', b.url, b.corps);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

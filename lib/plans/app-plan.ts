@@ -9,11 +9,12 @@
  * Le Hub retient le plan dans `metadata.<app>_plan` (et `_plan_source`), que `hub reconcile` compare
  * au plan rendu par la découverte de l'app. Un refus de l'app n'écrit rien : pas d'écart silencieux.
  */
-import { createHmac, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 
 import type { PrismaClient } from '@prisma/client';
 
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
+import { entetesSignature } from '@/lib/hmac/signature-hub';
 import { trialStatusForTenant, type TenantTrialStatus } from '@/lib/plans/trial-status';
 
 /** Apps à plan canonique qui suivent le bundle Stripe et la machine d'essai. */
@@ -145,16 +146,15 @@ export async function pushAppPlan(
     trial_status: input.trial?.status ?? 'none',
     trial_ends_at: input.trial?.endsAt ?? null,
   });
-  const timestamp = String((opts.nowMs ?? Date.now)());
-  const signature = createHmac('sha256', config.hubSecret).update(`${timestamp}.${body}`).digest('hex');
+  const cible = `${config.apiUrl}${UPDATE_PLAN_PATH}`;
+  const signature = entetesSignature({ secret: config.hubSecret, methode: 'POST', url: cible, corps: body, app: input.app, maintenant: (opts.nowMs ?? Date.now)() });
   let response: Response;
   try {
-    response = await (opts.fetchImpl ?? fetch)(`${config.apiUrl}${UPDATE_PLAN_PATH}`, {
+    response = await (opts.fetchImpl ?? fetch)(cible, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Veridian-Timestamp': timestamp,
-        'X-Veridian-Hub-Signature': signature,
+        ...signature,
       },
       body,
       signal: AbortSignal.timeout(TIMEOUT_MS),

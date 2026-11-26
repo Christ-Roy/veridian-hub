@@ -4,11 +4,10 @@
  * répond alors `admin_withdrawn` et le Hub NE le remet JAMAIS (seul un geste humain `reinstate`, que ce module n'envoie pas). Contrat : CONTRAT-HUB §5.23.
  * Servi par Mail seul (26/11) ; une app entre dans `APPS_ADMIN` le jour où elle sert `POST /api/hub/workspace-admins`.
  */
-import { createHmac } from 'node:crypto';
-
 import type { PrismaClient } from '@prisma/client';
 
 import { adminsPlateforme } from '@/lib/admin/liste-admins';
+import { entetesSignature } from '@/lib/hmac/signature-hub';
 import { readAppSecret, readAppUrl } from '@/lib/sync/discovery';
 import type { SyncApp } from '@/lib/sync/types';
 
@@ -27,11 +26,11 @@ async function signe(app: SyncApp, methode: 'GET' | 'POST', chemin: string, corp
   const secret = readAppSecret(app);
   if (!base || !secret) return { status: 0, json: null };
   const brut = corps === undefined ? '' : JSON.stringify(corps);
-  const ts = Date.now().toString();
+  const cible = `${base}${chemin}`;
   try {
-    const r = await (d.fetchImpl ?? fetch)(`${base}${chemin}`, {
+    const r = await (d.fetchImpl ?? fetch)(cible, {
       method: methode,
-      headers: { 'Content-Type': 'application/json', 'X-Veridian-Timestamp': ts, 'X-Veridian-Hub-Signature': createHmac('sha256', secret).update(`${ts}.${brut}`).digest('hex') },
+      headers: { 'Content-Type': 'application/json', ...entetesSignature({ secret, methode, url: cible, corps: brut, app }) },
       body: brut || undefined,
       signal: AbortSignal.timeout(d.timeoutMs ?? 15_000),
     });

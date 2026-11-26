@@ -10,6 +10,7 @@ const softDeleteTenant = vi.fn(async () => ({}));
 vi.mock('@/lib/prospection/client', () => ({ createProspectionClientFromEnv: () => ({ softDeleteTenant }) }));
 
 import { GRACE_JOURS, deprovisionnerCompte } from '@/lib/apps/deprovision';
+import { exigeV1, exigeV2 } from '../hmac/aide-v2';
 
 const env = {
   NOTIFUSE_API_URL: 'https://notifuse.test',
@@ -89,5 +90,27 @@ describe('deprovisionnerCompte', () => {
     expect(issues).toEqual([]);
     expect(f).not.toHaveBeenCalled();
     expect(softDeleteTenant).not.toHaveBeenCalled();
+  });
+});
+
+describe('deprovisionnerCompte, version de signature', () => {
+  const retirer = async () => {
+    const f = fetchOk();
+    await deprovisionnerCompte({ email: 'c@d.e', tenants: [{ ...tenant, notifuseWorkspaceSlug: null, prospectionProvisionedAt: null }] }, { env, fetchImpl: f as never, maintenant: () => MAINTENANT });
+    const [url, init] = f.mock.calls[0] as unknown as [string, RequestInit];
+    return { url, h: init.headers as Record<string, string> };
+  };
+  it('HMAC_V2_APPS=crm : le DELETE du CRM part en v2, lié à la méthode et au tenant du chemin', async () => {
+    vi.stubEnv('HMAC_V2_APPS', 'crm');
+    try {
+      const { url, h } = await retirer();
+      exigeV2(h, 'sc', 'DELETE', url);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('variable absente : v1, sans en-tête de version', async () => {
+    const { h } = await retirer();
+    exigeV1(h, 'sc');
   });
 });

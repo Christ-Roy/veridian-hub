@@ -21,9 +21,7 @@
  * Référence : `todo/2026-05-20-tenant-sync-strategy.md` Niveau 1,
  *             `docs/CONTRAT-HUB.md` §5.12 (à enrichir avec by-email).
  */
-
-import { createHmac } from 'node:crypto';
-
+import { entetesSignature } from '@/lib/hmac/signature-hub';
 import type {
   DiscoveryAppResult,
   DiscoveryResult,
@@ -122,25 +120,11 @@ export function configuredSyncApps(): SyncApp[] {
 }
 
 /**
- * Signe une requête GET selon le contrat HMAC standard §6.1 :
- *   sig = hmac_sha256(secret, `${ts}.${path}`)
- *
- * NB : pour un GET, le body est vide, donc on signe le path (avec
- * querystring) à la place. Les apps doivent valider ça côté serveur
- * (les clients Hub existants `lib/notifuse/client.ts` font pareil :
- * `body = ''` pour les GET, et la sig est juste `${ts}.`).
- *
- * On garde le format `${ts}.${rawBody}` ici aussi (body=''), pour rester
- * pixel-parfait avec les clients existants — sinon l'app aurait deux
- * conventions HMAC à gérer. Le path part dans l'URL, le timestamp anti-replay
- * dans le header, et la sig est sur `${ts}.`.
+ * En-têtes d'un GET signé vers une app (corps vide). Signature : `lib/hmac/signature-hub.ts` (v1 `${ts}.` tant que
+ * `HMAC_V2_APPS` ne nomme pas l'app, v2 liée à la méthode, au chemin et à la query sinon).
  */
-export function signGet(secret: string): { timestamp: string; signature: string } {
-  const timestamp = Date.now().toString();
-  const signature = createHmac('sha256', secret)
-    .update(`${timestamp}.`)
-    .digest('hex');
-  return { timestamp, signature };
+export function enteteGet(app: SyncApp, secret: string, url: string): Record<string, string> {
+  return entetesSignature({ secret, methode: 'GET', url, corps: '', app });
 }
 
 /**
@@ -162,7 +146,6 @@ export async function discoverAppForEmail(
 
   const fetchImpl = options.fetchImpl ?? fetch;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const { timestamp, signature } = signGet(secret);
   const joint = options.hubUserId && HUB_USER_ID_APPS.includes(app) ? `&hub_user_id=${encodeURIComponent(options.hubUserId)}` : '';
   const fullUrl = `${url}/api/users/by-email?email=${encodeURIComponent(email)}${joint}`;
 
@@ -172,10 +155,7 @@ export async function discoverAppForEmail(
   try {
     const response = await fetchImpl(fullUrl, {
       method: 'GET',
-      headers: {
-        'X-Veridian-Timestamp': timestamp,
-        'X-Veridian-Hub-Signature': signature,
-      },
+      headers: enteteGet(app, secret, fullUrl),
       signal: controller.signal,
     });
     clearTimeout(timer);
