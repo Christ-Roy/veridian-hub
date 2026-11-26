@@ -325,8 +325,9 @@ export async function sessionApp(ctx: BrowserContext, app: AppKey | 'hub', base?
 
 /** Page réservée aux connectés, celle qu'on demande pour prouver le retour « sur la page demandée ». */
 export const PAGE_PROTEGEE: Record<AppKey, string> = {
-  // `/prospects` n'existe plus (Atlas, 26/11) : la batterie cherchait le bouton de déconnexion sur une page 404. Le rail vit sur `/atlas`.
-  prospection: '/atlas',
+  // Atlas est servi sur `/` (26/11) : `/prospects` n'existe plus et `/atlas` redirige vers `/`. C'est la seule page protégée de Prospection
+  // (`/marches` est publique) : « la page demandée » n'y est donc pas discriminante, la session relue par l'app reste la preuve.
+  prospection: '/',
   notifuse: '/console/',
   analytics: '/',
   twenty: '/settings/profile',
