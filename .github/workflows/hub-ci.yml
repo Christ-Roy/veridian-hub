@@ -378,7 +378,8 @@ jobs:
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile || pnpm install --no-frozen-lockfile
       - name: Install Playwright chromium
-        run: npx playwright install --with-deps chromium
+        # Sans --with-deps (VER-159) : l image du runner embarque deja les dependances systeme, et --with-deps exige sudo.
+        run: npx playwright install chromium
       - name: Run prod smoke (Auth.js + /login)
         run: npx playwright test e2e/prod-smoke/ --reporter=list
       # Sonde d'identité : lectures seules, aucune écriture, aucun compte. Un écart fait échouer le
