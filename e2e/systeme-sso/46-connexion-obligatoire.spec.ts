@@ -7,7 +7,7 @@
  * passe pas par le fournisseur), `obligatoire-sans-lien` (l'exemptée ne se rattache pas) : le cas doit échouer.
  */
 import { execFileSync } from 'node:child_process';
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync } from 'node:fs';
 import { createHmac, randomBytes } from 'node:crypto';
 
 import { expect, type BrowserContext } from '@playwright/test';
@@ -22,6 +22,8 @@ import { creerCompteProuve, type Compte } from './lib/parcours';
 const ORIGINE = { origin: new URL(HUB_URL).origin };
 const T0 = Date.now();
 /** Où en est le cas, lisible dans la sortie de la batterie : un dépassement dit son étape. */
+/** Captures de l'écran servi, pour Robert : `.run/captures/46-*.png`. */
+const CAPTURES = '.run/captures';
 const pas = (n: string) => appendFileSync('.run/pas-46.txt', `${new Date().toISOString()} ${Math.round((Date.now() - T0) / 1000)} s : ${n}\n`);
 
 cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec, l\'accès gardé tombe au rattachement, libre rouvre', async ({ browser }) => {
@@ -116,6 +118,15 @@ cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec
     }
 
     pas('1. Session');
+    if (sabotage === '') {
+      mkdirSync(CAPTURES, { recursive: true });
+      const org = await cp.newPage();
+      await org.setViewportSize({ width: 1280, height: 1000 });
+      await org.goto(`${HUB_URL}/dashboard/organisation`, { waitUntil: 'load' });
+      await org.locator('section[aria-label="Connexion"]').first().scrollIntoViewIfNeeded().catch(() => undefined);
+      await org.screenshot({ path: `${CAPTURES}/46-organisation.png`, fullPage: true });
+      await org.close();
+    }
     // 1. Session par mot de passe : chaque porte fermée, chacune relue ; l'autre organisation reste ouverte.
     expect(await portes(cm, jetonM), 'obligatoire, session par mot de passe').toEqual(TOUTES('fermée'));
     expect(await mcp(jetonM, B.slug), 'son autre organisation reste ouverte').toBe(false);
@@ -125,6 +136,12 @@ cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec
     expect((await ou(cm, `${HUB_URL}/dashboard`)).chemin, 'son tableau de bord, pour l\'autre').toBe('/dashboard');
     // Celui qui n'a que celle-ci : l'écran, rien d'autre.
     const ecran = await ou(cn, `${HUB_URL}/dashboard`);
+    if (sabotage === '') {
+      const e = await cn.newPage();
+      await e.goto(`${HUB_URL}/dashboard`, { waitUntil: 'load' });
+      await e.screenshot({ path: `${CAPTURES}/46-demande.png`, fullPage: true });
+      await e.close();
+    }
     expect([ecran.chemin, /TEST OBLIGATOIRE/.test(ecran.texte), /Continuer avec/.test(ecran.texte)], ecran.texte).toEqual(['/auth/organisation', true, true]);
     expect((await ou(cn, `${HUB_URL}/dashboard/organisation`)).texte, 'l\'écran d\'organisation ne se lit pas').not.toMatch(/Personnes attendues|Nom affiché/);
     // Un membre n'y touche pas, le propriétaire (accès de secours) oui ; le dernier accès de secours ne s'enlève pas, et le fournisseur ne se coupe pas.
@@ -145,6 +162,7 @@ cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec
     await login.locator('#email').fill(`quelquun@${domaine}`);
     await login.locator('#email').blur();
     await login.getByText(/Votre organisation se connecte avec/).waitFor();
+    if (sabotage === '') await login.screenshot({ path: `${CAPTURES}/46-connexion.png`, fullPage: true });
     idp.dire({ sub: 'inconnu-1', email: 'x@y.fr', email_verified: false });
     await login.getByRole('button', { name: /^Continuer avec/ }).first().click();
     await login.waitForURL((u) => u.pathname === '/auth/premiere-entree');
