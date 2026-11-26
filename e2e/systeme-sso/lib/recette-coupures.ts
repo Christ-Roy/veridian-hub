@@ -66,6 +66,52 @@ async function analyticsDe(r: Recette): Promise<{ op: APIRequestContext; org: st
   }
 }
 
+/**
+ * L'organisation de la recette doit être RÉGLÉE (type organisation) AVANT que le membre existe : sinon le premier geste du membre (jeton IA, rebond) lui crée un espace
+ * à lui, et il n'est plus un salarié (lib/tenants/membre-seul.ts). Même réglage que les cas 34, 37, 41 et 46 ; déjà réglée, on n'y touche pas.
+ */
+async function assurerOrganisationReglee(r: Recette): Promise<string> {
+  const g = await admin<{ document?: { type?: string } }>('GET', `organisations/${r.tenantId}`);
+  if (g.status === 200 && g.json?.document?.type === 'organisation') return 'organisation déjà réglée';
+  const p = await admin<{ emissions?: Issue[]; error?: string }>('PUT', `organisations/${r.tenantId}`, { type: 'organisation', nom_affiche: 'TEST RECETTE', modules: ['academy', 'notifuse', 'prospection', 'crm'] });
+  if (![200, 207].includes(p.status)) throw new NonAbouti(`organisation non réglée : HTTP ${p.status} ${masquer(JSON.stringify(p.json)).slice(0, 160)}`);
+  const pas = (p.json?.emissions ?? []).filter((e) => e.etat !== 'applique');
+  if (pas.length) throw new NonAbouti(`organisation réglée, mais ${pas.map((e) => `${e.app}=${e.etat}`).join(' ')}`);
+  return 'organisation réglée par la recette';
+}
+
+/** Un salarié : membre de l'organisation, sans espace à lui (un espace à lui change son organisation active et rend ses mesures fausses). */
+async function verifierSalarie(M: Compte): Promise<void> {
+  const mien = ((await lookup(M.email)).json?.tenants ?? []) as { id: string }[];
+  if (mien.length) throw new NonAbouti(`le membre a ${mien.length} espace(s) à lui : ce n'est pas un salarié, ses entrées ne prouvent rien sur l'organisation`);
+}
+
+/** Les espaces de Prospection qu'une session lit (après son rebond). */
+async function espacesProspection(ctx: BrowserContext): Promise<string[]> {
+  await ouvrirApp(ctx, 'prospection');
+  const me = (await (await ctx.request.get(`${APP_URL.prospection}/api/me`)).json().catch(() => null)) as { workspaces?: { id: string }[] } | null;
+  return (me?.workspaces ?? []).map((w) => w.id);
+}
+
+/** Une porte ouverte dans un AUTRE espace ne prouve rien : la session du membre doit être dans l'espace de la recette, sinon NON ABOUTI. */
+async function verifierEspaceRecette(r: Recette, T: { slug: string }, sP: Tenue, sM: Tenue | null): Promise<void> {
+  const ailleurs: string[] = [];
+  const hote = r.notes.hoteCrm;
+  for (const [qui, s] of [['propriétaire', sP], ['membre', sM]] as const) {
+    if (!s) continue;
+    if (s.crm && hote && new URL(s.crm.origine).host !== hote) ailleurs.push(`CRM ${qui}`);
+    if (s.ia) {
+      const slugs = (JSON.parse((await outil(s.ia, 'executer_outil', { nom: 'hub.mon_compte' })).texte).espaces ?? []).map((e: { slug: string }) => e.slug);
+      if (!slugs.includes(T.slug)) ailleurs.push(`porte IA ${qui}`);
+    }
+  }
+  if (sM) {
+    if (sP.crm && sM.crm && sP.crm.origine !== sM.crm.origine) ailleurs.push('CRM membre (hôte différent du propriétaire)');
+    if (sM.espaces.length && (!sM.espaces.some((x) => sP.espaces.includes(x)) || sM.espaces.some((x) => !sP.espaces.includes(x)))) ailleurs.push('Prospection membre (espace hors organisation)');
+  }
+  if (ailleurs.length) throw new NonAbouti(`session hors de l'espace de la recette : ${ailleurs.join(', ')}`);
+}
+
 const jetonMail = async (ctx: BrowserContext, url: string): Promise<string | null> => {
   const page = await ctx.newPage();
   await page.goto(url, { waitUntil: 'domcontentloaded' }).catch(() => undefined);
@@ -134,7 +180,7 @@ export async function fermerCoupures(r?: Recette): Promise<void> {
 // ---------------------------------------------------------------------------------------------------------------------------------------------
 
 /**
- * D'après 22 : invitation signée comme Mail la signe, acceptée par le membre avec sa session Hub ; il devient membre au Hub (porte IA) ; puis il entre dans
+ * D'après 22, 41 et 46 : l'organisation est réglée (type organisation) puis le membre naît SANS espace à lui (un salarié, `membre-seul.ts`) ; invitation signée comme Mail la signe, acceptée par le membre avec sa session Hub ; il devient membre au Hub (porte IA) ; puis il entre dans
  * chaque app de l'organisation par le rebond. Pose `r.M`. NON ABOUTI : staging, pas d'espace Mail, secret d'invitation illisible, compte non créé.
  * Porté tel quel : l'invitation par Mail (le seul chemin signé existant). Non porté : le refus d'un simple membre qui invite (403) et l'espace non relié (409),
  * qui exigent un tiers : ils restent au cas 22.
@@ -145,12 +191,17 @@ export async function inviterMembre(r: Recette): Promise<string> {
   const mail = T.notifuseWorkspaceSlug;
   if (!mail) throw new NonAbouti('organisation sans espace Mail : le chemin d\'invitation est celui de Mail');
   const secret = secretDe('HUB_INVITATION_SECRET_NOTIFUSE_PROD');
+  // Un vrai salarié : l'organisation est réglée d'abord, le membre naît sans espace (comme 41 et 46), et AUCUN geste du membre (jeton IA, rebond) n'a lieu
+  // avant son rattachement : c'est ce geste, fait trop tôt, qui lui créait un espace à lui.
+  const reglage = await assurerOrganisationReglee(r);
   const M: Compte = r.M ?? (await creerCompteProuve(r.browser, 'recmembre', adresseDe('recmembre'), true));
   r.M = M;
   if (!M.hubUserId) throw new NonAbouti('compte du membre sans identifiant Hub');
-  jetonDeM = await obtenirJetonMcp(r.browser, M, NOM_CLIENT_IA);
-  const espaces = async (): Promise<string[]> => (JSON.parse((await outil(jetonDeM!, 'executer_outil', { nom: 'hub.mon_compte' })).texte).espaces ?? []).map((e: { slug: string }) => e.slug);
-  if ((await espaces()).includes(T.slug)) throw new NonAbouti('le membre est déjà dans l\'organisation avant l\'invitation : le contrôle positif ne mesure rien');
+  await verifierSalarie(M);
+  const espaces = async (): Promise<string[]> => {
+    jetonDeM = jetonDeM ?? (await obtenirJetonMcp(r.browser, M, NOM_CLIENT_IA));
+    return (JSON.parse((await outil(jetonDeM, 'executer_outil', { nom: 'hub.mon_compte' })).texte).espaces ?? []).map((e: { slug: string }) => e.slug);
+  };
 
   const corps = JSON.stringify({ inviter_user_id: r.P.hubUserId, inviter_email: r.P.email, invitee_email: M.email, target_app: 'notifuse', target_workspace_id: mail, target_role: 'member' });
   const ts = String(Date.now());
@@ -169,6 +220,7 @@ export async function inviterMembre(r: Recette): Promise<string> {
     const ja = (await acc.json().catch(() => null)) as Json;
     egal([acc.status(), ja?.downstream_call], [200, 'completed'], 'acceptation');
     if (!(await espaces()).includes(T.slug)) throw new Error('invitation acceptée mais le membre n\'est pas dans l\'organisation (porte IA)');
+    await verifierSalarie(M);
 
     // Le tableau de bord du membre, puis chaque app par le vrai rebond.
     const accueil = await ctxM.newPage();
@@ -180,6 +232,9 @@ export async function inviterMembre(r: Recette): Promise<string> {
     const an = apps.includes('analytics') ? await analyticsDe(r) : null;
     const etats: string[] = [];
     const refus: string[] = [];
+    const ailleurs: string[] = [];
+    const hoteCrm = r.notes.hoteCrm;
+    const espacesP = apps.includes('prospection') ? await (async () => { const cp = await r.contexte(r.P); try { return await espacesProspection(cp); } finally { await cp.close(); } })() : [];
     try {
       if (an) await membreDe(an.op, an.org, M.email).catch(() => undefined);
       for (const app of apps) {
@@ -187,15 +242,21 @@ export async function inviterMembre(r: Recette): Promise<string> {
         const v = await entrerParRebond(ctxM, app);
         etats.push(`${app}=${v.connecte ? 'entré' : 'refusé'}`);
         if (!v.connecte) refus.push(`${app} (${v.hote}${v.chemin})`);
+        if (v.connecte && app === 'twenty' && hoteCrm && v.hote !== hoteCrm) ailleurs.push(`CRM (${v.hote})`);
+        if (v.connecte && app === 'prospection') {
+          const siens = await espacesProspection(ctxM);
+          if (!siens.length || siens.some((x) => !espacesP.includes(x))) ailleurs.push('Prospection (espace hors organisation)');
+        }
         await capturerApp(r, ctxM, app, `membre-${app}`);
       }
     } finally {
       await an?.op.dispose();
     }
     r.notes.membreInvite = '1';
+    if (ailleurs.length) throw new NonAbouti(`le membre entre dans un autre espace que celui de la recette : ${ailleurs.join(', ')} ; ${etats.join(' ')}`);
     if (refus.length) throw new Error(`le membre n'entre pas : ${refus.join(', ')} ; ${etats.join(' ')}`);
     if (etats.some((e) => e.includes('non mesuré'))) throw new NonAbouti(`membre dans l'organisation, mais ${etats.join(' ')}`);
-    return `invitation Mail acceptée (completed), membre à l'organisation ; ${etats.join(' ')}`;
+    return `${reglage}, membre sans espace à lui ; invitation Mail acceptée (completed), membre à l'organisation ; ${etats.join(' ')}`;
   } finally {
     await ctxM.close();
   }
@@ -653,6 +714,8 @@ export async function retraitMembre(r: Recette): Promise<string> {
   const ouverts: BrowserContext[] = [];
   try {
     const [sP, sM] = [await tenir(r, r.P, apps, ouverts, an0), await tenir(r, M, apps, ouverts, an0)];
+    await verifierSalarie(M);
+    await verifierEspaceRecette(r, T, sP, sM);
     const communs = sM.espaces.filter((x) => sP.espaces.includes(x));
     const raisons: Record<string, string> = {};
     for (const g of Object.values(GROUPES).concat('Porte MCP')) {
@@ -767,6 +830,7 @@ export async function suspensionOrganisation(r: Recette): Promise<string> {
   let repris: Issue[] = [];
   try {
     const sP = await tenir(r, r.P, apps, ouverts, an0);
+    await verifierEspaceRecette(r, T, sP, null);
     const raisons: Record<string, string> = {};
     for (const [g, x] of Object.entries(sP.raisons)) raisons[g] = x;
     const communs = sP.espaces;

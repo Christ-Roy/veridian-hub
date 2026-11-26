@@ -252,7 +252,12 @@ export async function reponseMailVersCrm(r: Recette): Promise<string> {
     const corps = JSON.stringify({ id, type: 'message.received', workspace_id: abo.json.workspace_id, timestamp: new Date().toISOString(), data: { message_id: `m-${id}`, rfc_message_id: `${id}@e2e.invalid`, kind: 'reply_human', match_type: 'message_id', direction: 'in', email: `contact@recette${n}.invalid`, thread_id: `t_${n}`, event_timestamp: new Date().toISOString(), ...data } });
     const ts = String(Math.floor(Date.now() / 1000));
     const rep = await fetch(`${HUB_URL}/api/evenements/notifuse`, { method: 'POST', headers: { 'content-type': 'application/json', 'webhook-id': id, 'webhook-timestamp': ts, 'webhook-signature': `v1,${createHmac('sha256', cle).update(`${id}.${ts}.${corps}`).digest('base64')}` }, body: corps, signal: AbortSignal.timeout(60_000) });
-    return [rep.status, (await rep.json().catch(() => null)) as any] as const;
+    // Le Hub rend toujours du JSON : un corps qui n'en est pas vient d'un intermédiaire (Cloudflare, Traefik). On le garde, avec qui l'a servi
+    // (26/11 : cinq « 502 null » sans trace au Hub ni dans Loki).
+    const texte = await rep.text().catch(() => '');
+    let json: any = null;
+    try { json = JSON.parse(texte); } catch { json = { brut: m(texte.replace(/\s+/g, ' '), 160), serveur: rep.headers.get('server'), cf_ray: rep.headers.get('cf-ray') }; }
+    return [rep.status, json] as const;
   };
   /** Comme Mail : un 5xx se réessaie avec le même identifiant. */
   const livrer = async (id: string) => {
