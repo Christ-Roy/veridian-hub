@@ -9,7 +9,7 @@ import { ensureAppWorkspace, ESPACE_APPS } from '@/lib/apps/espace-app';
 import { exigeV1, exigeV2 } from '../hmac/aide-v2';
 
 const env = { CRM_API_URL: 'https://crm.test', CRM_HUB_API_SECRET: 's', ACADEMY_API_URL: 'https://a.test', ACADEMY_HUB_API_SECRET: 's' } as never;
-const db = { tenant: { findFirst: async () => ({ id: 't-1' }), findUnique: async () => ({ id: 't-1', name: 'ACME', metadata: {} }), update: async () => ({}) }, tenantApp: { upsert: async () => ({}) } } as never;
+const db = { tenant: { findFirst: async () => ({ id: 't-1' }), findUnique: async () => ({ id: 't-1', name: 'ACME', metadata: {} }), update: async () => ({}) }, tenantApp: { upsert: async () => ({}) }, $executeRaw: async () => 1 } as never;
 const ouvrir = (cle: 'crm' | 'academy', statut = 200) => ensureAppWorkspace(ESPACE_APPS[cle], db, { hubUserId: 'h', email: 'a@x.io' }, { env, fetchImpl: (async () => new Response(JSON.stringify({ workspace_id: 'ws', created: true }), { status: statut })) as never });
 beforeEach(() => { vi.clearAllMocks(); m.abonner.mockResolvedValue('sans_objet'); });
 

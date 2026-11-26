@@ -216,7 +216,8 @@ describe('POST /api/admin/tenants/[id]/plan — analytics et crm', () => {
     expect(await res.json()).toMatchObject({ app, plan: 'business', previous_plan: 'free' });
     const corps = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body));
     expect(corps).toMatchObject({ plan: 'business', plan_source: 'grant_manual', tenant_id: 't-1' });
-    expect(updateTenantMock.mock.calls.at(-1)?.[0].data.metadata).toMatchObject({ [`${app}_plan`]: 'business' });
+    // Posé par la fusion en base (lib/tenants/metadata-fusion.ts) : les autres clés restent.
+    expect(tenantRow.metadata).toMatchObject({ [app]: { linked_at: 'x' }, [`${app}_plan`]: 'business' });
     vi.unstubAllGlobals();
   });
 

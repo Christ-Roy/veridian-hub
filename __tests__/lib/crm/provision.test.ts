@@ -57,6 +57,8 @@ describe('ensureCrmWorkspace', () => {
         create: vi.fn(async () => ({ id: cree.id })),
         update: vi.fn(async () => ({})),
       },
+      // La fusion par la base (lib/tenants/metadata-fusion.ts).
+      $executeRaw: vi.fn(async () => 1),
       tenantApp: { upsert: vi.fn(async () => ({})) },
     };
   };
@@ -66,17 +68,15 @@ describe('ensureCrmWorkspace', () => {
     const r = await ensureCrmWorkspace(d as never, { hubUserId: 'h', email: 'a@x.io' }, { env, fetchImpl: ok() as unknown as typeof fetch });
     expect(d.tenant.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ userId: 'h', status: 'active' }) }));
     expect(r).toMatchObject({ ok: true, workspaceId: 'ws-9' });
-    expect(d.tenant.update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 't-neuf' } }));
+    expect((d.$executeRaw.mock.calls[0] as unknown as [{ values: unknown[] }])[0].values[1]).toBe('t-neuf');
   });
 
   it('inscrit metadata.crm (lu par reconcile) et active twenty', async () => {
     const d = db({ id: 't-1', name: 'ACME', metadata: { garde: 1 } });
     const r = await ensureCrmWorkspace(d as never, { hubUserId: 'h-1', email: 'A@X.io' }, { env, fetchImpl: ok() as unknown as typeof fetch });
     expect(r).toMatchObject({ ok: true, workspaceId: 'ws-9' });
-    expect(d.tenant.update).toHaveBeenCalledWith({
-      where: { id: 't-1' },
-      data: { metadata: { garde: 1, crm: expect.objectContaining({ workspace_id: 'ws-9' }) } },
-    });
+    const [q] = d.$executeRaw.mock.calls[0] as unknown as [{ values: unknown[] }];
+    expect([JSON.parse(String(q.values[0])), q.values[1]]).toEqual([{ crm: expect.objectContaining({ workspace_id: 'ws-9' }) }, 't-1']);
     expect(d.tenantApp.upsert).toHaveBeenCalledWith(
       expect.objectContaining({ where: { userId_appKey: { userId: 'h-1', appKey: 'twenty' } } }),
     );
@@ -87,7 +87,7 @@ describe('ensureCrmWorkspace', () => {
     const fetchImpl = vi.fn(async () => new Response('{}', { status: 502 }));
     const r = await ensureCrmWorkspace(d as never, { hubUserId: 'h-1', email: 'a@x.io' }, { env, fetchImpl: fetchImpl as unknown as typeof fetch });
     expect(r.ok).toBe(false);
-    expect(d.tenant.update).not.toHaveBeenCalled();
+    expect(d.$executeRaw).not.toHaveBeenCalled();
     expect(d.tenantApp.upsert).not.toHaveBeenCalled();
   });
   it('pousse le nom du Hub au CRM, qui nommait le compte d\'après l\'adresse', async () => {

@@ -25,12 +25,18 @@ function fausseBase(metadata: Record<string, unknown> = { analytics: { linked_at
     ligne.metadata = data.metadata;
     return ligne;
   });
+  // La fusion par la base (lib/tenants/metadata-fusion.ts), simulée : les clés du patch posées, les autres intactes.
+  const fusion = vi.fn(async (q: { values: unknown[] }) => {
+    ligne.metadata = { ...ligne.metadata, ...JSON.parse(String(q.values[0])) };
+    return 1;
+  });
   const db = {
+    $executeRaw: fusion,
     tenant: { findUnique: vi.fn(async () => ligne), update },
     tenantTrial: { findMany: vi.fn(async () => [{ state: 'trial_active', trialEndsAt: new Date('2026-12-01T00:00:00Z') }]) },
     subscription: { findMany: vi.fn(async () => []) },
   };
-  return { db: db as any, ligne, update };
+  return { db: db as any, ligne, update: fusion };
 }
 
 describe('pushAppPlan', () => {

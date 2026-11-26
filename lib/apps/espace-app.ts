@@ -20,6 +20,7 @@ import { choisirPlanInitial, setAppPlan, type PlanApp } from '@/lib/plans/app-pl
 import type { SyncApp } from '@/lib/sync/types';
 import { setTenantAppEnabled, type GatedAppKey } from '@/lib/tenant-apps';
 import { assurerTenantHub } from '@/lib/tenants/assurer';
+import { fusionnerMetadata } from '@/lib/tenants/metadata-fusion';
 
 const PROVISION_PATH = '/api/tenants/provision';
 
@@ -136,18 +137,9 @@ export async function ensureAppWorkspace(
     );
   }
 
-  const current =
-    tenant.metadata && typeof tenant.metadata === 'object' && !Array.isArray(tenant.metadata)
-      ? (tenant.metadata as Record<string, unknown>)
-      : {};
-  await db.tenant.update({
-    where: { id: tenant.id },
-    data: {
-      metadata: {
-        ...current,
-        [cfg.app]: { workspace_id: provision.workspaceId, provisioned_at: new Date().toISOString() },
-      } as object,
-    },
+  // Les seules clés de ce geste, fusionnées par la base : jamais le JSON entier relu avant (26/11, lib/tenants/metadata-fusion.ts).
+  await fusionnerMetadata(db, tenant.id, {
+    [cfg.app]: { workspace_id: provision.workspaceId, provisioned_at: new Date().toISOString() },
   });
   await setTenantAppEnabled(db, {
     userUuid: user.hubUserId,
@@ -164,7 +156,11 @@ export async function ensureAppWorkspace(
   // rendait ce free « offert », donc immunisé : le premier abonné restait en free, sans erreur.
   // Un plan déjà choisi au Hub est repoussé avec sa propre source. Meilleur effort : un refus se lit
   // dans reconcile, il ne bloque pas l'ouverture.
-  const choisi = choisirPlanInitial(current, cfg.app);
+  // Le plan déjà posé se lit dans metadata tel qu'il était avant l'ouverture (l'écriture ci-dessus ne touche que la clé de l'app).
+  const choisi = choisirPlanInitial(
+    tenant.metadata && typeof tenant.metadata === 'object' && !Array.isArray(tenant.metadata) ? (tenant.metadata as Record<string, unknown>) : {},
+    cfg.app,
+  );
   if (choisi) {
     const plan = await setAppPlan(
       db,

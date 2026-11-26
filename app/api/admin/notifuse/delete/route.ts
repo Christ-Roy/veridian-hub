@@ -8,6 +8,7 @@ import {
   resolveNotifuseTenant,
 } from '@/lib/notifuse/admin-helpers';
 import { prisma } from '@/lib/prisma';
+import { fusionnerMetadata } from '@/lib/tenants/metadata-fusion';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -66,15 +67,10 @@ export async function DELETE(request: NextRequest) {
   const deletedBy = session?.user?.email ?? 'admin-secret';
   const deletedAt = new Date().toISOString();
 
-  await prisma.tenant.update({
-    where: { id: resolved.hubTenantId },
-    data: {
-      metadata: {
-        ...resolved.metadata,
-        notifuse_deleted_at: deletedAt,
-        notifuse_deleted_by: deletedBy,
-      } as object,
-    },
+  // Les seules clés de ce geste, fusionnées par la base : jamais le JSON entier relu avant (26/11, lib/tenants/metadata-fusion.ts).
+  await fusionnerMetadata(prisma, resolved.hubTenantId, {
+    notifuse_deleted_at: deletedAt,
+    notifuse_deleted_by: deletedBy,
   });
 
   try {

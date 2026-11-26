@@ -58,6 +58,11 @@ const updateMock = vi.fn(async ({ where, data }: any) => {
   return t;
 });
 
+// La fusion par la base (lib/tenants/metadata-fusion.ts) : enregistrée comme une écriture des seules clés du patch.
+vi.mock('@/lib/tenants/metadata-fusion', () => ({
+  fusionnerMetadata: (_db: unknown, id: string, patch: Record<string, unknown>) => updateMock({ where: { id }, data: { metadata: patch } }),
+}));
+
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     tenant: {

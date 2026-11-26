@@ -16,6 +16,7 @@ import type { PrismaClient } from '@prisma/client';
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
 import { entetesSignature } from '@/lib/hmac/signature-hub';
 import { trialStatusForTenant, type TenantTrialStatus } from '@/lib/plans/trial-status';
+import { fusionnerMetadata } from '@/lib/tenants/metadata-fusion';
 
 /** Apps à plan canonique qui suivent le bundle Stripe et la machine d'essai. */
 export const PLAN_APPS = ['analytics', 'crm'] as const;
@@ -196,19 +197,12 @@ export async function setAppPlan(
   const trial = await trialStatusForTenant(db, tenant.id);
   const pushed = await pushAppPlan({ ...input, hubTenantId: tenant.id, hubUserId: tenant.userId, trial }, opts);
   if (!pushed.ok || 'immune' in pushed) return pushed;
-  // Relu juste avant l'écriture : une autre écriture de metadata (activation, Stripe) ne se perd pas.
-  const fresh = await db.tenant.findUnique({ where: { id: tenant.id }, select: { metadata: true } });
-  await db.tenant.update({
-    where: { id: tenant.id },
-    data: {
-      metadata: {
-        ...asMeta(fresh?.metadata),
-        [`${input.app}_plan`]: input.plan,
-        [`${input.app}_plan_source`]: input.planSource,
-        [`${input.app}_plan_set_at`]: new Date().toISOString(),
-        [`${input.app}_plan_set_by`]: input.setBy ?? 'hub',
-      } as object,
-    },
+  // Les seules clés de ce geste, fusionnées par la base : jamais le JSON entier relu avant (26/11, lib/tenants/metadata-fusion.ts).
+  await fusionnerMetadata(db, tenant.id, {
+    [`${input.app}_plan`]: input.plan,
+    [`${input.app}_plan_source`]: input.planSource,
+    [`${input.app}_plan_set_at`]: new Date().toISOString(),
+    [`${input.app}_plan_set_by`]: input.setBy ?? 'hub',
   });
   return pushed;
 }

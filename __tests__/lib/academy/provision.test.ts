@@ -51,6 +51,8 @@ describe('ensureAcademyWorkspace', () => {
       findUnique: vi.fn(async () => (tenant ? { id: tenant.id, userId: 'h-1', metadata: tenant.metadata } : null)),
       update: vi.fn(async () => ({})),
     },
+    // La fusion par la base (lib/tenants/metadata-fusion.ts) : le patch et l'organisation, jamais le JSON entier.
+    $executeRaw: vi.fn(async () => 1),
     tenantApp: { upsert: vi.fn(async () => ({})) },
     tenantTrial: { findMany: vi.fn(async () => []) },
     subscription: { findMany: vi.fn(async () => []) },
@@ -66,10 +68,9 @@ describe('ensureAcademyWorkspace', () => {
     const d = db({ id: 't-1', name: 'Veridian', metadata: { garde: 1 } });
     const r = await ensureAcademyWorkspace(d as never, { hubUserId: 'h-1', email: 'R@X.io' }, { env, fetchImpl: app() as unknown as typeof fetch });
     expect(r).toMatchObject({ ok: true, workspaceId: 'aw-9' });
-    expect(d.tenant.update).toHaveBeenCalledWith({
-      where: { id: 't-1' },
-      data: { metadata: { garde: 1, academy: expect.objectContaining({ workspace_id: 'aw-9' }) } },
-    });
+    // La seule clé academy, fusionnée par la base : « garde » n'est jamais réécrite depuis la lecture.
+    const [q] = d.$executeRaw.mock.calls[0] as unknown as [{ values: unknown[] }];
+    expect([JSON.parse(String(q.values[0])), q.values[1]]).toEqual([{ academy: expect.objectContaining({ workspace_id: 'aw-9' }) }, 't-1']);
     expect(d.tenantApp.upsert).toHaveBeenCalledWith(
       expect.objectContaining({ where: { userId_appKey: { userId: 'h-1', appKey: 'academy' } } }),
     );
@@ -90,7 +91,7 @@ describe('ensureAcademyWorkspace', () => {
     const fetchImpl = vi.fn(async () => new Response('{}', { status: 502 }));
     const r = await ensureAcademyWorkspace(d as never, { hubUserId: 'h-1', email: 'a@x.io' }, { env, fetchImpl: fetchImpl as unknown as typeof fetch });
     expect(r.ok).toBe(false);
-    expect(d.tenant.update).not.toHaveBeenCalled();
+    expect(d.$executeRaw).not.toHaveBeenCalled();
     expect(d.tenantApp.upsert).not.toHaveBeenCalled();
   });
 });
@@ -110,6 +111,8 @@ describe('création d\'espace : aucun plan par défaut (décision du 22/11)', ()
       findUnique: vi.fn(async () => ({ id: 't-1', userId: 'h-1', metadata })),
       update: vi.fn(async () => ({})),
     },
+    // La fusion par la base (lib/tenants/metadata-fusion.ts) : le patch et l'organisation, jamais le JSON entier.
+    $executeRaw: vi.fn(async () => 1),
     tenantApp: { upsert: vi.fn(async () => ({})) },
     tenantTrial: { findMany: vi.fn(async () => []) },
     subscription: { findMany: vi.fn(async () => []) },

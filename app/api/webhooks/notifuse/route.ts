@@ -44,6 +44,7 @@ import { prisma } from '@/lib/prisma';
 import { handleWebhook } from '@/lib/webhooks/receiver';
 import { v14Handlers } from '@/lib/webhooks/notifuse-handlers';
 import { ingestProspectEvent } from '@/lib/prospect/ingest';
+import { fusionnerMetadata } from '@/lib/tenants/metadata-fusion';
 import {
   logWebhookAuth,
   matchRotatingSecretWith,
@@ -187,14 +188,9 @@ async function handleLegacyNotifuseHmac(request: NextRequest): Promise<Response>
         ? (meta.notifuse_processed_events as string[])
         : [];
       const next = [...processed, payload.event_id].slice(-200);
-      await prisma.tenant.update({
-        where: { id: tenant.id },
-        data: {
-          metadata: {
-            ...meta,
-            notifuse_processed_events: next,
-          } as object,
-        },
+      // Les seules clés de ce geste, fusionnées par la base : jamais le JSON entier relu avant (26/11, lib/tenants/metadata-fusion.ts).
+      await fusionnerMetadata(prisma, tenant.id, {
+        notifuse_processed_events: next,
       });
     } catch (err) {
       console.warn('[notifuse-webhook] failed to mark event processed', err);
@@ -224,16 +220,11 @@ async function dispatchLegacyEvent(
       if (!tenant) return;
       const data = payload.data as TenantSuspendedEventData;
       const meta = (tenant.metadata as Record<string, unknown> | null) ?? {};
-      await prisma.tenant.update({
-        where: { id: tenant.id },
-        data: {
-          metadata: {
-            ...meta,
-            notifuse_suspended_at:
-              data?.suspended_at ?? new Date().toISOString(),
-            notifuse_suspended_reason: data?.reason ?? null,
-          } as object,
-        },
+      // Les seules clés de ce geste, fusionnées par la base : jamais le JSON entier relu avant (26/11, lib/tenants/metadata-fusion.ts).
+      await fusionnerMetadata(prisma, tenant.id, {
+        notifuse_suspended_at:
+          data?.suspended_at ?? new Date().toISOString(),
+        notifuse_suspended_reason: data?.reason ?? null,
       });
       return;
     }
@@ -242,15 +233,10 @@ async function dispatchLegacyEvent(
       if (!tenant) return;
       const data = payload.data as TenantResumedEventData | undefined;
       const meta = (tenant.metadata as Record<string, unknown> | null) ?? {};
-      await prisma.tenant.update({
-        where: { id: tenant.id },
-        data: {
-          metadata: {
-            ...meta,
-            notifuse_suspended_at: null,
-            notifuse_suspended_reason: null,
-          } as object,
-        },
+      // Les seules clés de ce geste, fusionnées par la base : jamais le JSON entier relu avant (26/11, lib/tenants/metadata-fusion.ts).
+      await fusionnerMetadata(prisma, tenant.id, {
+        notifuse_suspended_at: null,
+        notifuse_suspended_reason: null,
       });
       console.info(
         '[notifuse-webhook] tenant.resumed',
@@ -264,15 +250,10 @@ async function dispatchLegacyEvent(
       if (!tenant) return;
       const data = payload.data as TenantDeletedEventData;
       const meta = (tenant.metadata as Record<string, unknown> | null) ?? {};
-      await prisma.tenant.update({
-        where: { id: tenant.id },
-        data: {
-          metadata: {
-            ...meta,
-            notifuse_deleted_at:
-              data?.deleted_at ?? new Date().toISOString(),
-          } as object,
-        },
+      // Les seules clés de ce geste, fusionnées par la base : jamais le JSON entier relu avant (26/11, lib/tenants/metadata-fusion.ts).
+      await fusionnerMetadata(prisma, tenant.id, {
+        notifuse_deleted_at:
+          data?.deleted_at ?? new Date().toISOString(),
       });
       return;
     }
@@ -289,14 +270,9 @@ async function dispatchLegacyEvent(
             ? (meta.notifuse_emails_sent_this_month as number)
             : 0;
         const next = current + 1;
-        await prisma.tenant.update({
-          where: { id: tenant.id },
-          data: {
-            metadata: {
-              ...meta,
-              notifuse_emails_sent_this_month: next,
-            } as object,
-          },
+        // Les seules clés de ce geste, fusionnées par la base : jamais le JSON entier relu avant (26/11, lib/tenants/metadata-fusion.ts).
+        await fusionnerMetadata(prisma, tenant.id, {
+          notifuse_emails_sent_this_month: next,
         });
         console.info(
           '[notifuse-webhook] email.sent',
