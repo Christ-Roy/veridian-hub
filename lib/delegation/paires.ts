@@ -58,7 +58,8 @@ export const sourceServie = (source: AppPaire, env: NodeJS.ProcessEnv = process.
 export const paireServie = (p: Paire, env: NodeJS.ProcessEnv = process.env, test = false): boolean => p.nature === 'action' && sourceServie(p.source, env, test) && cibleServie(p.cible, env, test);
 /**
  * Un événement se règle à part (`DELEGATION_EVENEMENTS`, vide par défaut) : `notifuse>crm` pour tous, `notifuse>crm@<tenant>` pour une seule
- * organisation, `notifuse>crm@test` pour celles marquées de test. Ouvert ne veut pas dire allumé : le clic du propriétaire reste dû.
+ * organisation, `notifuse>crm@test` pour celles marquées de test. Ouvert, il est ALLUMÉ par défaut là où Mail et le CRM sont ouverts (PAR_DEFAUT,
+ * `etat.ts`, Robert 25/11) ; le propriétaire le coupe d'un clic et la coupure tient. Mesuré le 26/11 sur une organisation de test.
  */
 export const evenementOuvert = (cle: string, tenantId: string, env: NodeJS.ProcessEnv = process.env, test = false): boolean => {
   const l = (env.DELEGATION_EVENEMENTS ?? '').split(',').map((x) => x.trim());

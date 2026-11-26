@@ -274,8 +274,8 @@ DELEGATION_CIBLES=crm,notifuse,prospection,academy@test
 # Le CRM comme SOURCE pour TOUTES les organisations depuis le 26/11 (épreuves communes 48 staging et 49 prod vertes ; Robert 25/11 : « 3 oui », apps
 # d'un même Hub connectées nativement). Séquences (envoient des mails) : jamais par défaut. Academy : organisations de test, sa réserve d'abord.
 DELEGATION_SOURCES=crm
-# Événements entre apps (F3) : `notifuse>crm` = tous, `notifuse>crm@<tenant>` = une organisation, `@test` = marquées de test. Vide = fermé. Ouvert ne
-# veut pas dire allumé : clic du propriétaire. Seule ouverte (25/11) : celle de Robert ; le CRM sert sa garde (940b9eb,
+# Événements entre apps (F3) : `notifuse>crm` = tous, `notifuse>crm@<tenant>` = une organisation, `@test` = marquées de test. Vide = fermé. Ouvert, il
+# est allumé par défaut où Mail et le CRM sont ouverts (PAR_DEFAUT, lib/delegation/etat.ts), le propriétaire le coupe d'un clic. Seule ouverte (25/11) : celle de Robert ; le CRM sert sa garde (940b9eb,
 # Liaisons 0.5.0 chez lui), parcours vert en staging (cas 27). Ouvrir une autre organisation : le CRM d'abord. Depuis le 26/11, aussi les organisations
 # marquées de test (`@test`) : parcours Mail complet de la session Mail et recette de A à Z (cas 50) en prod, sans aucun client.
 DELEGATION_EVENEMENTS=notifuse>crm@359b76d5-bab7-4773-a889-cf4cf0248869,notifuse>crm@test
