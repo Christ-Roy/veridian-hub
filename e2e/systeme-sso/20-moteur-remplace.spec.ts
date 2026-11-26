@@ -37,6 +37,9 @@ cas(null, 'porte MCP : le moteur remplacé pendant un programme rend un état et
 
   const avant = allocProgramme();
   if (!avant) throw new NonAbouti('allocation programme introuvable');
+  // Jamais pendant un déploiement du Hub : deux remplacements à la fois ne mesurent rien.
+  const deploiement = nomad('job', 'deployments', 'hub').split('\n')[1]?.trim().split(/\s+/)[3];
+  if (deploiement !== 'successful') throw new NonAbouti(`déploiement du Hub en cours (${deploiement ?? 'illisible'}) : le moteur ne se remplace pas maintenant`);
   // Fenêtre (parente, 26/11) : jamais pendant un programme client. La trace du Hub (début et fin de chaque programme) le dit.
   const fenetre = await adminOk<{ en_cours: { qui: string }[]; aucun_client_en_cours: boolean; dernier_client: string | null }>('GET', `programmes?depuis=${new Date(Date.now() - 3600_000).toISOString()}`);
   if (!fenetre.aucun_client_en_cours) throw new NonAbouti(`un programme client tourne (${fenetre.en_cours.filter((p) => p.qui === 'client').length}) : le moteur ne se remplace pas maintenant`);
