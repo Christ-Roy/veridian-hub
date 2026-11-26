@@ -40,7 +40,7 @@ export async function lireProgrammes(db: DbProgrammes, depuis: Date, maintenant 
     select: { action: true, targetId: true, payload: true, createdAt: true },
     take: 5_000,
   });
-  const ids = [...new Set(lignes.map((l) => l.targetId).filter((x): x is string => !!x))];
+  const ids = Array.from(new Set(lignes.map((l) => l.targetId).filter((x): x is string => !!x)));
   const comptes = ids.length ? await db.user.findMany({ where: { supabaseUserId: { in: ids } }, select: { supabaseUserId: true, email: true } }) : [];
   // Un compte introuvable (supprimé depuis) est compté client : on ne suppose jamais qu'un inconnu est une épreuve.
   const essai = new Set(comptes.filter((c) => c.email && estCompteDeTest(c.email)).map((c) => c.supabaseUserId));
@@ -58,7 +58,7 @@ export async function lireProgrammes(db: DbProgrammes, depuis: Date, maintenant 
     }
     parId.set(id, p);
   }
-  const tous = [...parId.values()];
+  const tous = Array.from(parId.values());
   const ouverts = tous.filter((p) => p.debut && !p.fin);
   const en_cours = ouverts.filter((p) => maintenant - Date.parse(p.debut!) < EN_COURS_MAX_MS);
   const perdus = ouverts.filter((p) => maintenant - Date.parse(p.debut!) >= EN_COURS_MAX_MS);
