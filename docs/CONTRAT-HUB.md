@@ -1801,7 +1801,9 @@ et `hub suspension` passent par lui.
   les liens de site, dits dans `avis`, jamais coupés. Hors modules d'organisation : rien à décocher. Cas 38, en prod (25/11) : session, clé personnelle (REST, MCP), porte IA et lien non
   consommé refusés dès la réponse, 65 s, témoin intact ; suspendue, tout se ferme et les visites envoyées pendant sont comptées après la reprise.
 - **Qui ne sait pas** (25/11) : `attach-owner`, Academy. Une app sans route ne se dit « absente » que si aucune des personnes visées n'y a de compte.
-- **Clés API d'un retiré** : jamais coupées (des automatisations en vivent), toujours DITES. `remove-member` rend
+- **Clés API d'un retiré** : coupées seulement là où l'app le fait elle-même (Academy, depuis 8a026b3 le 26/11 : les clés `acad_` créées par la
+  personne sont révoquées, celles d'un propriétaire restent ; `remove-member` rend `revoked_api_keys`, que l'avis du Hub dit à part).
+  Ailleurs jamais coupées (des automatisations en vivent), toujours DITES. `remove-member` rend
   `active_api_keys` (toutes les clés actives de l'espace, hors clé du Hub) et `api_keys_url` (la page où les renouveler, en https sur
   `veridian.site`) ; `avis` les cite app par app, « non comptées » si l'app se tait. État du 24/11, lu dans le code : Academy rend
   `active_api_keys_created_by_member` (clés par auteur) ; Notifuse et CRM, clés d'espace sans auteur noté, pas encore rendues ;

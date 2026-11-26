@@ -37,9 +37,12 @@ export function nonCoupees(apps: IssueApp[]): string | null {
  */
 export function avisCles(apps: IssueApp[]): string | null {
   const l = apps.filter((a) => a.etat === 'retire' || a.etat === 'non_gere').filter((a) => a.cles?.actives !== 0);
-  if (l.length === 0) return null;
+  const rev = apps.filter((a) => (a.cles?.revoquees ?? 0) > 0);
+  const revoquees = rev.length ? `Clés API créées par la personne et révoquées au retrait : ${rev.map((a) => `${a.app} ${a.cles!.revoquees}`).join(', ')}.` : null;
+  if (l.length === 0) return revoquees;
   const dire = (a: IssueApp) => `${a.app} ${a.cles ? `${a.cles.actives}${a.cles.par === 'personne' ? ' créée(s) par cette personne' : ''}` : 'non comptées'}${a.cles?.url ? ` (${a.cles.url})` : ''}`;
-  return `Clés API encore actives après le retrait, à renouveler dans l'app si la personne les connaît : ${l.map(dire).join(', ')}.`;
+  const actives = `Clés API encore actives après le retrait, à renouveler dans l'app si la personne les connaît : ${l.map(dire).join(', ')}.`;
+  return revoquees ? `${revoquees} ${actives}` : actives;
 }
 
 /** Un lien de site ouvre sans compte : qui le connaît lit encore. Compté, jamais coupé (des clients les ont publiés). */
@@ -50,13 +53,15 @@ export function avisLiens(apps: IssueApp[]): string | null {
 
 /** Ce qu'une app dit de ses clés en réponse à remove-member. `active_api_keys` : tout l'espace. Un lien n'est gardé que chez nous. */
 function lireCles(j: unknown): IssueApp['cles'] {
-  const r = (j ?? {}) as { active_api_keys?: unknown; active_api_keys_created_by_member?: unknown; api_keys_url?: unknown };
+  const r = (j ?? {}) as { active_api_keys?: unknown; active_api_keys_created_by_member?: unknown; api_keys_url?: unknown; revoked_api_keys?: unknown };
   const nombre = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : null);
   const espace = nombre(r.active_api_keys);
   const actives = espace ?? nombre(r.active_api_keys_created_by_member);
   if (actives === null) return undefined;
   const url = typeof r.api_keys_url === 'string' && /^https:\/\/[a-z0-9.-]+\.veridian\.site\/[\w./?=&%#-]*$/.test(r.api_keys_url) ? r.api_keys_url : undefined;
-  return { actives, par: espace !== null ? 'espace' : 'personne', ...(url ? { url } : {}) };
+  // Academy révoque, depuis 8a026b3 (26/11), les clés créées par la personne retirée : le Hub le dit au lieu de les compter « actives ».
+  const revoquees = nombre(r.revoked_api_keys);
+  return { actives, par: espace !== null ? 'espace' : 'personne', ...(url ? { url } : {}), ...(revoquees ? { revoquees } : {}) };
 }
 
 export class RefusMembre extends Error {
@@ -109,7 +114,7 @@ export async function rejoindre(db: DbMembres, d: { tenantId: string; hubUserId:
   return { cree: true, role };
 }
 
-export type IssueApp = { app: SyncApp; etat: 'retire' | 'suspendu' | 'repris' | 'absent' | 'non_gere' | 'echec'; detail?: string; /** Clés API restées actives, quand l'app les compte. */ cles?: { actives: number; par: 'espace' | 'personne'; url?: string }; /** Liens de site (Analytics) : ils ouvrent sans compte, donc survivent au retrait. */ liens?: { publics: number; prives: number } };
+export type IssueApp = { app: SyncApp; etat: 'retire' | 'suspendu' | 'repris' | 'absent' | 'non_gere' | 'echec'; detail?: string; /** Clés API restées actives, quand l'app les compte. */ cles?: { actives: number; par: 'espace' | 'personne'; url?: string; /** Révoquées par l'app au retrait (Academy, 8a026b3). */ revoquees?: number }; /** Liens de site (Analytics) : ils ouvrent sans compte, donc survivent au retrait. */ liens?: { publics: number; prives: number } };
 
 async function signer(app: SyncApp, methode: string, chemin: string, corps: Record<string, unknown>, deps: Deps): Promise<Response> {
   const config = resolveAppConfig(app, deps.env ?? process.env);

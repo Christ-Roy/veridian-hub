@@ -184,6 +184,14 @@ describe('retirer', () => {
     expect(r.avis).toMatch(/notifuse 3 \(https:\/\/notifuse\.app\.veridian\.site\/console\/cles\), crm 1, academy 2 créée\(s\) par cette personne\.$/);
     expect(a.posts.find((p) => p.app === 'academy')?.chemin).toBe('/api/tenants/T/remove-member');
   });
+  it('Academy rend ses clés révoquées au retrait (8a026b3) : lues et dites ; un compte non entier est ignoré', async () => {
+    const a = apps({ academy: ['m@x.fr'] }, { cles: { academy: { active_api_keys: 1, revoked_api_keys: 2 } } });
+    const r = await retirerM(a.f, ['academy']);
+    expect(r.apps[0].cles).toEqual({ actives: 1, par: 'espace', revoquees: 2 });
+    expect(r.avis).toMatch(/révoquées au retrait : academy 2\./);
+    const b = apps({ academy: ['m@x.fr'] }, { cles: { academy: { active_api_keys: 0, revoked_api_keys: 'beaucoup' } } });
+    expect((await retirerM(b.f, ['academy'])).apps[0].cles).toEqual({ actives: 0, par: 'espace' });
+  });
 
   it('ses poignées de délégation dans CE tenant meurent', async () => {
     await retirerM(apps({}).f, ['notifuse']).catch(() => undefined);
@@ -401,6 +409,11 @@ it('nonCoupees : null quand tout est coupé, sinon chaque app et sa raison', () 
   expect(nonCoupees([{ app: 'analytics', etat: 'non_gere', detail: 'aucune route' }, { app: 'crm', etat: 'echec', detail: 'http_500' }])).toMatch(/analytics \(aucune route\), crm \(http_500\)/);
 });
 
+// 26/11 : Academy révoque au retrait les clés créées par la personne (8a026b3) ; l'avis le dit, et ne les compte pas comme actives.
+it('avisCles : les clés révoquées par l\'app au retrait sont dites, à part des actives', () => {
+  expect(avisCles([{ app: 'academy', etat: 'retire', cles: { actives: 0, par: 'espace', revoquees: 2 } }])).toBe('Clés API créées par la personne et révoquées au retrait : academy 2.');
+  expect(avisCles([{ app: 'academy', etat: 'retire', cles: { actives: 1, par: 'espace', revoquees: 2 } }])).toMatch(/^Clés API créées par la personne et révoquées au retrait : academy 2\. Clés API encore actives .*academy 1/);
+});
 it('avisCles : une app qui ne compte pas est dite « non comptées », zéro et absent se taisent', () => {
   expect(avisCles([{ app: 'crm', etat: 'absent' }, { app: 'academy', etat: 'retire', cles: { actives: 0, par: 'espace' } }])).toBeNull();
   expect(avisCles([{ app: 'notifuse', etat: 'retire' }, { app: 'analytics', etat: 'non_gere' }])).toMatch(/notifuse non comptées, analytics non comptées/);
