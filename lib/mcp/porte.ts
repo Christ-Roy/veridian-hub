@@ -20,6 +20,7 @@ import { hubIssuer, PROTOCOLES, SORTIE_MAX_CAR } from './config';
 import type { Appelant } from './oauth';
 import { familleReservee, reserveAuHub } from './reserves';
 import { signatureOutil } from './signature';
+import { ACTION_DEBUT } from './programmes-lus';
 import { AUTORISER_MAX, CODE_MAX_CAR, DELAI_MS, executerProgramme, exigeAutorisation, ETAT_MAX_CAR, prendrePlace, presenter, REPONSE_MAX_OCTETS, type Contenu } from './programme';
 import { ouvrirMoteur, programmeConfigure } from './programme-moteur';
 
@@ -316,7 +317,7 @@ async function programme(db: DbPorte, qui: Appelant, cat: Catalogue, args: Recor
   const id = randomUUID();
   // Le début se trace avant de jouer : sans lui, un programme en cours est invisible (le moteur ne se remplace que hors programme client).
   await db.auditLog
-    .create({ data: { action: 'mcp.programme.debut', actor: `oauth:${qui.clientId}`, targetType: 'user', targetId: qui.hubUserId, payload: { programme: id, tenant_id: choisi.tenantId ?? null, code_car: code.length } } })
+    .create({ data: { action: ACTION_DEBUT, actor: `oauth:${qui.clientId}`, targetType: 'user', targetId: qui.hubUserId, payload: { programme: id, tenant_id: choisi.tenantId ?? null, code_car: code.length } } })
     .catch((err) => console.error('[mcp] journal impossible', err));
   const abandon = new AbortController();
   // Une session par app pour tout le programme : sans cela, trois requêtes par appel useraient le débit de l'app.

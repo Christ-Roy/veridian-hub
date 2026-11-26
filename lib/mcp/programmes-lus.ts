@@ -10,7 +10,7 @@ import { estCompteDeTest } from '@/lib/email/compte-de-test';
 import { DELAI_MS } from './programme';
 
 export const ACTION_DEBUT = 'mcp.programme.debut';
-export const ACTION_FIN = 'mcp.programme';
+const ACTION_FIN = 'mcp.programme';
 /** Au-delà, un début sans fin n'est plus en cours : le moteur coupe à DELAI_MS, la marge couvre l'écriture de la fin. */
 export const EN_COURS_MAX_MS = DELAI_MS + 2 * 60_000;
 

@@ -1,7 +1,7 @@
 /** Programmes lus dans le journal : en cours, perdus, terminés ; essai reconnu à l'adresse, inconnu compté client ; aucune adresse rendue. */
 import { describe, expect, it } from 'vitest';
 
-import { EN_COURS_MAX_MS, lireProgrammes, type DbProgrammes } from '@/lib/mcp/programmes-lus';
+import { ACTION_DEBUT, EN_COURS_MAX_MS, lireProgrammes, type DbProgrammes } from '@/lib/mcp/programmes-lus';
 
 const T0 = Date.parse('2026-11-26T12:00:00Z');
 const a = (min: number) => new Date(T0 - min * 60_000);
@@ -31,5 +31,10 @@ describe('lireProgrammes', () => {
   it('un compte introuvable compte client, jamais essai ; aucune adresse ne sort', async () => {
     const r = await lireProgrammes(db([ligne('mcp.programme.debut', 'u-supprime', 'p1', 1)]), a(120), T0);
     expect([r.en_cours[0].qui, r.aucun_client_en_cours, JSON.stringify(r).includes('@')]).toEqual(['client', false, false]);
+  });
+  it('le nom du début est celui qu\'écrit la porte, et la lecture ne demande que les débuts et les fins', async () => {
+    let filtre: unknown;
+    await lireProgrammes({ auditLog: { findMany: async (a) => { filtre = a; return []; } }, user: { findMany: async () => [] } }, a(60), T0);
+    expect([ACTION_DEBUT, (filtre as { where: { action: { in: string[] } } }).where.action.in]).toEqual(['mcp.programme.debut', ['mcp.programme.debut', 'mcp.programme']]);
   });
 });
