@@ -2279,6 +2279,16 @@ Mail envoie l'activité au Hub par lots, le Hub la relaie au CRM. À servir côt
   `notifuse>crm` doit être allumée (sinon : accepté au Hub, rien relayé, compté).
 - **Données** : `recipient_email` ne sert qu'à retrouver la personne ; le Hub ne le journalise pas. Le canal `message.received` actuel reste
   en parallèle jusqu'à la bascule.
+- **Outil CRM `app_evenements_mail`** (à exposer par le CRM, parente 26/11) : appelé par le Hub avec le même jeton que `app_reponse_humaine`
+  (sujet `integration:<tenant>`, `act` `app:notifuse`, portée **`crm:mail.ecrire`**, 120 s, `jti` à usage unique), en-tête `Idempotency-Key` = `lot_id`.
+  Arguments : `{ workspace_id, evenements: [{ rfc_message_id, event, occurred_at, thread_id, recipient_email, from_email, from_name, subject, nature,
+  list_id?, automation_id?, broadcast_id?, bounce_type?, host? }] }` (au plus 200, ce que le Hub a retenu du lot). Le CRM range **une ligne par
+  `rfc_message_id`** dans le dossier « Mail » de la personne dont l'adresse est `recipient_email`, à part de la synchro Gmail native ; le statut
+  avance (`sent` < `delivered` < `opened` < `clicked`, `bounced` et `unsubscribed` l'emportent), jamais ne recule. Une adresse absente de l'espace :
+  ignorée, **aucune personne créée** (une campagne ne crée jamais de fiche). Réponse : `{ ok: true, lignes: { creees, avancees, ignorees } }`.
+- **Nom de l'expéditeur d'une réponse** (VER-247) : `message.received` porte `from_name` ; le Hub le passe à `app_reponse_humaine` sous `nom`
+  (nettoyé, 200 caractères, jamais une adresse), seulement s'il est présent. Côté Hub servi dès son déploiement ; côté Mail, à émettre ; côté CRM,
+  `nom` doit être accepté (argument facultatif).
 - **Épreuves** (avant de dire « servi ») : signature d'un autre espace → 401 ; même lot rejoué → 200, tout en `doublons` ; 201 événements → 413 ;
   `hub_tenant_id` faux → 409 ; destinataire absent du CRM → ignoré, aucune personne créée ; `reply_human` → personne créée. Preuve en prod : un envoi
   réel suivi d'une ouverture, lus dans la fiche CRM (cas de batterie).
