@@ -65,10 +65,12 @@ fi
 # Navigateur distant : démarré ici, arrêté toujours (trap), PW_WS honoré par playwright.config.ts.
 NAV="$(cd ../.. && pwd)/scripts/navigateur-distant.sh"
 if [ "${SSO_NAVIGATEUR:-}" = distant ]; then
-  trap 'bash "$NAV" --stop' EXIT
-  bash "$NAV" || { echo "✗ NON ABOUTI : navigateur distant injoignable (rien n'a été mesuré)"; exit 2; }
+  trap 'bash "$NAV" --stop 9>&-' EXIT
+  # 9>&- : le tunnel et le job lancés en fond par le navigateur n'héritent pas du verrou. Sinon ils le tenaient après la fin de la
+  # batterie, et la suivante, lancée aussitôt, sortait en « une autre batterie tourne déjà » (26/11, cas 20 deux fois).
+  bash "$NAV" 9>&- || { echo "✗ NON ABOUTI : navigateur distant injoignable (rien n'a été mesuré)"; exit 2; }
   PW_WS="$(cat .run/navigateur/ws)"; export PW_WS
-  bash "$NAV" --sonde >/dev/null || { echo "✗ NON ABOUTI : le navigateur distant ne lit pas une page publique"; exit 2; }
+  bash "$NAV" --sonde >/dev/null 9>&- || { echo "✗ NON ABOUTI : le navigateur distant ne lit pas une page publique"; exit 2; }
   PW_CHROMIUM=distant
 fi
 
