@@ -279,6 +279,10 @@ DELEGATION_SOURCES=crm
 # Liaisons 0.5.0 chez lui), parcours vert en staging (cas 27). Ouvrir une autre organisation : le CRM d'abord. Depuis le 26/11, aussi les organisations
 # marquées de test (`@test`) : parcours Mail complet de la session Mail et recette de A à Z (cas 50) en prod, sans aucun client.
 DELEGATION_EVENEMENTS=notifuse>crm@359b76d5-bab7-4773-a889-cf4cf0248869,notifuse>crm@test
+# Signature des appels du Hub vers les apps (lib/hmac/signature-hub.ts) : v2 (méthode, chemin, query, empreinte du corps, usage unique) pour
+# les apps listées, v1 ailleurs. Mail vérifie la v2 depuis bd3e66dc (mesuré le 26/11 : v2 200, rejeu 401, autre query 401). N'ajouter une app
+# qu'une fois sa vérification v2 servie et mesurée. Retour arrière : vider, puis déployer.
+HMAC_V2_APPS=notifuse
 # Adresses à qui le Hub n'écrit jamais (lib/email/send.ts) : la boîte perso de Robert pour le compte « Préprod CRM » (24/11).
 MAILS_BLOQUES_SHA256=ff9b9ff3e94543f4
 {{ with nomadVar "nomad/jobs/hub" }}
