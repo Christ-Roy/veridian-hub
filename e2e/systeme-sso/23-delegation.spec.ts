@@ -119,7 +119,8 @@ cas(null, 'délégation : le propriétaire ouvre une liaison, une app agit 120 s
       await expect(page.getByText('Active par défaut').first(), 'Prospection vers Mail : le dit').toBeVisible();
       const reglage = page.locator('form', { has: page.locator(`input[value="${PAIRE}"]`) });
       await reglage.getByRole('button', { name: 'Couper' }).click();
-      await expect(page.getByText('Liaison coupée.')).toBeVisible();
+      // Pendant la transition qui suit le formulaire, l'ancienne et la nouvelle page coexistent un instant : on attend le message affiché (26/11).
+      await expect(page.getByRole('status').filter({ hasText: 'Liaison coupée.' }).last()).toBeVisible();
       expect((await echanger(g)).json, 'coupée à l\'écran').toEqual({ error: 'integration_off' });
       await reglage.getByRole('button', { name: 'Allumer' }).click();
       await expect(page.getByText('Liaison allumée.')).toBeVisible();

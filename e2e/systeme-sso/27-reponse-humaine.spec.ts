@@ -96,6 +96,12 @@ cas(null, 'une réponse humaine reçue dans Mail devient une tâche au CRM, une 
       }
     };
     await regler('Allumer', true);
+    // Prod : allumée PAR DÉFAUT, aucun clic n'a abonné le Hub. Le vrai chemin (0f9c279) : ré-ouvrir Mail, le Hub s'abonne lui-même et range
+    // le secret. Sans lui, chaque livraison rend 401 (vu le 26/11 sur l'organisation de la session Mail).
+    if (!STAGING) {
+      const o = await admin<{ verdict?: string }>('POST', `tenants/${T.id}/ouvrir`, { apps: ['notifuse'] });
+      if (o.status >= 300) throw new NonAbouti(`ré-ouverture de Mail (abonnement du Hub) : HTTP ${o.status}`);
+    }
 
     // Mail rend au Hub (signé) le secret de l'abonnement ; le rejouer rend le même.
     const abo = await versMail('POST', '/api/hub/evenements/abonnement', { hub_tenant_id: T.id, actif: true });

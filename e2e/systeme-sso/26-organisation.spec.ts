@@ -112,7 +112,8 @@ cas(null, 'organisation : réglée une fois au Hub, reçue et relue par l\'app, 
     await page.goto(`${HUB_URL}/dashboard/organisation`, { waitUntil: 'networkidle' });
     await page.getByLabel('Organisation active').selectOption(T.id);
     await page.getByRole('button', { name: 'Choisir' }).click();
-    await expect(page.getByText('Organisation active changée', { exact: false })).toBeVisible();
+    // Pendant la transition qui suit le formulaire, l'ancienne et la nouvelle page coexistent un instant : on attend le message affiché (26/11).
+    await expect(page.getByRole('status').filter({ hasText: 'Organisation active changée' }).last()).toBeVisible();
     await page.close();
     // Nouvelle entrée : la session d'app est retirée, le rebond repart du Hub.
     await ctxA.clearCookies({ domain: new URL(APP_URL.prospection).hostname });
