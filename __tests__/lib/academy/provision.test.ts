@@ -176,3 +176,15 @@ describe('plans d\'Academy', () => {
     expect(d.tenant.update).not.toHaveBeenCalled();
   });
 });
+
+describe('base injectée (26/11)', () => {
+  it('sans $executeRaw, l\'espace Academy ne s\'inscrit pas en réécrivant metadata : l\'ouverture échoue franchement', async () => {
+    process.env.ACADEMY_API_URL = 'https://academy.test';
+    process.env.ACADEMY_HUB_API_SECRET = 'acad-s3cret';
+    const update = vi.fn(async () => ({}));
+    const d = { tenant: { findFirst: vi.fn(async () => ({ id: 't-1', name: 'V', metadata: {} })), findUnique: vi.fn(async () => ({ id: 't-1', userId: 'h-1', metadata: {} })), update }, tenantApp: { upsert: vi.fn() }, tenantTrial: { findMany: vi.fn(async () => []) }, subscription: { findMany: vi.fn(async () => []) } };
+    const f = vi.fn(async () => new Response(JSON.stringify({ workspace_id: 'aw-9', created: true }), { status: 200 }));
+    await expect(ensureAcademyWorkspace(d as never, { hubUserId: 'h-1', email: 'r@x.io' }, { fetchImpl: f as unknown as typeof fetch })).rejects.toThrow();
+    expect(update.mock.calls.some((c) => JSON.stringify(c).includes('metadata'))).toBe(false);
+  });
+});

@@ -99,3 +99,13 @@ describe('ensureCrmWorkspace', () => {
     expect(JSON.parse(sync![1].body as string)).toMatchObject({ hub_user_id: 'h-1', name: 'Alice Martin' });
   });
 });
+
+describe('base injectée (26/11)', () => {
+  it('sans $executeRaw, l\'espace CRM ne s\'inscrit pas en réécrivant metadata : l\'ouverture échoue franchement', async () => {
+    const update = vi.fn(async () => ({}));
+    const d = { tenant: { findFirst: vi.fn(async () => ({ id: 't-1', name: 'A', metadata: {} })), findUnique: vi.fn(async () => ({ id: 't-1', userId: 'h', metadata: {} })), update }, tenantApp: { upsert: vi.fn() }, tenantTrial: { findMany: vi.fn(async () => []) }, subscription: { findMany: vi.fn(async () => []) } };
+    const f = vi.fn(async () => new Response(JSON.stringify({ workspace_id: 'ws-9', created: true }), { status: 200 }));
+    await expect(ensureCrmWorkspace(d as never, { hubUserId: 'h', email: 'a@x.io' }, { env, fetchImpl: f as unknown as typeof fetch })).rejects.toThrow();
+    expect(update.mock.calls.some((c) => JSON.stringify(c).includes('metadata'))).toBe(false);
+  });
+});

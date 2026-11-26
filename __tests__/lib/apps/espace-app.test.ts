@@ -50,3 +50,9 @@ it('compte d\'épreuve : Academy et le CRM reçoivent un nom d\'espace préfixé
   expect(noms).toEqual(['e2e-ACME', 'e2e-ACME', 'ACME']);
 });
 
+it('base injectée sans $executeRaw : l\'ouverture échoue franchement, jamais de metadata réécrite en entier (26/11)', async () => {
+  const update = vi.fn(async () => ({}));
+  const sans = { tenant: { findFirst: async () => ({ id: 't-1' }), findUnique: async () => ({ id: 't-1', name: 'ACME', metadata: {} }), update }, tenantApp: { upsert: async () => ({}) } } as never;
+  await expect(ensureAppWorkspace(ESPACE_APPS.crm, sans, { hubUserId: 'h', email: 'a@x.io' }, { env, fetchImpl: (async () => new Response(JSON.stringify({ workspace_id: 'ws', created: true }), { status: 200 })) as never })).rejects.toThrow();
+  expect(update.mock.calls.some((c) => JSON.stringify(c).includes('metadata'))).toBe(false);
+});
