@@ -42,6 +42,8 @@ cas(null, 'essai commun : une personne née au Hub, CRM et Mail reliés, le CRM 
     const prov = await versMail('POST', '/api/tenants/provision', { tenant_id: slug, owner_email: P.email, owner_hub_user_id: P.hubUserId, workspace_name: 'TEST essai CRM', plan: 'free', email_proven: true, metadata: { hub_user_id: P.hubUserId, hub_tenant_id: T.id }, hub_tenant_id: T.id });
     if (prov.status >= 300) throw new NonAbouti(`espace Mail de staging : HTTP ${prov.status} ${prov.texte}`);
     cree = true;
+    // Le Hub doit SAVOIR que Mail est ouvert : sans cela, crm>notifuse n'est pas allumée par défaut (vu le 26/11, essai éteint à tort).
+    await adminOk('POST', 'tenants/link-app', { user_email: P.email, app: 'notifuse', external_tenant_id: slug, external_tenant_slug: slug, tenant_name: 'TEST essai CRM', plan: 'free', provisioning_source: 'essai-48' });
     writeFileSync(fiche, JSON.stringify({ hub: HUB_URL, email: P.email, mot_de_passe: P.motDePasse, hub_user_id: P.hubUserId, hub_tenant_id: T.id, espace_crm: espaceCrm, espace_mail: slug, cree_le: new Date().toISOString() }, null, 1), { mode: 0o600 });
     console.log(`[essai-crm] prêt : espace CRM ${espaceCrm}, tenant ${T.id}, espace Mail ${slug} ; fiche ${fiche}`);
     const jusqua = Date.now() + Number(process.env.SSO_ESSAI_MINUTES ?? 180) * 60_000;
