@@ -12,7 +12,7 @@ const avancer = async (s: number) => { for (let n = 0; n < s; n++) await act(asy
 it('part seul après trois secondes, une fois', async () => {
   rendre(true);
   await avancer(6);
-  expect(aller.mock.calls).toEqual([['/connexion/asd']]);
+  expect(aller.mock.calls).toEqual([['/connexion/asd?silence=1']]);
 });
 it('« Me connecter autrement » l\'arrête pour de bon', async () => {
   rendre(true);

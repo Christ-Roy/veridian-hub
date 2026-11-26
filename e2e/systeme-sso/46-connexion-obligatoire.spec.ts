@@ -4,7 +4,7 @@
  * toutes une fois passée par le fournisseur ; l'autre organisation de la personne reste ouverte ; l'accès gardé tombe au rattachement ; libre rouvre tout.
  * NON PROUVÉ : une session par Google (aucun compte Google d'épreuve) : la garde ne lit pas le moyen, elle exige le passage (obligation.test.ts).
  * Épreuves : `SSO_SABOTAGE=obligatoire-libre` (la règle n'est pas posée), `obligatoire-exemptee` (elle garde son accès), `obligatoire-sans-passage` (elle ne
- * passe pas par le fournisseur), `obligatoire-sans-lien` (l'exemptée ne se rattache pas) : le cas doit échouer.
+ * passe pas par le fournisseur), `obligatoire-sans-lien` (l'exemptée ne se rattache pas), `obligatoire-silence` (le fournisseur refuse aussi le second essai sans écran) : le cas doit échouer.
  */
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, mkdirSync } from 'node:fs';
@@ -204,6 +204,29 @@ cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec
     expect((await ou(cn, `${HUB_URL}/dashboard`)).chemin).toBe('/auth/organisation');
 
     pas('Par le fournisseur SEUL');
+    // Essai sans écran (prompt=none), une fois par navigateur. Refusé par le fournisseur : le bouton revient, pas de boucle. Accepté : elle entre sans clic.
+    pas('essai sans écran');
+    const sans = async (ctx: BrowserContext) => {
+      const page = await ctx.newPage();
+      await page.goto(`${HUB_URL}/auth/organisation?org=${T.id}`, { waitUntil: 'load' });
+      await page.waitForLoadState('load').catch(() => undefined);
+      const u = new URL(page.url());
+      const r = { chemin: `${u.pathname}${u.search}`, bouton: await page.getByRole('button', { name: /^Continuer avec/ }).count() };
+      await page.close();
+      return r;
+    };
+    idp.dire({ sub: 'obl-m', email: 'x@y.fr', email_verified: false });
+    idp.silencieux('login_required');
+    const refuse = await navigateur(M);
+    const avantSilence = idp.prompts().length;
+    expect(await sans(refuse), 'refusé sans écran : le bouton, une seule demande').toEqual({ chemin: `/auth/organisation?org=${T.id}&silence=echec`, bouton: 1 });
+    expect(await sans(refuse), 'jamais deux fois : le bouton, sans nouvel essai').toEqual({ chemin: `/auth/organisation?org=${T.id}`, bouton: 1 });
+    expect(idp.prompts().slice(avantSilence), 'un seul essai, sans écran').toEqual(['none']);
+    if (sabotage !== 'obligatoire-silence') idp.silencieux(null);
+    const accepte = await navigateur(M);
+    await sans(accepte);
+    expect((await rebond(accepte)).chemin === '/auth/organisation' ? 'fermée' : 'ouverte', 'accepté sans écran : ouverte, sans un clic').toBe('ouverte');
+
     // Par le fournisseur SEUL, celle qui a aussi son autre organisation n'entre pas : rien de l'autre ne se lit depuis la session de celle-ci.
     idp.dire({ sub: 'obl-m', email: 'x@y.fr', email_verified: false });
     const seul = await browser.newContext();

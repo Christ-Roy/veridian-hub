@@ -44,13 +44,13 @@ describe('GET /connexion/[slug]', () => {
     m.user.mockResolvedValue({ id: 'U', supabaseUserId: 'h' });
     m.membre.mockResolvedValue(true);
     await aller('client');
-    expect(m.demarrer.mock.calls[0].at(-1)).toEqual({ userId: 'U' });
+    expect(m.demarrer.mock.calls[0].slice(-2)).toEqual([{ userId: 'U' }, undefined]);
     m.reliee.mockResolvedValueOnce(false);
     expect((await aller('client')).headers.get('location')).toBe('https://app.veridian.site/login?reauth=1&callbackUrl=%2Fconnexion%2Fclient');
     m.membre.mockResolvedValue(false);
     m.demarrer.mockClear();
     await aller('client');
-    expect(m.demarrer.mock.calls[0].at(-1)).toBeUndefined();
+    expect(m.demarrer.mock.calls[0].slice(-2)).toEqual([undefined, undefined]);
     m.user.mockResolvedValue(null);
   });
   it('déjà entrée par CETTE organisation : droit au tableau de bord ; par une autre, ou session ordinaire : chez le fournisseur', async () => {
@@ -65,5 +65,14 @@ describe('GET /connexion/[slug]', () => {
     const s: number[] = [];
     for (let n = 0; n < 32; n++) s.push((await aller('client', '198.51.100.9')).status);
     expect([s[29], s[31]]).toEqual([303, 429]);
+  });
+  it('départ automatique : d\'abord sans écran (prompt=none), une seule fois par navigateur ; un lien ordinaire, jamais', async () => {
+    const via = (q: string, cookie = '') => GET(new NextRequest(`https://0.0.0.0/x${q}`, { headers: { 'x-forwarded-for': `198.51.100.${++ip}`, ...(cookie ? { cookie } : {}) } }), { params: Promise.resolve({ slug: 'client' }) });
+    m.demarrer.mockClear();
+    const r = await via('?silence=1');
+    expect([m.demarrer.mock.calls[0].at(-1), r.headers.get('set-cookie')]).toEqual([true, expect.stringMatching(/veridian-silence=1;.*Max-Age=600/)]);
+    await via('?silence=1', 'veridian-silence=1');
+    await via('');
+    expect(m.demarrer.mock.calls.slice(1).map((c) => c.at(-1))).toEqual([undefined, undefined]);
   });
 });

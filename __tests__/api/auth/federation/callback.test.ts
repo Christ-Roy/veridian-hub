@@ -17,13 +17,13 @@ vi.mock('@/lib/auth/impersonation', () => ({ isImpersonatedSession: () => m.empr
 vi.mock('@/lib/auth/recent-auth', () => ({ PREUVE_COMPTE_S: 86_400, isAuthRecent: (a: number | undefined) => a === 1 }));
 vi.mock('@/lib/federation/idp', () => ({ idpPret: (...a: unknown[]) => m.pret(...a) }));
 vi.mock('@/lib/federation/identite', () => ({ resoudreIdentite: (...a: unknown[]) => m.resoudre(...a) }));
-vi.mock('@/lib/federation/oidc', () => ({ CHEMIN_RETOUR: '/api/auth/federation/callback', COOKIE_FEDERATION: 'veridian-federation', ouvrir: (c?: string) => (c === 'bon' ? { idp: 'i1', state: 's' } : c === 'prouver' ? { idp: 'i1', state: 's', prouver: { userId: 'U' } } : c === 'ajout' ? { idp: 'i1', state: 's', ajout: { userId: 'U', email: 'pro@client.test' } } : c === 'essai' ? { idp: 'i1', state: 's', essai: { userId: 'U' } } : c === 'relier' ? { idp: 'i1', state: 's', relier: { userId: 'U' } } : null), terminer: (...a: unknown[]) => m.terminer(...a) }));
+vi.mock('@/lib/federation/oidc', () => ({ CHEMIN_RETOUR: '/api/auth/federation/callback', COOKIE_FEDERATION: 'veridian-federation', ouvrir: (c?: string) => (c === 'bon' ? { idp: 'i1', state: 's' } : c === 'silence' ? { idp: 'i1', state: 's', silence: true, prouver: { userId: 'U' } } : c === 'silence-seul' ? { idp: 'i1', state: 's', silence: true } : c === 'prouver' ? { idp: 'i1', state: 's', prouver: { userId: 'U' } } : c === 'ajout' ? { idp: 'i1', state: 's', ajout: { userId: 'U', email: 'pro@client.test' } } : c === 'essai' ? { idp: 'i1', state: 's', essai: { userId: 'U' } } : c === 'relier' ? { idp: 'i1', state: 's', relier: { userId: 'U' } } : null), terminer: (...a: unknown[]) => m.terminer(...a) }));
 vi.mock('@/lib/federation/ticket', () => ({ FOURNISSEUR_FEDERATION: 'federation', emettreTicket: (...a: unknown[]) => m.ticket(...a) }));
 vi.mock('@/lib/mail/oauth-cookies', () => ({ getHubBaseUrl: () => new URL('https://app.veridian.site') }));
 
 import { GET } from '@/app/api/auth/federation/callback/route';
 
-const revenir = (o: { cookie?: string; bounce?: boolean } = {}) => GET(new NextRequest('https://0.0.0.0:3000/api/auth/federation/callback?code=c&state=s', { headers: { cookie: [`veridian-federation=${o.cookie ?? 'bon'}`, ...(o.bounce ? ['__Secure-veridian-next=x'] : [])].join('; ') } }));
+const revenir = (o: { cookie?: string; bounce?: boolean; erreur?: string } = {}) => GET(new NextRequest(`https://0.0.0.0:3000/api/auth/federation/callback?${o.erreur ? `error=${o.erreur}` : 'code=c'}&state=s`, { headers: { cookie: [`veridian-federation=${o.cookie ?? 'bon'}`, ...(o.bounce ? ['__Secure-veridian-next=x'] : [])].join('; ') } }));
 const lieu = (r: Response) => r.headers.get('location')?.replace('https://app.veridian.site', '');
 beforeEach(() => {
   vi.clearAllMocks();
@@ -42,6 +42,17 @@ beforeEach(() => {
 });
 
 describe('GET callback', () => {
+  it('essai sans écran refusé par le fournisseur : journalisé avec l\'organisation, et le bouton revient ; rien n\'est échangé, aucune session', async () => {
+    const l = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+    l.mockClear();
+    expect(lieu(await revenir({ cookie: 'silence', erreur: 'login_required' }))).toBe('/auth/organisation?org=T&silence=echec');
+    expect(lieu(await revenir({ cookie: 'silence-seul', erreur: 'consent_required' }))).toBe('/login');
+    expect([m.terminer.mock.calls.length, m.signIn.mock.calls.length, m.prouver.mock.calls.length]).toEqual([0, 0, 0]);
+    expect(l.mock.calls.map((c) => JSON.parse(String(c[0]))).filter((x) => x.tag === '[federation][silence]').map((x) => [x.tenant_id, x.resultat])).toEqual([['T', 'login_required'], ['T', 'consent_required']]);
+    // Un essai ordinaire en erreur reste un refus, sans repli silencieux.
+    m.terminer.mockRejectedValueOnce(new Error('erreur du fournisseur'));
+    expect(lieu(await revenir({ erreur: 'login_required' }))).toMatch(/^\/auth\/federation\?code=reponse_refusee/);
+  });
   it('session par Auth.js avec le ticket, organisation active posée, transaction détruite ; l\'adresse vue par le fournisseur est la publique', async () => {
     const r = await revenir();
     expect([r.status, lieu(r), m.signIn.mock.calls[0]]).toEqual([303, '/dashboard', ['federation', { ticket: 'TICKET', redirect: false, redirectTo: '/dashboard' }]]);
