@@ -11,7 +11,7 @@ import { cas, NonAbouti } from './lib/etat';
 import { activerAnalyticsAuHub, activerTwentyAuHub, admin, invite, lookup, marquerTest } from './lib/hub-admin';
 import { mesurerRestes, nettoyerCompte } from './lib/nettoyage';
 import { adresseDe, attendreSessionHub, connexionHub, noter, noterEspaceTwenty, noterRybbit, noterWorkspace, voirApp, type Compte } from './lib/parcours';
-import { creerRecette, type Recette } from './lib/recette';
+import { borner, creerRecette, type Recette } from './lib/recette';
 import { delegationCrmVersMail, envoyerAuCrm, monIA, reponseMailVersCrm } from './lib/recette-integrations';
 import { fermerCoupures, inviterMembre, retraitMembre, ssoLibre, ssoObligatoire, suspensionOrganisation } from './lib/recette-coupures';
 import { assurerRybbit } from './lib/monde';
@@ -56,7 +56,7 @@ cas(null, 'recette de A à Z : une organisation jetable, de l\'inscription à la
 
   try {
     await etape('Inscription par l\'écran du Hub', async () => {
-      const ctx = await browser.newContext();
+      const ctx = borner(await browser.newContext());
       try {
         const page = await ctx.newPage();
         await page.goto(`${HUB_URL}/signup`, { waitUntil: 'networkidle' });
@@ -106,7 +106,7 @@ cas(null, 'recette de A à Z : une organisation jetable, de l\'inscription à la
 
     await etape('Preuve d\'adresse par le lien d\'invitation (chemin d\'un client invité)', async () => {
       const inv = await invite(email, ['hub', 'prospection', 'notifuse', 'analytics'], 'RECETTE A A Z');
-      const ctx = await browser.newContext();
+      const ctx = borner(await browser.newContext());
       try {
         const page = await ctx.newPage();
         await page.goto(inv.invite_url, { waitUntil: 'networkidle' });

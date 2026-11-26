@@ -14,6 +14,14 @@ import type { Compte } from './parcours';
 import { RUN_DIR } from './versions';
 
 export const DOSSIER_RECETTE = join(RUN_DIR, 'recette');
+const NAVIGATEUR_PERDU = /has been closed|Browser has been disconnected|Target closed|browserType\.connect/;
+
+/** Aucun geste n'attend sans fin : un bouton absent rend sa page et son erreur en 60 s (26/11 : un clic a attendu 926 s, puis le navigateur est mort). */
+export function borner(ctx: BrowserContext): BrowserContext {
+  ctx.setDefaultTimeout(60_000);
+  ctx.setDefaultNavigationTimeout(90_000);
+  return ctx;
+}
 
 export type EtatEtape = 'VRAI' | 'FAUX' | 'NON_ABOUTI';
 export type Ligne = { n: number; etape: string; etat: EtatEtape; detail: string; captures: string[]; secondes: number };
@@ -39,8 +47,16 @@ export function creerRecette(browser: Browser, P: Compte, tenantId: string): { r
   mkdirSync(DOSSIER_RECETTE, { recursive: true });
   const lignes: Ligne[] = [];
   let courante: Ligne | null = null;
+  // Tout contexte ouvert par une étape (modules compris) est borné : `r.browser.newContext` passe par `borner`.
+  const borne = new Proxy(browser, {
+    get(t, k) {
+      if (k === 'newContext') return async (o?: Parameters<Browser['newContext']>[0]) => borner(await t.newContext(o));
+      const v = (t as unknown as Record<string | symbol, unknown>)[k];
+      return typeof v === 'function' ? (v as (...a: unknown[]) => unknown).bind(t) : v;
+    },
+  });
   const r: Recette = {
-    browser,
+    browser: borne,
     P,
     tenantId,
     notes: {},
@@ -51,9 +67,9 @@ export function creerRecette(browser: Browser, P: Compte, tenantId: string): { r
       courante?.captures.push(fichier);
       return fichier;
     },
-    contexte: (c) => {
+    contexte: async (c) => {
       if (!c.etat) throw new NonAbouti(`${c.etiquette} : aucune session Hub enregistrée`);
-      return browser.newContext({ storageState: c.etat as never });
+      return borner(await browser.newContext({ storageState: c.etat as never }));
     },
   };
   const etape = async (nom: string, corps: (r: Recette) => Promise<string>): Promise<EtatEtape> => {
@@ -66,8 +82,11 @@ export function creerRecette(browser: Browser, P: Compte, tenantId: string): { r
       l.etat = 'VRAI';
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      l.etat = e instanceof NonAbouti ? 'NON_ABOUTI' : 'FAUX';
-      l.detail = msg.split('\n').filter(Boolean).slice(0, 4).join(' ⏎ ');
+      // Le navigateur distant perdu n'est pas un défaut de l'app : rien n'a été mesuré (26/11, une étape tombée a rendu 8 faux à tort).
+      const outilPerdu = NAVIGATEUR_PERDU.test(msg);
+      l.etat = e instanceof NonAbouti || outilPerdu ? 'NON_ABOUTI' : 'FAUX';
+      if (outilPerdu) l.detail = `navigateur de la recette perdu, rien mesuré : `;
+      l.detail += msg.replace(/(browser\.newContext: )+/g, '').split('\n').filter(Boolean).slice(0, 4).join(' ⏎ ');
     }
     l.secondes = Math.round((Date.now() - t0) / 1000);
     l.detail = masquer(l.detail).slice(0, 500);
@@ -82,7 +101,7 @@ export function creerRecette(browser: Browser, P: Compte, tenantId: string): { r
     const texte = [
       `# Recette A à Z, ${new Date().toISOString()}`,
       '',
-      `${somme('VRAI')} vrai · ${somme('FAUX')} faux · ${somme('NON_ABOUTI')} non abouti, sur ${lignes.length} étapes. Organisation jetable ${tenantId}.`,
+      `${somme('VRAI')} vrai · ${somme('FAUX')} faux · ${somme('NON_ABOUTI')} non abouti, sur ${lignes.length} étapes. Organisation jetable ${r.tenantId}.`,
       '',
       '| # | Étape | État | Détail | Captures | s |',
       '|---|---|---|---|---|---|',
