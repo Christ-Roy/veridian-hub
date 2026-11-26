@@ -2,16 +2,14 @@
 
 // Assistant Veridian : la fenêtre de chat commune à toutes les apps (docs/MON-IA.md). Toute écriture
 // s'affiche ici avec son outil et ses paramètres, et ne part qu'après « Autoriser ».
+// En premier : zod doit être réglé sans eval avant que le SDK `ai` construise ses schémas (lib/zod-sans-eval.ts).
+import '@/lib/zod-sans-eval';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses, type UIMessage } from 'ai';
 import { useEffect, useRef, useState } from 'react';
-import { config as configurerZod } from 'zod';
 
 import { Button } from '@/components/ui/button';
 
-// La CSP du Hub interdit eval (VER-265) : zod essaie `Function("")` pour compiler ses schémas, l'essai est refusé et signalé à chaque
-// ouverture de la fenêtre (relevé en Report-Only le 26/11). Sans compilation, zod valide pareil, sans rien essayer.
-configurerZod({ jitless: true });
 
 type Props = { app: string; tenantId: string; sessionId: string | null };
 
