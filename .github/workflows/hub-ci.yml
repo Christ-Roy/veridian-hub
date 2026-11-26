@@ -407,10 +407,13 @@ jobs:
           statut() { curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$@"; }
           lieu() { curl -s -o /dev/null -D - --max-time 20 "$@" | grep -i '^location:' | head -1; }
           entetes() { curl -s -o /dev/null -D - --max-time 20 "$@"; }
+          # La CSP à nonce dépasse les 400 caractères que garde verifie : on extrait la directive elle-même (26/11, sonde aveugle après la CSP bloquante).
+          directive() { curl -s -o /dev/null -D - --max-time 20 "$2" | grep -i '^content-security-policy:' | grep -io "$1[^;]*" | head -1; }
 
           verifie "/login répond 200" '^200$' statut "$HUB_URL/login"
           verifie "/api/auth/session vide sans cookie" '^null$' curl -s --max-time 20 "$HUB_URL/api/auth/session"
-          verifie "frame-ancestors présent sur /login" "frame-ancestors" entetes "$HUB_URL/login"
+          verifie "frame-ancestors présent sur /login (le Hub seul)" "^frame-ancestors 'self'$" directive frame-ancestors "$HUB_URL/login"
+          verifie "/ia/chat : encadrable par les apps seulement" "^frame-ancestors 'self' https://\\*\\.app\\.veridian\\.site$" directive frame-ancestors "$HUB_URL/ia/chat"
           verifie "prepare sans session : /login en mode rebond" "location: https://app.veridian.site/login\\?mode=bounce&app=prospection" lieu "$HUB_URL/api/auth/bounce/prepare?auto=1&next=$APP"
           verifie "prepare vers un site client : refusé, /login simple" "location: https://app.veridian.site/login$" lieu "$HUB_URL/api/auth/bounce/prepare?auto=1&next=$CLIENT"
           verifie "prepare vers un hôte étranger : refusé" "location: https://app.veridian.site/login$" lieu "$HUB_URL/api/auth/bounce/prepare?auto=1&next=https%3A%2F%2Fevil.example%2F"
