@@ -1,7 +1,7 @@
 import { createLocalJWKSet, jwtVerify, type JWK } from 'jose';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ecrireReponseHumaine, OUTIL_CRM, PORTEE_CRM } from '@/lib/evenements/crm';
+import { ecrireEvenementsMail, OUTIL_CRM_MAIL, PORTEE_CRM_MAIL, ecrireReponseHumaine, OUTIL_CRM, PORTEE_CRM } from '@/lib/evenements/crm';
 import { jwksPublic } from '@/lib/mcp/identite';
 
 import { base, cleDeTest } from './fausse';
@@ -88,3 +88,20 @@ describe('ecrireReponseHumaine', () => {
     expect(f).not.toHaveBeenCalled();
   });
 });
+
+describe('ecrireEvenementsMail (§5.25)', () => {
+  const lignes = (o: object) => vi.fn(async () => json({ jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: JSON.stringify(o) }] } }));
+  it('jeton d\'intégration à la seule portée crm:mail.ecrire, outil app_evenements_mail, Idempotency-Key = lot_id ; les comptes du CRM rendus', async () => {
+    const f = lignes({ ok: true, lignes: { creees: 1, avancees: 2, ignorees: 3 } });
+    const r = await ecrireEvenementsMail(db as never, { tenantId: 'T', workspaceId: 'ws1', lotId: 'lot-1', evenements: [{ event: 'message.sent' }] }, env, f as never);
+    const init = (f.mock.calls[0] as unknown as [string, RequestInit])[1];
+    const h = init.headers as Record<string, string>;
+    const p = (await jwtVerify(h.Authorization.slice(7), createLocalJWKSet((await jwksPublic(env)) as { keys: JWK[] }), { audience: 'https://crm.test/mcp' })).payload;
+    expect([OUTIL_CRM_MAIL, PORTEE_CRM_MAIL, p.scope, p.sub, h['Idempotency-Key'], JSON.parse(init.body as string).params.name, r.lignes]).toEqual(['app_evenements_mail', 'crm:mail.ecrire', 'crm:mail.ecrire', 'integration:T', 'lot-1', 'app_evenements_mail', { creees: 1, avancees: 2, ignorees: 3 }]);
+  });
+  it('un refus du CRM (success:false) lève ; des comptes absents ou faux valent 0', async () => {
+    await expect(ecrireEvenementsMail(db as never, { tenantId: 'T', workspaceId: 'ws1', lotId: 'l', evenements: [] }, env, lignes({ success: false }) as never)).rejects.toThrow('crm_refus');
+    expect((await ecrireEvenementsMail(db as never, { tenantId: 'T', workspaceId: 'ws1', lotId: 'l', evenements: [] }, env, lignes({ ok: true, lignes: { creees: -1, avancees: 'x' } }) as never)).lignes).toEqual({ creees: 0, avancees: 0, ignorees: 0 });
+  });
+});
+
