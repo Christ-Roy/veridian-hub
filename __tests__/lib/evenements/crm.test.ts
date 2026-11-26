@@ -6,7 +6,7 @@ import { jwksPublic } from '@/lib/mcp/identite';
 
 import { base, cleDeTest } from './fausse';
 
-const R = { workspaceId: 'ws1', evenementId: 'liv-1', messageId: 'm-1', rfcMessageId: 'abc@x', email: 'c@x.test', threadId: 't_1', survenuLe: null };
+const R = { workspaceId: 'ws1', evenementId: 'liv-1', messageId: 'm-1', rfcMessageId: 'abc@x', email: 'c@x.test', threadId: 't_1', survenuLe: null, nom: null as string | null };
 let env: NodeJS.ProcessEnv;
 let db: ReturnType<typeof base>;
 beforeAll(async () => { env = await cleDeTest(); });
@@ -41,6 +41,16 @@ describe('ecrireReponseHumaine', () => {
     const corps = JSON.parse(init.body as string);
     expect(corps).toMatchObject({ method: 'tools/call', params: { name: OUTIL_CRM, arguments: { email: 'c@x.test', thread_id: 't_1', message_id: 'm-1', idempotency_key: 'liv-1', chaine: ['notifuse>crm:liv-1'] } } });
     expect(JSON.stringify(corps)).not.toMatch(/subject|body|from/);
+  });
+  it('nom affiché de l\'expéditeur : relayé quand Mail le donne (VER-247), absent sinon (jamais une clé vide)', async () => {
+    const lire = async (nom: string | null) => {
+      const f = vi.fn(async () => json({ jsonrpc: '2.0', id: 1, result: OK }));
+      await ecrireReponseHumaine(db as never, { tenantId: 'T', reponse: { ...R, nom }, chaine: [] }, env, f as never);
+      return JSON.parse((f.mock.calls[0] as unknown as [string, RequestInit])[1].body as string).params.arguments;
+    };
+    const avec = await lire('Alice Martin');
+    const sans = await lire(null);
+    expect([avec.nom, 'nom' in sans]).toEqual(['Alice Martin', false]);
   });
   it('réponse en flux SSE : acceptée', async () => {
     const sse = new Response('event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\\"ok\\":true}"}]}}\n\n', { headers: { 'content-type': 'text/event-stream' } });

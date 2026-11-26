@@ -47,8 +47,9 @@ export async function ecrireReponseHumaine(db: Pick<PrismaClient, 'mcpApp'>, d: 
   const jeton = await signerAction({ audience: url, hubUserId: `integration:${d.tenantId}`, tenantId: d.tenantId, app: 'notifuse', scope: PORTEE_CRM, jti, ttlS: TTL_ACTION_S }, env);
   const r = d.reponse;
   // `thread_id` est exigé par le CRM : sans fil, le message fait son propre fil, plutôt que de perdre une vraie réponse.
-  // Un signal, pas une donnée : identifiants seulement. Ni objet, ni corps, ni expéditeur ; le CRM relit chez Notifuse.
-  const args = { email: r.email, workspace_id: r.workspaceId, thread_id: r.threadId ?? r.messageId, message_id: r.messageId, rfc_message_id: r.rfcMessageId, survenu_le: r.survenuLe, idempotency_key: r.evenementId, chaine: [...d.chaine, `notifuse>crm:${r.evenementId}`] };
+  // Un signal, pas une donnée : identifiants seulement, plus le nom affiché de l'expéditeur quand Mail le donne (VER-247, 26/11 : sans lui
+  // la fiche créée restait sans prénom ni nom). Ni objet, ni corps ; le CRM relit chez Notifuse.
+  const args = { ...(r.nom ? { nom: r.nom } : {}), email: r.email, workspace_id: r.workspaceId, thread_id: r.threadId ?? r.messageId, message_id: r.messageId, rfc_message_id: r.rfcMessageId, survenu_le: r.survenuLe, idempotency_key: r.evenementId, chaine: [...d.chaine, `notifuse>crm:${r.evenementId}`] };
   const res = (await new SessionApp(url, jeton, fetchImpl, { entetes: { 'Idempotency-Key': r.evenementId } }).appeler(OUTIL_CRM, args)) as { isError?: boolean } | null | undefined;
   // Le succès se lit (`ok: true`), il ne se déduit pas d'une absence d'erreur : le CRM refuse aussi en 200, `success: false` dans le texte (24/11).
   const o = res && typeof res === 'object' && !res.isError ? lire(res) : null;
