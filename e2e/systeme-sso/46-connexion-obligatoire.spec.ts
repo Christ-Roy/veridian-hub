@@ -196,7 +196,9 @@ cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec
     expect(await portes(cm, jetonNeuf), 'passée par le fournisseur').toEqual(TOUTES('ouverte'));
     expect((await mcp(jetonNeuf, B.slug)), 'l\'autre, toujours').toBe(false);
     // Une AUTRE session de la même personne, par mot de passe, ne l'ouvre pas : la preuve est de la session, pas du compte.
+    // L'écran tente d'abord le fournisseur sans écran : ici il refuse (pas de session chez lui), donc elle reste fermée.
     pas('autre session de M');
+    idp.silencieux('login_required');
     const cm2 = await navigateur(M);
     expect((await rebond(cm2)).chemin, 'une autre session, sans passage').toBe('/auth/organisation');
     // Une identité déjà prise par quelqu'un d'autre n'ouvre rien.
@@ -254,7 +256,8 @@ cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec
     const apres = await admin<{ personnes: { hub_user_id: string; acces: string; exemption: string | null; exemption_tombee_le: string | null }[] }>('GET', regle);
     const w = apres.json.personnes.find((p) => p.hub_user_id === W.hubUserId);
     expect([w?.acces, w?.exemption, Boolean(w?.exemption_tombee_le)], 'tombé').toEqual(['fournisseur', null, true]);
-    expect((await ou(cw, `${HUB_URL}/dashboard`)).chemin, 'sa session par mot de passe, sans passage').toBe('/auth/organisation');
+    idp.silencieux('login_required'); // pas de session chez le fournisseur : l'essai sans écran est refusé
+    expect((await ou(cw,`${HUB_URL}/dashboard`)).chemin, 'sa session par mot de passe, sans passage').toBe('/auth/organisation');
     expect((await ou(cw2, `${HUB_URL}/dashboard`)).chemin, 'celle qui s\'est rattachée').toBe('/dashboard');
     expect((await admin('POST', regle, { hub_user_id: W.hubUserId, nature: 'rattachement' })).json).toEqual({ error: 'deja_reliee' });
 
