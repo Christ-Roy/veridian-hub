@@ -111,6 +111,16 @@ describe('NotifuseClient HMAC requests', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
+  it('compte d\'épreuve : le nom de l\'espace Mail est préfixé e2e- ; un client garde le sien ; sans nom, rien n\'est envoyé', async () => {
+    const corps: Record<string, unknown>[] = [];
+    const fetchImpl = vi.fn(async (_u: string, init?: RequestInit) => { corps.push(JSON.parse(String(init!.body))); return jsonResponse(200, {}); });
+    const client = new NotifuseClient({ apiUrl: API_URL, hubSecret: SECRET, fetchImpl });
+    await client.provisionWorkspace({ tenantId: 't', ownerEmail: 'e2e-sso-moteur-1@veridian.site', workspaceName: 'Veridian' });
+    await client.provisionWorkspace({ tenantId: 't', ownerEmail: 'o@x.fr', workspaceName: 'Boulangerie' });
+    await client.provisionWorkspace({ tenantId: 't', ownerEmail: 'o@x.fr' });
+    expect(corps.map((c) => c.workspace_name)).toEqual(['e2e-Veridian', 'Boulangerie', undefined]);
+  });
+
   it('désigne la personne par hub_user_id (CONTRAT-HUB §5.19.7) au provisionnement', async () => {
     const corps: Record<string, unknown>[] = [];
     const fetchImpl = vi.fn(async (_u: string, init?: RequestInit) => { corps.push(JSON.parse(String(init!.body))); return jsonResponse(200, { magic_link: 'https://notifuse.example.com/m' }); });

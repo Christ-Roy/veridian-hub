@@ -31,6 +31,12 @@ describe('provisionnerAnalytics', () => {
     expect(await provisionnerAnalytics(db, qui, 'T', { env: ENV, fetchImpl: f as never })).toEqual({ ok: true, organizationId: 'org-42' });
     expect(meta).toMatchObject({ crm: { workspace_id: 'c' }, analytics: { workspace_id: 'org-42' } });
   });
+  it('compte d\'épreuve : l\'organisation Analytics porte un nom préfixé e2e-', async () => {
+    let nom: unknown;
+    const f = vi.fn(async (_u: string, i?: RequestInit) => { nom = JSON.parse(i!.body as string).organization_name; return Response.json({ organization_id: 'org-42' }); });
+    await provisionnerAnalytics(db, { ...qui, email: 'e2e-sso-moteur-1@veridian.site' }, 'T', { env: ENV, fetchImpl: f as never });
+    expect(nom).toBe('e2e-Org');
+  });
   it('route absente chez Analytics : attente nommée, rien écrit', async () => {
     const r = await provisionnerAnalytics(db, qui, 'T', { env: ENV, fetchImpl: (async () => new Response('Not Found', { status: 404 })) as never });
     expect(r).toMatchObject({ ok: false, attente: expect.stringContaining('route provision absente') });

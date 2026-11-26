@@ -40,3 +40,13 @@ it('signature : le POST d\'ouverture part en v2 quand HMAC_V2_APPS nomme l\'app,
   exigeV2(crmCall.h, 's', 'POST', crmCall.url, crmCall.corps);
   exigeV1(academieCall.h, 's', academieCall.corps);
 });
+
+it('compte d\'épreuve : Academy et le CRM reçoivent un nom d\'espace préfixé e2e-, un client garde « ACME »', async () => {
+  const noms: string[] = [];
+  const f = (async (_u: string, init: RequestInit) => { noms.push(JSON.parse(String(init.body)).workspace_name); return new Response(JSON.stringify({ workspace_id: 'ws', created: true }), { status: 200 }); }) as never;
+  await ensureAppWorkspace(ESPACE_APPS.academy, db, { hubUserId: 'h', email: 'e2e-sso-moteur-1@veridian.site' }, { env, fetchImpl: f });
+  await ensureAppWorkspace(ESPACE_APPS.crm, db, { hubUserId: 'h', email: 'e2e-sso-moteur-1@veridian.site' }, { env, fetchImpl: f });
+  await ensureAppWorkspace(ESPACE_APPS.crm, db, { hubUserId: 'h', email: 'a@x.io' }, { env, fetchImpl: f });
+  expect(noms).toEqual(['e2e-ACME', 'e2e-ACME', 'ACME']);
+});
+
