@@ -56,6 +56,7 @@ describe('linkApp — création de Tenant', () => {
     expect(createData.userId).toBe('uuid-1');
     expect(createData.metadata.cms).toEqual(
       expect.objectContaining({
+        workspace_id: '1',
         external_tenant_id: '1',
         external_tenant_slug: 'avse',
         tenant_name: 'AVSE Monétique',

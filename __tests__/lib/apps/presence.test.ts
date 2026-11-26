@@ -20,6 +20,10 @@ beforeEach(() => {
 it('espaceNote : ce que le Hub a noté pour chaque app', () => {
   expect([espaceNote(T, 'notifuse'), espaceNote(T, 'prospection'), espaceNote(T, 'crm'), espaceNote(T, 'academy'), espaceNote({ notifuseWorkspaceSlug: null, prospectionProvisionedAt: null, metadata: null }, 'notifuse')]).toEqual(['ws', true, 'c1', null, null]);
 });
+// 26/11 : une organisation Analytics reliée par `hub link` (external_tenant_id seul) paraissait « sans espace ».
+it('espaceNote : un lien de `hub link` sans workspace_id se lit par external_tenant_id', () => {
+  expect(espaceNote({ notifuseWorkspaceSlug: null, prospectionProvisionedAt: null, metadata: { analytics: { external_tenant_id: 'org-7' } } }, 'analytics')).toBe('org-7');
+});
 describe('presenteDans', () => {
   const p = (s: object[]) => { vu({ notifuse: s }); return presenteDans('notifuse', T, { email: 'a@x.fr', hubUserId: 'h' }); };
   it('par le lien au Hub, sinon par l\'identifiant noté ; un espace supprimé ou d\'un autre ne compte pas', async () => {

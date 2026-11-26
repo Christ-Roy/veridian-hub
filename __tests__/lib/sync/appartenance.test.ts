@@ -20,6 +20,14 @@ const lu = (email: string, snaps: TenantSnapshot[], hub_user_id: string | null =
 const casDe = (r: ReturnType<typeof classer>, email: string) => r.espaces.flatMap((e) => e.membres).find((m) => m.email === email)?.cas;
 
 describe('classer', () => {
+  // 26/11 : l'espace Analytics relié par `hub link` (external_tenant_id seul) était « sans espace » : il est désormais reconnu.
+  it('un espace noté par external_tenant_id seul est relié à son tenant', () => {
+    const hub = { ...HUB, tenants: [...HUB.tenants, t('T3', 'u-prop', { metadata: { analytics: { external_tenant_id: 'org-9' } } })] };
+    const r = classer('analytics', [lu('Prop@client.fr', [s('org-9', { app: 'analytics' })], 'u-prop')], hub);
+    // Sans la lecture d'external_tenant_id, l'espace n'est relié à rien : lien « aucun », personne en « espace_non_relie ».
+    expect(r.espaces.find((e) => e.espace === 'org-9')).toMatchObject({ hubTenantId: 'T3', lien: 'hub' });
+    expect(r.comptes.espace_non_relie).toBe(0);
+  });
   it('chaque humain a son cas', () => {
     const r = classer('notifuse', [
       lu('prop@client.fr', [s('esp', { role: 'owner' })], 'u-prop'),

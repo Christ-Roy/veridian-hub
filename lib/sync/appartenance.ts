@@ -8,6 +8,7 @@
 import type { PrismaClient } from '@prisma/client';
 
 import { estAdresseOperateur, isPlatformAdminId } from '@/lib/admin/check-admin';
+import { idEspaceMeta } from '@/lib/apps/espace-note';
 import { discoverAppForEmail, enteteGet, HUB_USER_ID_APPS, readAppSecret, readAppUrl } from '@/lib/sync/discovery';
 import { horsPerimetre } from '@/lib/sync/identity-audit';
 import { isTestAccount } from '@/lib/sync/test-residue';
@@ -66,9 +67,7 @@ export type RapportApp = {
 /** Le workspace de cette app tel que le Hub l'a noté sur le tenant. */
 function espaceNote(t: HubTenant, app: SyncApp): string | null {
   if (app === 'notifuse') return t.notifuseWorkspaceSlug;
-  const m = (t.metadata ?? {}) as Record<string, { workspace_id?: unknown } | undefined>;
-  const id = m[app]?.workspace_id;
-  return typeof id === 'string' ? id : null;
+  return idEspaceMeta(t.metadata, app);
 }
 
 type Lu = { humain: Humain; snapshots: TenantSnapshot[] };
