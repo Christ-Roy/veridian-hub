@@ -10,6 +10,7 @@
  */
 import type { PrismaClient } from '@prisma/client';
 
+import { nomDEspace } from '@/lib/apps/nom-espace';
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
 import { abonnerParDefaut } from '@/lib/evenements/naissance';
 import { entetesSignature } from '@/lib/hmac/signature-hub';
@@ -63,7 +64,7 @@ export async function provisionAppWorkspace(
   const body = JSON.stringify({
     tenant_id: input.tenantId,
     owner_email: input.email,
-    workspace_name: input.workspaceName.slice(0, cfg.nameMax) || 'Veridian',
+    workspace_name: nomDEspace(input.workspaceName, input.email).slice(0, cfg.nameMax) || 'Veridian',
     plan: 'free',
     email_proven: true,
     metadata: { hub_user_id: input.hubUserId },

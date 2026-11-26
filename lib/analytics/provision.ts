@@ -11,6 +11,7 @@
 import type { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 
+import { nomDEspace } from '@/lib/apps/nom-espace';
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
 import { entetesSignature } from '@/lib/hmac/signature-hub';
 
@@ -30,7 +31,7 @@ export async function provisionnerAnalytics(
   if (!c) return { ok: false, error: 'analytics_not_configured' };
   const t = await db.tenant.findFirst({ where: { id: tenantId, deletedAt: null }, select: { name: true, metadata: true } });
   if (!t) return { ok: false, error: 'tenant_introuvable' };
-  const body = JSON.stringify({ hub_user_id: qui.hubUserId, email: qui.email, name: qui.name ?? qui.email.split('@')[0], hub_tenant_id: tenantId, organization_name: t.name });
+  const body = JSON.stringify({ hub_user_id: qui.hubUserId, email: qui.email, name: qui.name ?? qui.email.split('@')[0], hub_tenant_id: tenantId, organization_name: nomDEspace(t.name, qui.email) });
   const cible = `${c.apiUrl}/api/tenants/provision`;
   let res: Response;
   try {

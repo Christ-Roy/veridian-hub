@@ -8,6 +8,7 @@
  * Voir docs/saas-standards.md §6.1 pour le format HMAC partagé.
  */
 
+import { nomDEspace } from '@/lib/apps/nom-espace';
 import { entetesSignature } from '@/lib/hmac/signature-hub';
 
 import {
@@ -61,7 +62,7 @@ export class NotifuseClient {
       tenant_id: input.tenantId,
       owner_email: input.ownerEmail,
       ...(input.hubUserId ? { owner_hub_user_id: input.hubUserId } : {}),
-      workspace_name: input.workspaceName,
+      workspace_name: input.workspaceName === undefined ? undefined : nomDEspace(input.workspaceName, input.ownerEmail),
       plan: input.plan,
       ...(input.hubUserId || input.hubTenantId
         ? { metadata: { ...(input.hubUserId ? { hub_user_id: input.hubUserId } : {}), ...(input.hubTenantId ? { hub_tenant_id: input.hubTenantId } : {}) } }

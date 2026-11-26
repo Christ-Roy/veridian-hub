@@ -7,6 +7,11 @@ const env = { CRM_API_URL: 'https://crm.test/', CRM_HUB_API_SECRET: 's3cret' } a
 const input = { tenantId: 't-1', hubUserId: 'h-1', email: 'a@x.io', workspaceName: 'Un nom bien plus long que trente-deux caractères' };
 
 describe('provisionCrmWorkspace', () => {
+  it('compte d\'épreuve : le nom envoyé au CRM commence par e2e- (le sous-domaine en découle, jamais « veridian »)', async () => {
+    const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ workspace_id: 'ws-1', created: true }), { status: 200 }));
+    await provisionCrmWorkspace({ ...input, email: 'e2e-sso-moteur-1@veridian.site', workspaceName: 'Veridian' }, { env, fetchImpl: fetchImpl as unknown as typeof fetch });
+    expect(JSON.parse((fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1].body as string).workspace_name).toBe('e2e-Veridian');
+  });
   it('signe `${ts}.${corps}` et envoie hub_user_id, sans mot de passe', async () => {
     const fetchImpl = vi.fn(async () => new Response(JSON.stringify({ workspace_id: 'ws-1', created: true }), { status: 200 }));
     const r = await provisionCrmWorkspace(input, { env, fetchImpl: fetchImpl as unknown as typeof fetch, nowMs: () => 1000 });
