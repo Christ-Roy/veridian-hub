@@ -50,8 +50,8 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   anciens clients par `hub.executer_programme`. Fermé par défaut : seule `app/api/mcp` l'offre. Preuve : `scripts/epreuve-programme.sh
   hub`, cas 18 à 20. Une app qui coupe ses réponses lit `X-Veridian-MCP-Appel`.
   Trace : début et fin au journal, `hub raw GET programmes` ; cas 20 jamais pendant un programme client.
-- **Mon IA** (VER-203, `docs/MON-IA.md`) : le connecteur d'abord, jamais de clé proposée quand il suffit ; une clé ne sert qu'au chat natif
-  du CRM (`/api/ia/v1`). `hub ia brancher <email> --fournisseur <f> --depuis <VARIABLE>`. Ateliers : un par tenant, rise.
+- **Mon IA** (`docs/MON-IA.md`) : le connecteur d'abord, jamais de clé proposée ; clé = chat natif du CRM (`/api/ia/v1`).
+  Fenêtre affichée seulement si elle répond (`POST /api/ia/etat`, §5.24.1, cas 55). `hub ia brancher <email> --fournisseur <f> --depuis <VARIABLE>`.
 - **Appartenance, rôle, délégation** (VER-245, contrat §5.19.3 à §5.19.5) : `lib/tenants/membres.ts` seul écrivain de
   `tenant_members`. Rôle porté aux apps (`ROLE_PORTE`) : fermé sans Robert. Liaisons (`DELEGATION_CIBLES`) : ouvertes, éteintes jusqu'au
   clic du propriétaire ; jamais de jeton à `act` sans « garde servie ». Organisation unique (§5.19.6, `hub org`). Cas 21 à 26.

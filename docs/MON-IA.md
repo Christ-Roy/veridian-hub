@@ -11,6 +11,9 @@ architecture » (786b547). Ce fichier n'en recopie rien : il porte l'architectur
 **Le connecteur d'abord (Robert, 25/11)** : l'écran `/dashboard/ia` propose de relier son IA sans clé ; reliée une fois, elle travaille dans
 toutes les apps ouvertes au compte. Une clé d'API ne sert qu'à la fenêtre de discussion **dans** le CRM : choix avancé, replié, jamais
 proposé à qui n'a pas le CRM. Une app ne renvoie jamais quelqu'un vers une clé quand le connecteur suffit.
+**La fenêtre ne s'affiche que si elle peut répondre (parente, 26/11)** : elle ne répond qu'avec un moteur (clé ou abonnement ouvert dans
+l'espace), jamais par le connecteur. Avant d'afficher « Mon IA », l'app lit `POST /api/ia/etat` (CONTRAT-HUB §5.24.1) : `prete` → le cadre,
+`sans_moteur` → la carte « Relier mon IA », `eteinte` → rien. Une seule règle, `lib/ia/etat-fenetre.ts`, lue aussi par la page `/ia/chat`.
 
 ## Qui garde quoi (Robert, 22/11 : « les sessions devraient être stockées dans les apps avec les chats »)
 

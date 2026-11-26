@@ -2254,6 +2254,32 @@ Le CRM n'en est pas (chat natif, fils rangés par lui, `/api/ia/v1`). Code Hub :
 - **Épreuve côté app** (attendue avant qu'elle soit déclarée servie) : non signé → 401 ; rejeu v2 → 401 ; fil d'un autre `hub_user_id` → 404 ;
   `PUT` puis `GET` du même triplet → mêmes messages ; corps de plus de 1 Mo → 413. Côté Hub, `__tests__/lib/ia/fils.test.ts`.
 
+#### 5.24.1 Quand l'app montre la fenêtre (parente, 26/11)
+
+Une fenêtre qui refuserait chaque question ne s'affiche jamais. La fenêtre ne répond qu'avec un moteur branché au compte (sa clé, ou
+l'abonnement ouvert dans cet espace) ; le connecteur, lui, ne la fait pas répondre : il sert l'IA de la personne depuis son propre écran
+(Claude, ChatGPT…), dans toutes ses apps. Avant d'afficher le bouton ou le cadre « Mon IA », l'app demande donc l'état au Hub.
+
+- **Route** : `POST {HUB}/api/ia/etat`, corps `{ hub_user_id, tenant_id }` (organisation du Hub), signée comme `/api/organisations/lire`
+  (`X-Veridian-App`, `X-Veridian-Timestamp` en ms, `X-Veridian-Nonce` à usage unique, `X-Veridian-Hub-Signature` = HMAC-SHA256 hex du
+  secret de l'app sur `ts.nonce.corps`). POST et non GET : la signature porte sur le corps. Apps admises : Academy, Mail, Prospection,
+  Analytics (le CRM a son chat natif). Serveur à serveur seulement ; jamais en cache côté Hub (`no-store`).
+- **Réponse** : `200 { etat }`, avec `etat` ∈ `prete | sans_moteur | eteinte`. `404 espace_inconnu` : la personne n'est pas de cette
+  organisation (ou elle est supprimée). `400`, `401` (signature, nonce rejoué, horodatage), `429` (600 par minute et par app, `Retry-After`).
+- **Règle d'affichage** (chaque app) :
+  - `prete` : l'app montre « Mon IA » et insère le cadre `{HUB}/ia/chat?app=<app>&tenant=<tenant_id>`.
+  - `sans_moteur` : **jamais le cadre**. L'app montre à la place une carte « Relier mon IA » : « Votre IA travaille dans vos apps Veridian
+    depuis son propre écran (Claude, ChatGPT, Mistral…) : reliez-la une fois, sans clé. », bouton vers `{HUB}/dashboard/ia` (nouvel onglet).
+    Jamais de champ ni de mot « clé » proposé (règle de Robert du 25/11).
+  - `eteinte` : ni cadre ni carte (la personne l'a éteint pour cette app ; elle le rallume au Hub).
+  - Hub injoignable, `5xx` ou réponse illisible : ni cadre ni carte, l'app se tait (on n'affiche pas une fenêtre qui pourrait refuser).
+  - L'état peut être gardé 60 s au plus par l'app pour une même personne et organisation.
+- **La fenêtre elle-même** suit la même règle (`lib/ia/etat-fenetre.ts`, une seule source) : ouverte sans moteur, elle ne montre aucune
+  saisie, seulement le renvoi « Relier mon IA » (`data-refus="sans_moteur"`) ; éteinte, le lien « Rallumer ».
+- **Épreuve côté app** (avant de dire « servi ») : un compte sans moteur voit la carte et jamais le cadre ; le même compte, une clé branchée,
+  voit le cadre qui répond ; un affichage forcé sans moteur (sabotage du test) doit faire échouer le cas. Côté Hub :
+  `__tests__/api/ia/etat.test.ts`, `__tests__/lib/ia/etat-fenetre.test.ts`.
+
 ### 5.25 Activité Mail par lots vers le CRM (Mail → Hub → CRM, Robert 26/11 ; validé par Mail le 26/11)
 
 Chaque fiche CRM reçoit un dossier « Mail » : une ligne par message (envoyé, remis, ouvert, cliqué, rejeté, désinscrit, reçu), **jamais le corps**.
