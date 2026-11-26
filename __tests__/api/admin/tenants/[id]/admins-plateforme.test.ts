@@ -38,3 +38,8 @@ it('identifiant faux, champ inconnu : 400 ; organisation inconnue : 404 ; sans d
   expect((await jouer()).status).toBe(401);
   expect(m.designer).not.toHaveBeenCalled();
 });
+
+it('jamais de remise forcée : le corps ne porte que la raison', async () => {
+  expect((await jouer({ raison: 'x', actor_hub_user_id: 'h' })).status).toBe(400);
+  expect(m.designer).not.toHaveBeenCalled();
+});
