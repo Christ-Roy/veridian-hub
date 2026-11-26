@@ -76,6 +76,9 @@ export async function provisionNotifuseTenant(
         .updatePlan({ tenantId: result.workspace_id, plan: 'free', hubTenantId })
         .catch((err: unknown) => logStep('NOTIFUSE', 'Lien tenant Hub non posé', { error: err instanceof Error ? err.message : 'erreur' }));
     }
+    // Le lien seul, à chaque création comme à chaque rejeu : sans lui, Mail refuse les actions des autres apps (26/11, essai du CRM).
+    const lien = await client.lierTenantHub(result.workspace_id, hubTenantId);
+    if (!lien.ok && !lien.absente) return { success: false, error: `lien Mail refusé : ${lien.code} ${lien.erreur}` };
 
     const tenantId = hubTenantId;
     await prisma.tenant.update({

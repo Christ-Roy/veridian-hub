@@ -6,9 +6,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const provisionWorkspace = vi.fn();
 const updatePlan = vi.fn(async () => undefined);
+const lierTenantHub = vi.fn(async (..._a: unknown[]): Promise<unknown> => ({ ok: true, changed: true }));
 const tenantLu = vi.fn(async (..._a: unknown[]): Promise<unknown> => null);
 const tenantEcrit = vi.fn(async (..._a: unknown[]) => ({ id: 't-hub' }));
-vi.mock('@/lib/notifuse/client', () => ({ NotifuseClient: class { provisionWorkspace = provisionWorkspace; updatePlan = updatePlan; } }));
+vi.mock('@/lib/notifuse/client', () => ({ NotifuseClient: class { provisionWorkspace = provisionWorkspace; updatePlan = updatePlan; lierTenantHub = lierTenantHub; } }));
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     tenant: {
@@ -28,6 +29,7 @@ beforeEach(() => {
   process.env.NOTIFUSE_HUB_API_SECRET = 's';
   provisionWorkspace.mockReset();
   updatePlan.mockClear();
+  lierTenantHub.mockReset().mockResolvedValue({ ok: true, changed: true });
   tenantEcrit.mockClear();
   tenantLu.mockReset().mockResolvedValue(null);
 });
@@ -45,6 +47,22 @@ describe('provisionNotifuseTenant : lien au tenant Hub', () => {
     const { provisionNotifuseTenant } = await import('@/utils/tenants/provision');
     await provisionNotifuseTenant('a@b.c', 'u1');
     expect(updatePlan).not.toHaveBeenCalled();
+  });
+});
+
+describe('provisionNotifuseTenant : le lien seul, à chaque fois (26/11)', () => {
+  const provisionner = async () => (await import('@/utils/tenants/provision')).provisionNotifuseTenant('a@b.c', 'u1');
+  it('création comme rejeu : le lien part, sans plan', async () => {
+    for (const created of [true, false]) { provisionWorkspace.mockResolvedValue({ workspace_id: 'ws1', api_key: 'k', created }); await provisionner(); }
+    expect(lierTenantHub.mock.calls).toEqual([['ws1', 't-hub'], ['ws1', 't-hub']]);
+  });
+  it('Mail relie déjà ailleurs : échec dit, rien de noté au Hub ; route pas encore servie : on continue', async () => {
+    provisionWorkspace.mockResolvedValue({ workspace_id: 'ws1', api_key: 'k', created: false });
+    lierTenantHub.mockResolvedValue({ ok: false, code: 409, erreur: 'hub_tenant_conflict' });
+    expect(await provisionner()).toEqual({ success: false, error: 'lien Mail refusé : 409 hub_tenant_conflict' });
+    expect(tenantEcrit).not.toHaveBeenCalled();
+    lierTenantHub.mockResolvedValue({ ok: false, absente: true, code: 404, erreur: 'route_absente' });
+    expect((await provisionner()).success).toBe(true);
   });
 });
 

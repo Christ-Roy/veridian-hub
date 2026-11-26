@@ -13,6 +13,9 @@ import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 
 const findUniqueMock = vi.fn();
 const linkAppMock = vi.fn();
+const unlinkAppMock = vi.fn();
+const lierMock = vi.fn();
+vi.mock('@/lib/notifuse/client', () => ({ NotifuseClient: class { lierTenantHub(...a: unknown[]) { return lierMock(...a); } } }));
 const writeAuditLogMock = vi.fn();
 const authenticateAdminMock = vi.fn();
 
@@ -21,6 +24,7 @@ vi.mock('@/lib/prisma', () => ({
 }));
 vi.mock('@/lib/admin/link-app', () => ({
   linkApp: (...args: unknown[]) => linkAppMock(...args),
+  unlinkApp: (...args: unknown[]) => unlinkAppMock(...args),
 }));
 vi.mock('@/lib/admin/audit-log', () => ({
   writeAuditLog: (...args: unknown[]) => writeAuditLogMock(...args),
@@ -340,5 +344,28 @@ describe('POST /api/admin/tenants/link-app', () => {
       expect.anything(),
       expect.objectContaining({ ownerEmail: 'owner@client.test' }),
     );
+  });
+});
+
+describe('POST /api/admin/tenants/link-app : Mail apprend l\'organisation (26/11)', () => {
+  const corps = { ...validPayload, app: 'notifuse', external_tenant_id: 'ws1', external_tenant_slug: 'ws1' };
+  beforeEach(() => {
+    process.env.NOTIFUSE_API_URL = 'https://mail.test';
+    process.env.NOTIFUSE_HUB_API_SECRET = 's';
+    findUniqueMock.mockResolvedValue({ id: 'u', supabaseUserId: 'h' });
+    linkAppMock.mockResolvedValue({ tenantId: 'T', userUuid: 'h', app: 'notifuse', metadataPath: 'x', created: false });
+    unlinkAppMock.mockReset();
+  });
+  it('relié chez Mail : dit dans la réponse', async () => {
+    lierMock.mockResolvedValue({ ok: true, changed: true });
+    const { POST } = await import('@/app/api/admin/tenants/link-app/route');
+    const r = await POST(makeReq(corps, auth) as never);
+    expect([r.status, (await r.json()).lien_mail, lierMock.mock.calls.at(-1)]).toEqual([200, 'relie', ['ws1', 'T']]);
+  });
+  it('déjà relié ailleurs chez Mail : 409, le lien du Hub est défait', async () => {
+    lierMock.mockResolvedValue({ ok: false, code: 409, erreur: 'hub_tenant_conflict' });
+    const { POST } = await import('@/app/api/admin/tenants/link-app/route');
+    const r = await POST(makeReq(corps, auth) as never);
+    expect([r.status, (await r.json()).error, unlinkAppMock.mock.calls[0]?.[1]]).toEqual([409, 'mail_deja_relie', { userUuid: 'h', app: 'notifuse' }]);
   });
 });

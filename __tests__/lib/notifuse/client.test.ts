@@ -189,6 +189,17 @@ describe('NotifuseClient HMAC requests', () => {
     expect(res.user_id).toMatch(/^[0-9a-f-]{36}$/);
   });
 
+  it('lierTenantHub : le lien seul, sans plan ; conflit rendu ; route absente reconnue (26/11)', async () => {
+    const rep = [jsonResponse(200, { changed: true }), jsonResponse(409, { error: 'hub_tenant_conflict' }), jsonResponse(404, {}), jsonResponse(404, { error: 'tenant_not_found' })];
+    const corps: unknown[] = [];
+    const fetchImpl = vi.fn(async (_u: string, init?: RequestInit) => { corps.push(JSON.parse(init!.body as string)); return rep.shift()!; });
+    const client = new NotifuseClient({ apiUrl: API_URL, hubSecret: SECRET, fetchImpl: fetchImpl as unknown as typeof fetch });
+    const r = [];
+    for (let i = 0; i < 4; i++) r.push(await client.lierTenantHub('ws', 'T'));
+    expect(r).toEqual([{ ok: true, changed: true }, { ok: false, code: 409, erreur: 'hub_tenant_conflict' }, { ok: false, absente: true, code: 404, erreur: 'route_absente' }, { ok: false, code: 404, erreur: 'tenant_not_found' }]);
+    expect(corps[0]).toEqual({ tenant_id: 'ws', hub_tenant_id: 'T' });
+  });
+
   it('attachOwner : un autre propriétaire humain, 409 rendu tel quel, jamais de transfert demandé ni rejoué (VER-263)', async () => {
     const corps: unknown[] = [];
     const fetchImpl = vi.fn(async (_u: string, init?: RequestInit) => { corps.push(JSON.parse(init!.body as string)); return jsonResponse(409, { error: 'owner_exists' }); });

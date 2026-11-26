@@ -71,6 +71,23 @@ export class NotifuseClient {
     });
   }
 
+  /**
+   * Relie l'espace Mail à son organisation du Hub, SANS toucher au plan (POST /api/hub/tenants/link). Mail résout le tenant d'un jeton
+   * d'action par ce lien seul : sans lui, ses actions rendent 409 espace_non_relie. 409 hub_tenant_conflict : déjà relié ailleurs, rien écrit.
+   * `absente` : la route n'est pas encore servie par Mail (404 sans code), le lien reste celui de l'update-plan à la création.
+   */
+  async lierTenantHub(tenantId: string, hubTenantId: string): Promise<{ ok: true; changed: boolean } | { ok: false; absente?: true; code: number; erreur: string }> {
+    try {
+      const r = await this.hmacRequest<{ changed?: boolean }>('POST', '/api/hub/tenants/link', { tenant_id: tenantId, hub_tenant_id: hubTenantId });
+      return { ok: true, changed: r?.changed === true };
+    } catch (err) {
+      if (!(err instanceof NotifuseError)) return { ok: false, code: 0, erreur: err instanceof Error ? err.message.slice(0, 160) : 'erreur' };
+      const code = (err.body as { error?: string } | null)?.error;
+      if (err.code === 404 && !code) return { ok: false, absente: true, code: 404, erreur: 'route_absente' };
+      return { ok: false, code: err.code, erreur: code ?? err.message.slice(0, 160) };
+    }
+  }
+
   async updatePlan(input: UpdatePlanInput): Promise<void> {
     await this.hmacRequest<unknown>('POST', '/api/tenants/update-plan', {
       tenant_id: input.tenantId,
