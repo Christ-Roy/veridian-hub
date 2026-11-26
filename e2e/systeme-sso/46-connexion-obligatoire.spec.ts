@@ -129,7 +129,7 @@ cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec
     expect((await ou(cn, `${HUB_URL}/dashboard/organisation`)).texte, 'l\'écran d\'organisation ne se lit pas').not.toMatch(/Personnes attendues|Nom affiché/);
     // Un membre n'y touche pas, le propriétaire (accès de secours) oui ; le dernier accès de secours ne s'enlève pas, et le fournisseur ne se coupe pas.
     expect((await cm.request.post(`${HUB_URL}/api/organisations/connexion`, { headers: ORIGINE, form: { tenant: T.id, geste: 'libre' }, maxRedirects: 0 })).headers().location ?? '').toContain('avis=proprietaire_seul');
-    expect((await cp.request.post(`${HUB_URL}/api/organisations/connexion`, { headers: ORIGINE, form: { tenant: T.id, geste: 'retirer_acces', hub_user_id: P.hubUserId }, maxRedirects: 0 })).headers().location ?? '').toContain('avis=dernier_secours');
+    expect((await cp.request.post(`${HUB_URL}/api/organisations/connexion`, { headers: ORIGINE, form: { tenant: T.id, geste: 'retirer_acces', hub_user_id: String(P.hubUserId) }, maxRedirects: 0 })).headers().location ?? '').toContain('avis=dernier_secours');
     expect((await admin('DELETE', regle, { hub_user_id: P.hubUserId })).json, 'dernier accès de secours').toEqual({ error: 'dernier_secours' });
     expect((await ou(cp, `${HUB_URL}/dashboard`)).chemin, 'l\'accès de secours ouvre').toBe('/dashboard');
 
