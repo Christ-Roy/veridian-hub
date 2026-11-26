@@ -48,8 +48,8 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   `tenant_id` signé seulement si l'IA choisit un espace ; espace non relié → `hub relier --app <app>`. Liens d'ajout : `GET /api/mcp/liens-installation` (public).
 - **Mode programme** (24/11, VER-241) : le code d'un client tourne dans le groupe `programme` (rise), sans réseau ni secret ;
   anciens clients par `hub.executer_programme`. Fermé par défaut : seule `app/api/mcp` l'offre, jamais Mon IA. Preuve sur ce
-  qui est servi : `scripts/epreuve-programme.sh hub` (0/1/2), cas 18 à 20. Une app qui coupe ses réponses doit lire
-  `X-Veridian-MCP-Appel`.
+  qui est servi : `scripts/epreuve-programme.sh hub` (0/1/2), cas 18 à 20. Une app qui coupe ses réponses lit `X-Veridian-MCP-Appel`.
+  Trace : début et fin au journal, `hub raw GET programmes` ; cas 20 jamais pendant un programme client.
 - **Mon IA** (VER-203, `docs/MON-IA.md`) : le connecteur d'abord, jamais de clé proposée quand il suffit ; une clé ne sert qu'au chat natif
   du CRM (`/api/ia/v1`). `hub ia brancher <email> --fournisseur <f> --depuis <VARIABLE>`. Ateliers : un par tenant, rise.
 - **Appartenance, rôle, délégation** (VER-245, contrat §5.19.3 à §5.19.5) : `lib/tenants/membres.ts` seul écrivain de
@@ -99,9 +99,8 @@ Dév : `dev -d <domaine> pnpm dev` · `pnpm test` (nice 19).
 
 ## Où travailler (18/11)
 
-Dossier principal, sur `main`, jamais en worktree. Avant de commencer, `git fetch && git status -sb` dit `main...origin/main` sans écart,
-sinon on réaligne (18/11 : 230 fichiers jamais commités). `~/.claude/hooks/infra-status.sh` pointe ici : la branche extraite pilote le
-démarrage de toutes les sessions.
+Dossier principal, sur `main`, jamais en worktree ; `git fetch && git status -sb` sans écart avant de commencer. La branche
+extraite ici pilote le démarrage de toutes les sessions (`infra-status.sh`).
 
 ## Déploiement : la prod vient de `main`
 
