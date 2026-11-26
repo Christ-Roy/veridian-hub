@@ -66,3 +66,16 @@ describe('fils des autres apps : version de signature', () => {
     for (const v of await jouer()) exigeV1(v.h, 's'.repeat(40), v.corps);
   });
 });
+
+describe('fil refusé par l\'app : la cause est journalisée, jamais le contenu (26/11)', () => {
+  it('statut et code d\'erreur de l\'app dans [ia][fil][refus] ; ni messages ni adresse', async () => {
+    const log = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const f = (async () => new Response(JSON.stringify({ error: 'fil_autre_auteur' }), { status: 409 })) as unknown as typeof fetch;
+    const ok = await ecrireFil('academy', { ...cible, messages: [{ id: 'm', role: 'user', parts: [{ type: 'text', text: 'secret du fil' }] }] }, { env, fetchImpl: f });
+    const lignes = log.mock.calls.map((c) => String(c[0]));
+    log.mockRestore();
+    expect([ok, lignes.length, JSON.parse(lignes[0])]).toEqual([false, 1, { tag: '[ia][fil][refus]', app: 'academy', statut: 409, erreur: 'fil_autre_auteur' }]);
+    expect(lignes[0]).not.toContain('secret du fil');
+  });
+});
+

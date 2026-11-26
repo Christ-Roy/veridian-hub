@@ -50,5 +50,10 @@ export async function ecrireFil(app: string, t: CibleFil & { messages: unknown[]
     body: corps,
     signal: AbortSignal.timeout(TIMEOUT_MS),
   }).catch(() => null);
+  if (!r?.ok) {
+    // Pourquoi l'app a refusé : le code HTTP et son code d'erreur, jamais le fil (26/11 : « fil non rangé » sans cause lisible).
+    const code = r ? ((await r.json().catch(() => null)) as { error?: unknown } | null)?.error : null;
+    console.warn(JSON.stringify({ tag: '[ia][fil][refus]', app, statut: r?.status ?? 0, erreur: typeof code === 'string' ? code.slice(0, 60) : null }));
+  }
   return Boolean(r?.ok);
 }
