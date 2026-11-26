@@ -7,8 +7,11 @@
  *    dialogue et insère le cadre pour l'organisation (jamais avant le clic), une question passe par la porte,
  *    et le fil est rangé chez l'app puis relu par le Hub (GET <app>/api/hub/ia/fils/:session).
  * Le branchement et l'activation sont retirés à la fin. Une app qui ne sert encore aucun `[data-mon-ia]` : NON ABOUTI (pas encore servie). Sélecteurs : ceux d'Analytics (26/11), communs aux apps.
- * Épreuve : `SSO_SABOTAGE=carte-absente` attend « prete » sans moteur : le cas doit échouer.
+ * Épreuves : `SSO_SABOTAGE=carte-absente` attend « prete » sans moteur ; `SSO_SABOTAGE=fil-autre-session` relit une autre session :
+ * le fil ne doit pas revenir. Chacune doit faire échouer le cas.
  */
+import { randomUUID } from 'node:crypto';
+
 import { expect, type BrowserContext, type Page } from '@playwright/test';
 
 import { APP_URL, HUB_URL, type AppKey } from './lib/cibles';
@@ -19,7 +22,10 @@ import { creerCompteProuve, ouvrirApp } from './lib/parcours';
 
 const MODELE_GRATUIT = 'nvidia/nemotron-3-ultra-550b-a55b:free'; // même modèle que la recette (0 $, vérifié le 22/11)
 /** Les apps à fenêtre dont le bouton est annoncé servi. Academy et Mail s'ajoutent ici quand elles le servent. */
-const APPS: { app: AppKey & ('analytics' | 'notifuse'); chemin: string }[] = [{ app: 'analytics', chemin: '/' }];
+const APPS: { app: AppKey & ('analytics' | 'notifuse' | 'prospection'); chemin: string }[] = [
+  { app: 'analytics', chemin: '/' },
+  { app: 'prospection', chemin: '/' }, // Atlas : reprend le cas 53 (26/11), Prospection sert la règle depuis 316bbf4
+];
 
 const cadreDe = (page: Page) => page.locator(`iframe[src^="${HUB_URL}/ia/chat"]`);
 
@@ -83,7 +89,8 @@ for (const { app, chemin } of APPS) {
       expect(session, 'le Hub rend la session du fil').toBeTruthy();
       let messages: unknown[] = [];
       for (let i = 0; i < 10 && messages.length === 0; i++) {
-        const f = await api.get(`${HUB_URL}/api/ia/fil?app=${app}&session=${session}&tenant=${E.tenantId}`);
+        const lue = process.env.SSO_SABOTAGE === 'fil-autre-session' ? randomUUID() : session!;
+        const f = await api.get(`${HUB_URL}/api/ia/fil?app=${app}&session=${lue}&tenant=${E.tenantId}`);
         messages = f.status() === 200 ? (((await f.json().catch(() => null)) as { messages?: unknown[] } | null)?.messages ?? []) : [];
         if (!messages.length) await new Promise((ok) => setTimeout(ok, 2_000));
       }
