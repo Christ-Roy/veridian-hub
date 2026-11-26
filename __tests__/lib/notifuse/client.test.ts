@@ -365,3 +365,19 @@ describe('NotifuseClient, version de signature', () => {
     exigeV2(b.h, 'test-hub-secret', b.method, b.url, b.corps);
   });
 });
+
+describe('NotifuseClient.listTenantsByPrefix', () => {
+  it('rend les espaces actifs, orphelins compris ; un espace en suppression douce n\'est pas un reste', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(200, {
+      managed: [
+        { tenant_id: 'e2eactif', status: 'active' },
+        { tenant_id: 'e2eretire', status: 'deleted', deleted_at: '2026-11-26T13:24:22Z' },
+        { tenant_id: 'e2edate', deleted_at: '2026-11-26T13:24:22Z' },
+      ],
+      orphans: [{ tenant_id: 'e2eorphelin' }],
+    }));
+    const client = new NotifuseClient({ apiUrl: API_URL, hubSecret: SECRET, fetchImpl });
+    expect(await client.listTenantsByPrefix('e2e')).toEqual(['e2eactif', 'e2eorphelin']);
+    expect(String(fetchImpl.mock.calls[0][0])).toContain('/api/veridian/admin/tenants?prefix=e2e&include_orphans=true');
+  });
+});

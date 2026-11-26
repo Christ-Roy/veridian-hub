@@ -118,14 +118,17 @@ export class NotifuseClient {
     );
   }
 
-  /** Workspaces dont l'identifiant commence par ce préfixe, orphelins compris (restes de test). */
+  /**
+   * Workspaces ACTIFS dont l'identifiant commence par ce préfixe, orphelins compris (restes de test). Un espace en suppression douce
+   * (`status: deleted`, purgé à 30 j) n'est pas un reste : même règle que `orphelins-e2e.sh` (26/11, trois espaces retirés comptés).
+   */
   async listTenantsByPrefix(prefix: string): Promise<string[]> {
     const q = new URLSearchParams({ prefix, include_orphans: 'true', limit: '500' });
     const res = await this.hmacRequest<{
-      managed?: { tenant_id: string }[];
-      orphans?: { tenant_id: string }[];
+      managed?: { tenant_id: string; status?: string; deleted_at?: string | null }[];
+      orphans?: { tenant_id: string; status?: string; deleted_at?: string | null }[];
     }>('GET', `/api/veridian/admin/tenants?${q}`, null);
-    return [...(res.managed ?? []), ...(res.orphans ?? [])].map((t) => t.tenant_id);
+    return [...(res.managed ?? []), ...(res.orphans ?? [])].filter((t) => t.status !== 'deleted' && !t.deleted_at).map((t) => t.tenant_id);
   }
 
   async getStatus(tenantId: string): Promise<StatusResponse> {
