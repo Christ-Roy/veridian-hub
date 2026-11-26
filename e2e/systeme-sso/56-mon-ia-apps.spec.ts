@@ -58,7 +58,8 @@ async function pageApp(ctx: BrowserContext, app: AppFenetre, chemin: string): Pr
   return page;
 }
 
-for (const { app, chemin } of APPS) {
+// SSO_MON_IA_APP=academy : une seule app (rejeu ciblé).
+for (const { app, chemin } of APPS.filter((x) => !process.env.SSO_MON_IA_APP || x.app === process.env.SSO_MON_IA_APP)) {
   cas(app === 'academy' ? null : app, `Mon IA depuis ${app} : la carte sans moteur, jamais la fenêtre ; avec une clé, la fenêtre répond et le fil est rangé chez l'app`, async ({ browser }) => {
     const E = await creerCompteProuve(browser, `monia-${app}`);
     if (!E.tenantId) throw new NonAbouti('compte d\'essai sans organisation');
@@ -70,7 +71,13 @@ for (const { app, chemin } of APPS) {
       // 1. Sans moteur : l'élément flottant dit « sans_moteur », le bouton « Relier mon IA » ouvre la carte, et jamais un cadre (avant ni après le clic).
       const p1 = await pageApp(ctx, app, chemin);
       const zone = p1.locator('[data-mon-ia]').first();
-      if (!(await zone.waitFor({ timeout: 20_000 }).then(() => true, () => false))) throw new NonAbouti(`${app} ne sert encore aucun élément [data-mon-ia]`);
+      if (!(await zone.waitFor({ timeout: 20_000 }).then(() => true, () => false))) {
+        // Ce que la page montre à la place : l'adresse atteinte et le début du texte, pour qu'un NON ABOUTI se diagnostique sans rejouer.
+        await p1.screenshot({ path: `.run/captures/mon-ia-${app}-sans-marque.png` });
+        const u = new URL(p1.url());
+        const vu = (await p1.locator('body').innerText().catch(() => '')).replace(/\s+/g, ' ').slice(0, 120);
+        throw new NonAbouti(`${app} ne sert aucun élément [data-mon-ia] sur ${u.host}${u.pathname} (page : « ${vu} »)`);
+      }
       if (process.env.SSO_SABOTAGE === 'carte-absente') expect(await zone.getAttribute('data-mon-ia'), 'épreuve : « prete » attendu sans moteur').toBe('prete');
       expect(await zone.getAttribute('data-mon-ia'), 'sans moteur : l\'app a lu sans_moteur').toBe('sans_moteur');
       expect(await cadreDe(p1).count(), 'sans moteur, avant le clic : aucun cadre').toBe(0);
