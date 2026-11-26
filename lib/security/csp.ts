@@ -19,7 +19,7 @@ export function politique(nonce: string, dev = process.env.NODE_ENV === 'develop
     "font-src 'self' data: https://fonts.gstatic.com",
     // Avatars des fournisseurs (Google, Microsoft), pixels de mesure : des images, jamais du code.
     "img-src 'self' data: blob: https:",
-    "connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com https://analytics.app.veridian.site",
+    "connect-src 'self' https://*.google-analytics.com https://*.analytics.google.com https://*.googletagmanager.com",
     "frame-src 'self' https://*.app.veridian.site https://www.googletagmanager.com https://js.stripe.com",
     "object-src 'none'",
     "base-uri 'self'",
