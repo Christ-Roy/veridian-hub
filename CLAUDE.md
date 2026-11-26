@@ -7,18 +7,8 @@
 
 ## Ce que c'est
 
-Le Hub gère l'inscription (Auth.js v5), le billing (Stripe), et le
-provisioning automatique des apps pour chaque nouveau tenant (Notifuse,
-Prospection). CRM (Twenty) : espace créé par `app-access --app twenty`, entrée par rebond.
-
-## Stack
-
-- Next.js 15 (App Router) + pnpm
-- Auth.js v5 (Google OAuth + Credentials bcrypt + MFA email)
-- Prisma 7 sur la grappe pg-saas (base `hub`, rôle `hub`, schema `hub_app`)
-- Stripe (billing, webhooks, plans)
-- shadcn/ui + Tailwind
-- Brevo pour les mails transactionnels (`lib/email/send.ts`), Notifuse fork pour les tenants
+Inscription, facturation (Stripe) et ouverture des apps de chaque organisation. Next.js 15, Auth.js v5, Prisma 7 (pg-saas, base `hub`,
+schéma `hub_app`), shadcn/Tailwind, Brevo pour les mails transactionnels (`lib/email/send.ts`).
 
 ## Session et identité
 
@@ -30,8 +20,13 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
 - **Preuve récente** : `lib/auth/recent-auth.ts` (24 h compte et admin, 7 j facturation).
 - **Rebond** : `api/auth/bounce/prepare` et `complete`. Anti-boucle par app, sur 30 s, jamais remis à
   zéro sur `complete`. Aucun lien hors d'une adresse prouvée.
-- **Batterie** : `pnpm test:systeme`, depuis le bastion, sur ce qui est servi (staging : `HUB_URL=…`). Après une
-  modification, rejouer chaque `SSO_SABOTAGE=<scénario>` : il doit échouer. Elle échoue s'il reste un compte.
+- **Batterie** : `pnpm test:systeme` (`SSO_NAVIGATEUR=distant`), depuis le bastion, sur ce qui est servi (staging : `HUB_URL=…`). Après une
+  modification, rejouer chaque `SSO_SABOTAGE=<scénario>` : il doit échouer. Elle échoue s'il reste un compte. Les essais 48, 49 et la
+  **recette de A à Z** (cas 50, prod, une organisation jetable, tableau et captures dans `.run/recette/`) ne tournent que nommés (`… 50-`).
+  « Servi » = déploiement Nomad `successful`, jamais le seul `/api/health` (le canari répond avant la bascule).
+- **Signature vers les apps** (26/11) : `lib/hmac/signature-hub.ts`, seul signataire. `HMAC_V2_APPS` (job) liste les apps en v2 (méthode,
+  chemin, query, empreinte du corps, usage unique : ts neuf à chaque essai) ; vide = v1. Mail seul en v2 ; n'ajouter une app qu'après
+  sa vérification v2 servie ET mesurée. Prospection, CRM, Analytics : encore v1 (même trou).
 - **Rebond refusé** : jamais muet (08/11, Robert renvoyé sans un mot). Tout refus va sur `/auth/bounce/error` qui
   l'explique (`user_not_in_app`, `hub_user_conflict` : un compte d'app n'appartient qu'au premier compte Hub relié),
   et laisse `[bounce][refus]` (app, code, hub_user_id, jamais l'adresse) ; un succès, `[bounce][reussi]`. Batterie : `09-adresses` ; `10-creation`
@@ -94,22 +89,19 @@ Outil admin : `hub` (`hub doctor` d'abord : santé, secret, auth admin). Aucune 
 - **Restes de test** : `hub reconcile` (`testResidue.total`) et, par app, `scripts/orphelins-e2e.sh` (skill hub-admin).
   `delete-tenant` déprovisionne les espaces des apps (`lib/apps/deprovision.ts`) et laisse une trace d'audit.
   Le cron alerte au-dessus de `RESIDUE_SEUIL`. La batterie les retire elle-même et échoue s'il en reste.
-- **Batterie rouge** : lire `e2e/systeme-sso/.run/resultat.txt`. ÉCHOUE = vrai défaut (si l'image servie n'est pas
-  listée « avant »). NON ABOUTI = on n'a pas mesuré (Hub en déploiement, jeton Nomad, compte non créé). Relancer
-  un filtre : `bash scripts/test-systeme-sso.sh 08-`. Épreuve : `SSO_SABOTAGE=<scénario>` doit échouer.
-- **Jeton Nomad 403** : une rotation a révoqué celui du shell. `nomad-v` relit `~/credentials/nomad-bastion.env` ;
-  `nomad-v acl status` montre les jetons et leurs échéances. Ne jamais se replier sur le jeton management.
+- **Batterie rouge** : `e2e/systeme-sso/.run/resultat.txt`. ÉCHOUE = vrai défaut ; NON ABOUTI = pas mesuré (Hub en déploiement, jeton
+  Nomad, compte non créé). Un filtre : `bash scripts/test-systeme-sso.sh 08-`.
+- **Jeton Nomad 403** : `nomad-v` relit `~/credentials/nomad-bastion.env` ; `nomad-v acl status`. Jamais le jeton management.
 
 ## Commandes
 
-Dév : `dev -d <domaine> pnpm dev` · `pnpm test` (2 workers, nice 19).
+Dév : `dev -d <domaine> pnpm dev` · `pnpm test` (nice 19).
 
 ## Où travailler (18/11)
 
-La session du Hub travaille dans le dossier principal, sur `main` (la branche qui déploie), jamais en
-worktree. Avant de commencer : `git fetch && git status -sb` doit dire `main...origin/main` sans
-écart ni fichier modifié, sinon on réaligne d'abord (18/11 : 230 fichiers jamais commités). `~/.claude/hooks/infra-status.sh` est un lien vers ce
-dossier : la branche extraite ici pilote le démarrage de toutes les sessions. Sortie : deux écrivains, worktree refusionné aussitôt.
+Dossier principal, sur `main`, jamais en worktree. Avant de commencer, `git fetch && git status -sb` dit `main...origin/main` sans écart,
+sinon on réaligne (18/11 : 230 fichiers jamais commités). `~/.claude/hooks/infra-status.sh` pointe ici : la branche extraite pilote le
+démarrage de toutes les sessions.
 
 ## Déploiement : la prod vient de `main`
 
@@ -120,17 +112,15 @@ Un audit CVE ou un test rouge saute le déploiement sans bruit : lire `gh run vi
 ## Règles
 
 - `hub_user_id` = `users.supabase_user_id`, jamais `users.id` (cuid sur la moitié des comptes).
-- Toute route qui mène à une session d'app appelle `denyUnlessEmailProven`
-  (`lib/auth/email-proof.ts`). Un test échoue sur toute nouvelle route non gardée.
-- `hub reconcile` (`lib/sync/`) n'écrit rien : une dérive se lit et se tranche. Il compare
-  aussi les comptes de chaque app au Hub.
+- Toute route qui mène à une session d'app appelle `denyUnlessEmailProven` (`lib/auth/email-proof.ts`) ; un test le garde.
+- `hub reconcile` (`lib/sync/`) n'écrit rien : une dérive se lit et se tranche (comptes de chaque app comparés au Hub).
 - Toute écriture de plan se propage à l'app. Un refus n'écrit rien au Hub.
 - Un tenant supprimé n'est jamais repris par une recherche par `userId` (`__tests__/contrat/tenant-supprime.test.ts`).
 - Le dépôt est **public**, ses logs Actions aussi : aucune adresse client dans une réponse de cron.
 
 - Les env vars **runtime** viennent du job Nomad (`deploy/hub.nomad.hcl`, secrets `nomad/jobs/hub`), jamais de build-args.
 - Stripe = source de vérité billing. Config dans `lib/stripe/`.
-- Couleurs : tokens OKLCH. Autre app : son URL publique.
+- Couleurs : tokens OKLCH.
 - `/api/health` reste disponible (garde du déploiement et sonde de la CI).
 
 ## 💰 Pricing & trial
@@ -141,7 +131,6 @@ Jamais de limite visible. Stripe → Hub → apps, jamais Stripe → app.
 
 ## CI/CD
 
-- `.github/workflows/hub-ci.yml` : test → audit (npm) → docker → **trivy** → deploy-prod (sur `main`) → e2e-prod-smoke → rollback-prod (si fail)
-- **Pas de cron Trivy** : CVE de l'image servie via `secu`, `_trivy-image.yml` à la construction.
-- Logs `nomad-v logs hub`, redeploy `nomad-v run hub`. Skill `/nomad`.
+`hub-ci.yml` : test → audit → docker → trivy → deploy-prod (`main`) → e2e-prod-smoke → rollback. CVE de l'image servie : `secu`.
+Logs `nomad-v logs <alloc stack>`, redeploy `nomad-v run hub`.
 
