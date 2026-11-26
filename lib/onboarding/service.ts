@@ -258,7 +258,11 @@ export async function getOnboardingInviteByToken(
     },
   });
   if (!user) return { ok: false, code: 'invalid' };
-  if (user.onboarding?.activatedAt || user.accounts.some((a) => a.provider === 'credentials')) {
+  // Déjà actif : l'activation a eu lieu, ou un mot de passe existe sur une adresse PROUVÉE. Un mot de passe posé sans preuve (inscription à l'écran
+  // jamais confirmée, ou adresse squattée) n'en fait pas un compte actif : le lien, remis à cette adresse, la prouve, et l'activation remplace ce mot
+  // de passe et coupe ses sessions (activateOnboarding). Recette du 26/11 : `hub invite` répondait « lien déjà utilisé » à un inscrit non prouvé.
+  const motDePasse = user.accounts.some((a) => a.provider === 'credentials');
+  if (user.onboarding?.activatedAt || (motDePasse && user.emailVerified)) {
     return { ok: false, code: 'activated' };
   }
   // Expiré : il n'ouvre plus rien, mais il reste en base pour que la personne demande le suivant (renouvelerLienActivation).
