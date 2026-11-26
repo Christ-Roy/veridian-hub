@@ -34,7 +34,8 @@ async function connecte(): Promise<Connecte> {
   return u?.email ? { userId: u.id, email: u.email } : null;
 }
 
-export type Sortie = { vers: (chemin: string) => NextResponse; refus: (code: string, detail?: string) => NextResponse };
+/** `tenantId` : l'organisation en cause, quand on la connaît. Sans elle, une tentative refusée ne se rattache à personne dans les journaux. */
+export type Sortie = { vers: (chemin: string) => NextResponse; refus: (code: string, detail?: string, tenantId?: string) => NextResponse };
 
 /** Redirections du retour : la transaction de ce navigateur est détruite à chaque fois. */
 export function sortieDe(base: URL, cookie: { nom: string; chemin: string }): Sortie {
@@ -46,8 +47,8 @@ export function sortieDe(base: URL, cookie: { nom: string; chemin: string }): So
   };
   return {
     vers,
-    refus: (code, detail) => {
-      console.warn(JSON.stringify({ tag: '[federation][refus]', level: 'warn', code, detail: detail?.slice(0, 160) }));
+    refus: (code, detail, tenantId) => {
+      console.warn(JSON.stringify({ tag: '[federation][refus]', level: 'warn', code, ...(tenantId ? { tenant_id: tenantId } : {}), detail: detail?.slice(0, 160) }));
       return vers(`/auth/federation?code=${code}`);
     },
   };
@@ -56,7 +57,9 @@ export function sortieDe(base: URL, cookie: { nom: string; chemin: string }): So
 /** Le fournisseur d'une transaction : actif, ou celui que son propriétaire essaie. */
 export const idpDe = (t: Transaction): Promise<IdpPret | null> => (t.essai ? idpPret(prisma, { id: t.idp }, process.env, true) : idpPret(prisma, { id: t.idp }));
 
-export async function conclure(request: NextRequest, base: URL, i: IdpPret, t: Transaction, identite: Identite, { vers, refus }: Sortie): Promise<NextResponse> {
+export async function conclure(request: NextRequest, base: URL, i: IdpPret, t: Transaction, identite: Identite, sortie: Sortie): Promise<NextResponse> {
+  const { vers } = sortie;
+  const refus = (code: string, detail?: string) => sortie.refus(code, detail, i.tenantId);
   if (t.essai) {
     // Le propriétaire qui l'a demandé, toujours propriétaire : rien n'est relié, l'identité reçue n'est pas gardée.
     const elle = await connecte();
@@ -103,11 +106,13 @@ export async function conclure(request: NextRequest, base: URL, i: IdpPret, t: T
     p.cookies.set(COOKIE_PREMIERE, scellerPremiere({ idp: i.id, sub: identite.sub }), { httpOnly: true, secure: base.protocol === 'https:', sameSite: 'lax', path: '/', maxAge: PREMIERE_S });
     return p;
   }
-  return ouvrirSession(request, base, i, r, { vers, refus });
+  return ouvrirSession(request, base, i, r, sortie);
 }
 
 /** La session naît par Auth.js, n'ouvre que cette organisation, et ce navigateur retient sa porte. */
-export async function ouvrirSession(request: NextRequest, base: URL, i: IdpPret, r: { userId: string; hubUserId: string; neuf: boolean }, { vers, refus }: Sortie): Promise<NextResponse> {
+export async function ouvrirSession(request: NextRequest, base: URL, i: IdpPret, r: { userId: string; hubUserId: string; neuf: boolean }, sortie: Sortie): Promise<NextResponse> {
+  const { vers } = sortie;
+  const refus = (code: string, detail?: string) => sortie.refus(code, detail, i.tenantId);
   const suite = request.cookies.has(NEXT_COOKIE_NAME_SECURE) || request.cookies.has(NEXT_COOKIE_NAME_INSECURE) ? '/api/auth/bounce/complete' : '/dashboard';
   await noterPassage(prisma, i, r.hubUserId);
   // Elle n'ouvre que cette organisation : quelqu'un d'ailleurs aussi entre par sa propre connexion (lib/federation/borne.ts).

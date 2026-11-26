@@ -22,6 +22,14 @@ it('sortieDe : la transaction est détruite à chaque retour, un refus se dit sa
     expect(r.headers.get('location')).not.toContain('interne');
   }
 });
+it('un refus porte l\'organisation quand on la connaît, jamais une adresse : une tentative se rattache à quelqu\'un dans les journaux', () => {
+  const w = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+  w.mockClear();
+  sortieDe(base, { nom: 'c', chemin: '/x' }).refus('non_relie', undefined, 'T1');
+  sortieDe(base, { nom: 'c', chemin: '/x' }).refus('demande_expiree');
+  const lignes = w.mock.calls.map((c) => JSON.parse(String(c[0])));
+  expect(lignes.map((l) => [l.code, l.tenant_id])).toEqual([['non_relie', 'T1'], ['demande_expiree', undefined]]);
+});
 it('idpDe : même inactif seulement pour un essai', async () => {
   await idpDe({ idp: 'i' } as never);
   await idpDe({ idp: 'i', essai: { userId: 'U' } } as never);
