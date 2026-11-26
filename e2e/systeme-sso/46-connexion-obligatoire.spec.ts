@@ -19,6 +19,9 @@ import { obtenirJetonMcp, outil } from './lib/mcp';
 import { creerCompteProuve, type Compte } from './lib/parcours';
 
 const ORIGINE = { origin: new URL(HUB_URL).origin };
+const T0 = Date.now();
+/** Où en est le cas, lisible dans la sortie de la batterie : un dépassement dit son étape. */
+const pas = (n: string) => console.log(`[46] ${Math.round((Date.now() - T0) / 1000)} s : ${n}`);
 
 cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec, l\'accès gardé tombe au rattachement, libre rouvre', async ({ browser }) => {
   if (/staging/.test(HUB_URL)) throw new NonAbouti('épreuve de prod (organisations réglées)');
@@ -63,7 +66,7 @@ cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec
     const [cm, cn, cw, cp] = [await navigateur(M), await navigateur(N), await navigateur(W), await navigateur(P)];
     const ou = async (ctx: BrowserContext, url: string) => {
       const page = await ctx.newPage();
-      await page.goto(url, { waitUntil: 'networkidle' }).catch(() => undefined);
+      await page.goto(url, { waitUntil: 'load', timeout: 30_000 }).catch(() => undefined);
       const u = new URL(page.url());
       const r = { origine: u.origin, chemin: u.pathname, texte: (await page.locator('body').innerText().catch(() => '')).slice(0, 1_500), html: await page.content().catch(() => '') };
       await page.close();
@@ -92,6 +95,7 @@ cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec
     });
     const TOUTES = (x: string) => ({ rebond: x, mcp: x, active: x, ecran: x, assistant: x, echange: x });
 
+    pas('Contrôle positif');
     // Contrôle positif : libre, tout est ouvert par la même session.
     expect(await portes(cm, jetonM), 'libre : la même session ouvre tout').toEqual(TOUTES('ouverte'));
     const autreAvant = await mcp(jetonM, B.slug);
@@ -106,6 +110,7 @@ cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec
       expect([pose.status, pose.json.obligatoire, acces(P), acces(W), acces(N)]).toEqual([200, true, 'secours', 'actuel', 'ferme']);
     }
 
+    pas('1. Session');
     // 1. Session par mot de passe : chaque porte fermée, chacune relue ; l'autre organisation reste ouverte.
     expect(await portes(cm, jetonM), 'obligatoire, session par mot de passe').toEqual(TOUTES('fermée'));
     expect(await mcp(jetonM, B.slug), 'son autre organisation reste ouverte').toBe(false);
@@ -123,6 +128,7 @@ cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec
     expect((await admin('DELETE', regle, { hub_user_id: P.hubUserId })).json, 'dernier accès de secours').toEqual({ error: 'dernier_secours' });
     expect((await ou(cp, `${HUB_URL}/dashboard`)).chemin, 'l\'accès de secours ouvre').toBe('/dashboard');
 
+    pas('2. La page');
     // 2. La page de connexion : le domaine choisit, jamais le compte.
     const methode = async (email: string) => (await (await cp.request.post(`${HUB_URL}/api/auth/methode`, { headers: ORIGINE, data: { email } })).json()) as { methode: string; vers?: string };
     expect([(await methode(`inconnu@${domaine}`)), (await methode(N.email)).methode, (await methode('personne@domaine-inconnu.fr')).methode]).toEqual([expect.objectContaining({ methode: 'fournisseur', vers: `/connexion/${T.slug}` }), 'habituelle', 'habituelle']);
@@ -130,7 +136,7 @@ cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec
     ouverts.push(neuf);
     neuf.setDefaultTimeout(45_000);
     const login = await neuf.newPage();
-    await login.goto(`${HUB_URL}/login`, { waitUntil: 'networkidle' });
+    await login.goto(`${HUB_URL}/login`, { waitUntil: 'load' });
     await login.locator('#email').fill(`quelquun@${domaine}`);
     await login.locator('#email').blur();
     await login.getByText(/Votre organisation se connecte avec/).waitFor();
@@ -139,13 +145,16 @@ cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec
     await login.waitForURL((u) => u.pathname === '/auth/premiere-entree');
     await login.close();
 
+    pas('3. Elle passe');
     // 3. Elle passe par le fournisseur, sa session reste la sienne, et toutes les portes s'ouvrent.
     const passer = async (ctx: BrowserContext, qui: IdentiteDite) => {
       idp.dire(qui);
       const page = await ctx.newPage();
-      await page.goto(`${HUB_URL}/auth/organisation?org=${T.id}`, { waitUntil: 'networkidle' });
+      await page.goto(`${HUB_URL}/auth/organisation?org=${T.id}`, { waitUntil: 'load' });
       await page.getByRole('button', { name: /^Continuer avec/ }).click();
-      await page.waitForURL((u) => u.origin === new URL(HUB_URL).origin && !/\/api\/auth\/federation|\/auth\/organisation/.test(u.pathname)).catch(() => undefined);
+      await page.waitForURL((u) => u.origin === new URL(HUB_URL).origin && !/\/api\/auth\/federation|\/auth\/organisation/.test(u.pathname))
+        .catch(() => undefined);
+      await page.waitForLoadState('load').catch(() => undefined);
       const u = new URL(page.url());
       await page.close();
       return `${u.pathname}${u.search}`;
@@ -165,6 +174,7 @@ cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec
     expect(await passer(cn, { sub: 'obl-m', email: 'x@y.fr', email_verified: false })).toBe('/auth/federation?code=autre_identite');
     expect((await ou(cn, `${HUB_URL}/dashboard`)).chemin).toBe('/auth/organisation');
 
+    pas('Par le fournisseur SEUL');
     // Par le fournisseur SEUL, celle qui a aussi son autre organisation n'entre pas : rien de l'autre ne se lit depuis la session de celle-ci.
     idp.dire({ sub: 'obl-m', email: 'x@y.fr', email_verified: false });
     const seul = await browser.newContext();
@@ -173,6 +183,7 @@ cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec
     const sansSession = ((await (await seul.request.get(`${HUB_URL}/api/auth/session`)).json().catch(() => null)) as { user?: unknown } | null)?.user ?? null;
     expect([/autre organisation/.test(tente.texte), sansSession, (await ou(seul, `${HUB_URL}/dashboard`)).chemin], tente.texte).toEqual([true, null, '/login']);
 
+    pas('4. Entrée');
     // 4. Entrée par le fournisseur seul : session fédérée, portes ouvertes.
     expect(await passer(cn, { sub: 'obl-n', email: 'x@y.fr', email_verified: false })).toBe('/dashboard');
     idp.dire({ sub: 'obl-n', email: 'x@y.fr', email_verified: false });
@@ -180,6 +191,7 @@ cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec
     ouverts.push(cf);
     expect([(await ou(cf, `${HUB_URL}/connexion/${T.slug}`)).chemin, (await rebond(cf)).chemin === '/auth/organisation'], 'session ouverte par le fournisseur').toEqual(['/dashboard', false]);
 
+    pas("5. L'accès");
     // 5. L'accès gardé ouvre, puis tombe tout seul dès que la personne s'est rattachée.
     expect([(await ou(cw, `${HUB_URL}/dashboard`)).chemin, (await rebond(cw)).chemin === '/auth/organisation'], 'accès gardé').toEqual(['/dashboard', false]);
     const cw2 = await navigateur(W);
@@ -194,6 +206,7 @@ cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec
     expect((await ou(cw2, `${HUB_URL}/dashboard`)).chemin, 'celle qui s\'est rattachée').toBe('/dashboard');
     expect((await admin('POST', regle, { hub_user_id: W.hubUserId, nature: 'rattachement' })).json).toEqual({ error: 'deja_reliee' });
 
+    pas('6. Retour');
     // 6. Retour arrière, une commande : tout rouvre, par mot de passe.
     expect((await admin('PUT', regle, { obligatoire: false })).status).toBe(200);
     expect(await portes(cm2, jetonM), 'libre de nouveau').toEqual(TOUTES('ouverte'));
