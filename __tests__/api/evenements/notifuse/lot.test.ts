@@ -7,7 +7,7 @@ const m = vi.hoisted(() => ({ recevoir: vi.fn() }));
 vi.mock('@/lib/evenements/lot', () => ({ LOT_MAX_OCTETS: 1_000_000, recevoirLot: (...a: unknown[]) => m.recevoir(...a) }));
 vi.mock('@/lib/prisma', () => ({ prisma: {} }));
 
-import { POST } from '@/app/api/evenements/notifuse/lot/route';
+import { dynamic, POST, runtime } from '@/app/api/evenements/notifuse/lot/route';
 
 const jouer = (corps: string) => POST(new NextRequest('https://app.veridian.site/api/evenements/notifuse/lot', { method: 'POST', body: corps, headers: { 'webhook-id': 'l1' } }));
 beforeEach(() => {
@@ -25,5 +25,8 @@ describe('POST /api/evenements/notifuse/lot', () => {
     const a = await jouer('{}');
     const b = await jouer('x'.repeat(1_000_001));
     expect([a.status, a.headers.get('retry-after'), b.status, m.recevoir.mock.calls.length]).toEqual([429, '12', 413, 1]);
+  });
+  it('jamais rendue statique ni mise en cache : runtime Node, rendu dynamique (un lot n\'est jamais servi deux fois depuis un cache)', () => {
+    expect([runtime, dynamic]).toEqual(['nodejs', 'force-dynamic']);
   });
 });

@@ -103,5 +103,10 @@ describe('ecrireEvenementsMail (§5.25)', () => {
     await expect(ecrireEvenementsMail(db as never, { tenantId: 'T', workspaceId: 'ws1', lotId: 'l', evenements: [] }, env, lignes({ success: false }) as never)).rejects.toThrow('crm_refus');
     expect((await ecrireEvenementsMail(db as never, { tenantId: 'T', workspaceId: 'ws1', lotId: 'l', evenements: [] }, env, lignes({ ok: true, lignes: { creees: -1, avancees: 'x' } }) as never)).lignes).toEqual({ creees: 0, avancees: 0, ignorees: 0 });
   });
+  it('CRM absent du registre MCP ou éteint : échec franc (target_not_registered), aucun appel', async () => {
+    db.mcpApp.lignes[0].enabled = false;
+    const f = vi.fn();
+    await expect(ecrireEvenementsMail(db as never, { tenantId: 'T', workspaceId: 'ws1', lotId: 'l', evenements: [] }, env, f as never)).rejects.toThrow('target_not_registered');
+    expect(f).not.toHaveBeenCalled();
+  });
 });
-
