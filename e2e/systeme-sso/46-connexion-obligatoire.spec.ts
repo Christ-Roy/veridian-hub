@@ -7,6 +7,7 @@
  * passe pas par le fournisseur), `obligatoire-sans-lien` (l'exemptée ne se rattache pas) : le cas doit échouer.
  */
 import { execFileSync } from 'node:child_process';
+import { appendFileSync } from 'node:fs';
 import { createHmac, randomBytes } from 'node:crypto';
 
 import { expect, type BrowserContext } from '@playwright/test';
@@ -21,12 +22,13 @@ import { creerCompteProuve, type Compte } from './lib/parcours';
 const ORIGINE = { origin: new URL(HUB_URL).origin };
 const T0 = Date.now();
 /** Où en est le cas, lisible dans la sortie de la batterie : un dépassement dit son étape. */
-const pas = (n: string) => console.log(`[46] ${Math.round((Date.now() - T0) / 1000)} s : ${n}`);
+const pas = (n: string) => appendFileSync('.run/pas-46.txt', `${new Date().toISOString()} ${Math.round((Date.now() - T0) / 1000)} s : ${n}\n`);
 
 cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec, l\'accès gardé tombe au rattachement, libre rouvre', async ({ browser }) => {
   if (/staging/.test(HUB_URL)) throw new NonAbouti('épreuve de prod (organisations réglées)');
   const sabotage = process.env.SSO_SABOTAGE ?? '';
   const ouverts: BrowserContext[] = [];
+  pas('début : cinq comptes');
   const P: Compte = await creerCompteProuve(browser, 'oblprop');
   const Q: Compte = await creerCompteProuve(browser, 'oblautre');
   // M : membre des DEUX organisations. N : membre de celle-ci seulement. W : garde son accès jusqu'à son rattachement.
@@ -46,6 +48,7 @@ cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec
   // Le domaine d'aiguillage est inventé : celui des comptes de batterie enverrait ailleurs les autres cas.
   const domaine = `o${randomBytes(4).toString('hex')}.e2e.veridian.site`;
 
+  pas('comptes créés');
   const ip = execFileSync('tailscale', ['ip', '-4'], { encoding: 'utf8' }).trim().split('\n')[0];
   const idp = await ouvrirIdp(ip, 'RS256');
   const regle = `organisations/${T.id}/connexion`;
@@ -73,7 +76,9 @@ cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec
       return r;
     };
     const rebond = (ctx: BrowserContext) => ou(ctx, `${HUB_URL}/login?next=${encodeURIComponent(`${APP_URL.prospection}/`)}`);
+    pas('jeton IA de M');
     const jetonM = await obtenirJetonMcp(browser, M, 'TEST OBLIGATOIRE');
+    pas('jeton IA obtenu');
     const mcp = async (jeton: string, espace: string) => (await outil(jeton, 'executer_outil', { nom: 'hub.integrations_lister', espace })).isError;
     const activer = async (ctx: BrowserContext, tenant: string) => (await ctx.request.post(`${HUB_URL}/api/organisations/active`, { headers: ORIGINE, form: { tenant }, maxRedirects: 0 })).headers().location ?? '';
     const fil = async (ctx: BrowserContext, tenant: string) => (await ctx.request.get(`${HUB_URL}/api/ia/fil?app=academy&session=00000000-0000-4000-8000-000000000000&tenant=${tenant}`)).status();
@@ -85,7 +90,7 @@ cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec
       const r = await fetch(`${HUB_URL}/api/delegation/jeton`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-veridian-app': 'prospection', 'x-veridian-timestamp': ts, 'x-veridian-nonce': nonce, 'x-veridian-hub-signature': createHmac('sha256', secretDe('PROSPECTION_TENANT_API_SECRET')).update(`${ts}.${nonce}.${corps}`).digest('hex') }, body: corps });
       return ((await r.json().catch(() => null)) as { error?: string } | null)?.error ?? 'ok';
     };
-    const portes = async (ctx: BrowserContext, jeton: string) => ({
+    const portes = async (ctx: BrowserContext, jeton: string) => (pas('portes'), {
       rebond: (await rebond(ctx)).chemin === '/auth/organisation' ? 'fermée' : 'ouverte',
       mcp: (await mcp(jeton, T.slug)) ? 'fermée' : 'ouverte',
       active: /avis=active/.test(await activer(ctx, T.id)) ? 'ouverte' : 'fermée',
@@ -148,7 +153,10 @@ cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec
     pas('3. Elle passe');
     // 3. Elle passe par le fournisseur, sa session reste la sienne, et toutes les portes s'ouvrent.
     const passer = async (ctx: BrowserContext, qui: IdentiteDite) => {
+      pas(`passer ${qui.sub}`);
       idp.dire(qui);
+      // Un rebond refusé plus haut a laissé son cookie : il reprendrait vers l'app (voulu). Ici on mesure le passage seul.
+      await ctx.clearCookies({ name: /veridian-next/ });
       const page = await ctx.newPage();
       await page.goto(`${HUB_URL}/auth/organisation?org=${T.id}`, { waitUntil: 'load' });
       await page.getByRole('button', { name: /^Continuer avec/ }).click();
@@ -160,14 +168,17 @@ cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec
       return `${u.pathname}${u.search}`;
     };
     if (sabotage !== 'obligatoire-sans-passage') expect(await passer(cm, { sub: 'obl-m', email: 'x@y.fr', email_verified: false })).toBe('/dashboard');
+    pas('passée : session');
     const s = (await (await cm.request.get(`${HUB_URL}/api/auth/session`)).json())?.user as { email?: string; federe?: boolean } | undefined;
     expect([s?.email?.toLowerCase(), s?.federe ?? false], 'sa session à elle').toEqual([M.email.toLowerCase(), false]);
     // L'ancien jeton d'IA, donné avant, reste fermé ; un neuf, donné depuis cette session, ouvre.
     expect(await mcp(jetonM, T.slug), 'jeton donné avant le passage').toBe(true);
+    pas('nouveau jeton IA');
     const jetonNeuf = await obtenirJetonMcp(browser, { etat: await cm.storageState() }, 'TEST OBLIGATOIRE');
     expect(await portes(cm, jetonNeuf), 'passée par le fournisseur').toEqual(TOUTES('ouverte'));
     expect((await mcp(jetonNeuf, B.slug)), 'l\'autre, toujours').toBe(false);
     // Une AUTRE session de la même personne, par mot de passe, ne l'ouvre pas : la preuve est de la session, pas du compte.
+    pas('autre session de M');
     const cm2 = await navigateur(M);
     expect((await rebond(cm2)).chemin, 'une autre session, sans passage').toBe('/auth/organisation');
     // Une identité déjà prise par quelqu'un d'autre n'ouvre rien.
