@@ -24,10 +24,12 @@ const BRUIT = /'upgrade-insecure-requests' is ignored when delivered in a report
 cas('hub', 'CSP : chaque page du Hub vue par un client se charge sans aucune violation de la politique', async ({ browser }) => {
   const E = await creerCompteProuve(browser, 'csp');
   const ctx = await contexteDe(browser, E);
+  // La fenêtre de l'assistant, telle qu'une app l'insère pour l'organisation du compte (VER-203).
+  const pages = [...PAGES, ...(E.tenantId ? [`/ia/chat?app=notifuse&tenant=${E.tenantId}`] : [])];
   const violations: string[] = [];
   let entetes = 0;
   try {
-    for (const [i, chemin] of PAGES.entries()) {
+    for (const [i, chemin] of pages.entries()) {
       const page = await ctx.newPage();
       page.on('console', (m) => {
         const t = m.text();
@@ -45,7 +47,7 @@ cas('hub', 'CSP : chaque page du Hub vue par un client se charge sans aucune vio
   } finally {
     await ctx.close();
   }
-  expect(entetes, 'chaque page porte la CSP à nonce').toBe(PAGES.length);
+  expect(entetes, 'chaque page porte la CSP à nonce').toBe(pages.length);
   expect(violations, `${violations.length} violation(s)`).toEqual([]);
-  return `${PAGES.length} pages, CSP à nonce sur chacune, 0 violation dans la console`;
+  return `${pages.length} pages (fenêtre de l'assistant comprise), CSP à nonce sur chacune, 0 violation dans la console`;
 });
