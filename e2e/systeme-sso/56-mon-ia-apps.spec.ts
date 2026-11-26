@@ -27,6 +27,9 @@ const APPS: { app: AppKey & ('analytics' | 'notifuse' | 'prospection'); chemin: 
   { app: 'prospection', chemin: '/' }, // Atlas : reprend le cas 53 (26/11), Prospection sert la règle depuis 316bbf4
 ];
 
+/** Une proposition de clé, mot entier (frontières Unicode) : « votre clé », « une clé », « clé d'API », « API key ». « sans clé » n'en est pas une. */
+const PROPOSE_UNE_CLE = /(?<![\p{L}\p{N}])(?:votre|vos|une|la|des|sa|ta)\s+cl[ée]s?(?![\p{L}\p{N}])|(?<![\p{L}\p{N}])cl[ée]s?\s+(?:d['\u2019]\s?api|api)(?![\p{L}\p{N}])|\bapi[\s-]?key\b/iu;
+
 const cadreDe = (page: Page) => page.locator(`iframe[src^="${HUB_URL}/ia/chat"]`);
 
 async function pageApp(ctx: BrowserContext, app: AppKey, chemin: string): Promise<Page> {
@@ -57,7 +60,10 @@ for (const { app, chemin } of APPS) {
       await expect(carte, 'la carte du connecteur').toBeVisible({ timeout: 10_000 });
       const lien = carte.getByRole('link', { name: 'Relier mon IA', exact: true });
       expect([await lien.getAttribute('href'), await lien.getAttribute('target')], 'la carte mène au connecteur du Hub, nouvel onglet').toEqual([`${HUB_URL}/dashboard/ia`, '_blank']);
-      expect((await carte.innerText()).toLowerCase(), 'jamais le mot « clé » proposé').not.toMatch(/\bcl[ée]s?\b/);
+      // Jamais une clé PROPOSÉE (« votre clé », « clé d'API », un champ) ; « sans clé » est l'assurance du contrat (Prospection, 26/11 : l'ancien
+      // \bcl[ée]\b ne tenait que par accident, \b sans drapeau u ne voit pas la frontière après « é »).
+      expect(await carte.innerText(), 'aucune clé proposée').not.toMatch(PROPOSE_UNE_CLE);
+      expect(await carte.locator('input, textarea').count(), 'aucun champ dans la carte').toBe(0);
       await p1.waitForTimeout(2_000);
       expect(await cadreDe(p1).count(), 'sans moteur, après le clic : aucun cadre').toBe(0);
       await p1.screenshot({ path: `.run/captures/mon-ia-${app}-sans-moteur.png` });
