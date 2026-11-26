@@ -12,7 +12,7 @@ import { activerAnalyticsAuHub, activerTwentyAuHub, admin, invite, lookup, marqu
 import { mesurerRestes, nettoyerCompte } from './lib/nettoyage';
 import { adresseDe, attendreSessionHub, connexionHub, noter, noterEspaceTwenty, noterRybbit, noterWorkspace, voirApp, type Compte } from './lib/parcours';
 import { borner, creerRecette, type Recette } from './lib/recette';
-import { delegationCrmVersMail, envoyerAuCrm, monIA, reponseMailVersCrm } from './lib/recette-integrations';
+import { delegationCrmVersAcademy, delegationCrmVersMail, envoyerAuCrm, monIA, reponseMailVersCrm } from './lib/recette-integrations';
 import { fermerCoupures, inviterMembre, retraitMembre, ssoLibre, ssoObligatoire, suspensionOrganisation } from './lib/recette-coupures';
 import { assurerRybbit } from './lib/monde';
 
@@ -185,6 +185,7 @@ cas(null, 'recette de A à Z : une organisation jetable, de l\'inscription à la
     await etape('Envoyer au CRM depuis Prospection (VER-246)', envoyerAuCrm);
     await etape('Réponse reçue dans Mail vers la fiche CRM (VER-247)', reponseMailVersCrm);
     await etape('Délégation : le CRM agit dans Mail (VER-245)', delegationCrmVersMail);
+    await etape('Délégation : le CRM agit dans Academy (VER-208)', delegationCrmVersAcademy);
     await etape('Mon IA (VER-203)', monIA);
     await etape('Invitation d\'un membre, qui entre partout', inviterMembre);
     await etape('SSO d\'organisation en libre service', ssoLibre);

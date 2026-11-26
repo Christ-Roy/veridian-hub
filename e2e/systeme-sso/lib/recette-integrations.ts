@@ -19,6 +19,7 @@ import type { Recette } from './recette';
 const STAGING = /staging/.test(HUB_URL);
 const MODELE_GRATUIT = 'nvidia/nemotron-3-ultra-550b-a55b:free'; // appel d'outil vérifié à 0 $ le 22/11 (cas 15)
 const PAIRE_CRM_MAIL = 'crm>notifuse';
+const PAIRE_CRM_ACADEMY = 'crm>academy';
 const PAIRE_SEQUENCES = 'crm>notifuse#sequences';
 const PAIRE_MAIL_CRM = 'notifuse>crm';
 const PAIRE_PROSPECTION_CRM = 'prospection>crm';
@@ -198,6 +199,122 @@ export async function delegationCrmVersMail(r: Recette): Promise<string> {
   const deux = await lire();
   if (deux.status !== 401) throw new Error(`jeton déjà vu : attendu 401, vu HTTP ${deux.status}`);
   return `liaison ${PAIRE_CRM_MAIL} active par défaut, ${PAIRE_SEQUENCES} éteinte (jeton refusé integration_off), écran vérifié, jeton du CRM reconnu par Mail sur une lecture (listes), rejoué refusé 401, aucun envoi`;
+}
+
+/** Le propriétaire règle la paire par SON écran : « Allumer » (avec la page de confirmation) ou « Couper ». Capture après le geste. */
+async function geste(r: Recette, paire: string, quoi: 'Allumer' | 'Couper', capture: string): Promise<void> {
+  const { ctx, page } = await ouvrirPageHub(r, '/dashboard/liaisons');
+  try {
+    const f = reglage(page, r, paire);
+    if ((await f.count()) !== 1) throw new Error(`${paire} non proposée à l'écran du propriétaire : ${m(await page.locator('main').innerText().catch(() => ''), 160)}`);
+    await f.getByRole('button', { name: quoi }).click();
+    if (quoi === 'Allumer') {
+      await page.waitForURL(/\/liaisons\/confirmer\//, { timeout: 30_000 });
+      await page.getByRole('button', { name: 'Allumer' }).click();
+      await page.getByText('Liaison allumée').waitFor({ timeout: 30_000 });
+    } else {
+      await page.waitForLoadState('networkidle', { timeout: 30_000 }).catch(() => undefined);
+    }
+    await r.capture(page, capture);
+  } finally {
+    await ctx.close().catch(() => undefined);
+  }
+}
+
+// ───────────────────────────────────────────────────────── 2 bis. Délégation CRM vers Academy (VER-208)
+
+/**
+ * La liaison `crm>academy` (lecture de l'avancement, seule action d'Academy : `avancement.lire`, route `/api/veridian/actions/:action`, source
+ * veridian-academy/src/lib/actions.ts). Éteinte au départ : le PROPRIÉTAIRE l'allume par son écran, un VRAI jeton du CRM est reconnu par Academy sur
+ * une lecture de l'avancement de sa propre adresse (rien n'est écrit), rejoué il est refusé, une portée hors de la paire est refusée par le Hub.
+ * Le propriétaire coupe ensuite par son écran (retour à l'état initial). NON ABOUTI si Academy est réservée (acces_reserve), non reliée ou absente.
+ */
+export async function delegationCrmVersAcademy(r: Recette): Promise<string> {
+  const lire = async () => {
+    const p = (await liaisons(r)).find((x) => x.paire === PAIRE_CRM_ACADEMY);
+    if (!p) throw new Error(`le Hub ne connaît pas ${PAIRE_CRM_ACADEMY} (registre des paires)`);
+    return p;
+  };
+  const initiale = await lire();
+  if (initiale.etat === 'indisponible') {
+    throw new NonAbouti(`${PAIRE_CRM_ACADEMY} indisponible au Hub (DELEGATION_CIBLES doit nommer academy@test et DELEGATION_SOURCES le CRM ; organisation non marquée de test ?)`);
+  }
+  const vus: string[] = [`état initial ${initiale.etat}`];
+  let allumeParNous = false;
+  let verdict: string | null = null;
+  let echec: unknown = null;
+  try {
+    if (initiale.etat === 'eteinte') {
+      await geste(r, PAIRE_CRM_ACADEMY, 'Allumer', 'liaison-crm-academy-allumee');
+      allumeParNous = true;
+      const apres = await lire();
+      if (apres.etat !== 'allumee') throw new Error(`après « Allumer » par l'écran du propriétaire, ${PAIRE_CRM_ACADEMY} reste ${apres.etat}`);
+      vus.push('allumée par le propriétaire');
+    }
+
+    const secret = secretCrm();
+    const p = await admin<{ delegations?: { hub_tenant_id: string; grant: string }[]; error?: string }>('POST', 'delegation/poignee', { email: r.P.email, app: 'crm' });
+    if (p.status !== 200) throw new NonAbouti(`poignée du propriétaire : HTTP ${p.status} ${m(p.json?.error ?? '')}`);
+    const grant = p.json.delegations?.find((d) => d.hub_tenant_id === r.tenantId)?.grant;
+    if (!grant) throw new NonAbouti("aucune poignée émise pour l'organisation jetable (source CRM non servie pour elle ?)");
+
+    // Une portée hors de la paire : refusée par le Hub avant tout jeton, rien n'est écrit nulle part.
+    const hors = await echanger('crm', secret, grant, 'academy', 'academy:avancement.ecrire');
+    if (hors.status === 401 || hors.status === 503) throw new NonAbouti(`échange refusé avant la mesure : HTTP ${hors.status} ${m(hors.json?.error ?? '')}`);
+    if (hors.status === 200) throw new Error('un jeton a été délivré pour une portée hors de la paire (academy:avancement.ecrire), non utilisé');
+    if (hors.json?.error !== 'pair_not_allowed') throw new Error(`portée hors paire : refus attendu « pair_not_allowed », vu HTTP ${hors.status} ${m(hors.json?.error ?? '')}`);
+    vus.push('portée hors paire refusée 403');
+
+    const e = await echanger('crm', secret, grant, 'academy', 'academy:avancement.lire');
+    if (e.status === 401 || e.status === 503) throw new NonAbouti(`échange refusé avant la mesure : HTTP ${e.status} ${m(e.json?.error ?? '')}`);
+    if (e.status === 403 && ['app_not_open', 'target_not_served'].includes(e.json?.error)) throw new NonAbouti(`Academy non servie à cette organisation : ${m(e.json.error)}`);
+    if (e.status !== 200 || !e.json?.access_token) throw new Error(`échange du jeton CRM vers Academy : HTTP ${e.status} ${m(e.json?.error ?? '')}`);
+    if (e.json.tenant_id !== r.tenantId) throw new Error("le jeton porte une autre organisation que l'organisation jetable");
+    const jeton = e.json.access_token as string;
+    const url = String(e.json.url ?? '');
+    if (!/^https:\/\/[a-z0-9.-]+\.veridian\.site\/api\/veridian\/actions$/.test(url)) throw new Error(`adresse d'action hors du domaine Veridian (${m(url, 80)}) : jeton non envoyé`);
+
+    const jouer = async () => {
+      try {
+        const rep = await fetch(`${url}/avancement.lire`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${jeton}` }, body: JSON.stringify({ emails: [r.P.email] }), signal: AbortSignal.timeout(60_000) });
+        return { status: rep.status, json: (await rep.json().catch(() => null)) as any };
+      } catch (err) {
+        throw new NonAbouti(`Academy injoignable : ${m((err as Error).message, 80)}`);
+      }
+    };
+    const un = await jouer();
+    if (un.status === 404 && !un.json) throw new NonAbouti("la route d'actions d'Academy est absente de ce qui est servi (404 sans réponse JSON)");
+    if (un.status >= 500) throw new NonAbouti(`Academy en erreur : HTTP ${un.status} ${m(un.json?.error ?? '')}`);
+    const code = String(un.json?.error ?? '');
+    if (un.status === 403 && code === 'acces_reserve') throw new NonAbouti("Academy est réservée (ACCES_RESERVE) : le jeton est reconnu mais le compte de test n'y est pas admis, lecture non jouée");
+    if (un.status === 409 && code === 'espace_non_relie') throw new NonAbouti("Academy ne connaît pas l'espace de l'organisation jetable (espace_non_relie)");
+    if (un.status === 403 && ['non_membre', 'utilisateur_inconnu'].includes(code)) throw new NonAbouti(`Academy ne connaît pas le propriétaire comme membre (${code}) : entrée SSO non faite ?`);
+    if (un.status !== 200) throw new Error(`Academy refuse la lecture déléguée : HTTP ${un.status} ${m(code)}`);
+    if (un.json?.action !== 'avancement.lire' || !Array.isArray(un.json?.resultat?.inscriptions)) throw new Error(`réponse d'Academy inattendue : ${m(un.json, 120)}`);
+    vus.push(`lecture reconnue par Academy 200 (${un.json.resultat.inscriptions.length} inscription)`);
+    const deux = await jouer();
+    if (deux.status !== 401) throw new Error(`jeton déjà vu : attendu 401, vu HTTP ${deux.status}`);
+    vus.push('rejoué refusé 401');
+    verdict = `${PAIRE_CRM_ACADEMY} : ${vus.join(', ')}`;
+  } catch (e) {
+    echec = e;
+  }
+
+  // Retour à l'état initial, par l'écran du propriétaire, même après un défaut.
+  if (allumeParNous) {
+    try {
+      await geste(r, PAIRE_CRM_ACADEMY, 'Couper', 'liaison-crm-academy-coupee');
+      const fin = await lire();
+      if (fin.etat !== 'eteinte') throw new Error(`après « Couper », ${PAIRE_CRM_ACADEMY} reste ${fin.etat} (laissée allumée)`);
+      vus.push('coupée par le propriétaire, relue éteinte');
+      if (verdict) verdict += ', coupée par le propriétaire, relue éteinte';
+    } catch (c) {
+      if (!echec) echec = c;
+      else console.error(`[recette] coupure de ${PAIRE_CRM_ACADEMY} : ${m((c as Error).message, 160)}`);
+    }
+  }
+  if (echec) throw echec;
+  return verdict ?? vus.join(', ');
 }
 
 // ───────────────────────────────────────────────────────── 3. Réponse de Mail vers le CRM (VER-247)
