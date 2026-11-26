@@ -16,6 +16,11 @@ import { RUN_DIR } from './lib/versions';
 
 const SEQUENCES = 'crm>notifuse#sequences';
 
+
+/** Durée de l'essai ; le délai du test en découle (+30 min de ménage). 26/11 : délai figé à 3 h pour un essai annoncé 12 h, l'organisation de
+ * Mail A a été retirée en plein travail par le nettoyage de fin de batterie. */
+const DUREE_ESSAI_MS = Number(process.env.SSO_ESSAI_MINUTES ?? 120) * 60_000;
+
 cas(null, 'essai commun en prod : une organisation de test, le CRM clique ses liaisons vers Mail, Prospection et Academy', async ({ browser }) => {
   if (/staging/.test(HUB_URL)) throw new NonAbouti('essai commun de prod (le cas 48 couvre staging)');
   const fiche = join(homedir(), 'credentials', 'essai-crm-prod.json');
@@ -50,7 +55,7 @@ cas(null, 'essai commun en prod : une organisation de test, le CRM clique ses li
         await ctx.close();
       }
     };
-    const jusqua = Date.now() + Number(process.env.SSO_ESSAI_MINUTES ?? 120) * 60_000;
+    const jusqua = Date.now() + DUREE_ESSAI_MS;
     while (!existsSync(fin) && Date.now() < jusqua) {
       for (const quoi of ['Allumer', 'Couper'] as const) {
         const signal = join(RUN_DIR, `essai-crm-${quoi.toLowerCase()}`);
@@ -62,4 +67,4 @@ cas(null, 'essai commun en prod : une organisation de test, le CRM clique ses li
   } finally {
     rmSync(fiche, { force: true });
   }
-}, { timeout: 3 * 3_600_000 });
+}, { timeout: DUREE_ESSAI_MS + 30 * 60_000 });

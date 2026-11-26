@@ -18,6 +18,11 @@ import { RUN_DIR } from './lib/versions';
 
 const SEQUENCES = 'crm>notifuse#sequences';
 
+
+/** Durée de l'essai ; le délai du test en découle (+30 min de ménage). 26/11 : délai figé à 3 h pour un essai annoncé 12 h, l'organisation de
+ * Mail A a été retirée en plein travail par le nettoyage de fin de batterie. */
+const DUREE_ESSAI_MS = Number(process.env.SSO_ESSAI_MINUTES ?? 180) * 60_000;
+
 cas(null, 'essai commun : une personne née au Hub, CRM et Mail reliés, le CRM clique ses liaisons', async ({ browser }) => {
   if (!/staging/.test(HUB_URL)) throw new NonAbouti('essai commun : staging seulement');
   const MAIL = /staging/.test(APP_URL.notifuse) ? APP_URL.notifuse : 'https://notifuse.staging.veridian.site';
@@ -49,7 +54,7 @@ cas(null, 'essai commun : une personne née au Hub, CRM et Mail reliés, le CRM 
     await adminOk('POST', 'tenants/link-app', { user_email: P.email, app: 'notifuse', external_tenant_id: slug, external_tenant_slug: slug, tenant_name: 'TEST essai CRM', plan: 'free', provisioning_source: 'essai-48' });
     writeFileSync(fiche, JSON.stringify({ hub: HUB_URL, email: P.email, mot_de_passe: P.motDePasse, hub_user_id: P.hubUserId, hub_tenant_id: T.id, espace_crm: espaceCrm, espace_mail: slug, cree_le: new Date().toISOString() }, null, 1), { mode: 0o600 });
     console.log(`[essai-crm] prêt : espace CRM ${espaceCrm}, tenant ${T.id}, espace Mail ${slug} ; fiche ${fiche}`);
-    const jusqua = Date.now() + Number(process.env.SSO_ESSAI_MINUTES ?? 180) * 60_000;
+    const jusqua = Date.now() + DUREE_ESSAI_MS;
     // Le propriétaire, dans SON écran Liaisons, allume ou coupe #sequences quand un signal est posé (`.run/essai-crm-allumer` ou `-couper`).
     const geste = async (quoi: 'Allumer' | 'Couper') => {
       const ctx = await browser.newContext({ storageState: P.etat as never });
@@ -82,4 +87,4 @@ cas(null, 'essai commun : une personne née au Hub, CRM et Mail reliés, le CRM 
       if (d.status >= 300 && d.status !== 404) console.error(`espace Mail ${slug} non retiré : HTTP ${d.status}`);
     }
   }
-}, { timeout: 4 * 3_600_000 });
+}, { timeout: DUREE_ESSAI_MS + 30 * 60_000 });
