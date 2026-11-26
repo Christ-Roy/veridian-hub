@@ -476,7 +476,10 @@ export async function ssoObligatoire(r: Recette): Promise<string> {
     await org.close();
 
     // Obligatoire : session par mot de passe, chaque porte fermée ; le propriétaire (secours) garde l'écran.
-    egal(await portes(cm, jetonAvant), toutes('fermée'), 'obligatoire, session par mot de passe');
+    // L'échange entre apps se fait SANS session : le dernier passage de la personne par le fournisseur fait foi (lib/delegation/jeton.ts,
+    // preuve « personne », SESSION_FEDEREE_MAX_S). Le membre y est passé à l'étape 18 : l'échange reste ouvert, par conception (26/11,
+    // lu à tort comme une fuite). Les portes à session, elles, se ferment pour une session par mot de passe.
+    egal(await portes(cm, jetonAvant), { ...toutes('fermée'), ...(grant ? { echange: 'ouverte' } : {}) }, 'obligatoire, session par mot de passe (échange : passage récent par le fournisseur)');
     const demande = await cm.newPage();
     await demande.goto(`${HUB_URL}/dashboard`, { waitUntil: 'load' }).catch(() => undefined);
     const texteDemande = await demande.locator('body').innerText().catch(() => '');
@@ -507,7 +510,7 @@ export async function ssoObligatoire(r: Recette): Promise<string> {
     await fin.close();
     jetonDeM = jetonAvant;
     r.notes.connexion = 'libre';
-    return `libre : ${Object.keys(toutes('ouverte')).length} portes ouvertes ; obligatoire : toutes fermées par mot de passe, secours du propriétaire tenu (dernier secours refusé), passage par le fournisseur : toutes ouvertes, ancien jeton d'IA et autre session fermés ; remis LIBRE : tout rouvre${grant ? '' : ' (échange entre apps non lu : aucune poignée)'}`;
+    return `libre : ${Object.keys(toutes('ouverte')).length} portes ouvertes ; obligatoire : portes à session fermées par mot de passe (échange ouvert par le passage récent au fournisseur), secours du propriétaire tenu (dernier secours refusé), passage par le fournisseur : toutes ouvertes, ancien jeton d'IA et autre session fermés ; remis LIBRE : tout rouvre${grant ? '' : ' (échange entre apps non lu : aucune poignée)'}`;
   } finally {
     await admin('PUT', regle, { obligatoire: false, aiguillage: [] }).catch(() => undefined);
     for (const c of ouverts) await c.close().catch(() => undefined);

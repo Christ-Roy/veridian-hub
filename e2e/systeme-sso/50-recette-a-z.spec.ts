@@ -176,10 +176,20 @@ cas(null, 'recette de A à Z : une organisation jetable, de l\'inscription à la
         return entrer(x, 'analytics-operateur', APP_URL.analytics, 'analytics');
       });
     }
-    await etape('Entrée SSO dans le CMS', async (x) => {
-      const a = await admin('POST', 'tenants/app-access', { user_email: email, app: 'cms', enabled: true });
-      if (a.status !== 200) throw new NonAbouti(`le Hub n'ouvre pas le CMS à l'organisation : HTTP ${a.status} ${JSON.stringify(a.json).slice(0, 140)}`);
-      return entrer(x, 'cms', CMS_URL);
+    // Le CMS s'éteint (parente, 26/11) : une organisation neuve ne se le voit jamais proposer. Il ne reste qu'aux clients qui l'ont actif.
+    await etape('Le CMS n\'est pas proposé à une organisation neuve', async (x) => {
+      const ctx = await x.contexte(P);
+      try {
+        const page = await ctx.newPage();
+        await page.goto(`${HUB_URL}/dashboard`, { waitUntil: 'networkidle' });
+        await x.capture(page, 'sans-cms');
+        const liens = await page.locator(`a[href^="${CMS_URL}"]`).count();
+        const nom = await page.getByText('Veridian CMS').count();
+        if (liens || nom) throw new Error(`le tableau de bord propose le CMS : ${liens} lien(s) vers ${CMS_URL}, ${nom} mention(s) « Veridian CMS »`);
+        return `tableau de bord sans tuile ni lien CMS (${CMS_URL}) : 0 lien, 0 mention`;
+      } finally {
+        await ctx.close();
+      }
     });
 
     await etape('Envoyer au CRM depuis Prospection (VER-246)', envoyerAuCrm);
