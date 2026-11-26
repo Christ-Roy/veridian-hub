@@ -270,9 +270,10 @@ ACTIVITE_ORGANISATIONS=359b76d5-bab7-4773-a889-cf4cf0248869
 # Délégation entre apps (§5.23) : cibles qui ont dit « garde servie ». Vide = aucun jeton, aucune poignée.
 # Ouvert à toutes le 24/11. Depuis le 25/11 (Robert) : ACTIVE par défaut où les deux apps sont ouvertes (lib/delegation/etat.ts), se coupe d'un clic, et
 # la coupure tient. `<cible>@test` = organisations marquées de test. Refermer : vider, puis déployer.
-DELEGATION_CIBLES=crm,notifuse,prospection@test,academy@test
-# Le CRM comme SOURCE (vers Mail, vers Prospection) : organisations de test seulement, jusqu'à « appelant servi » du CRM et l'épreuve commune.
-DELEGATION_SOURCES=crm@test
+DELEGATION_CIBLES=crm,notifuse,prospection,academy@test
+# Le CRM comme SOURCE pour TOUTES les organisations depuis le 26/11 (épreuves communes 48 staging et 49 prod vertes ; Robert 25/11 : « 3 oui », apps
+# d'un même Hub connectées nativement). Séquences (envoient des mails) : jamais par défaut. Academy : organisations de test, sa réserve d'abord.
+DELEGATION_SOURCES=crm
 # Événements entre apps (F3) : `notifuse>crm` = tous, `notifuse>crm@<tenant>` = une organisation, `@test` = marquées de test. Vide = fermé. Ouvert ne
 # veut pas dire allumé : clic du propriétaire. Seule ouverte (25/11) : celle de Robert ; le CRM sert sa garde (940b9eb,
 # Liaisons 0.5.0 chez lui), parcours vert en staging (cas 27). Ouvrir une autre organisation : le CRM d'abord.
