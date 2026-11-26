@@ -1,7 +1,10 @@
 /** CSP du Hub : jamais de script inline, report-uri seul, et un rapport ne garde ni query ni extrait de code. */
 import { describe, expect, it } from 'vitest';
 
-import { enteteCsp, nonce, politique, resumerRapport } from '@/lib/security/csp';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { CHEMIN_RAPPORT, enteteCsp, nonce, politique, resumerRapport } from '@/lib/security/csp';
 
 describe('politique', () => {
   it('scripts par nonce seulement, aucun plugin, report-uri sans report-to ; eval seulement en développement', () => {
@@ -28,3 +31,9 @@ describe('resumerRapport', () => {
     expect([JSON.stringify(r).includes('secret'), JSON.stringify(r).includes('alert'), resumerRapport({ rien: 1 }), resumerRapport([{ type: 'csp-violation', body: { effectiveDirective: 'script-src-attr', blockedURL: 'inline', documentURL: 'https://app.veridian.site/x' } }])[0].bloque]).toEqual([false, false, [], 'inline']);
   });
 });
+describe('CHEMIN_RAPPORT', () => {
+  it('est une route servie par le Hub : un rapport envoyé ailleurs se perdrait sans bruit', () => {
+    expect(existsSync(join(process.cwd(), 'app', ...CHEMIN_RAPPORT.split('/').filter(Boolean), 'route.ts'))).toBe(true);
+  });
+});
+
