@@ -14,6 +14,9 @@ export const PAIRES: readonly Paire[] = [
   P('prospection', 'crm', ['crm:societe.ecrire', 'crm:tache.ecrire'], 'Prospection vers CRM : envoyer une fiche au CRM'),
   P('prospection', 'notifuse', ['notifuse:contacts.ecrire'], 'Prospection vers Mail : verser des contacts dans une liste, sans envoi'),
   P('notifuse', 'crm', ['crm:tache.ecrire'], 'Mail vers CRM : une réponse humaine crée une fiche et une tâche', 'evenement'),
+  // Paire à part (26/11) : ajouter une portée à `notifuse>crm` aurait éteint chaque liaison consentie (empreinte des portées) et l'allumage
+  // par défaut. Activité Mail (envoi, remise, ouverture, clic, rejet, désinscription) rangée dans la fiche, sans jamais créer de personne.
+  P('notifuse', 'crm', ['crm:mail.ecrire'], 'Mail vers CRM : l\'activité de chaque message rangée dans la fiche de la personne', 'evenement', '#activite'),
   P('crm', 'notifuse', ['notifuse:contacts.ecrire', 'notifuse:contacts.lire'], 'CRM vers Mail : ajouter des contacts à une liste et lire leur état, sans envoi'),
   // À part : elle fait partir du courrier plus tard. Jamais par défaut, le clic du propriétaire le dit.
   P('crm', 'notifuse', ['notifuse:sequences.inscrire'], 'CRM vers Mail : inscrire un contact dans une séquence, qui lui enverra des mails', 'action', '#sequences'),

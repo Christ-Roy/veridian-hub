@@ -7,7 +7,7 @@ const env = (DELEGATION_CIBLES?: string) => ({ NODE_ENV: 'test', DELEGATION_CIBL
 
 describe('registre des paires', () => {
   it('les paires, une clé chacune, et aucune portée destructive ni complète', () => {
-    expect(PAIRES.map((p) => p.cle)).toEqual(['prospection>crm', 'prospection>notifuse', 'notifuse>crm', 'crm>notifuse', 'crm>notifuse#sequences', 'crm>prospection', 'crm>academy', 'crm>prospection#exclusion']);
+    expect(PAIRES.map((p) => p.cle)).toEqual(['prospection>crm', 'prospection>notifuse', 'notifuse>crm', 'notifuse>crm#activite', 'crm>notifuse', 'crm>notifuse#sequences', 'crm>prospection', 'crm>academy', 'crm>prospection#exclusion']);
     expect(new Set(PAIRES.map((p) => p.cle)).size).toBe(PAIRES.length);
     for (const p of PAIRES) for (const x of p.portees) expect(x).toMatch(new RegExp(`^${p.cible}:[a-z]+\\.(ecrire|lire|inscrire)$`));
   });

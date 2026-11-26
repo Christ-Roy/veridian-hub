@@ -89,7 +89,7 @@ describe('lister, lire, couper', () => {
   it('toutes les paires, l\'état vrai, aucune donnée d\'un autre tenant', async () => {
     db.integrationPaire.lignes.push({ tenantId: 'B', paire: P, etat: 'allumee', consentiLe: new Date(), portees: empreintePortees(paire(P)!), changePar: 'autre', changeLe: new Date() });
     const l = await listerIntegrations(db as never, 'A', ENV);
-    expect(l.map((x) => [x.paire, x.etat])).toEqual([[P, 'eteinte'], ['prospection>notifuse', 'indisponible'], ['notifuse>crm', 'indisponible'], ['crm>notifuse', 'indisponible'], ['crm>notifuse#sequences', 'indisponible'], ['crm>prospection', 'indisponible'], ['crm>academy', 'indisponible'], ['crm>prospection#exclusion', 'indisponible']]);
+    expect(l.map((x) => [x.paire, x.etat])).toEqual([[P, 'eteinte'], ['prospection>notifuse', 'indisponible'], ['notifuse>crm', 'indisponible'], ['notifuse>crm#activite', 'indisponible'], ['crm>notifuse', 'indisponible'], ['crm>notifuse#sequences', 'indisponible'], ['crm>prospection', 'indisponible'], ['crm>academy', 'indisponible'], ['crm>prospection#exclusion', 'indisponible']]);
     expect(JSON.stringify(l)).not.toContain('autre@x.fr');
   });
   it('la page montre qui, quoi, où', async () => {

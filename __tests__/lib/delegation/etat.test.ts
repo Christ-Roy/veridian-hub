@@ -29,7 +29,7 @@ describe('etatDe', () => {
   it('une ligne qui ne garde que le passage ne règle rien', () => expect(etatDe(GESTE, { etat: 'defaut', consentiLe: null, portees: null }, TOUT, true).parDefaut).toBe(true));
   it('une portée élargie, celle qui fait partir du courrier, Academy : jamais par défaut', () => {
     expect(etatDe({ ...GESTE, portees: [...GESTE.portees, 'crm:tout.lire'] }, null, TOUT, true).etat).toBe('eteinte');
-    expect(PAIRES.filter((p) => etatDe(p, null, { ...TOUT, neuve: true }, true).parDefaut).map((p) => p.cle)).toEqual(['prospection>crm', 'prospection>notifuse', 'notifuse>crm', 'crm>notifuse', 'crm>prospection']);
+    expect(PAIRES.filter((p) => etatDe(p, null, { ...TOUT, neuve: true }, true).parDefaut).map((p) => p.cle)).toEqual(['prospection>crm', 'prospection>notifuse', 'notifuse>crm', 'notifuse>crm#activite', 'crm>notifuse', 'crm>prospection']);
   });
 });
 
