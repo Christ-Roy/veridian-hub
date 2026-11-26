@@ -30,7 +30,7 @@ async function robert(browser: Browser) {
   const E = await compte(browser, 'E');
   const F = await compte(browser, 'F');
   if (!E.hubUserId) throw new NonAbouti('compte de test E sans hub_user_id');
-  assurerRybbit(F);
+  assurerRybbit(F, { lier: false }); // relié à E juste après : le script ne relie qu'un compte qui ne l'est à personne
   if (!sabote('adresse-liee') && !sabote('conflit')) rybbitCompte('lier', F.email, E.hubUserId);
   return { E, F };
 }

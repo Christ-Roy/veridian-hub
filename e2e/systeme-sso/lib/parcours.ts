@@ -392,6 +392,8 @@ export async function seDeconnecterDeApp(ctx: BrowserContext, app: AppKey, hote?
         waitUntil: 'domcontentloaded',
       });
       await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
+      // Compte neuf chez Prospection : l'accueil « Bienvenue dans Atlas » couvre le rail tant qu'on ne l'écarte pas (écran du 26/11).
+      if (app === 'prospection') await page.getByRole('button', { name: /^Plus tard$/ }).click({ timeout: 5_000 }).catch(() => {});
       const bouton =
         app === 'prospection'
           ? page.locator('[title^="Se déconnecter"]')

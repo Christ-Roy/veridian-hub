@@ -2,7 +2,7 @@
 import { devraitAvoirPlan } from './lib/assertions';
 import { APP_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
-import { activerTwentyAuHub, admin, planDansApp, planHub, statutNotifuse } from './lib/hub-admin';
+import { activerTwentyAuHub, admin, derniersEspacesLus, planDansApp, planHub, statutNotifuse } from './lib/hub-admin';
 import { assurerRybbit, compte, contexteDe, ouvrirApp } from './lib/monde';
 import { espacesTwenty, noterEspaceTwenty } from './lib/parcours';
 
@@ -62,7 +62,7 @@ async function sensAllerRetour(
     if (!sabote(`plan-${app}`)) await poser(plan);
     const lu = await attendre(lire, (p) => !!p?.includes(plan));
     if (lu === null) throw new Error(`${app} : la découverte ne connaît pas le compte`);
-    devraitAvoirPlan(lu.length === 1 ? lu[0] : lu, plan, `${app} après passage au plan ${plan}`);
+    devraitAvoirPlan(lu.length === 1 ? lu[0] : lu, plan, `${app} après passage au plan ${plan}${lu.length > 1 ? ` (${lu.length} espaces : ${JSON.stringify(derniersEspacesLus()).slice(0, 600)})` : ''}`);
   }
   return 'business puis free relus dans la découverte de l\'app';
 }

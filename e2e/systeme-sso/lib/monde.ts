@@ -63,8 +63,11 @@ export function noterArrivee(app: AppKey, ok: boolean, atterrissage: Atterrissag
   ecrire(m);
 }
 
-/** Crée (une fois) le compte Rybbit du compte de test : sans lui, le rebond répond user_not_in_app. */
-export function assurerRybbit(c: Compte) {
+/**
+ * Crée (une fois) le compte Rybbit du compte de test : sans lui, le rebond répond user_not_in_app.
+ * `lier: false` : le compte reste relié à rien, pour être relié à un AUTRE compte Hub (cas 09) ; le script ne relie qu'un compte libre.
+ */
+export function assurerRybbit(c: Compte, { lier = true }: { lier?: boolean } = {}) {
   const m = lire();
   if ((m.rybbit ?? []).includes(c.email)) return;
   m.rybbit = [...(m.rybbit ?? []), c.email];
@@ -73,7 +76,7 @@ export function assurerRybbit(c: Compte) {
   rybbitCompte('creer', c.email);
   // Analytics reconnaît l'utilisateur par son hub_user_id (HUB_USER_ID_APPS), pas par l'adresse : un compte créé sans
   // ce lien répond « ne connaît pas ce compte » au rebond (23/11). Le vrai parcours le pose (app-access → lierAuHub).
-  if (c.hubUserId) rybbitCompte('lier', c.email, c.hubUserId);
+  if (lier && c.hubUserId) rybbitCompte('lier', c.email, c.hubUserId);
 }
 
 export function reconcileBase() {
