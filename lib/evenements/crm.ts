@@ -51,7 +51,7 @@ export async function ecrireReponseHumaine(db: Pick<PrismaClient, 'mcpApp'>, d: 
   // la fiche créée restait sans prénom ni nom). Ni objet, ni corps ; le CRM relit chez Notifuse.
   // `kind` et `match_type` : déjà vérifiés ici (réponse humaine rattachée à un envoi) ; le CRM les relit pour créer la fiche d'un expéditeur
   // absent (27/11 : « Camille Épreuve-Autre » non créée, le Hub les vérifiait sans les transmettre).
-  const args = { ...(r.nom ? { nom: r.nom } : {}), kind: 'reply_human', match_type: r.matchType, email: r.email, ...(r.contactEmail && r.contactEmail !== r.email ? { contact_email: r.contactEmail } : {}), workspace_id: r.workspaceId, thread_id: r.threadId ?? r.messageId, message_id: r.messageId, rfc_message_id: r.rfcMessageId, survenu_le: r.survenuLe, idempotency_key: r.evenementId, chaine: [...d.chaine, `notifuse>crm:${r.evenementId}`] };
+  const args = { ...(r.nom ? { nom: r.nom } : {}), kind: 'reply_human', match_type: r.matchType, email: r.email, ...(r.contactEmail && r.contactEmail !== r.email ? { contact_email: r.contactEmail } : {}), ...(r.objet ? { subject: r.objet } : {}), workspace_id: r.workspaceId, thread_id: r.threadId ?? r.messageId, message_id: r.messageId, rfc_message_id: r.rfcMessageId, survenu_le: r.survenuLe, idempotency_key: r.evenementId, chaine: [...d.chaine, `notifuse>crm:${r.evenementId}`] };
   const res = (await new SessionApp(url, jeton, fetchImpl, { entetes: { 'Idempotency-Key': r.evenementId } }).appeler(OUTIL_CRM, args)) as { isError?: boolean } | null | undefined;
   // Le succès se lit (`ok: true`), il ne se déduit pas d'une absence d'erreur : le CRM refuse aussi en 200, `success: false` dans le texte (24/11).
   const o = res && typeof res === 'object' && !res.isError ? lire(res) : null;

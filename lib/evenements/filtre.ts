@@ -1,11 +1,11 @@
 /**
  * Ce que le Hub retient d'un `message.received` de Notifuse : une VRAIE réponse humaine à un envoi (`kind = reply_human` ET `match_type` dans
  * message_id, subject ; BOITE-UNIFIEE.md). Rebonds, accusés, réponses automatiques, DSN, contacts qui écrivent sans répondre : ignorés.
- * On ne copie jamais l'objet, l'expéditeur ni le corps : l'événement est un signal, le CRM relit chez Notifuse.
+ * Ni corps ni pièce : l'événement est un signal. L'objet (tronqué à 200) et l'expéditeur partent au CRM, rien n'est gardé au Hub.
  */
 import { z } from 'zod';
 
-export type Reponse = { workspaceId: string; evenementId: string; matchType: 'message_id' | 'subject'; contactEmail: string | null; messageId: string; rfcMessageId: string | null; email: string; threadId: string | null; survenuLe: string | null; nom: string | null };
+export type Reponse = { workspaceId: string; evenementId: string; matchType: 'message_id' | 'subject'; contactEmail: string | null; objet: string | null; messageId: string; rfcMessageId: string | null; email: string; threadId: string | null; survenuLe: string | null; nom: string | null };
 export type Analyse = { statut: 'invalide' } | { statut: 'ignore'; raison: string } | { statut: 'reponse'; reponse: Reponse };
 
 const Texte = z.string().min(1).max(512);
@@ -22,6 +22,8 @@ const Evenement = z.object({
     // `email` : le CONTACT rattaché au message (choisi par `match_type`) ; `from` : l'expéditeur réel (Mail, 27/11, dedupsql.go).
     email: z.string().max(254).optional(),
     from: z.string().max(254).nullish(),
+    // L'objet, tronqué à 200 comme dans les lots (§5.25) : relayé au CRM pour la ligne « Reçu », jamais gardé ni journalisé au Hub.
+    subject: z.string().max(4000).nullish(),
     thread_id: z.string().max(128).nullish(),
     event_timestamp: z.string().max(64).nullish(),
     // Nom affiché de l'expéditeur (« Prénom Nom »), pour que la fiche CRM ne reste pas sans nom (VER-247, parente 26/11).
@@ -44,7 +46,7 @@ export function analyserMessageRecu(json: unknown): Analyse {
   const email = valide(d.from) ?? contactEmail ?? '';
   if (!d.message_id) return { statut: 'invalide' };
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { statut: 'ignore', raison: 'email_invalide' };
-  return { statut: 'reponse', reponse: { workspaceId, evenementId: id, matchType: d.match_type, contactEmail, messageId: d.message_id, rfcMessageId: normaliserRfc(d.rfc_message_id), email, threadId: d.thread_id ?? null, survenuLe: d.event_timestamp ?? null, nom: nomAffiche(d.from_name) } };
+  return { statut: 'reponse', reponse: { workspaceId, evenementId: id, matchType: d.match_type, contactEmail, objet: d.subject ? d.subject.slice(0, 200) : null, messageId: d.message_id, rfcMessageId: normaliserRfc(d.rfc_message_id), email, threadId: d.thread_id ?? null, survenuLe: d.event_timestamp ?? null, nom: nomAffiche(d.from_name) } };
 }
 
 /**

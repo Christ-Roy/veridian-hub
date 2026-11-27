@@ -6,7 +6,7 @@ import { jwksPublic } from '@/lib/mcp/identite';
 
 import { base, cleDeTest } from './fausse';
 
-const R = { workspaceId: 'ws1', evenementId: 'liv-1', matchType: 'message_id' as const, contactEmail: null as string | null, messageId: 'm-1', rfcMessageId: 'abc@x', email: 'c@x.test', threadId: 't_1', survenuLe: null, nom: null as string | null };
+const R = { workspaceId: 'ws1', evenementId: 'liv-1', matchType: 'message_id' as const, contactEmail: null as string | null, objet: null as string | null, messageId: 'm-1', rfcMessageId: 'abc@x', email: 'c@x.test', threadId: 't_1', survenuLe: null, nom: null as string | null };
 let env: NodeJS.ProcessEnv;
 let db: ReturnType<typeof base>;
 beforeAll(async () => { env = await cleDeTest(); });
@@ -94,7 +94,9 @@ describe('ecrireReponseHumaine : expéditeur et contact', () => {
     const f = vi.fn(async () => json({ jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: '{"ok":true}' }] } }));
     await ecrireReponseHumaine(db as never, { tenantId: 'T', reponse: { ...R, email: 'camille@autre.test', contactEmail: 'c@x.test' }, chaine: [] }, env, f as never);
     const a = JSON.parse((f.mock.calls[0] as unknown as [string, RequestInit])[1].body as string).params.arguments;
-    expect([a.email, a.contact_email]).toEqual(['camille@autre.test', 'c@x.test']);
+    expect([a.email, a.contact_email, a.subject]).toEqual(['camille@autre.test', 'c@x.test', undefined]);
+    await ecrireReponseHumaine(db as never, { tenantId: 'T', reponse: { ...R, objet: 'Re: Offre' }, chaine: [] }, env, f as never);
+    expect(JSON.parse((f.mock.calls[1] as unknown as [string, RequestInit])[1].body as string).params.arguments.subject).toBe('Re: Offre');
   });
 });
 

@@ -6,12 +6,14 @@ const ev = (data: Record<string, unknown> = {}, o: Record<string, unknown> = {})
 
 describe('analyserMessageRecu', () => {
   it('une vraie réponse humaine rattachée passe, adresse et Message-ID normalisés', () => {
-    expect(analyserMessageRecu(ev())).toEqual({ statut: 'reponse', reponse: { workspaceId: 'ws1', evenementId: 'liv-1', matchType: 'message_id', contactEmail: 'contact@exemple.test', messageId: 'm-1', rfcMessageId: 'abc@mail.test', email: 'contact@exemple.test', threadId: 't_1', survenuLe: '2026-11-24T16:49:50Z', nom: null } });
+    expect(analyserMessageRecu(ev())).toEqual({ statut: 'reponse', reponse: { workspaceId: 'ws1', evenementId: 'liv-1', matchType: 'message_id', contactEmail: 'contact@exemple.test', objet: 'Re: secret', messageId: 'm-1', rfcMessageId: 'abc@mail.test', email: 'contact@exemple.test', threadId: 't_1', survenuLe: '2026-11-24T16:49:50Z', nom: null } });
     expect(analyserMessageRecu(ev({ match_type: 'subject' })).statut).toBe('reponse');
   });
-  it('jamais l\'objet, l\'expéditeur ni le corps dans ce qui est retenu', () => {
+  it('jamais le corps dans ce qui est retenu ; l\'objet seulement, tronqué à 200 (relayé au CRM, CRM 27/11, comme dans les lots §5.25)', () => {
     const s = JSON.stringify(analyserMessageRecu(ev({ body: 'corps confidentiel' })));
-    for (const m of ['secret', 'confidentiel', 'from']) expect(s).not.toContain(m);
+    expect(s).not.toContain('confidentiel');
+    const long = analyserMessageRecu(ev({ subject: 'x'.repeat(500) })) as { reponse: { objet: string } };
+    expect(long.reponse.objet.length).toBe(200);
   });
   it('rebond, accusé, réponse automatique, DSN, autre : ignorés', () => {
     for (const kind of ['bounce_hard', 'bounce_soft', 'reply_auto', 'dsn', 'other']) expect(analyserMessageRecu(ev({ kind }))).toEqual({ statut: 'ignore', raison: `kind_${kind}` });

@@ -157,7 +157,7 @@ describe('recevoirNotifuse', () => {
     expect(db.integrationPaire.lignes[0].derniereErreur).toBe('pause_disjoncteur');
   });
   it('un échec n\'est pas compté comme une écriture ; l\'audit et la base ne gardent ni adresse, ni objet, ni secret', async () => {
-    await envoyer(evt());
+    await envoyer(evt('liv-1', { subject: 'Re: objet-confidentiel' }));
     const tout = JSON.stringify([db.evenementRecu.lignes, db.integrationLien.lignes, db.auditLog.lignes, db.evenementAbonnement.lignes, db.integrationPaire.lignes, db.integrationPause.lignes]);
     for (const interdit of ['c@x.test', 'confidentiel', 'secret-de-test', SECRET.slice(6)]) expect(tout).not.toContain(interdit);
     expect(db.auditLog.lignes[0]).toMatchObject({ action: 'evenement.recu', payload: { paire: 'notifuse>crm', evenement_id: 'liv-1' } });

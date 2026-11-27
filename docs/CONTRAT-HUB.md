@@ -1864,7 +1864,8 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
   allumer pose l'abonnement `message.received` chez Notifuse (`/api/hub/evenements/abonnement`), couper le retire. Le Hub reçoit sur
   `POST /api/evenements/notifuse` (Standard Webhooks, dédoublonné), ne garde ni objet ni corps. Champs de Mail (27/11) : `data.email` = le
   CONTACT rattaché au message (choisi par `match_type`), `data.from` = l'EXPÉDITEUR réel, `data.from_name` = son nom affiché. Le Hub relaie
-  `email` = l'expéditeur (repli : le contact si `from` manque), `contact_email` = le contact quand il diffère, `nom`, `kind`, `match_type`
+  `email` = l'expéditeur (repli : le contact si `from` manque), `contact_email` = le contact quand il diffère, `nom`, `kind`, `match_type`,
+  `subject` (tronqué à 200, comme dans les lots ; relayé, jamais gardé ni journalisé au Hub)
   (une collègue qui répond depuis une autre adresse a sa propre fiche). Il appelle `app_reponse_humaine` avec
   `sub = integration:<hub_tenant_id>`, `act.sub = app:notifuse`, `crm:tache.ecrire`, 120 s. **Reçu liaison éteinte, un événement est acquitté donc
   PERDU, c'est voulu.** Disjoncteur : 5 écritures en 10 min par contact. Jamais échangeable contre la poignée d'un utilisateur.
