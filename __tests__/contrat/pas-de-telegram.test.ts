@@ -21,6 +21,10 @@ describe('plus de Telegram dans le code applicatif', () => {
     expect(SOURCES.length).toBeGreaterThan(50);
   });
 
+  it('le job ne rend plus aucune variable Telegram (27/11 : TELEGRAM_BOT_TOKEN, ALERT_CHAT_ID retirés de deploy/hub.nomad.hcl)', () => {
+    expect(MOTIF.test(code('deploy/hub.nomad.hcl'))).toBe(false);
+  });
+
   it('aucune source applicative ne nomme Telegram', () => {
     const fautives = SOURCES.filter((f) => MOTIF.test(code(f)));
     expect(fautives).toEqual([]);
