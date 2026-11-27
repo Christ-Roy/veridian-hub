@@ -32,6 +32,8 @@ const APPS: { app: AppFenetre; chemin: string }[] = [
   { app: 'academy', chemin: '/cours/environnement/dossier-au-tresor' },
   { app: 'notifuse', chemin: '/' }, // Mail : sert §5.24 et §5.24.1 depuis f7eb4e68 (27/11)
 ];
+/** Les apps qui servent la carte enrichie (installation en un clic, adresse MCP, commande) ; les autres s'y ajoutent quand elles la servent. */
+const CARTE_ENRICHIE = new Set<AppFenetre>(['academy']);
 const urlDe = (app: AppFenetre) => (app === 'academy' ? ACADEMY_URL : APP_URL[app]);
 
 /** Ouvre l'app pour l'organisation du compte, puis y entre par le rebond du Hub. Academy : ouverte par la route d'administration (comme la recette, cas 50). */
@@ -118,7 +120,18 @@ for (const { app, chemin } of APPS.filter((x) => !process.env.SSO_MON_IA_APP || 
       // Jamais une clé PROPOSÉE (« votre clé », « clé d'API », un champ) ; « sans clé » est l'assurance du contrat (Prospection, 26/11 : l'ancien
       // \bcl[ée]\b ne tenait que par accident, \b sans drapeau u ne voit pas la frontière après « é »).
       expect(await carte.innerText(), 'aucune clé proposée').not.toMatch(PROPOSE_UNE_CLE);
-      expect(await carte.locator('input, textarea').count(), 'aucun champ dans la carte').toBe(0);
+      expect(await carte.locator('textarea, input:not([readonly])').count(), 'aucun champ de saisie dans la carte').toBe(0);
+      // Carte enrichie (§5.24.1, parente 27/11) : les liens lus chez le Hub, un par entrée d'assistants[] (jamais un nombre fixe),
+      // l'adresse MCP et la commande Claude Code. Seulement pour les apps qui la servent déjà.
+      if (CARTE_ENRICHIE.has(app)) {
+        const l = (await (await fetch(`${HUB_URL}/api/mcp/liens-installation?app=${app}`)).json()) as { url: string; claudeCode: string; assistants: { cle: string; installation: string }[] };
+        const vu = await carte.evaluate((el) => ({
+          liens: Array.from(el.querySelectorAll('a[href]')).map((a) => a.getAttribute('href') ?? ''),
+          texte: `${(el as HTMLElement).innerText} ${Array.from(el.querySelectorAll('input')).map((i) => (i as HTMLInputElement).value).join(' ')}`,
+        }));
+        expect(l.assistants.filter((a) => !vu.liens.includes(a.installation)).map((a) => a.cle), 'carte : un bouton par assistant, lien du Hub').toEqual([]);
+        expect([vu.texte.includes(l.url), vu.texte.includes(l.claudeCode)], 'carte : adresse MCP et commande Claude Code').toEqual([true, true]);
+      }
       await p1.waitForTimeout(2_000);
       expect(await cadreDe(p1).count(), 'sans moteur, après le clic : aucun cadre').toBe(0);
       await p1.screenshot({ path: `.run/captures/mon-ia-${app}-sans-moteur.png` });
