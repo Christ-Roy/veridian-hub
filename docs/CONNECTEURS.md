@@ -39,3 +39,18 @@ Ouvrir, et inscrire Veridian chez un tiers, sont des gestes de Robert. Aucune é
 Éprouvé : service jetable complet (`e2e/systeme-sso/lib/service-jetable.ts`), chaque garde retirée une à une (`lourd node scripts/sabotages-connecteurs.mjs`).
 NON PROUVÉ : un consentement réel ; que les hôtes réels soient tous celui du serveur MCP (sinon refus) ; les noms de compte (`workspace_name`) rendus ;
 qu'un service réponde en JSON ou ferme son flux.
+
+## Relevé VER-114 (27/11/2026) : la liste d'Academy contre ce que le Hub sert
+
+Mesure : métadonnées OAuth PUBLIQUES de chaque serveur MCP officiel (`/.well-known/oauth-authorization-server`, ou la ressource protégée puis son
+serveur d'autorisation), lues sans rien inscrire ; contrôle positif : les quatre services du registre annoncent bien l'inscription automatique.
+**Branché et éprouvé par une vraie connexion : aucun.** Registre : Notion, Linear, Webflow, Sentry, inscrits chez eux, FERMÉS, aucun outil relu.
+Les quatre clients OAuth classiques créés le 07/11 (Cloudflare, Google, Microsoft, Supabase, `INTEG_*` au coffre) ne sont lus par aucun code du Hub.
+
+| Groupe | Services | Ce qu'il faut |
+|---|---|---|
+| A. Sans rien créer chez eux : MCP officiel, inscription automatique annoncée | Atlassian, Vercel, Neon, Figma, Netlify, Cloudflare (observability), GitLab, Airtable, Make, Supabase, PostHog, Todoist, Calendly | Une entrée au registre (Hub), puis l'éprouver jusqu'à l'écran de consentement : le compte est celui de la PERSONNE, Veridian n'a pas à en avoir un. Ouvrir et relire les outils restent des gestes de Robert. Annoncée ≠ acceptée (Canva enregistrait puis refusait notre retour) |
+| B. Une application chez le fournisseur (geste de Robert) | HubSpot, Asana (pas d'inscription automatique), GitHub (pas de métadonnées OAuth du MCP : GitHub App sur `Veridian-site`, validation mobile), Pipedrive (aucune ressource protégée annoncée) ; Google, Microsoft (clients classiques déjà créés : il manque un connecteur OAuth classique au Hub, et la vérification des portées chez Google) | |
+| C. Impossible | Stripe (annonce l'inscription, mais déplace de l'argent : jamais au registre) ; Canva (retiré, retour refusé) | |
+
+Neon n'est plus « impossible » : son MCP accepte l'inscription automatique, sans programme partenaires.
