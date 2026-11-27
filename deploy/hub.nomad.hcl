@@ -99,6 +99,13 @@ job "hub" {
       weight    = 100
     }
 
+    # Jamais deux copies sur le même nœud (parente et infra, 27/11 ; lint CIBLE-MEME-NOEUD) : le canari part donc sur l'autre nœud
+    # d'application, et une panne de nœud n'emporte jamais tout le Hub.
+    constraint {
+      operator = "distinct_hosts"
+      value    = "true"
+    }
+
     restart {
       attempts = 10
       interval = "10m"
