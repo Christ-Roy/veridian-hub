@@ -44,7 +44,7 @@ qu'un service réponde en JSON ou ferme son flux.
 
 Mesure : métadonnées OAuth PUBLIQUES de chaque serveur MCP officiel (`/.well-known/oauth-authorization-server`, ou la ressource protégée puis son
 serveur d'autorisation), lues sans rien inscrire ; contrôle positif : les quatre services du registre annoncent bien l'inscription automatique.
-**Branché et éprouvé par une vraie connexion : aucun.** Registre : Notion, Linear, Webflow, Sentry, inscrits chez eux, FERMÉS, aucun outil relu.
+**Branché et éprouvé par une vraie connexion : aucun.** Registre : 14 services inscrits chez eux, ouverts à Robert seul, aucun outil relu (sonde ci-dessous).
 Les quatre clients OAuth classiques créés le 07/11 (Cloudflare, Google, Microsoft, Supabase, `INTEG_*` au coffre) ne sont lus par aucun code du Hub.
 
 | Groupe | Services | Ce qu'il faut |
@@ -54,6 +54,18 @@ Les quatre clients OAuth classiques créés le 07/11 (Cloudflare, Google, Micros
 | C. Impossible | Stripe (annonce l'inscription, mais déplace de l'argent : jamais au registre) ; Canva (retiré, retour refusé) | |
 
 Neon n'est plus « impossible » : son MCP accepte l'inscription automatique, sans programme partenaires.
+
+**Sonde du 27/11 14:41Z** (`POST /api/admin/connecteurs {connecteur}` : inscription, relecture du client, départ lu sans suivre les redirections ;
+`accepte` = un code revient chez nous, `ecran` = page de connexion du service, `refus` = erreur chez nous, page d'erreur du service ou HTTP en échec) :
+
+| Service | Verdict | Suite |
+|---|---|---|
+| Notion, Linear, Webflow, Sentry | écran | au registre depuis le 25/11 |
+| Atlassian, Netlify, Cloudflare, GitLab, Airtable, Make, Supabase, PostHog, Todoist, Calendly | inscrit, client relu, écran | **promus au registre** (fermés, aucun outil servi avant relecture) |
+| Neon | inscription rendue en **200** au lieu de 201 : refusée par openid-client | tolérée depuis (seulement le 200 d'un POST à l'adresse d'inscription annoncée) ; reste candidat jusqu'à l'écran vu |
+| Vercel | 400 `invalid_redirect_uri` : n'approuve que ses propres adresses de retour | **retiré** (rejoué à la main) |
+| Figma | 403 à l'inscription : réservée à des clients approuvés | **retiré** |
+| Google Drive, Google Agenda | page d'erreur Google (`/signin/oauth/error`) : adresse de retour absente du client | geste de Robert ci-dessous ; la sonde classait cette page « écran », corrigé (une page d'erreur du service est un refus) |
 
 ## Premières connexions de Robert (une ligne par service)
 
@@ -66,7 +78,8 @@ pour les candidats, l'inscription de Veridian chez eux. Ensuite, connecté à ap
 | Linear | Brancher Linear → écran Linear : choisir l'équipe → Autoriser | idem |
 | Webflow | Brancher Webflow → écran Webflow : choisir le site → Autoriser | idem |
 | Sentry | Brancher Sentry → écran Sentry : choisir l'organisation → Autoriser | idem |
-| Candidats (13) | Même ligne, une fois chacun passé au registre (inscription acceptée et relue) | idem |
+| Atlassian, Netlify, Cloudflare, GitLab, Airtable, Make, Supabase, PostHog, Todoist, Calendly | Brancher → écran du service : se connecter, choisir l'espace → Autoriser | idem |
+| Neon, Google Drive, Google Agenda | Même ligne, une fois l'écran vu par la sonde (Google : après son geste dans la console) | idem |
 
 Le Hub ouvre à tous (`CONNECTEURS_OUVERTS=1`) seulement quand les outils d'un service sont relus. Couper reste possible à tout moment.
 

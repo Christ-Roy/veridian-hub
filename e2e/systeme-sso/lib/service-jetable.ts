@@ -5,7 +5,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 
-export type MensongeService = null | 'retour_refuse' | 'sans_enregistrement' | 'state' | 'jeton_refuse' | 'refresh_refuse' | 'panne' | 'sans_refresh' | 'secret_exige' | 'jeton_ailleurs' | 'revocation_ailleurs' | 'autorisation_ailleurs' | 'enregistrement_ailleurs' | 'gestion_ailleurs' | 'redirige' | 'enorme' | 'lent' | 'goutte' | 'sans_revocation' | 'revocation_refusee' | 'sans_gestion' | 'mcp_erreur' | 'mcp_redirige' | 'mcp_enorme';
+export type MensongeService = null | 'retour_refuse' | 'sans_enregistrement' | 'state' | 'jeton_refuse' | 'refresh_refuse' | 'panne' | 'sans_refresh' | 'secret_exige' | 'jeton_ailleurs' | 'revocation_ailleurs' | 'autorisation_ailleurs' | 'enregistrement_ailleurs' | 'gestion_ailleurs' | 'redirige' | 'enorme' | 'lent' | 'goutte' | 'sans_revocation' | 'revocation_refusee' | 'sans_gestion' | 'mcp_erreur' | 'mcp_redirige' | 'mcp_enorme' | 'inscription_200';
 
 type OutilJetable = { name: string; description?: string; inputSchema?: unknown; annotations?: Record<string, unknown> };
 export const OUTILS_JETABLES: readonly OutilJetable[] = [
@@ -58,7 +58,7 @@ export async function ouvrirService() {
         const secret = d.token_endpoint_auth_method === 'none' ? null : neuf();
         const gestion = neuf();
         clients.set(id, { retours: d.redirect_uris, secret, gestion });
-        return json({ client_id: id, ...(mensonge === 'sans_gestion' ? {} : { registration_access_token: gestion, registration_client_uri: `${mensonge === 'gestion_ailleurs' ? ailleurs : base}/register/${id}` }), ...(secret ? { client_secret: secret, client_secret_expires_at: 0 } : {}), redirect_uris: d.redirect_uris, token_endpoint_auth_method: d.token_endpoint_auth_method }, 201);
+        return json({ client_id: id, ...(mensonge === 'sans_gestion' ? {} : { registration_access_token: gestion, registration_client_uri: `${mensonge === 'gestion_ailleurs' ? ailleurs : base}/register/${id}` }), ...(secret ? { client_secret: secret, client_secret_expires_at: 0 } : {}), redirect_uris: d.redirect_uris, token_endpoint_auth_method: d.token_endpoint_auth_method }, mensonge === 'inscription_200' ? 200 : 201);
       }
       if (u.pathname.startsWith('/register/') && req.method === 'DELETE') {
         const id = u.pathname.slice('/register/'.length);

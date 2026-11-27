@@ -5,7 +5,7 @@ import { CANDIDATS, connecteur, CONNECTEURS, connecteursOuverts, outilRelu, sait
 
 it('CONNECTEURS : HTTPS, une clé à soi, jamais le nom d\'une de nos apps ni un service d\'argent', () => {
   expect(CONNECTEURS.every((c) => c.mcpUrl.startsWith('https://') && /^[a-z]{3,20}$/.test(c.cle))).toBe(true);
-  expect(CONNECTEURS.map((c) => c.cle), 'seulement ceux dont on a vu l\'écran').toEqual(['notion', 'linear', 'webflow', 'sentry']);
+  expect(CONNECTEURS.map((c) => c.cle), 'seulement ceux dont on a vu l\'écran').toEqual(['notion', 'linear', 'webflow', 'sentry', 'atlassian', 'netlify', 'cloudflare', 'gitlab', 'airtable', 'make', 'supabase', 'posthog', 'todoist', 'calendly']);
   expect(new Set(CONNECTEURS.map((c) => c.cle)).size).toBe(CONNECTEURS.length);
   expect(CONNECTEURS.filter((c) => ['hub', 'notifuse', 'prospection', 'analytics', 'twenty', 'crm', 'academy', 'cms', 'stripe', 'paypal'].includes(c.cle))).toEqual([]);
 });
@@ -17,16 +17,23 @@ it('connecteursOuverts : fermé par défaut, « 1 » ouvre à tous, « @id » à
   expect(connecteursOuverts('h1', { CONNECTEURS_OUVERTS: 'h1' } as never), 'sans @ : rien').toBe(false);
 });
 it('CANDIDATS (VER-114) : jamais servis, disjoints du registre, HTTPS, PKCE de rigueur, jamais un service d\'argent', () => {
-  expect(CANDIDATS.length).toBe(15);
+  expect(CANDIDATS.map((c) => c.cle)).toEqual(['neon', 'gdrive', 'gagenda']);
   expect(CANDIDATS.every((c) => c.mcpUrl.startsWith('https://') && c.oauth.emetteur.startsWith('https://') && (Boolean(c.oauth.enregistrement) || Boolean(c.preinscrit)) && /^[a-z]{3,20}$/.test(c.cle))).toBe(true);
   expect(CANDIDATS.filter((c) => connecteur(c.cle) !== null || CONNECTEURS.some((x) => x.cle === c.cle)).map((c) => c.cle), 'un candidat n\'est pas servi').toEqual([]);
   expect(CANDIDATS.filter((c) => ['stripe', 'paypal', 'canva'].includes(c.cle))).toEqual([]);
   expect(CANDIDATS.every((c) => Object.keys(c.outils).length === 0)).toBe(true);
 });
-it('hôtes figés : chacun s\'autorise chez lui, sur l\'hôte de son serveur MCP', () => {
-  for (const c of CONNECTEURS) {
+it('hôtes figés : les quatre premiers s\'autorisent chez eux, sur l\'hôte de leur serveur MCP', () => {
+  for (const c of CONNECTEURS.slice(0, 4)) {
     const h = new URL(c.mcpUrl).host;
     expect([c.oauth, /^[a-z0-9.-]+$/.test(h)]).toEqual([{ emetteur: `https://${h}`, autorisation: h, jeton: h, enregistrement: h, revocation: h }, true]);
+  }
+});
+it('hôtes figés des promus (27/11) : HTTPS, chaque rôle un hôte nu, l\'inscription annoncée, jamais un hôte de Veridian', () => {
+  const hote = /^[a-z0-9.-]+(:\d+)?$/;
+  for (const c of CONNECTEURS.slice(4)) {
+    const o = c.oauth;
+    expect([o.emetteur.startsWith('https://'), [o.autorisation, o.jeton, o.enregistrement].every((h) => hote.test(h)), o.revocation === '' || hote.test(o.revocation), Object.values(o).some((h) => /veridian/.test(h))], c.cle).toEqual([true, true, true, false]);
   }
 });
 it('outils : empreinte entière, et jamais un nom d\'écriture classé en lecture', () => {
