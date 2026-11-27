@@ -31,7 +31,7 @@ describe('lib/analytics/track-event', () => {
     it('prod : Rybbit, site veridian.site (2)', () => {
       process.env.DEPLOY_ENV = 'prod';
       expect(resolveTrackBaseUrl()).toBe('https://analytics.app.veridian.site');
-      expect(resolveSiteId()).toBe('2');
+      expect(resolveSiteId(), 'le site serveur, jamais la vitrine (2)').toBe('44');
     });
     it('jamais l\'ancien moteur G2', () => {
       process.env.DEPLOY_ENV = 'prod';
@@ -67,13 +67,13 @@ describe('lib/analytics/track-event', () => {
       const body = JSON.parse(String(init.body));
       expect(body).toMatchObject({
         type: 'custom_event',
-        site_id: '2',
+        site_id: '44',
         event_name: 'signup',
         user_id: 'client@exemple.fr',
         hostname: 'app.veridian.site',
         pathname: '/',
       });
-      expect(JSON.parse(body.properties)).toEqual({ provider: 'google', session: 'hub-u1', source: 'hub', session_serveur: '1' });
+      expect(JSON.parse(body.properties)).toEqual({ provider: 'google', session: 'hub-u1', source: 'hub' });
       expect((init.headers as Record<string, string>)['User-Agent']).toMatch(/^Mozilla\//);
     });
 
@@ -86,7 +86,7 @@ describe('lib/analytics/track-event', () => {
       const corps = fetchImpl.mock.calls.map((c) => JSON.parse(String((c as unknown as [string, RequestInit])[1].body)));
       expect(corps).toHaveLength(2);
       expect(corps.every((b) => b.anonymous_id === 'hub-u1')).toBe(true);
-      expect(corps.every((b) => JSON.parse(b.properties).session_serveur === '1')).toBe(true);
+      expect(corps.every((b) => !('session_serveur' in JSON.parse(b.properties)))).toBe(true);
     });
 
     it.each(['e2e-sso-abc@veridian.site', 'e2e-x@exemple.fr', 'recette-ver230@exemple.fr', 'recette', 'robert-test_1@x.fr', 'E2E-Sso-A@Veridian.site'])(

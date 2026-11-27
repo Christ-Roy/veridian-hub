@@ -31,8 +31,11 @@ import { isIP } from 'node:net';
 import { ipClient } from '@/lib/auth/ip-client';
 import { estIdentiteDeTestAnalytics } from '@/lib/email/compte-de-test';
 
-/** Site Rybbit du tunnel : veridian.site. Surchargé par `ANALYTICS_TRACK_SITE_ID`. */
-const SITE_PROD = '2';
+/**
+ * Site Rybbit des événements serveur du Hub : « Veridian app (serveur) », app.veridian.site (44, créé par Analytics le 27/11). Jamais la
+ * vitrine (site 2) : un événement serveur y ouvrait une session sans page vue (55 sur 97 en 30 jours). Surchargé par `ANALYTICS_TRACK_SITE_ID`.
+ */
+const SITE_PROD = '44';
 
 /** URL publique de Rybbit (son `/api/track` est public, sans secret). */
 const DEFAULT_TRACK_URL_PROD = 'https://analytics.app.veridian.site';
@@ -135,12 +138,13 @@ export async function trackGoal(
       user_id: userId,
       // Identité de navigateur stable par utilisateur (`hub-<uuid>`) : signup puis app_started d'un même compte tombent
       // dans UNE session, pas une par événement. Le Hub n'a pas le visiteur de la vitrine (localStorage d'une autre
-      // origine) : il ne peut pas rejoindre sa session, d'où le drapeau `session_serveur` ci-dessous.
+      // origine) : il ne peut pas rejoindre sa session. Ces événements partent donc sur un site serveur à part (ANALYTICS_TRACK_SITE_ID,
+      // choix d'Analytics le 27/11), pour ne pas fausser les visites de la vitrine.
       anonymous_id: input.sessionId,
       language: 'fr-FR',
       screenWidth: 1920,
       screenHeight: 1080,
-      properties: JSON.stringify({ ...(input.properties ?? {}), session: input.sessionId, source: 'hub', session_serveur: '1' }),
+      properties: JSON.stringify({ ...(input.properties ?? {}), session: input.sessionId, source: 'hub' }),
     });
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
