@@ -117,6 +117,9 @@ for (const { app, chemin } of APPS.filter((x) => !process.env.SSO_MON_IA_APP || 
       await expect(carte, 'la carte du connecteur').toBeVisible({ timeout: 10_000 });
       const lien = carte.locator(`a[href="${HUB_URL}/dashboard/ia"]`).first();
       expect([await lien.getAttribute('href'), await lien.getAttribute('target')], 'la carte mène au connecteur du Hub, nouvel onglet').toEqual([`${HUB_URL}/dashboard/ia`, '_blank']);
+      // Atteignable à l'écran, pas seulement présent dans la page (27/11 : carte d'Academy coupée sous la commande à 1280×720).
+      await lien.scrollIntoViewIfNeeded({ timeout: 5_000 }).catch(() => undefined);
+      await expect(lien, 'le lien final de la carte est atteignable à l\'écran').toBeInViewport({ timeout: 5_000 });
       // Jamais une clé PROPOSÉE (« votre clé », « clé d'API », un champ) ; « sans clé » est l'assurance du contrat (Prospection, 26/11 : l'ancien
       // \bcl[ée]\b ne tenait que par accident, \b sans drapeau u ne voit pas la frontière après « é »).
       expect(await carte.innerText(), 'aucune clé proposée').not.toMatch(PROPOSE_UNE_CLE);
