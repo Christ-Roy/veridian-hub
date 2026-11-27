@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { analyserMessageRecu, nomAffiche } from '@/lib/evenements/filtre';
+import { analyserMessageRecu, nomAffiche, normaliserRfc } from '@/lib/evenements/filtre';
 
 const ev = (data: Record<string, unknown> = {}, o: Record<string, unknown> = {}) => ({ id: 'liv-1', type: 'message.received', workspace_id: 'ws1', timestamp: '2026-11-24T16:49:52Z', data: { message_id: 'm-1', rfc_message_id: 'ABC@mail.test', kind: 'reply_human', match_type: 'message_id', direction: 'in', email: 'Contact@Exemple.test', thread_id: 't_1', subject: 'Re: secret', from: 'contact@exemple.test', event_timestamp: '2026-11-24T16:49:50Z', ...data }, ...o });
 
@@ -40,5 +40,12 @@ describe('nomAffiche', () => {
   it('l\'identité est l\'expéditeur (data.from), pas le contact rattaché (data.email) : une collègue qui répond depuis une autre adresse (27/11)', () => {
     const a = analyserMessageRecu(ev({ from: 'Camille@Autre.Test' } as never)) as { reponse: { email: string; contactEmail: string } };
     expect([a.reponse.email, a.reponse.contactEmail]).toEqual(['camille@autre.test', 'contact@exemple.test']);
+  });
+});
+
+describe('normaliserRfc', () => {
+  it('la même clé dans les deux canaux, avec ou sans chevrons, casse et espaces (CRM, 27/11 : sinon deux lignes)', () => {
+    expect([normaliserRfc(' <ABC@Mail.Test> '), normaliserRfc('abc@mail.test'), normaliserRfc('<>'), normaliserRfc(null)]).toEqual(['abc@mail.test', 'abc@mail.test', null, null]);
+    expect((analyserMessageRecu({ id: 'liv-9', type: 'message.received', workspace_id: 'ws1', data: { message_id: 'm', rfc_message_id: '<ABC@Mail.Test>', kind: 'reply_human', match_type: 'message_id', email: 'c@x.test' } }) as { reponse: { rfcMessageId: string } }).reponse.rfcMessageId).toBe('abc@mail.test');
   });
 });

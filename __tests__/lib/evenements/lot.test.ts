@@ -42,7 +42,7 @@ describe('recevoirLot', () => {
   it('un lot signé par l\'espace est relayé au CRM (app_evenements_mail, portée crm:mail.ecrire) ; le même lot rejoué : doublons, sans nouvel appel', async () => {
     const l = lot([ev(), ev({ event: 'message.opened' })]);
     expect(await envoyer(l)).toMatchObject({ statut: 200, corps: { acceptes: 2, doublons: 0, ignores: [], crm: { creees: 1 } } });
-    expect(argsCrm()).toMatchObject({ name: 'app_evenements_mail', arguments: { workspace_id: 'ws1', evenements: [{ recipient_email: 'client@exemple.fr', rfc_message_id: '<a@mail.test>' }, { event: 'message.opened' }] } });
+    expect(argsCrm()).toMatchObject({ name: 'app_evenements_mail', arguments: { workspace_id: 'ws1', evenements: [{ recipient_email: 'client@exemple.fr', rfc_message_id: 'a@mail.test' }, { event: 'message.opened' }] } });
     expect(await envoyer(l)).toMatchObject({ statut: 200, corps: { acceptes: 0, doublons: 2 } });
     expect(crm).toHaveBeenCalledTimes(1);
   });

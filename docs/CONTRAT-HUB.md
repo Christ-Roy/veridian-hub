@@ -2314,7 +2314,9 @@ Mail envoie l'activité au Hub par lots, le Hub la relaie au CRM. À servir côt
   `event` ∈ `message.sent|delivered|opened|clicked|bounced|unsubscribed|received` ; `nature` ∈ `campaign|sequence|transactional|reply_human|reply_auto|bounce`.
   `host` (clic seulement) : l'hôte du lien, **jamais l'URL** (ses paramètres peuvent porter des jetons). `subject` tronqué à 200 caractères.
 - **Bornes** : 200 événements et 1 Mo par lot (`413` au-delà). `occurred_at` de plus de 7 jours, ou de plus de 5 min dans le futur : événement ignoré, compté.
-- **Idempotence** : `(workspace_id, rfc_message_id, event)` ; un doublon est accepté sans effet. Plusieurs ouvertures ou clics d'un message ne font
+- **Idempotence** : `(workspace_id, rfc_message_id, event)` ; un doublon est accepté sans effet. Le Hub relaie `rfc_message_id` sous une
+  seule forme dans les deux canaux (lot et réponse humaine) : sans chevrons, en minuscules (`normaliserRfc`), pour que le CRM ne range
+  qu'une ligne par message quel que soit l'ordre d'arrivée (Liaisons 0.7.7, 27/11). Plusieurs ouvertures ou clics d'un message ne font
   qu'une ligne (la première) ; Mail dédoublonne aussi en amont.
 - **Réponses** : `200 { acceptes, doublons, ignores: [{ index, raison }] }`. `400` (lot illisible), `409`, `413` : refus définitif du lot entier,
   Mail l'abandonne en le journalisant, sans rejeu. `401` : signature refusée, Mail alerte puis rejoue après resynchronisation de l'abonnement.

@@ -17,7 +17,7 @@ import { estDeTest } from '@/lib/tenants/marque-test';
 import { lireAbonnement } from './abonnement';
 import { ecrireEvenementsMail, PORTEE_CRM_MAIL } from './crm';
 import { liberer, reserver, terminer, type CleEvenement } from './dedoublonnage';
-import { nomAffiche } from './filtre';
+import { nomAffiche, normaliserRfc } from './filtre';
 import { verifierStandardWebhooks } from './signature';
 
 const SOURCE = 'notifuse';
@@ -72,7 +72,7 @@ export function trierEvenement(brut: unknown, now: number): { ok: Record<string,
     ok: {
       event: e.event,
       occurred_at: new Date(t).toISOString(),
-      rfc_message_id: e.rfc_message_id.trim().toLowerCase(),
+      rfc_message_id: normaliserRfc(e.rfc_message_id) ?? e.rfc_message_id.trim().toLowerCase(),
       thread_id: e.thread_id ?? null,
       recipient_email: destinataire,
       from_email: e.from_email?.trim().toLowerCase() || null,

@@ -44,7 +44,16 @@ export function analyserMessageRecu(json: unknown): Analyse {
   const email = valide(d.from) ?? contactEmail ?? '';
   if (!d.message_id) return { statut: 'invalide' };
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return { statut: 'ignore', raison: 'email_invalide' };
-  return { statut: 'reponse', reponse: { workspaceId, evenementId: id, matchType: d.match_type, contactEmail, messageId: d.message_id, rfcMessageId: d.rfc_message_id?.trim().toLowerCase() || null, email, threadId: d.thread_id ?? null, survenuLe: d.event_timestamp ?? null, nom: nomAffiche(d.from_name) } };
+  return { statut: 'reponse', reponse: { workspaceId, evenementId: id, matchType: d.match_type, contactEmail, messageId: d.message_id, rfcMessageId: normaliserRfc(d.rfc_message_id), email, threadId: d.thread_id ?? null, survenuLe: d.event_timestamp ?? null, nom: nomAffiche(d.from_name) } };
+}
+
+/**
+ * La clé d'un message, identique dans les deux canaux (réponse humaine et lot) : le CRM range une ligne par `rfc_message_id`, une chaîne
+ * différente ferait deux lignes (CRM, 27/11). Espaces, casse et chevrons retirés ; vide : rien.
+ */
+export function normaliserRfc(brut: string | null | undefined): string | null {
+  const v = (brut ?? '').trim().replace(/^<+|>+$/g, '').trim().toLowerCase();
+  return v || null;
 }
 
 /** Un nom affiché propre : sans caractères de contrôle ni guillemets d'en-tête, 200 caractères au plus ; vide ou une adresse : rien. */
