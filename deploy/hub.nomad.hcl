@@ -66,7 +66,9 @@ job "hub" {
 # veridian-contract:end
 
   group "stack" {
-    count = 1
+    # Deux copies, sur deux nœuds d'application distincts (VER-270, 27/11) : plafonds, budget et verrou de programme partagés en base
+    # (compteurs_fenetre, advisory lock), prouvés à deux instances. Plan à blanc du 27/11 : 1 création, aucune préemption.
+    count = 2
 
     # auto_revert : un deploy prod qui n'atteint jamais healthy restaure la
     # dernière version saine (zéro trou prod). min_healthy_time : l'alloc doit
