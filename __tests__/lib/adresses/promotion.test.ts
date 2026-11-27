@@ -9,7 +9,7 @@ vi.mock('@/lib/sync/discovery', () => ({ configuredSyncApps: () => ['notifuse', 
 vi.mock('@/lib/sync/appartenance', () => ({ humainsDe: async (app: string) => { const r = await m.decouvrir(app); return 'error' in r ? { raison: r.error } : { humains: [{ email: 'autre@x.fr', hub_user_id: null }, { email: 'A@x.fr', hub_user_id: 'un-autre' }, ...(r.found ? [{ email: 'a@X.fr', hub_user_id: null }, { email: 'jean@ancien.test', hub_user_id: null }, { email: 'moi@x.fr' }] : [])] }; } }));
 
 vi.mock('@/lib/auth/session-revocation', () => ({ revokeAllSessions: (...a: unknown[]) => m.revoquer(...a) }));
-vi.mock('@/lib/organisations/emission', () => ({ suivreOrganisation: m.suivre }));
+vi.mock('@/lib/organisations/emission', () => ({ suivreOrganisationsDe: m.suivre }));
 vi.mock('@/lib/notifuse/adresse', () => ({ suivreAdresseMail: m.mail }));
 vi.mock('@/lib/admin/audit-log', () => ({ writeAuditLog: async (_d: unknown, l: unknown) => { m.audits.push(l); } }));
 vi.mock('@/lib/adresses/federation', async (o) => ({ ...(await o<object>()), idpDuDomaine: (...a: unknown[]) => m.idp(...a), membreVivant: (...a: unknown[]) => m.membre(...a) }));
@@ -64,7 +64,8 @@ describe('promouvoir', () => {
     expect(e.comptes.map((x) => x.providerAccountId)).toEqual(['jean@neuf.test', 'g']);
     expect(e.jetons, 'plus aucun lien parti à l\'ancienne').toEqual([{ identifier: 'autre@x.test' }]);
     expect(pousses()).toEqual([[{ hubUserId: 'h1', email: 'jean@neuf.test' }, ['prospection', 'analytics']]]);
-    expect([m.revoquer.mock.calls[0][1], m.suivre.mock.calls[0][1]]).toEqual([{ id: 'U', supabaseUserId: 'h1' }, 'T']);
+    // Les organisations de la personne (possédées ET où elle est membre) réémettent, par son hub_user_id (27/11).
+    expect([m.revoquer.mock.calls[0][1], m.suivre.mock.calls[0][1]]).toEqual([{ id: 'U', supabaseUserId: 'h1' }, 'h1']);
     expect(JSON.stringify(m.audits)).not.toMatch(/neuf|ancien/);
   });
   it('l\'ancienne adresse est prévenue, une fois, et seulement si le changement a eu lieu ; un mail perdu ne défait rien', async () => {

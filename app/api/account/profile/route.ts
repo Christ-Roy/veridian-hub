@@ -18,6 +18,7 @@ import { writeAuditLog } from '@/lib/admin/audit-log';
 import { prevenirAncienne } from '@/lib/adresses/annulation';
 import { direArret, verifierApps } from '@/lib/adresses/garde';
 import { pushUserToApps } from '@/lib/identity/push-user';
+import { suivreOrganisationsDe } from '@/lib/organisations/emission';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
@@ -126,7 +127,9 @@ export async function PATCH(req: Request) {
     });
   }
   if (name !== undefined && user.supabaseUserId) {
-    void pushUserToApps({ hubUserId: user.supabaseUserId, name }).catch(() => undefined);
+    const hubUserId = user.supabaseUserId;
+    // Les apps, puis le document de chaque organisation où la personne figure (son nom y est) : sans faire attendre l'écran (27/11).
+    void pushUserToApps({ hubUserId, name }).catch(() => undefined).then(() => suivreOrganisationsDe(prisma, hubUserId)).catch(() => undefined);
   }
 
   return NextResponse.json({ ok: true });

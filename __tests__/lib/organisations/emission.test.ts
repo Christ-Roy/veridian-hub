@@ -3,7 +3,7 @@ import { createHmac } from 'node:crypto';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { emettreOrganisation, suivreOrganisation } from '@/lib/organisations/emission';
+import { emettreOrganisation, suivreOrganisation, suivreOrganisationsDe } from '@/lib/organisations/emission';
 
 import { base } from './fausse';
 import { exigeV1, exigeV2 } from '../hmac/aide-v2';
@@ -109,5 +109,20 @@ describe('emettreOrganisation, version de signature', () => {
     const vus = await emettreVu();
     expect(vus.length).toBe(2);
     for (const v of vus) exigeV1(v.h, 's', v.corps);
+  });
+});
+
+describe('suivreOrganisationsDe (27/11)', () => {
+  it('possédées ET où elle est membre, sans doublon : chacune réémet ; aucune : rien', async () => {
+    const vues: string[] = [];
+    const d = {
+      tenant: { findMany: async () => [{ id: 'P1' }, { id: 'X' }], findFirst: async () => null },
+      tenantMember: { findMany: async () => [{ tenantId: 'M1' }, { tenantId: 'X' }] },
+      organisation: { findUnique: async ({ where }: { where: { tenantId: string } }) => { vues.push(where.tenantId); return null; } },
+    };
+    expect(await suivreOrganisationsDe(d as never, 'h1')).toEqual(['P1', 'X', 'M1']);
+    expect(vues.sort()).toEqual(['M1', 'P1', 'X']);
+    const vide = { tenant: { findMany: async () => [] }, tenantMember: { findMany: async () => [] } };
+    expect(await suivreOrganisationsDe(vide as never, 'h1')).toEqual([]);
   });
 });

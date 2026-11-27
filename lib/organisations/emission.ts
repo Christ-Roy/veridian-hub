@@ -75,3 +75,18 @@ export async function suivreOrganisation(db: Db, tenantId: string, deps: Deps = 
     return [];
   });
 }
+
+/**
+ * Le document d'une organisation porte le nom et l'adresse de chaque membre : quand l'identité d'une personne change, chaque organisation où elle
+ * figure (propriétaire OU membre vivant) doit réémettre. 27/11 : le nom de Robert posé au Hub laissait son organisation « contenu_non_emis » chez
+ * Academy, et la promotion d'adresse ne cherchait que `tenant_members`, où le propriétaire n'est pas.
+ */
+export async function suivreOrganisationsDe(db: Db, hubUserId: string, deps: Deps = {}): Promise<string[]> {
+  const [possedees, membre] = await Promise.all([
+    db.tenant.findMany({ where: { userId: hubUserId, deletedAt: null }, select: { id: true } }),
+    db.tenantMember.findMany({ where: { userId: hubUserId, deletedAt: null }, select: { tenantId: true } }),
+  ]);
+  const ids = Array.from(new Set([...possedees.map((t) => t.id), ...membre.map((m) => m.tenantId)]));
+  for (const id of ids) await suivreOrganisation(db, id, deps);
+  return ids;
+}

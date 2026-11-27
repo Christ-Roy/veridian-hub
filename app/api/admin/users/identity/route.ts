@@ -15,6 +15,7 @@ import { z } from 'zod';
 import { writeAuditLog, resolveActor } from '@/lib/admin/audit-log';
 import { authenticateAdmin } from '@/lib/admin/authenticate';
 import { pushUserToApps } from '@/lib/identity/push-user';
+import { suivreOrganisationsDe } from '@/lib/organisations/emission';
 import { prisma } from '@/lib/prisma';
 
 export const runtime = 'nodejs';
@@ -86,13 +87,15 @@ export async function POST(request: NextRequest) {
         ...(updated.emailVerified ? { email: updated.email } : {}),
       })
     : {};
+  // Le document de chaque organisation où la personne figure porte son nom et son adresse : il réémet (27/11).
+  const organisations = user.supabaseUserId ? await suivreOrganisationsDe(prisma, user.supabaseUserId) : [];
 
   await writeAuditLog(prisma, {
     action: 'admin.user.identity',
     actor: resolveActor(request.headers, authResult.sessionEmail),
     targetType: 'user',
     targetId: user.id,
-    payload: { email_before: email, email_after: updated.email, name_changed: name !== undefined, push },
+    payload: { email_before: email, email_after: updated.email, name_changed: name !== undefined, push, organisations },
   });
 
   return NextResponse.json({

@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { NextRequest } from 'next/server';
 
-const { user, account, push, audit } = vi.hoisted(() => ({
+const { user, account, push, audit, suivre } = vi.hoisted(() => ({
+  suivre: vi.fn(async () => ['T1']),
   user: { findUnique: vi.fn(), update: vi.fn() },
   account: { updateMany: vi.fn() },
   push: vi.fn(async () => ({ notifuse: 'ok' })),
@@ -10,6 +11,7 @@ const { user, account, push, audit } = vi.hoisted(() => ({
 
 vi.mock('@/lib/prisma', () => ({ prisma: { user, account } }));
 vi.mock('@/lib/identity/push-user', () => ({ pushUserToApps: push }));
+vi.mock('@/lib/organisations/emission', () => ({ suivreOrganisationsDe: suivre }));
 vi.mock('@/lib/admin/audit-log', () => ({ writeAuditLog: audit, resolveActor: () => 'test' }));
 vi.mock('@/lib/admin/authenticate', () => ({
   authenticateAdmin: vi.fn(async () => ({ ok: true, sessionEmail: null })),
@@ -38,6 +40,9 @@ describe('POST /api/admin/users/identity', () => {
     expect(res.status).toBe(200);
     expect(push).toHaveBeenCalledWith({ hubUserId: 'uuid-1', name: 'Nouveau' });
     expect(account.updateMany).not.toHaveBeenCalled();
+    // Le nom est dans le document de chaque organisation de la personne : elles réémettent, et l'audit le dit (27/11).
+    expect(suivre).toHaveBeenCalledWith(expect.anything(), 'uuid-1');
+    expect(audit.mock.calls.at(-1)?.[1]?.payload?.organisations).toEqual(['T1']);
   });
 
   it('email : l\'admin atteste, le compte suit, et l\'email part vers les apps', async () => {

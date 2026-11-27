@@ -10,7 +10,7 @@ import { normaliserEmail } from '@/lib/auth/email-normalize';
 import { revokeAllSessions } from '@/lib/auth/session-revocation';
 import { pushUserToApps } from '@/lib/identity/push-user';
 import { suivreAdresseMail } from '@/lib/notifuse/adresse';
-import { suivreOrganisation } from '@/lib/organisations/emission';
+import { suivreOrganisationsDe } from '@/lib/organisations/emission';
 import type { SyncApp } from '@/lib/sync/types';
 
 import { prevenirAncienne } from './annulation';
@@ -93,8 +93,7 @@ export async function promouvoir(db: PrismaClient, u: Titulaire, brut: string, d
   await writeAuditLog(db, { action: 'adresse.promue', actor: `user:${u.id}`, targetType: 'user', targetId: u.id, payload: { preuve: l.preuve, apps: issues } });
   // L'ancienne adresse l'apprend, et peut annuler 72 h. Un mail qui ne part pas ne défait pas le geste, mais se dit au journal.
   await prevenirAncienne(db, { userId: u.id, ancienne: normaliserEmail(u.email), aliasId }, { now: now.getTime() }).catch((err) => console.error(JSON.stringify({ tag: '[adresse][avis]', level: 'error', user_id: u.id, error: err instanceof Error ? err.message.slice(0, 160) : 'erreur' })));
-  const orgs = await db.tenantMember.findMany({ where: { userId: hubUserId, deletedAt: null }, select: { tenantId: true } });
-  for (const o of orgs) await suivreOrganisation(db, o.tenantId, { fetchImpl: deps.fetchImpl });
+  await suivreOrganisationsDe(db as never, hubUserId, { fetchImpl: deps.fetchImpl });
   // Les sessions ouvertes portent l'ancienne adresse : elles tombent, au Hub comme dans les apps. On se reconnecte avec la nouvelle.
   const { appsEnEchec } = await revokeAllSessions(db, { id: u.id, supabaseUserId: hubUserId });
   return { promue: l.email, appsEnEchec };
