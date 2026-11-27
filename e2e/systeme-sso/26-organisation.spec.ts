@@ -9,7 +9,7 @@ import { expect } from '@playwright/test';
 
 import { APP_URL, HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
-import { activerTwentyAuHub, admin, adminOk, lookup } from './lib/hub-admin';
+import { activerTwentyAuHub, admin, adminOk, lookup, activerAnalyticsAuHub } from './lib/hub-admin';
 import { obtenirJetonMcp, outil } from './lib/mcp';
 import { creerCompteProuve, noterEspaceTwenty, ouvrirApp, type Compte } from './lib/parcours';
 
@@ -38,6 +38,8 @@ cas(null, 'organisation : réglée une fois au Hub, reçue et relue par l\'app, 
   // L'espace CRM du propriétaire : le récepteur du CRM ne crée rien, il règle un espace ouvert (VER-252).
   await activerTwentyAuHub(P.email);
   noterEspaceTwenty(P.email, T.id);
+  // L'organisation Analytics du propriétaire (VER-252, 27/11 : Analytics reçoit le document depuis 5ff5e08d8), créée par le provisionnement du Hub.
+  await activerAnalyticsAuHub(P.email);
 
   // 1. L'écran, par le propriétaire.
   const ctx = await browser.newContext({ storageState: P.etat as never });
@@ -74,16 +76,16 @@ cas(null, 'organisation : réglée une fois au Hub, reçue et relue par l\'app, 
   }
 
   // 3. Une app cochée reçoit et relit.
-  const modules = process.env.SSO_SABOTAGE === 'organisation' ? [] : ['prospection', 'crm'];
+  const modules = process.env.SSO_SABOTAGE === 'organisation' ? [] : ['prospection', 'crm', 'analytics'];
   const coche = await admin<{ emissions: Emission[] }>('PUT', `organisations/${T.id}`, { modules });
-  expect([coche.status, coche.json.emissions.map((e) => [e.app, e.etat])], JSON.stringify(coche.json).slice(0, 300)).toEqual([200, [['prospection', 'applique'], ['crm', 'applique']]]);
+  expect([coche.status, coche.json.emissions.map((e) => [e.app, e.etat])], JSON.stringify(coche.json).slice(0, 300)).toEqual([200, [['prospection', 'applique'], ['crm', 'applique'], ['analytics', 'applique']]]);
   const d = await adminOk<{ document: { version: number; nom: string; type: string; marque: { couleur_primaire: string } }; emissions: Emission[] }>('GET', `organisations/${T.id}`);
   expect([d.document.nom, d.document.type, d.document.marque.couleur_primaire], 'rien de « pirate »').toEqual(['TEST organisation', 'organisation', '#0B5FFF']);
-  expect(d.emissions.map((e) => [e.app, e.a_jour]).sort(), 'chaque app sert la version du Hub, logo compris').toEqual([['crm', true], ['prospection', true]]);
+  expect(d.emissions.map((e) => [e.app, e.a_jour]).sort(), 'chaque app sert la version du Hub, logo compris').toEqual([['analytics', true], ['crm', true], ['prospection', true]]);
 
   // 4. Un membre ajouté au Hub part aussitôt, la version monte.
   const ajout = await admin<{ organisation?: Emission[] }>('POST', `tenants/${T.id}/members`, { hub_user_id: M.hubUserId });
-  expect(ajout.json.organisation?.map((e) => [e.app, e.etat]), JSON.stringify(ajout.json).slice(0, 300)).toEqual([['prospection', 'applique'], ['crm', 'applique']]);
+  expect(ajout.json.organisation?.map((e) => [e.app, e.etat]), JSON.stringify(ajout.json).slice(0, 300)).toEqual([['prospection', 'applique'], ['crm', 'applique'], ['analytics', 'applique']]);
   const apres = await adminOk<{ document: { version: number; membres: { hub_user_id: string }[] } }>('GET', `organisations/${T.id}`);
   expect(apres.document.version).toBeGreaterThan(d.document.version);
   expect(apres.document.membres.map((x) => x.hub_user_id).sort()).toEqual([P.hubUserId, M.hubUserId].sort());
@@ -141,5 +143,5 @@ cas(null, 'organisation : réglée une fois au Hub, reçue et relue par l\'app, 
   expect(await appsDeM(), 'reprise').toBe(true);
   await admin('POST', `tenants/${T.id}/remove-member`, { hub_user_id: M.hubUserId });
   expect(await appsDeM(), 'retiré').toBe(false);
-  return `réglée à l'écran, logo servi en PNG, Prospection et CRM relus à la version ${apres.document.version}, membre parti avec, arrivée dans l'organisation choisie (nom affiché : ${avec.dedans}) ; nom et logo servis par le CRM ; CRM ouvert au membre par l'organisation, refermé au Hub et dans le CRM suspendue, au Hub retiré`;
+  return `réglée à l'écran, logo servi en PNG, Prospection, CRM et Analytics relus à la version ${apres.document.version}, membre parti avec, arrivée dans l'organisation choisie (nom affiché : ${avec.dedans}) ; nom et logo servis par le CRM ; CRM ouvert au membre par l'organisation, refermé au Hub et dans le CRM suspendue, au Hub retiré`;
 }, { timeout: 480_000 });
