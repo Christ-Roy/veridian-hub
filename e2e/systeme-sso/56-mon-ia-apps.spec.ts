@@ -23,12 +23,13 @@ import { creerCompteProuve, ouvrirApp } from './lib/parcours';
 const MODELE_GRATUIT = 'nvidia/nemotron-3-ultra-550b-a55b:free'; // même modèle que la recette (0 $, vérifié le 22/11)
 const ACADEMY_URL = process.env.ACADEMY_URL || 'https://academy.app.veridian.site';
 type AppFenetre = 'analytics' | 'notifuse' | 'prospection' | 'academy';
-/** Les apps à fenêtre dont le bouton est annoncé servi. `chemin` : une page connectée où vivent les marques communes. Mail s'ajoute ici quand il le sert. */
+/** Les apps à fenêtre dont le bouton est annoncé servi. `chemin` : une page connectée où vivent les marques communes. */
 const APPS: { app: AppFenetre; chemin: string }[] = [
   { app: 'analytics', chemin: '/' },
   { app: 'prospection', chemin: '/' }, // Atlas : reprend le cas 53 (26/11), Prospection sert la règle depuis 316bbf4
   // Academy : une organisation dont tous les membres sont e2e-sso entre par le rebond (exemption d'épreuve, b6996c1, parente 26/11).
   { app: 'academy', chemin: '/cours/environnement/dossier-au-tresor' },
+  { app: 'notifuse', chemin: '/' }, // Mail : sert §5.24 et §5.24.1 depuis f7eb4e68 (27/11)
 ];
 const urlDe = (app: AppFenetre) => (app === 'academy' ? ACADEMY_URL : APP_URL[app]);
 
