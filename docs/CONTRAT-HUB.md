@@ -2241,8 +2241,8 @@ GET  /api/hub/workspace-admins?workspace_id=X   →  {members: [{hub_user_id, ro
 - **Côté Hub** (`lib/apps/admins-plateforme.ts`) : relire ; `grant` ; relire, « admin » ne se dit que relu. Le Hub n'ajoute personne chez une app (un seul
   écrivain des membres, jamais de `sync-member`) : pas membre de l'espace = `pas_membre`, à faire entrer par l'organisation ou une invitation, puis rejouer. Appelé à l'ouverture d'un client (`POST /api/admin/tenants/{id}/ouvrir`,
   donc `nouveau-client`) et par `POST /api/admin/tenants/{id}/admins-plateforme` (`hub admin-partout`). Audit `admin.tenant.admins_plateforme`.
-- **Apps** : Mail SERVI (26/11, fiche Mail 95) ; Academy SERVI (27/11, a244873 : `workspace_id` = espace Academy OU tenant Hub, le Hub envoie le
-  tenant). Prospection, Analytics, CRM : à servir sur la même route, puis ajoutées à `APPS_ADMIN`. `ouvrir` désigne dès qu'une app de la liste est ouverte.
+- **Apps** : SERVI chez Mail (26/11, fiche Mail 95), Academy (a244873), Analytics (5ff5e08d8) et Prospection (ad3516b), le 27/11 : le Hub
+  envoie le tenant Hub comme `workspace_id` (Mail : son espace). CRM : à servir sur la même route, puis ajouté à `APPS_ADMIN`. `ouvrir` désigne dès qu'une app de la liste est ouverte.
 
 ### 5.24 Fils de l'assistant « Mon IA » rangés dans l'app (VER-203, 26/11)
 

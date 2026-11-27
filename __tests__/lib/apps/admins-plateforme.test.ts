@@ -149,6 +149,22 @@ describe('designerAdminsPlateforme chez Analytics (5ff5e08d8, 27/11)', () => {
   });
 });
 
+describe('designerAdminsPlateforme chez Prospection (ad3516b, 27/11)', () => {
+  beforeEach(() => {
+    vi.stubEnv('NOTIFUSE_HUB_API_SECRET', '');
+    vi.stubEnv('PROSPECTION_API_URL', 'https://prosp');
+    vi.stubEnv('PROSPECTION_HUB_API_SECRET', 's3cret');
+  });
+  it('membre : désigné admin par le tenant Hub, relu ; corps strict, sans adresse', async () => {
+    let n = 0;
+    rep = (a) => (a.methode === 'GET' ? (n++ === 0 ? membres({ hub_user_id: ROBERT, role: 'member' }) : membres({ hub_user_id: ROBERT, role: 'admin' })) : [200, {}]);
+    expect((await tout())!.filter((x) => x.app === 'prospection')).toEqual([{ app: 'prospection', hubUserId: ROBERT, etat: 'admin' }]);
+    const post = appels.find((a) => a.url === 'https://prosp/api/hub/workspace-admins' && a.methode === 'POST');
+    expect(Object.keys(post!.corps!).sort()).toEqual(['action', 'actor_hub_user_id', 'hub_user_id', 'reason', 'reinstate', 'workspace_id']);
+    expect(post!.corps!.workspace_id).toBe('T');
+  });
+});
+
 describe('designerAdminsPlateforme, version de signature', () => {
   const capter = async () => {
     const vus: { url: string; methode: string; brut: string; h: Record<string, string> }[] = [];
