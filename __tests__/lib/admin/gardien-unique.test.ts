@@ -138,6 +138,17 @@ describe('gardien unique : refus (clé, session, identité, emprunt, fédératio
 });
 
 describe('gardien unique : limite de débit (avant tout le reste)', () => {
+  it('seuls les échecs comptent (27/11) : cent appels avec la bonne clé passent tous, puis une session valide aussi', async () => {
+    const vus = [];
+    for (let i = 0; i < 100; i++) vus.push((await authenticateAdmin(req({ 'x-admin-secret': SECRET }))).ok);
+    expect(vus.every(Boolean)).toBe(true);
+    authMock.mockResolvedValue(sessionAdminOk());
+    userMock.mockResolvedValue(userAdminOk);
+    const sessions = [];
+    for (let i = 0; i < 40; i++) sessions.push((await authenticateAdmin(req())).ok);
+    expect(sessions.every(Boolean)).toBe(true);
+  });
+
   it('limite atteinte : 429 avec Retry-After, même avec la bonne clé', async () => {
     for (let i = 0; i < 30; i++) {
       authMock.mockResolvedValueOnce(null);

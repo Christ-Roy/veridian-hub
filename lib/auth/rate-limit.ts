@@ -101,6 +101,17 @@ export class RateLimiter {
   }
 
   /**
+   * Lire sans compter : la fenêtre de `key` est-elle déjà pleine ? Pour un limiteur qui ne compte que les ÉCHECS (gardien d'administration,
+   * 27/11) : on bloque tout dès le plafond atteint, mais un appel réussi ne consomme rien.
+   */
+  depasse(key: string, now: number = Date.now()): RateLimitResult {
+    const fresh = (this.hits.get(key) ?? []).filter((t) => t > now - this.options.windowMs);
+    const resetAt = (fresh[0] ?? now) + this.options.windowMs;
+    if (fresh.length >= this.options.capacity) return { ok: false, remaining: 0, resetAt, retryAfterSeconds: Math.max(1, Math.ceil((resetAt - now) / 1000)) };
+    return { ok: true, remaining: this.options.capacity - fresh.length, resetAt };
+  }
+
+  /**
    * Variante avec bypass E2E intégré.
    *
    * Si les headers portent le header `x-veridian-e2e-bypass-ratelimit`

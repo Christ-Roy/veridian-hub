@@ -2,7 +2,8 @@
  * LE gardien des routes d'administration du Hub (`app/api/admin/**`). Un seul : `requireAdmin` ne fait plus que lui déléguer (2026-11-27).
  *
  * Dans l'ordre, chaque refus reste un refus :
- *  1. limite de débit par IP (`adminApiLimiter`, 30/min) : elle s'applique AVANT la clé ;
+ *  1. limite de débit par IP (`adminApiLimiter`, 30 ÉCHECS/min) : une IP au plafond est refusée avant même la clé ; seul un échec compte (27/11 :
+ *     compter les appels réussis renvoyait des 429 au CLI `hub` et à la batterie, qui enchaînent des dizaines d'appels admin par minute) ;
  *  2. `x-admin-secret` en temps constant (outils `hub`, batterie). Refusé si `sessionSeule` : la clé n'entre jamais dans une route à session seule ;
  *  3. session d'un administrateur de plateforme (`sessionAdmin`) : identité relue en base, adresse prouvée, connexion réelle de moins de 24 h,
  *     jamais une session empruntée ni une session ouverte par le fournisseur d'une organisation.
@@ -14,7 +15,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { sessionAdmin, type SessionAdmin } from '@/lib/admin/session-admin';
-import { adminApiLimiter, extractClientIp } from '@/lib/auth/rate-limit';
+import { adminApiLimiter, extractClientIp, shouldBypassRateLimit, type RateLimitResult } from '@/lib/auth/rate-limit';
 
 export type AdminAuthSuccess = {
   ok: true;
@@ -57,10 +58,10 @@ export async function authenticateAdmin(
   request: NextRequest | Request,
   options: AdminAuthOptions = {}
 ): Promise<AdminAuthSuccess | AdminAuthDenied> {
-  // 1. Rate-limit IP. `enforceWithBypass` : header `x-veridian-e2e-bypass-ratelimit` valide ET DEPLOY_ENV !== 'prod' seulement.
+  // 1. Limite par IP, sur les échecs seulement. Contournement e2e : en-tête `x-veridian-e2e-bypass-ratelimit` valide ET DEPLOY_ENV !== 'prod'.
   const ip = extractClientIp(request.headers);
-  const rate = adminApiLimiter.enforceWithBypass(ip, request.headers);
-  if (!rate.ok) {
+  const contourne = shouldBypassRateLimit(request.headers);
+  const trop = (rate: Extract<RateLimitResult, { ok: false }>) => {
     console.warn(
       JSON.stringify({
         tag: '[admin-ratelimit]',
@@ -77,16 +78,26 @@ export async function authenticateAdmin(
         { error: 'rate_limited', message: 'Trop de tentatives. Patientez avant de réessayer.' },
         { status: 429, headers: { 'Retry-After': String(rate.retryAfterSeconds) } }
       ),
-    };
-  }
+    } as AdminAuthDenied;
+  };
+  const plein = contourne ? null : adminApiLimiter.depasse(ip);
+  if (plein && !plein.ok) return trop(plein);
+  // Un échec compte ; le plafond franchi par cet échec rend le 429.
+  const echec = (refus: NextResponse): AdminAuthDenied => {
+    if (contourne) return { ok: false, response: refus };
+    const r = adminApiLimiter.enforce(ip);
+    return r.ok ? { ok: false, response: refus } : trop(r);
+  };
 
   // 2. x-admin-secret, en temps constant (jamais pour une route à session seule)
-  if (!options.sessionSeule && secretAdminValide(request.headers.get('x-admin-secret'))) {
+  const cle = request.headers.get('x-admin-secret');
+  if (!options.sessionSeule && secretAdminValide(cle)) {
     return { ok: true, sessionEmail: null, hubUserId: null };
   }
 
-  // 3. Session d'un administrateur de plateforme
+  // 3. Session d'un administrateur de plateforme. Une clé fausse fournie compte comme un échec même si une session passe ensuite.
   const s = await sessionAdmin();
-  if (!s.ok) return { ok: false, response: refusAdmin(s.raison) };
+  if (!s.ok) return echec(refusAdmin(s.raison));
+  if (cle && !options.sessionSeule) adminApiLimiter.enforce(ip);
   return { ok: true, sessionEmail: s.email, hubUserId: s.hubUserId, admin: { userId: s.userId, hubUserId: s.hubUserId, email: s.email } };
 }
