@@ -16,8 +16,10 @@ D="${SSO_NAV_DIR:-$RACINE/e2e/systeme-sso/.run/navigateur}"
 PORT_CONTENEUR=9323
 DUREE="${SSO_NAV_DUREE:-3600}"
 ATTENTE="${SSO_NAV_ATTENTE:-900}"
-NOEUD=node02
-SSH=(ssh -o BatchMode=yes -o ConnectTimeout=8 "$NOEUD")
+# Le nœud est celui où Nomad a placé l'allocation (lu sur elle), jamais figé ici : `lourd --navigateur` choisit (infra, 27/11 : six lancements
+# empilés derrière un node02 plein). Nom Nomad → alias ssh : veridian-node-02 → node02, veridian-rise-01 → rise.
+NOEUD=""
+SSH=(ssh -o BatchMode=yes -o ConnectTimeout=8)
 dit() { echo "[navigateur-distant] $*" >&2; }
 nomad_lourd() ( set -a; . "${LOURD_ENV:-$HOME/credentials/nomad-lourd.env}" >/dev/null 2>&1; set +a; nomad "$@" )
 
@@ -67,11 +69,12 @@ demarrer() {
     kill -0 "$(cat "$D/lourd.pid")" 2>/dev/null || { dit "lourd s'est arrêté avant que le serveur réponde ($(tail -n 2 "$D/lourd.log" | tr '\n' ' ')) : NON ABOUTI"; arreter; return 2; }
     [ -n "$id" ] || { id="$(sed -n 's/^\[lourd\] \(lourd-navigateur\/dispatch-[^,]*\),.*/\1/p' "$D/lourd.log" | head -1)"; [ -z "$id" ] || echo "$id" >"$D/job"; }
     if [ -n "$id" ] && [ -z "$ip" ]; then
-      alloc="$(nomad_lourd job allocs -json "$id" 2>/dev/null | python3 -c 'import sys,json;a=json.load(sys.stdin);print(a[0]["ID"] if a else "")' 2>/dev/null)"
-      [ -z "$alloc" ] || ip="$("${SSH[@]}" "n=\$(docker ps --format '{{.Names}}' | grep -- '$alloc' | grep -v garde | head -1); [ -n \"\$n\" ] && docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' \"\$n\"" 2>/dev/null)"
+      read -r alloc nom <<<"$(nomad_lourd job allocs -json "$id" 2>/dev/null | python3 -c 'import sys,json;a=json.load(sys.stdin);print(a[0]["ID"], a[0].get("NodeName","")) if a else print("")' 2>/dev/null)"
+      case "$nom" in *node-02*) NOEUD=node02 ;; *rise*) NOEUD=rise ;; "") : ;; *) dit "allocation placée sur un nœud inconnu ($nom) : NON ABOUTI"; arreter; return 2 ;; esac
+      [ -z "$alloc" ] || [ -z "$NOEUD" ] || ip="$("${SSH[@]}" "$NOEUD" "n=\$(docker ps --format '{{.Names}}' | grep -- '$alloc' | grep -v garde | head -1); [ -n \"\$n\" ] && docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' \"\$n\"" 2>/dev/null)"
     fi
     if [ -n "$ip" ] && [ ! -s "$D/tunnel.pid" ]; then
-      "${SSH[@]}" true 2>/dev/null || { sleep 5; continue; }
+      "${SSH[@]}" "$NOEUD" true 2>/dev/null || { sleep 5; continue; }
       ssh -o BatchMode=yes -o ExitOnForwardFailure=yes -o ServerAliveInterval=15 -N -L "127.0.0.1:$lp:$ip:$PORT_CONTENEUR" "$NOEUD" &
       echo $! >"$D/tunnel.pid"; sleep 1
     fi

@@ -63,8 +63,11 @@ for v in $(compgen -v | grep -E '^(SSO_[A-Z0-9_]+|HUB_URL|ACADEMY_URL)$'); do
   case "$v" in SSO_NAVIGATEUR|SSO_NAV_DUREE|SSO_SUR_LOURD|SSO_SANS_NOMAD) continue ;; esac
   REGLAGES+="export $(printf '%s=%q' "$v" "${!v}"); "
 done
-lourd --navigateur --secrets "$NOMS" bash -c "${REGLAGES}"'cd e2e/systeme-sso && SSO_SUR_LOURD=1 SSO_SANS_NOMAD=1 bash ../../scripts/test-systeme-sso.sh "$@"' _ "$@"
+# Borne : sans place navigateur (node02 plein, 27/11 : deux heures d'attente silencieuse), on s'arrête et on le dit, au lieu d'attendre.
+ATTENTE_MAX="${SSO_ATTENTE_LOURD:-7200}"
+timeout --foreground "$ATTENTE_MAX" lourd --navigateur --secrets "$NOMS" bash -c "${REGLAGES}"'cd e2e/systeme-sso && SSO_SUR_LOURD=1 SSO_SANS_NOMAD=1 bash ../../scripts/test-systeme-sso.sh "$@"' _ "$@"
 RC=$?
+[ "$RC" = 124 ] && { echo "✗ NON ABOUTI : lourd --navigateur n'a pas rendu en $ATTENTE_MAX s (place navigateur ? « [lourd] … en file » plus haut). Rien n'est mesuré."; exit 2; }
 
 # 5. .run revient : résultat, captures, restes mesurés. Le chemin est celui de lourd (dépôt, genre « nav », clé du chemin).
 RACINE="$(git rev-parse --show-toplevel)"
@@ -72,4 +75,13 @@ CLE="$(printf '%s' "$RACINE" | sha256sum | cut -c1-10)"
 rsync -a -e "ssh -o BatchMode=yes" "node02:/home/ubuntu/lourd/$(basename "$RACINE")-nav-$CLE/e2e/systeme-sso/.run/" "$RUN/" 2>/dev/null \
   || echo "⚠ .run non rapatrié de node02 : le résultat ci-dessus est celui de lourd, sans les captures"
 [ "$RC" = 255 ] && { echo "✗ NON ABOUTI : lourd n'a rien fait tourner"; exit 2; }
+
+# 6. Restes laissés par node02 : le retrait d'un compte Rybbit passe par un script de ~/.claude qui n'existe qu'ici (27/11 : 12 restes, le
+# ménage final s'arrêtait net sur node02). Le ménage se rejoue donc AU BASTION, seulement s'il reste quelque chose (des appels HTTP, pas de
+# navigateur), et le verdict de restes qui compte est le sien.
+if python3 -I -c "import json,sys; v=json.load(open('$RUN/restes.json')); sys.exit(0 if (v.get('restes') or v.get('echecs')) else 1)" 2>/dev/null; then
+  echo "↻ restes laissés par node02 : ménage rejoué au bastion (99-nettoyage)"
+  ( cd e2e/systeme-sso && nice -n 19 bash ../../scripts/test-systeme-sso.sh 99- ) | grep -E "PASSE|ÉCHOUE|NON ABOUTI|RESTES|BILAN"
+  python3 -I -c "import json,sys; v=json.load(open('$RUN/restes.json')); sys.exit(1 if (v.get('restes') or v.get('echecs')) else 0)" 2>/dev/null || { echo "✗ RESTES EN PROD après le ménage au bastion : voir $RUN/restes.json"; exit 1; }
+fi
 exit "$RC"
