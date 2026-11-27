@@ -1862,7 +1862,10 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
   organisations marquées de test au Hub : la preuve en prod, sans aucun client (`lib/delegation/ouverture.ts`).
 - **Événements** : `notifuse>crm` (F3) se règle comme une liaison quand `DELEGATION_EVENEMENTS` l'ouvre (tous, une organisation, ou `@test`) ;
   allumer pose l'abonnement `message.received` chez Notifuse (`/api/hub/evenements/abonnement`), couper le retire. Le Hub reçoit sur
-  `POST /api/evenements/notifuse` (Standard Webhooks, dédoublonné), ne garde ni objet ni corps, et appelle `app_reponse_humaine` avec
+  `POST /api/evenements/notifuse` (Standard Webhooks, dédoublonné), ne garde ni objet ni corps. Champs de Mail (27/11) : `data.email` = le
+  CONTACT rattaché au message (choisi par `match_type`), `data.from` = l'EXPÉDITEUR réel, `data.from_name` = son nom affiché. Le Hub relaie
+  `email` = l'expéditeur (repli : le contact si `from` manque), `contact_email` = le contact quand il diffère, `nom`, `kind`, `match_type`
+  (une collègue qui répond depuis une autre adresse a sa propre fiche). Il appelle `app_reponse_humaine` avec
   `sub = integration:<hub_tenant_id>`, `act.sub = app:notifuse`, `crm:tache.ecrire`, 120 s. **Reçu liaison éteinte, un événement est acquitté donc
   PERDU, c'est voulu.** Disjoncteur : 5 écritures en 10 min par contact. Jamais échangeable contre la poignée d'un utilisateur.
 - **Écran** : `/dashboard/liaisons` (adresse stable, les apps y renvoient) : état, allumer, couper, sans IA.
@@ -2328,6 +2331,9 @@ Mail envoie l'activité au Hub par lots, le Hub la relaie au CRM. À servir côt
   `rfc_message_id`** dans le dossier « Mail » de la personne dont l'adresse est `recipient_email`, à part de la synchro Gmail native ; le statut
   avance (`sent` < `delivered` < `opened` < `clicked`, `bounced` et `unsubscribed` l'emportent), jamais ne recule. Une adresse absente de l'espace :
   ignorée, **aucune personne créée** (une campagne ne crée jamais de fiche). Réponse : `{ ok: true, lignes: { creees, avancees, ignorees } }`.
+- **Expéditeur et contact** (27/11) : dans un lot, l'expéditeur est `from_email` et le contact `recipient_email` ; dans le canal
+  `message.received`, l'expéditeur est `data.from` et le contact `data.email`. L'identité d'une fiche créée est toujours l'expéditeur.
+  `message.sent` porte `subject` (sinon la ligne du CRM reste sans objet).
 - **Nom de l'expéditeur d'une réponse** (VER-247) : `message.received` porte `from_name` ; le Hub le passe à `app_reponse_humaine` sous `nom`
   (nettoyé, 200 caractères, jamais une adresse), seulement s'il est présent. Côté Hub servi dès son déploiement ; côté Mail, à émettre ; côté CRM,
   `nom` doit être accepté (argument facultatif).
