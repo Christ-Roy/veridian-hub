@@ -120,7 +120,10 @@ for (const { app, chemin } of APPS.filter((x) => !process.env.SSO_MON_IA_APP || 
       // Atteignable à l'écran, pas seulement présent dans la page (27/11 : carte d'Academy coupée sous la commande à 1280×720).
       // Épreuve `carte-coupee` : la carte rognée sans défilement ; le lien final sort de l'écran, le cas doit échouer.
       if (process.env.SSO_SABOTAGE === 'carte-coupee') await carte.evaluate((el) => { const c = el as HTMLElement; c.style.maxHeight = '60px'; c.style.overflow = 'hidden'; c.style.position = 'fixed'; c.style.top = '0'; });
-      await lien.scrollIntoViewIfNeeded({ timeout: 5_000 }).catch(() => undefined);
+      // Comme un utilisateur : la molette sur la carte (27/11 : scrollIntoView fait défiler même un overflow:hidden, l'épreuve passait).
+      await carte.hover({ timeout: 5_000 }).catch(() => undefined);
+      for (let i = 0; i < 6; i++) await p1.mouse.wheel(0, 600);
+      await p1.waitForTimeout(500);
       await expect(lien, 'le lien final de la carte est atteignable à l\'écran').toBeInViewport({ timeout: 5_000 });
       // Jamais une clé PROPOSÉE (« votre clé », « clé d'API », un champ) ; « sans clé » est l'assurance du contrat (Prospection, 26/11 : l'ancien
       // \bcl[ée]\b ne tenait que par accident, \b sans drapeau u ne voit pas la frontière après « é »).
