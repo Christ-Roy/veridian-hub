@@ -29,6 +29,7 @@
 import { isIP } from 'node:net';
 
 import { ipClient } from '@/lib/auth/ip-client';
+import { estIdentiteDeTestAnalytics } from '@/lib/email/compte-de-test';
 
 /** Site Rybbit du tunnel : veridian.site. Surchargé par `ANALYTICS_TRACK_SITE_ID`. */
 const SITE_PROD = '2';
@@ -112,6 +113,9 @@ export async function trackGoal(
       return;
     }
 
+    // Analytics refuse en 403 une identité d'épreuve vers un site réel : on ne l'envoie pas (et elle n'ouvre aucune session).
+    if (estIdentiteDeTestAnalytics(userId)) return;
+
     const siteId = resolveSiteId();
     if (!siteId) return; // hors prod sans site explicite : rien ne part
     // Ingestion serveur de confiance (clé ingest:write) : Rybbit prend l'IP et le navigateur du visiteur au
@@ -129,10 +133,14 @@ export async function trackGoal(
       hostname: 'app.veridian.site',
       pathname: input.path ?? '/',
       user_id: userId,
+      // Identité de navigateur stable par utilisateur (`hub-<uuid>`) : signup puis app_started d'un même compte tombent
+      // dans UNE session, pas une par événement. Le Hub n'a pas le visiteur de la vitrine (localStorage d'une autre
+      // origine) : il ne peut pas rejoindre sa session, d'où le drapeau `session_serveur` ci-dessous.
+      anonymous_id: input.sessionId,
       language: 'fr-FR',
       screenWidth: 1920,
       screenHeight: 1080,
-      properties: JSON.stringify({ ...(input.properties ?? {}), session: input.sessionId, source: 'hub' }),
+      properties: JSON.stringify({ ...(input.properties ?? {}), session: input.sessionId, source: 'hub', session_serveur: '1' }),
     });
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);

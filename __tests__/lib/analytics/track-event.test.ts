@@ -73,8 +73,37 @@ describe('lib/analytics/track-event', () => {
         hostname: 'app.veridian.site',
         pathname: '/',
       });
-      expect(JSON.parse(body.properties)).toEqual({ provider: 'google', session: 'hub-u1', source: 'hub' });
+      expect(JSON.parse(body.properties)).toEqual({ provider: 'google', session: 'hub-u1', source: 'hub', session_serveur: '1' });
       expect((init.headers as Record<string, string>)['User-Agent']).toMatch(/^Mozilla\//);
+    });
+
+    it('porte une identité de navigateur stable par utilisateur (anonymous_id = hub-<uuid>) : signup et app_started dans la même session', async () => {
+      process.env.DEPLOY_ENV = 'prod';
+      const fetchImpl = ok();
+      for (const goal of ['signup', 'app_started']) {
+        await trackGoal({ userEmail: 'client@exemple.fr', goal, sessionId: 'hub-u1' }, { fetchImpl: fetchImpl as never, logger: silencieux });
+      }
+      const corps = fetchImpl.mock.calls.map((c) => JSON.parse(String((c as unknown as [string, RequestInit])[1].body)));
+      expect(corps).toHaveLength(2);
+      expect(corps.every((b) => b.anonymous_id === 'hub-u1')).toBe(true);
+      expect(corps.every((b) => JSON.parse(b.properties).session_serveur === '1')).toBe(true);
+    });
+
+    it.each(['e2e-sso-abc@veridian.site', 'e2e-x@exemple.fr', 'recette-ver230@exemple.fr', 'recette', 'robert-test_1@x.fr', 'E2E-Sso-A@Veridian.site'])(
+      'identité de test %s : rien ne part (Analytics la refuserait en 403)',
+      async (adresse) => {
+        process.env.DEPLOY_ENV = 'prod';
+        const fetchImpl = ok();
+        await trackGoal({ userEmail: adresse, goal: 'signup', sessionId: 'hub-t' }, { fetchImpl: fetchImpl as never, logger: silencieux });
+        expect(fetchImpl).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(['client@exemple.fr', 'recettes@boulangerie.fr', 'e2eadmin@exemple.fr', 'robert@veridian.site'])('vraie adresse %s : part', async (adresse) => {
+      process.env.DEPLOY_ENV = 'prod';
+      const fetchImpl = ok();
+      await trackGoal({ userEmail: adresse, goal: 'signup', sessionId: 'hub-t' }, { fetchImpl: fetchImpl as never, logger: silencieux });
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
     });
 
     it('hors prod sans site : aucun appel', async () => {
