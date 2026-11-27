@@ -8,10 +8,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   AUDIENCE_FOURNISSEUR,
   EMETTEUR_CRM,
+  type ConsommerJti,
   appelerFournisseur,
   corpsRelaye,
   derniereQuestionOpenAI,
-  oublierJetonsVus,
   relaisAvecMesure,
   sessionDuFil,
   verifierAppel,
@@ -42,11 +42,20 @@ const entetes = (j: string | null, cle: string | null = CLE) => {
   return h;
 };
 
-beforeEach(() => oublierJetonsVus());
+/** Le magasin partagé des jti (la base, en prod). Vidé entre tests ; la mémoire d'un processus n'y entre pas. */
+let vus = new Set<string>();
+const base: ConsommerJti = async (jti) => {
+  if (vus.has(jti)) return false;
+  vus.add(jti);
+  return true;
+};
+beforeEach(() => {
+  vus = new Set<string>();
+});
 
 describe('verifierAppel', () => {
   it('nominal : le membre, son workspace et son fil', async () => {
-    expect(await verifierAppel(entetes(await jeton()), env, NOW)).toEqual({ workspaceId: WS, hubUserId: ROBERT, fil: 'fil-1' });
+    expect(await verifierAppel(entetes(await jeton()), base, env, NOW)).toEqual({ workspaceId: WS, hubUserId: ROBERT, fil: 'fil-1' });
   });
 
   it('chaque écart est refusé', async () => {
@@ -62,25 +71,31 @@ describe('verifierAppel', () => {
       ['workspace illisible', entetes(await jeton({ claims: { workspace_id: 'pas-un-uuid' } }))],
       ['fil interdit', entetes(await jeton({ claims: { fil: '../autre' } }))],
     ];
-    for (const [nom, h] of cas) expect('refus' in (await verifierAppel(h, env, NOW)), nom).toBe(true);
+    for (const [nom, h] of cas) expect('refus' in (await verifierAppel(h, base, env, NOW)), nom).toBe(true);
   });
 
   it('fil nul (génération simple) : accepté, fil « sans-fil »', async () => {
-    expect(await verifierAppel(entetes(await jeton({ claims: { fil: null } })), env, NOW)).toEqual({ workspaceId: WS, hubUserId: ROBERT, fil: 'sans-fil' });
+    expect(await verifierAppel(entetes(await jeton({ claims: { fil: null } })), base, env, NOW)).toEqual({ workspaceId: WS, hubUserId: ROBERT, fil: 'sans-fil' });
   });
 
   it('agent sans membre (hub_user_id nul) : refus nommé', async () => {
-    expect(await verifierAppel(entetes(await jeton({ claims: { hub_user_id: null } })), env, NOW)).toEqual({ refus: 'agent_sans_membre' });
+    expect(await verifierAppel(entetes(await jeton({ claims: { hub_user_id: null } })), base, env, NOW)).toEqual({ refus: 'agent_sans_membre' });
   });
 
   it('jti rejoué : refusé la seconde fois', async () => {
     const j = await jeton({ jti: 'unique-1' });
-    expect('refus' in (await verifierAppel(entetes(j), env, NOW))).toBe(false);
-    expect(await verifierAppel(entetes(j), env, NOW)).toEqual({ refus: 'identite_rejouee' });
+    expect('refus' in (await verifierAppel(entetes(j), base, env, NOW))).toBe(false);
+    expect(await verifierAppel(entetes(j), base, env, NOW)).toEqual({ refus: 'identite_rejouee' });
+  });
+
+  it('jti rejoué sur une AUTRE instance (mémoire vide, base partagée) : refusé', async () => {
+    const j = await jeton({ jti: 'unique-2' });
+    expect('refus' in (await verifierAppel(entetes(j), base, env, NOW))).toBe(false);
+    expect(await verifierAppel(entetes(j), base, env, NOW)).toEqual({ refus: 'identite_rejouee' });
   });
 
   it('secrets absents ou courts : fermé', async () => {
-    expect(await verifierAppel(entetes(await jeton()), {} as NodeJS.ProcessEnv, NOW)).toEqual({ refus: 'fournisseur_non_configure' });
+    expect(await verifierAppel(entetes(await jeton()), base, {} as NodeJS.ProcessEnv, NOW)).toEqual({ refus: 'fournisseur_non_configure' });
   });
 });
 

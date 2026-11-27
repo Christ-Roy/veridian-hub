@@ -12,6 +12,7 @@ import { espaceDe, parJour, parMinute } from '@/lib/ia/contexte';
 import {
   appelerFournisseur,
   derniereQuestionOpenAI,
+  consommerJtiIa,
   erreurOpenAI,
   morceau,
   relaisAvecMesure,
@@ -40,7 +41,7 @@ async function refuser(qui: Partial<Identite> | null, statut: number, code: stri
 }
 
 export async function POST(req: Request) {
-  const qui = await verifierAppel(req.headers);
+  const qui = await verifierAppel(req.headers, (jti, finMs) => consommerJtiIa(prisma, jti, finMs));
   if ('refus' in qui) {
     if (qui.refus === 'agent_sans_membre') {
       return refuser(null, 403, qui.refus, "L'Assistant Veridian répond à un membre : un agent sans utilisateur n'a pas d'IA branchée.");

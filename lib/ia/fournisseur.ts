@@ -11,6 +11,7 @@
  */
 import { createHash, timingSafeEqual } from 'node:crypto';
 
+import type { PrismaClient } from '@prisma/client';
 import { jwtVerify } from 'jose';
 
 import type { Fournisseur } from './branchements';
@@ -35,13 +36,27 @@ function egal(a: string, b: string): boolean {
   return timingSafeEqual(ha, hb) && a.length === b.length;
 }
 
-const vus = new Map<string, number>();
-export function oublierJetonsVus() {
-  vus.clear();
+/**
+ * Usage unique d'un jti, rendu PAR LA BASE : vrai si ce jti n'a pas encore été consommé (il l'est maintenant), faux s'il l'a été.
+ * Une mémoire de processus ne suffit pas : deux instances du Hub ne se voient pas (VER-270, rejeu entre instances).
+ */
+export type ConsommerJti = (jti: string, finMs: number) => Promise<boolean>;
+
+/** Magasin en base : la table `delegation_nonces` (empreinte unique) sert de registre de jeton à usage unique, clé préfixée par `ia-jti:`. */
+export async function consommerJtiIa(db: Pick<PrismaClient, 'delegationNonce'>, jti: string, finMs: number): Promise<boolean> {
+  try {
+    await db.delegationNonce.create({ data: { empreinte: createHash('sha256').update(`ia-jti:${jti}`).digest('hex'), expireLe: new Date(finMs) } });
+    await db.delegationNonce.deleteMany({ where: { expireLe: { lt: new Date() } } }).catch(() => undefined);
+    return true;
+  } catch {
+    // Déjà consommé, ou base injoignable : on refuse (fermé). Le jeton ne dure que 60 s, le client en refait un.
+    return false;
+  }
 }
 
 export async function verifierAppel(
   entetes: Headers,
+  consommer: ConsommerJti,
   env: NodeJS.ProcessEnv = process.env,
   maintenant: number = Date.now(),
 ): Promise<Identite | RefusAppel> {
@@ -78,11 +93,7 @@ export async function verifierAppel(
   if (typeof ws !== 'string' || !UUID.test(ws) || typeof qui !== 'string' || !UUID.test(qui) || typeof fil !== 'string' || !FIL.test(fil)) {
     return { refus: 'identite_incomplete' };
   }
-  vus.forEach((fin, k) => {
-    if (fin < maintenant) vus.delete(k);
-  });
-  if (vus.has(String(jti))) return { refus: 'identite_rejouee' };
-  vus.set(String(jti), maintenant + 120_000);
+  if (!(await consommer(String(jti), Number(p.exp) * 1000))) return { refus: 'identite_rejouee' };
   return { workspaceId: ws, hubUserId: qui, fil };
 }
 
