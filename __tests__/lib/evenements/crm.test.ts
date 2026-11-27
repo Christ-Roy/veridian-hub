@@ -1,12 +1,12 @@
 import { createLocalJWKSet, jwtVerify, type JWK } from 'jose';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { ecrireReponseHumaine, OUTIL_CRM, PORTEE_CRM } from '@/lib/evenements/crm';
+import { ecrireEvenementsMail, OUTIL_CRM_MAIL, PORTEE_CRM_MAIL, ecrireReponseHumaine, OUTIL_CRM, PORTEE_CRM } from '@/lib/evenements/crm';
 import { jwksPublic } from '@/lib/mcp/identite';
 
 import { base, cleDeTest } from './fausse';
 
-const R = { workspaceId: 'ws1', evenementId: 'liv-1', messageId: 'm-1', rfcMessageId: 'abc@x', email: 'c@x.test', threadId: 't_1', survenuLe: null };
+const R = { workspaceId: 'ws1', evenementId: 'liv-1', matchType: 'message_id' as const, contactEmail: null as string | null, objet: null as string | null, messageId: 'm-1', rfcMessageId: 'abc@x', email: 'c@x.test', threadId: 't_1', survenuLe: null, nom: null as string | null };
 let env: NodeJS.ProcessEnv;
 let db: ReturnType<typeof base>;
 beforeAll(async () => { env = await cleDeTest(); });
@@ -39,8 +39,18 @@ describe('ecrireReponseHumaine', () => {
     const h = init.headers as Record<string, string>;
     expect([h.Accept, h['Idempotency-Key']]).toEqual(['application/json, text/event-stream', 'liv-1']);
     const corps = JSON.parse(init.body as string);
-    expect(corps).toMatchObject({ method: 'tools/call', params: { name: OUTIL_CRM, arguments: { email: 'c@x.test', thread_id: 't_1', message_id: 'm-1', idempotency_key: 'liv-1', chaine: ['notifuse>crm:liv-1'] } } });
+    expect(corps).toMatchObject({ method: 'tools/call', params: { name: OUTIL_CRM, arguments: { kind: 'reply_human', match_type: 'message_id', email: 'c@x.test', thread_id: 't_1', message_id: 'm-1', idempotency_key: 'liv-1', chaine: ['notifuse>crm:liv-1'] } } });
     expect(JSON.stringify(corps)).not.toMatch(/subject|body|from/);
+  });
+  it('nom affiché de l\'expéditeur : relayé quand Mail le donne (VER-247), absent sinon (jamais une clé vide)', async () => {
+    const lire = async (nom: string | null) => {
+      const f = vi.fn(async () => json({ jsonrpc: '2.0', id: 1, result: OK }));
+      await ecrireReponseHumaine(db as never, { tenantId: 'T', reponse: { ...R, nom }, chaine: [] }, env, f as never);
+      return JSON.parse((f.mock.calls[0] as unknown as [string, RequestInit])[1].body as string).params.arguments;
+    };
+    const avec = await lire('Alice Martin');
+    const sans = await lire(null);
+    expect([avec.nom, 'nom' in sans]).toEqual(['Alice Martin', false]);
   });
   it('réponse en flux SSE : acceptée', async () => {
     const sse = new Response('event: message\ndata: {"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"{\\"ok\\":true}"}]}}\n\n', { headers: { 'content-type': 'text/event-stream' } });
@@ -75,6 +85,45 @@ describe('ecrireReponseHumaine', () => {
     db.mcpApp.lignes[0].enabled = false;
     const f = vi.fn();
     await expect(appel(f as never)).rejects.toThrow('target_not_registered');
+    expect(f).not.toHaveBeenCalled();
+  });
+});
+
+describe('ecrireReponseHumaine : expéditeur et contact', () => {
+  it('l\'expéditeur part sous email, le contact rattaché à part sous contact_email quand il diffère', async () => {
+    const f = vi.fn(async () => json({ jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: '{"ok":true}' }] } }));
+    await ecrireReponseHumaine(db as never, { tenantId: 'T', reponse: { ...R, email: 'camille@autre.test', contactEmail: 'c@x.test' }, chaine: [] }, env, f as never);
+    const a = JSON.parse((f.mock.calls[0] as unknown as [string, RequestInit])[1].body as string).params.arguments;
+    expect([a.email, a.contact_email, a.subject]).toEqual(['camille@autre.test', 'c@x.test', undefined]);
+    await ecrireReponseHumaine(db as never, { tenantId: 'T', reponse: { ...R, objet: 'Re: Offre' }, chaine: [] }, env, f as never);
+    expect(JSON.parse((f.mock.calls[1] as unknown as [string, RequestInit])[1].body as string).params.arguments.subject).toBe('Re: Offre');
+  });
+});
+
+describe('ecrireEvenementsMail (§5.25)', () => {
+  const lignes = (o: object) => vi.fn(async () => json({ jsonrpc: '2.0', id: 1, result: { content: [{ type: 'text', text: JSON.stringify(o) }] } }));
+  it('jeton d\'intégration à la seule portée crm:mail.ecrire, outil app_evenements_mail, Idempotency-Key = lot_id ; les comptes du CRM rendus', async () => {
+    const f = lignes({ ok: true, lignes: { creees: 1, avancees: 2, ignorees: 3 } });
+    const r = await ecrireEvenementsMail(db as never, { tenantId: 'T', workspaceId: 'ws1', lotId: 'lot-1', evenements: [{ event: 'message.sent' }] }, env, f as never);
+    const init = (f.mock.calls[0] as unknown as [string, RequestInit])[1];
+    const h = init.headers as Record<string, string>;
+    const p = (await jwtVerify(h.Authorization.slice(7), createLocalJWKSet((await jwksPublic(env)) as { keys: JWK[] }), { audience: 'https://crm.test/mcp' })).payload;
+    expect([OUTIL_CRM_MAIL, PORTEE_CRM_MAIL, p.scope, p.sub, h['Idempotency-Key'], JSON.parse(init.body as string).params.name, r.lignes]).toEqual(['app_evenements_mail', 'crm:mail.ecrire', 'crm:mail.ecrire', 'integration:T', 'lot-1', 'app_evenements_mail', { creees: 1, avancees: 2, ignorees: 3 }]);
+  });
+  it('un refus du CRM (success:false) lève ; des comptes absents ou faux valent 0', async () => {
+    await expect(ecrireEvenementsMail(db as never, { tenantId: 'T', workspaceId: 'ws1', lotId: 'l', evenements: [] }, env, lignes({ success: false }) as never)).rejects.toThrow('crm_refus');
+    expect((await ecrireEvenementsMail(db as never, { tenantId: 'T', workspaceId: 'ws1', lotId: 'l', evenements: [] }, env, lignes({ ok: true, lignes: { creees: -1, avancees: 'x' } }) as never)).lignes).toEqual({ creees: 0, avancees: 0, ignorees: 0 });
+  });
+  it('les ignorées détaillées (Liaisons 0.7.5) ne gardent que le décompte par raison, jamais l\'identifiant du message', async () => {
+    const f = lignes({ ok: true, lignes: { creees: 0, avancees: 0, ignorees: 3 }, ignorees: [{ rfc_message_id: '<a@x.fr>', raison: 'inchangee' }, { rfc_message_id: '<b@x.fr>', raison: 'inchangee' }, { rfc_message_id: '<c@x.fr>', raison: 'expediteur_inconnu' }] });
+    const r = await ecrireEvenementsMail(db as never, { tenantId: 'T', workspaceId: 'ws1', lotId: 'l', evenements: [] }, env, f as never);
+    expect(r.lignes).toEqual({ creees: 0, avancees: 0, ignorees: 3, raisons_ignorees: { inchangee: 2, expediteur_inconnu: 1 } });
+    expect(JSON.stringify(r).includes('@')).toBe(false);
+  });
+  it('CRM absent du registre MCP ou éteint : échec franc (target_not_registered), aucun appel', async () => {
+    db.mcpApp.lignes[0].enabled = false;
+    const f = vi.fn();
+    await expect(ecrireEvenementsMail(db as never, { tenantId: 'T', workspaceId: 'ws1', lotId: 'l', evenements: [] }, env, f as never)).rejects.toThrow('target_not_registered');
     expect(f).not.toHaveBeenCalled();
   });
 });

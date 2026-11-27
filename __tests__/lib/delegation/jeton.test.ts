@@ -123,6 +123,7 @@ describe('echanger', () => {
     ['compte supprimé', 'user_invalid', () => { db.user.lignes.length = 0; }],
     ['tenant suspendu', 'tenant_suspended', () => { db.tenant.lignes[0].status = 'suspended'; }],
     ['tenant supprimé', 'tenant_not_found', () => { db.tenant.lignes[0].deletedAt = new Date(); }],
+    ['organisation obligatoire, jamais passée par son fournisseur', 'organisation_fournisseur', () => { db.tenantConnexion.lignes.push({ tenantId: db.delegationGrant.lignes[0].tenantId, obligatoire: true }); }],
     ['liaison éteinte', 'integration_off', () => { db.integrationPaire.lignes[0].etat = 'eteinte'; }],
     ['liaison jamais allumée', 'integration_off', () => { db.integrationPaire.lignes.length = 0; }],
     ['sans consentement', 'integration_off', () => { db.integrationPaire.lignes[0].consentiLe = null; }],

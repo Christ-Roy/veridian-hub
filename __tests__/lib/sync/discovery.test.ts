@@ -18,6 +18,7 @@ import {
   discoverUserApps,
   readAppSecrets,
 } from '@/lib/sync/discovery';
+import { exigeV1, exigeV2 } from '../hmac/aide-v2';
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -301,5 +302,30 @@ describe('readAppSecrets', () => {
     vi.stubEnv('PROSPECTION_HUB_API_SECRET', '');
     expect(readAppSecrets('prospection')).toEqual([]);
     vi.unstubAllEnvs();
+  });
+});
+
+describe('discoverAppForEmail, version de signature', () => {
+  const decouvrir = async () => {
+    const fetchMock = vi.fn(async () => jsonResp(200, { found: false }));
+    await discoverAppForEmail('notifuse', 'user@x.com', { fetchImpl: fetchMock as unknown as typeof fetch, hubUserId: 'h1' });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    return { url, h: init.headers as Record<string, string> };
+  };
+  it('HMAC_V2_APPS=notifuse : la query (email, hub_user_id) est signée telle qu\'elle part', async () => {
+    process.env.HMAC_V2_APPS = 'notifuse';
+    const { url, h } = await decouvrir();
+    expect(url).toContain('?email=');
+    exigeV2(h, 'notifuse-secret-test', 'GET', url);
+  });
+  it('variable absente : v1 sur `${ts}.`, comme avant', async () => {
+    delete process.env.HMAC_V2_APPS;
+    const { h } = await decouvrir();
+    exigeV1(h, 'notifuse-secret-test');
+  });
+  it('seule prospection est en v2 : notifuse reste en v1', async () => {
+    process.env.HMAC_V2_APPS = 'prospection';
+    const { h } = await decouvrir();
+    exigeV1(h, 'notifuse-secret-test');
   });
 });

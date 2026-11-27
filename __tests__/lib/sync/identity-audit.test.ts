@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { HORS_PERIMETRE, auditIdentity, compareIdentities, identityCounts, horsPerimetre } from '@/lib/sync/identity-audit';
+import { exigeV1, exigeV2 } from '../hmac/aide-v2';
 
 const HUB = [{ supabaseUserId: 'id-1', email: 'a@x.fr', name: 'Alice' }];
 
@@ -107,5 +108,30 @@ describe('horsPerimetre', () => {
     expect(horsPerimetre('notifuse', 'robert@veridian.site')).toContain('opérateur');
     expect(horsPerimetre('crm', 'robert@veridian.site')).toBeNull();
     expect(horsPerimetre('notifuse', 'robert@client.fr')).toBeNull();
+  });
+});
+
+describe('auditIdentity, version de signature', () => {
+  const prisma = { user: { findMany: vi.fn(async () => HUB) } };
+  const lire = async () => {
+    vi.stubEnv('NOTIFUSE_API_URL', 'https://n.test');
+    vi.stubEnv('NOTIFUSE_HUB_API_SECRET', 'secret');
+    let vu: { url: string; h: Record<string, string> } | null = null;
+    const fetchImpl = (async (url: string, init?: RequestInit) => {
+      vu = { url, h: init?.headers as Record<string, string> };
+      return Response.json({ users: [] });
+    }) as unknown as typeof fetch;
+    await auditIdentity(prisma as never, { apps: ['notifuse'], fetchImpl });
+    return vu as unknown as { url: string; h: Record<string, string> };
+  };
+  afterEach(() => vi.unstubAllEnvs());
+  it('HMAC_V2_APPS=notifuse : le GET de la liste des comptes part en v2', async () => {
+    vi.stubEnv('HMAC_V2_APPS', 'notifuse');
+    const v = await lire();
+    exigeV2(v.h, 'secret', 'GET', v.url);
+  });
+  it('variable absente : v1', async () => {
+    const v = await lire();
+    exigeV1(v.h, 'secret');
   });
 });

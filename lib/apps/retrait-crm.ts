@@ -11,7 +11,7 @@
  * Fermé par défaut : découverte illisible, en erreur ou ambiguë = retenu. Levée : `CRM_RETRAIT_FUSIBLE=0` dans le job
  * (dès que le CRM annonce son correctif en prod), puis `hub crm-retraits` rejoue les retraits en attente.
  */
-import { readAppSecret, readAppUrl, signGet } from '@/lib/sync/discovery';
+import { enteteGet, readAppSecret, readAppUrl } from '@/lib/sync/discovery';
 
 const DELAI_MS = 5_000;
 
@@ -29,9 +29,9 @@ async function lire(chemin: string, deps: Deps): Promise<unknown> {
   const url = readAppUrl('crm');
   const secret = readAppSecret('crm');
   if (!url || !secret) return null;
-  const { timestamp, signature } = signGet(secret);
-  const r = await (deps.fetchImpl ?? fetch)(`${url}${chemin}`, {
-    headers: { 'X-Veridian-Timestamp': timestamp, 'X-Veridian-Hub-Signature': signature },
+  const cible = `${url}${chemin}`;
+  const r = await (deps.fetchImpl ?? fetch)(cible, {
+    headers: enteteGet('crm', secret, cible),
     signal: AbortSignal.timeout(deps.timeoutMs ?? DELAI_MS),
   }).catch(() => null);
   if (!r || r.status !== 200) return null;

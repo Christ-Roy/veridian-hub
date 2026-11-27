@@ -6,7 +6,7 @@ vi.mock('@/lib/mcp/catalogue', () => ({ espacesDe: () => m.espaces() }));
 
 import { COOKIE_ACTIF, organisationActive } from '@/lib/tenants/actif';
 
-const active = (souhait?: string) => organisationActive({} as never, 'u', souhait);
+const active = (souhait?: string) => organisationActive({} as never, 'u', { par: 'session' }, souhait);
 beforeEach(() => m.espaces.mockResolvedValue([{ id: 'A' }, { id: 'B' }]));
 
 describe('organisationActive', () => {

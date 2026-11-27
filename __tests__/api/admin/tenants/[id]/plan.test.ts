@@ -43,6 +43,11 @@ const updateTenantMock = vi.fn(async ({ data, select }: any) => ({
   ...(select ? {} : {}),
 }));
 
+const retraits: string[][] = [];
+vi.mock('@/lib/tenants/metadata-fusion', () => ({
+  fusionnerMetadata: vi.fn(async (_db: unknown, _id: string, patch: Record<string, unknown>) => { tenantRow.metadata = { ...(tenantRow?.metadata ?? {}), ...patch }; }),
+  retirerDeMetadata: vi.fn(async (_db: unknown, _id: string, cles: string[]) => { retraits.push(cles); for (const k of cles) delete tenantRow.metadata[k]; }),
+}));
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     user: { findFirst: vi.fn(async () => ({ email: 'owner@x.fr' })) },
@@ -211,7 +216,8 @@ describe('POST /api/admin/tenants/[id]/plan — analytics et crm', () => {
     expect(await res.json()).toMatchObject({ app, plan: 'business', previous_plan: 'free' });
     const corps = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body));
     expect(corps).toMatchObject({ plan: 'business', plan_source: 'grant_manual', tenant_id: 't-1' });
-    expect(updateTenantMock.mock.calls.at(-1)?.[0].data.metadata).toMatchObject({ [`${app}_plan`]: 'business' });
+    // Posé par la fusion en base (lib/tenants/metadata-fusion.ts) : les autres clés restent.
+    expect(tenantRow.metadata).toMatchObject({ [app]: { linked_at: 'x' }, [`${app}_plan`]: 'business' });
     vi.unstubAllGlobals();
   });
 
@@ -224,7 +230,8 @@ describe('POST /api/admin/tenants/[id]/plan — analytics et crm', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ app: 'crm', plan: null, previous: { plan: 'free', source: 'grant_manual' }, propagated: false });
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(updateTenantMock.mock.calls.at(-1)?.[0].data.metadata).toEqual({ crm: { workspace_id: 'w' }, garde: 1 });
+    // Retirées une à une par la base, jamais le JSON entier réécrit depuis la lecture (26/11).
+    expect([tenantRow.metadata, retraits.at(-1)]).toEqual([{ crm: { workspace_id: 'w' }, garde: 1 }, ['crm_plan', 'crm_plan_source', 'crm_plan_set_at', 'crm_plan_set_by']]);
     vi.unstubAllGlobals();
   });
 

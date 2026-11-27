@@ -3,13 +3,13 @@
 import { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const m = vi.hoisted(() => ({ auth: vi.fn(), user: vi.fn(), prouvee: vi.fn(), valider: vi.fn(), code: vi.fn() }));
+const m = vi.hoisted(() => ({ auth: vi.fn(), user: vi.fn(), prouvee: vi.fn(), valider: vi.fn(), code: vi.fn(), params: { decision: 'autoriser' } as Record<string, string> }));
 vi.mock('@/auth', () => ({ auth: () => m.auth() }));
 vi.mock('@/lib/prisma', () => ({ prisma: { auditLog: { create: async () => undefined } } }));
 vi.mock('@/lib/auth/get-user', () => ({ getCurrentUser: () => m.user() }));
 vi.mock('@/lib/auth/email-proof', () => ({ isEmailProvenForSession: () => m.prouvee() }));
 vi.mock('@/lib/mcp/config', () => ({ hubIssuer: () => 'https://app.veridian.site' }));
-vi.mock('@/lib/mcp/http', () => ({ lireParams: async () => ({ decision: 'autoriser' }) }));
+vi.mock('@/lib/mcp/http', () => ({ lireParams: async () => m.params }));
 vi.mock('@/lib/mcp/oauth', () => ({ validerDemande: (...a: unknown[]) => m.valider(...a), creerCode: (...a: unknown[]) => m.code(...a) }));
 
 import { POST } from '@/app/api/oauth/authorize/route';
@@ -37,6 +37,11 @@ describe('POST /api/oauth/authorize', () => {
     casser();
     expect((await poster()).status).toBe(statut);
     expect(m.code).not.toHaveBeenCalled();
+  });
+  it('services extérieurs : seulement ouverts ET lus à l\'écran', async () => {
+    const vu = async (ouvert: string, services?: string) => { vi.stubEnv('CONNECTEURS_OUVERTS', ouvert); m.params = { decision: 'autoriser', ...(services ? { services } : {}) }; m.code.mockClear(); await poster(); return m.code.mock.calls[0][4]; };
+    expect([await vu('1', '1'), await vu('1'), await vu('', '1'), await vu('1', 'oui')]).toEqual([true, false, false, false]);
+    m.params = { decision: 'autoriser' };
   });
   it('autre origine : refusée', async () => expect((await poster('https://pirate.test')).status).toBe(403));
 });

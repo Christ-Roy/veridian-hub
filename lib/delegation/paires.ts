@@ -14,6 +14,9 @@ export const PAIRES: readonly Paire[] = [
   P('prospection', 'crm', ['crm:societe.ecrire', 'crm:tache.ecrire'], 'Prospection vers CRM : envoyer une fiche au CRM'),
   P('prospection', 'notifuse', ['notifuse:contacts.ecrire'], 'Prospection vers Mail : verser des contacts dans une liste, sans envoi'),
   P('notifuse', 'crm', ['crm:tache.ecrire'], 'Mail vers CRM : une réponse humaine crée une fiche et une tâche', 'evenement'),
+  // Paire à part (26/11) : ajouter une portée à `notifuse>crm` aurait éteint chaque liaison consentie (empreinte des portées) et l'allumage
+  // par défaut. Activité Mail (envoi, remise, ouverture, clic, rejet, désinscription) rangée dans la fiche, sans jamais créer de personne.
+  P('notifuse', 'crm', ['crm:mail.ecrire'], 'Mail vers CRM : l\'activité de chaque message rangée dans la fiche de la personne', 'evenement', '#activite'),
   P('crm', 'notifuse', ['notifuse:contacts.ecrire', 'notifuse:contacts.lire'], 'CRM vers Mail : ajouter des contacts à une liste et lire leur état, sans envoi'),
   // À part : elle fait partir du courrier plus tard. Jamais par défaut, le clic du propriétaire le dit.
   P('crm', 'notifuse', ['notifuse:sequences.inscrire'], 'CRM vers Mail : inscrire un contact dans une séquence, qui lui enverra des mails', 'action', '#sequences'),
@@ -58,10 +61,13 @@ export const sourceServie = (source: AppPaire, env: NodeJS.ProcessEnv = process.
 export const paireServie = (p: Paire, env: NodeJS.ProcessEnv = process.env, test = false): boolean => p.nature === 'action' && sourceServie(p.source, env, test) && cibleServie(p.cible, env, test);
 /**
  * Un événement se règle à part (`DELEGATION_EVENEMENTS`, vide par défaut) : `notifuse>crm` pour tous, `notifuse>crm@<tenant>` pour une seule
- * organisation, `notifuse>crm@test` pour celles marquées de test. Ouvert ne veut pas dire allumé : le clic du propriétaire reste dû.
+ * organisation, `notifuse>crm@test` pour celles marquées de test. Ouvert, il est ALLUMÉ par défaut là où Mail et le CRM sont ouverts (PAR_DEFAUT,
+ * `etat.ts`, Robert 25/11) ; le propriétaire le coupe d'un clic et la coupure tient. Mesuré le 26/11 sur une organisation de test.
  */
 export const evenementOuvert = (cle: string, tenantId: string, env: NodeJS.ProcessEnv = process.env, test = false): boolean => {
-  const l = (env.DELEGATION_EVENEMENTS ?? '').split(',').map((x) => x.trim());
+  // Guillemets tolérés : la valeur est entre guillemets dans le job, sinon le `#` d'une clé (`notifuse>crm#activite`) ouvre un commentaire
+  // dans le fichier d'environnement de Nomad et tronque la liste (26/11 : « notifuse>crm » restait seul, ouvert à toutes les organisations).
+  const l = (env.DELEGATION_EVENEMENTS ?? '').replace(/^\s*"|"\s*$/g, '').split(',').map((x) => x.trim());
   return l.includes(cle) || l.includes(`${cle}@${tenantId}`) || (test && l.includes(`${cle}@test`));
 };
 /** Ce qu'une organisation peut régler : une action servie, ou un événement ouvert pour elle. L'ÉCHANGE d'un jeton, lui, reste aux actions. */

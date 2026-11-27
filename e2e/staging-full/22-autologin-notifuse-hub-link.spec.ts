@@ -13,11 +13,10 @@
  *   1. Un workspace Notifuse créé en direct (HMAC, hors Hub) est rattachable.
  *   2. `link-app` refuse désormais un slug qui ne peut pas être un
  *      `workspace_id` Notifuse (au lieu d'accepter un lien mort-né).
- *   3. Le client, avec sa seule session Hub, obtient une **vraie URL
- *      d'auto-login** — c'est l'assertion qui aurait échoué avant le fix.
- *   4. L'URL rendue est réellement servie par Notifuse (HTTP < 400).
- *   5. Les credentials sont backfillés : le second appel emprunte le chemin
- *      rapide `api_key` sans repasser par la réparation HMAC.
+ *   3. Le client, avec sa seule session Hub, obtient l'adresse du **rebond
+ *      signé** (`/login?next=`), jamais un lien fabriqué par le Hub.
+ *   4. Ce rebond est servi par le Hub (HTTP < 400).
+ *   5. Un second appel rend la même adresse.
  *
  * **PRÉREQUIS** : `ADMIN_SECRET`, `NOTIFUSE_HUB_API_SECRET` et
  * `NOTIFUSE_STAGING_URL` (défaut `https://notifuse.staging.veridian.site`).
@@ -179,7 +178,7 @@ test.describe('Journey 22 — Auto-login Notifuse après `hub link`', () => {
     'ADMIN_SECRET + NOTIFUSE_HUB_API_SECRET requis pour fabriquer l’état de départ',
   );
 
-  test('un tenant rattaché par `hub link` obtient une URL d’auto-login', async ({
+  test('un tenant rattaché par `hub link` ouvre Mail par le rebond', async ({
     request,
     playwright,
   }) => {
@@ -189,19 +188,23 @@ test.describe('Journey 22 — Auto-login Notifuse après `hub link`', () => {
     const workspaceId = uniqueWorkspaceId();
     const email = makeEmail(`autologin-${workspaceId}`);
 
-    // ─── 1. Workspace créé EN DIRECT côté Notifuse (hors Hub) ───────────
+    // ─── 1. User Hub (identité prouvée par `hub_user_id`, CONTRAT-HUB §5.19.7) ──
+    await signupCredentials(email);
+    const hubUserId = await resolveHubUserId(request, email);
+
+    // ─── 2. Workspace créé EN DIRECT côté Notifuse (hors Hub) ───────────
     // Reproduit le CLI `notifuse` : le Hub ne voit jamais passer la clé API.
+    // Mail désigne son propriétaire par `owner_hub_user_id`, jamais par l'adresse seule.
     const provision = await notifuseHmac('POST', '/api/tenants/provision', {
       tenant_id: workspaceId,
       owner_email: email,
+      owner_hub_user_id: hubUserId,
       workspace_name: `E2E autologin ${workspaceId}`,
       plan: 'free',
+      metadata: { hub_user_id: hubUserId },
     });
     expect(provision.status, `provision Notifuse: ${JSON.stringify(provision.json)}`).toBe(200);
     expect(provision.json.created, 'workspace fraîchement créé').toBe(true);
-
-    // ─── 2. User Hub + session client ───────────────────────────────────
-    await signupCredentials(email);
 
     // ─── 3. `hub link --app notifuse` ───────────────────────────────────
     const link = await hubLinkNotifuse(request, { email, workspaceId });
@@ -217,40 +220,29 @@ test.describe('Journey 22 — Auto-login Notifuse après `hub link`', () => {
         failOnStatusCode: false,
       });
 
-      const magicBody = (await magic.json()) as {
-        autoLoginUrl?: string;
-        source?: string;
-        error?: string;
-        reason?: string;
-      };
+      const magicBody = (await magic.json()) as { url?: string; error?: string; reason?: string };
       expect(
         magic.status(),
         `magic-link doit répondre 200 (reçu ${magic.status()}: ${JSON.stringify(magicBody)})`,
       ).toBe(200);
-      expect(magicBody.autoLoginUrl, 'URL d’auto-login présente').toBeTruthy();
-      expect(magicBody.autoLoginUrl).toContain('/veridian/auto-login');
-      // Le chemin emprunté prouve que c'est bien la réparation HMAC qui a
-      // joué (le Hub n'a jamais eu la clé API de ce workspace).
-      expect(magicBody.source).toBe('provision_idempotent');
+      // Plus de lien fabriqué par le Hub : le rebond signé, qui demande la session de la personne.
+      expect(magicBody.url, 'adresse du rebond présente').toMatch(/^\/login\?next=/);
+      expect(JSON.stringify(magicBody)).not.toContain('/veridian/auto-login');
 
-      // ─── 5. L'URL est réellement servie par Notifuse ──────────────────
-      const followed = await fetch(magicBody.autoLoginUrl!, {
-        redirect: 'manual',
-        signal: AbortSignal.timeout(20_000),
-      });
+      // ─── 5. Le rebond est servi par le Hub ────────────────────────────
+      const followed = await clientCtx.get(magicBody.url!, { maxRedirects: 0, failOnStatusCode: false });
       expect(
-        followed.status,
-        `l’URL d’auto-login doit être servie (reçu ${followed.status})`,
+        followed.status(),
+        `le rebond doit être servi (reçu ${followed.status()})`,
       ).toBeLessThan(400);
 
-      // ─── 6. Backfill : le 2e appel prend le chemin rapide ─────────────
+      // ─── 6. Un 2e appel rend la même adresse (aucun jeton à usage unique côté Hub) ──
       const second = await clientCtx.post('/api/admin/notifuse/magic-link', {
         data: { tenantId: await resolveTenantId(request, email) },
         failOnStatusCode: false,
       });
       expect(second.status()).toBe(200);
-      const secondBody = (await second.json()) as { autoLoginUrl?: string };
-      expect(secondBody.autoLoginUrl, '2e lien également produit').toBeTruthy();
+      expect(((await second.json()) as { url?: string }).url).toBe(magicBody.url);
     } finally {
       await clientCtx.dispose();
       // Nettoyage staging : on ne laisse pas traîner le workspace de test.
@@ -294,4 +286,13 @@ async function resolveTenantId(
   const tenantId = body.tenant?.id ?? body.tenants?.[0]?.id;
   expect(tenantId, `tenant Hub introuvable pour ${email}: ${JSON.stringify(body)}`).toBeTruthy();
   return tenantId!;
+}
+
+/** `hub_user_id` (`supabase_user_id`) du compte, par l'API admin. */
+async function resolveHubUserId(request: APIRequestContext, email: string): Promise<string> {
+  const res = await request.get(`${STAGING_URL}/api/admin/users/${encodeURIComponent(email)}`, { headers: adminHeaders(), failOnStatusCode: false });
+  expect(res.status(), `admin users lookup ${email}`).toBe(200);
+  const body = (await res.json()) as { user?: { supabase_user_id?: string | null } };
+  expect(body.user?.supabase_user_id, `hub_user_id introuvable pour ${email}`).toBeTruthy();
+  return body.user!.supabase_user_id!;
 }

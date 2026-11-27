@@ -19,7 +19,7 @@ import { APP_URL, HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
 import { rybbitCompte } from './lib/hub-admin';
 import { assurerRybbit, compte, contexteDe, ouvrirApp } from './lib/monde';
-import type { Atterrissage } from './lib/parcours';
+import { noterRybbit, type Atterrissage } from './lib/parcours';
 import { devraitExpliquerLeRefus } from './lib/refus';
 import type { Browser, BrowserContext } from '@playwright/test';
 
@@ -30,7 +30,7 @@ async function robert(browser: Browser) {
   const E = await compte(browser, 'E');
   const F = await compte(browser, 'F');
   if (!E.hubUserId) throw new NonAbouti('compte de test E sans hub_user_id');
-  assurerRybbit(F);
+  assurerRybbit(F, { lier: false }); // relié à E juste après : le script ne relie qu'un compte qui ne l'est à personne
   if (!sabote('adresse-liee') && !sabote('conflit')) rybbitCompte('lier', F.email, E.hubUserId);
   return { E, F };
 }
@@ -97,14 +97,16 @@ cas('analytics', 'une personne, deux comptes Hub : le second lit « rattaché à
   }
 });
 
-cas('analytics', 'adresse au Hub inconnue de l\'app : « pas encore d\'accès » avec son adresse, jamais un refus muet', async ({ browser }) => {
+// 26/11 (Analytics 692c968, contrat §5) : une personne prouvée qu'Analytics ne connaît pas n'est plus refusée ; le rebond (qui envoie
+// hub_tenant_id) la crée avec son organisation, sans site. Mesuré en prod le 26/11 : « Aucun site web pour le moment ».
+cas('analytics', 'adresse au Hub inconnue de l\'app : la personne prouvée y entre, dans une organisation créée pour elle, sans site', async ({ browser }) => {
   const B = await compte(browser, 'B');
-  if (sabote('inconnu')) assurerRybbit(B);
+  noterRybbit(B.email); // créée chez Analytics par le rebond : le ménage de la batterie la retire
   const ctx = await contexteDe(browser, B);
   try {
     const a = await ouvrirApp(ctx, 'analytics');
-    devraitExpliquerLeRefus(a, 'user_not_in_app', B.email);
-    return `refus expliqué pour ${B.email} (${a.chemin})`;
+    devraitEtreArrive(a, 'analytics');
+    return `${B.email} entré dans Analytics sans geste d'opérateur (${a.chemin})`;
   } finally {
     await ctx.close();
   }

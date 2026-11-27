@@ -9,12 +9,14 @@
  * Le Hub retient le plan dans `metadata.<app>_plan` (et `_plan_source`), que `hub reconcile` compare
  * au plan rendu par la découverte de l'app. Un refus de l'app n'écrit rien : pas d'écart silencieux.
  */
-import { createHmac, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 
 import type { PrismaClient } from '@prisma/client';
 
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
+import { entetesSignature } from '@/lib/hmac/signature-hub';
 import { trialStatusForTenant, type TenantTrialStatus } from '@/lib/plans/trial-status';
+import { fusionnerMetadata } from '@/lib/tenants/metadata-fusion';
 
 /** Apps à plan canonique qui suivent le bundle Stripe et la machine d'essai. */
 export const PLAN_APPS = ['analytics', 'crm'] as const;
@@ -145,16 +147,15 @@ export async function pushAppPlan(
     trial_status: input.trial?.status ?? 'none',
     trial_ends_at: input.trial?.endsAt ?? null,
   });
-  const timestamp = String((opts.nowMs ?? Date.now)());
-  const signature = createHmac('sha256', config.hubSecret).update(`${timestamp}.${body}`).digest('hex');
+  const cible = `${config.apiUrl}${UPDATE_PLAN_PATH}`;
+  const signature = entetesSignature({ secret: config.hubSecret, methode: 'POST', url: cible, corps: body, app: input.app, maintenant: (opts.nowMs ?? Date.now)() });
   let response: Response;
   try {
-    response = await (opts.fetchImpl ?? fetch)(`${config.apiUrl}${UPDATE_PLAN_PATH}`, {
+    response = await (opts.fetchImpl ?? fetch)(cible, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Veridian-Timestamp': timestamp,
-        'X-Veridian-Hub-Signature': signature,
+        ...signature,
       },
       body,
       signal: AbortSignal.timeout(TIMEOUT_MS),
@@ -170,7 +171,7 @@ export async function pushAppPlan(
   return { ok: true, previousPlan: data?.previous_plan ?? null };
 }
 
-type PlanDb = Pick<PrismaClient, 'tenant' | 'tenantTrial' | 'subscription'>;
+type PlanDb = Pick<PrismaClient, 'tenant' | 'tenantTrial' | 'subscription' | '$executeRaw'>;
 
 /**
  * Pose le plan d'une app pour un tenant : poussée à l'app, puis écriture au Hub si elle l'accepte.
@@ -196,19 +197,12 @@ export async function setAppPlan(
   const trial = await trialStatusForTenant(db, tenant.id);
   const pushed = await pushAppPlan({ ...input, hubTenantId: tenant.id, hubUserId: tenant.userId, trial }, opts);
   if (!pushed.ok || 'immune' in pushed) return pushed;
-  // Relu juste avant l'écriture : une autre écriture de metadata (activation, Stripe) ne se perd pas.
-  const fresh = await db.tenant.findUnique({ where: { id: tenant.id }, select: { metadata: true } });
-  await db.tenant.update({
-    where: { id: tenant.id },
-    data: {
-      metadata: {
-        ...asMeta(fresh?.metadata),
-        [`${input.app}_plan`]: input.plan,
-        [`${input.app}_plan_source`]: input.planSource,
-        [`${input.app}_plan_set_at`]: new Date().toISOString(),
-        [`${input.app}_plan_set_by`]: input.setBy ?? 'hub',
-      } as object,
-    },
+  // Les seules clés de ce geste, fusionnées par la base : jamais le JSON entier relu avant (26/11, lib/tenants/metadata-fusion.ts).
+  await fusionnerMetadata(db, tenant.id, {
+    [`${input.app}_plan`]: input.plan,
+    [`${input.app}_plan_source`]: input.planSource,
+    [`${input.app}_plan_set_at`]: new Date().toISOString(),
+    [`${input.app}_plan_set_by`]: input.setBy ?? 'hub',
   });
   return pushed;
 }

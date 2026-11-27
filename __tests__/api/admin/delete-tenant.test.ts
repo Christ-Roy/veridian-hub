@@ -17,7 +17,7 @@ vi.mock('@/lib/admin/require-admin', () => ({
 
 const deprovisionMock = vi.fn(async () => [{ app: 'prospection', cible: 'proprietaire', ok: true, detail: 'soft-delete' }]);
 const oubli = vi.hoisted(() => vi.fn(async (..._a: any[]) => ({ membres: 1, invitations: 2 })));
-const couper = vi.hoisted(() => vi.fn(async (..._a: any[]) => 2));
+const couper = vi.hoisted(() => vi.fn(async (..._a: any[]) => ({ coupees: 2, nonConfirmees: 1, echecs: 1 })));
 vi.mock('@/lib/connecteurs/coffre', () => ({ couperToutes: couper }));
 vi.mock('@/lib/connecteurs/porte', () => ({ retourConnecteur: () => 'https://hub.test/r' }));
 vi.mock('@/lib/tenants/membres', () => ({ oublierCompte: oubli }));
@@ -130,10 +130,13 @@ describe('DELETE /api/admin/delete-tenant', () => {
     const { DELETE } = await import('@/app/api/admin/delete-tenant/route');
     userStore.set('a@test', { id: 'auth-1', supabaseUserId: 'uuid-1' });
     const body = await (await DELETE(makeReq({ email: 'a@test', confirm: true }))).json();
-    expect([couper.mock.calls[0][1], JSON.stringify(body.actions).includes('2 connexion(s) extérieure(s)')]).toEqual(['uuid-1', true]);
+    expect([couper.mock.calls[0][1], JSON.stringify(body.actions).includes('2 connexion(s) extérieure(s), dont 1 que le service n\'a pas confirmée(s)'), JSON.stringify(body.actions).includes('1 non coupée(s)')]).toEqual(['uuid-1', true, true]);
+    // La seconde fois, le compte est parti : un branchement qui finissait pendant la suppression n'y survit pas.
+    expect(couper.mock.calls.length).toBe(2);
     couper.mockRejectedValueOnce(new Error('base'));
     userStore.set('b@test', { id: 'auth-2', supabaseUserId: 'uuid-2' });
-    expect((await (await DELETE(makeReq({ email: 'b@test', confirm: true }))).json()).ok).toBe(true);
+    const b2 = await (await DELETE(makeReq({ email: 'b@test', confirm: true }))).json();
+    expect([b2.ok, JSON.stringify(b2.actions).includes('peut-être encore là')]).toEqual([true, true]);
   });
 
   it('N+1 regression guard: 3 tenants → 1 updateMany, not 3 updates', async () => {

@@ -25,7 +25,7 @@
  *
  * Sécurité :
  *   - N'écrit JAMAIS dans la DB Hub.
- *   - L'attach-owner côté Notifuse est additif (jamais destructif).
+ *   - Un autre propriétaire humain : Mail rend 409 owner_exists, noté en échec ; ce script ne transfère jamais.
  *   - Skip auto les tenants e2e (notifuse_user_email LIKE 'e2e-%').
  */
 
@@ -40,6 +40,8 @@ interface TenantRow {
   id: string;
   notifuseWorkspaceSlug: string | null;
   notifuseUserEmail: string | null;
+  /** Propriétaire au Hub (`tenants.user_id` = `users.supabase_user_id`). */
+  hubUserId: string;
 }
 
 interface RepairResult {
@@ -96,7 +98,8 @@ async function main(): Promise<void> {
     SELECT
       id,
       notifuse_workspace_slug AS "notifuseWorkspaceSlug",
-      notifuse_user_email AS "notifuseUserEmail"
+      notifuse_user_email AS "notifuseUserEmail",
+      user_id::text AS "hubUserId"
     FROM hub_app.tenants
     WHERE notifuse_workspace_slug IS NOT NULL
       AND notifuse_user_email IS NOT NULL
@@ -155,6 +158,7 @@ async function main(): Promise<void> {
       const attach = await client.attachOwner({
         tenantId: slug,
         ownerEmail: email,
+        hubUserId: tenant.hubUserId,
         role: 'owner',
       });
       r.actions.push(

@@ -12,7 +12,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { roleAuHub } from '@/lib/delegation/interrupteur';
+import { etatConnexion } from '@/lib/federation/connexion';
 import { vueIdp } from '@/lib/federation/idp';
+import { nomFournisseur } from '@/lib/federation/nom';
+import { fermees, preuveDeSession } from '@/lib/federation/obligation';
 import { CHEMIN_RETOUR } from '@/lib/federation/oidc';
 import { CHEMIN_ACS, entiteSp } from '@/lib/federation/saml';
 import { espacesDe } from '@/lib/mcp/catalogue';
@@ -22,6 +25,7 @@ import { prisma } from '@/lib/prisma';
 import { COOKIE_ACTIF, organisationActive } from '@/lib/tenants/actif';
 import { listerPreinscriptions } from '@/lib/tenants/preinscription';
 
+import { Connexion } from './Connexion';
 import { Fournisseur } from './Fournisseur';
 
 export const dynamic = 'force-dynamic';
@@ -47,6 +51,14 @@ const AVIS: Record<string, string> = {
   pose_par_veridian: 'Réglé par Veridian : écrivez-nous pour le changer.',
   absent: 'Aucun fournisseur n\'est enregistré.',
   trop_de_gestes: 'Trop de gestes en peu de temps. Réessayez dans une heure.',
+  connexion_obligatoire: 'Connexion obligatoire : chacun passe par le fournisseur de votre organisation.',
+  connexion_libre: 'Connexion libre : chacun entre comme avant.',
+  acces_retire: 'Accès retiré : cette personne passe maintenant par le fournisseur.',
+  fournisseur_absent: 'Aucun fournisseur actif : activez-le d\'abord.',
+  dernier_secours: 'C\'est le dernier accès de secours : il ne s\'enlève pas tant que la connexion est obligatoire.',
+  absente: 'Cet accès n\'existe plus.',
+  obligatoire_actif: 'La connexion est obligatoire : rendez-la libre avant de toucher au fournisseur.',
+  organisation_fournisseur: 'Cette organisation demande de passer par son fournisseur.',
   refus: 'Réglage refusé : vérifiez les couleurs (#RRGGBB) et le nom.',
 };
 function adressesDe(tenantId: string, porte: string | null) {
@@ -61,20 +73,28 @@ export default async function Organisation({ searchParams }: { searchParams: Pro
   const user = session ? await getCurrentUser() : null;
   if (!user) redirect('/login?callbackUrl=/dashboard/organisation');
   const avis = AVIS[(await searchParams).avis ?? ''];
-  const espaces = await Promise.all((await espacesDe(prisma, userUuid(user))).map(async (e) => ({
+  const preuve = preuveDeSession(session);
+  const closes = await fermees(prisma, userUuid(user), preuve);
+  const espaces = await Promise.all((await espacesDe(prisma, userUuid(user), preuve)).map(async (e) => ({
     ...e,
     au: await roleAuHub(prisma, e.id, userUuid(user)),
     org: await prisma.organisation.findUnique({ where: { tenantId: e.id }, omit: { logo: true } }),
     emissions: await prisma.organisationEmission.findMany({ where: { tenantId: e.id } }),
     idp: await prisma.tenantIdp.findUnique({ where: { tenantId: e.id } }),
+    connexion: await etatConnexion(prisma, e.id),
     preinscrits: (await listerPreinscriptions(prisma, e.id)).filter((p) => p.etat !== 'annulee'),
   })));
-  const active = await organisationActive(prisma, userUuid(user), (await cookies()).get(COOKIE_ACTIF)?.value);
+  const active = await organisationActive(prisma, userUuid(user), preuve, (await cookies()).get(COOKIE_ACTIF)?.value);
   const miens = espaces.filter((e) => e.au === 'owner' || e.au === 'admin');
   return (
     <div className="flex flex-col gap-6 p-4 md:p-8">
       <DashboardPageHeader title="Organisation" icon={Building2Icon} description="Réglée ici une fois, reprise par vos apps." />
       {avis ? <p role="status" className="text-sm">{avis}</p> : null}
+      {closes.map((f) => (
+        <p key={f.tenantId} role="status" className="text-sm">
+          {f.nom} demande {f.fournisseur}. <a href={`/auth/organisation?org=${f.tenantId}`} className="underline">L&apos;ouvrir</a>
+        </p>
+      ))}
       {espaces.length > 1 ? (
         <Card>
           <CardHeader>
@@ -136,13 +156,14 @@ export default async function Organisation({ searchParams }: { searchParams: Pro
                   <Button type="submit">Enregistrer</Button>
                 </div>
               </form>
+              {e.idp || e.connexion.obligatoire ? <Connexion tenant={e.id} etat={e.connexion} fournisseur={e.idp ? nomFournisseur(e.idp.issuer) : null} reglable={e.au === 'owner' && session?.user?.federe !== true && session?.user?.impersonated !== true} /> : null}
               {e.au === 'owner' ? <Fournisseur tenant={e.id} idp={e.idp ? vueIdp(e.idp) : null} adresses={adressesDe(e.id, e.idp?.alias ?? e.slug)} /> : null}
               {e.preinscrits.length > 0 ? (
                 <div className="mt-6">
                   <p className="font-medium">Personnes attendues</p>
                   <p className="text-sm text-muted-foreground">Elles rejoignent l&apos;organisation à leur première connexion avec cette adresse. Aucun mail n&apos;est envoyé.</p>
                   <ul className="mt-2 text-sm">
-                    {e.preinscrits.map((p) => <li key={p.email}>{p.email} : {ATTENTE[p.etat]}</li>)}
+                    {e.preinscrits.map((p) => <li key={p.email}>{p.email} : {ATTENTE[p.etat]}{p.role === 'admin' ? ', administrateur' : ''}{p.exemptee && p.etat === 'en_attente' ? ', accès actuel jusqu\'au rattachement' : ''}</li>)}
                   </ul>
                 </div>
               ) : null}

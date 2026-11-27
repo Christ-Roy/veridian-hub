@@ -1,11 +1,12 @@
 /**
- * POST (formulaire de /dashboard/connexions) : brancher un service extérieur (vers son écran de consentement), ou le couper. Seulement depuis le Hub, par la
- * personne elle-même : preuve récente, jamais une session d'emprunt ni celle qu'un fournisseur d'organisation a ouverte.
+ * POST (formulaire de /dashboard/connexions) : brancher un service extérieur (vers son écran de consentement), le couper, y allumer ou éteindre l'écriture, ou
+ * trancher un rebranchement. Seulement depuis le Hub, par la personne elle-même : preuve récente, jamais une session d'emprunt ni d'organisation.
+ * Fermé (`CONNECTEURS_OUVERTS`) : seuls les gestes qui RETIRENT un accès restent.
  */
 import { NextResponse, type NextRequest } from 'next/server';
 
 import { auth } from '@/auth';
-import { couper } from '@/lib/connecteurs/coffre';
+import { couper, reglerEcriture, trancher } from '@/lib/connecteurs/coffre';
 import { CHEMIN_RETOUR_CONNECTEUR, COOKIE_CONNECTEUR, partir, TRANSACTION_CONNECTEUR_S } from '@/lib/connecteurs/oauth';
 import { retourConnecteur } from '@/lib/connecteurs/porte';
 import { connecteur, connecteursOuverts } from '@/lib/connecteurs/registre';
@@ -23,7 +24,7 @@ const debit = new RateLimiter({ capacity: 20, windowMs: 60 * 60_000, name: 'conn
 
 export async function POST(request: NextRequest) {
   const base = getHubBaseUrl(request.url);
-  const vers = (avis: string) => NextResponse.redirect(new URL(`/dashboard/connexions?avis=${avis}`, base), 303);
+  const vers = (avis: string, service?: string) => NextResponse.redirect(new URL(`/dashboard/connexions?avis=${avis}${service ? `&service=${service}` : ''}`, base), 303);
   if (request.headers.get('origin') !== base.origin) return NextResponse.json({ error: 'forbidden_origin' }, { status: 403 });
   const session = await auth();
   const user = await getCurrentUser();
@@ -34,15 +35,28 @@ export async function POST(request: NextRequest) {
   const c = connecteur(f?.get('connecteur'));
   if (!f || !c) return vers('refus');
   if (!debit.enforce(user.id).ok) return vers('trop');
-  if (f.get('geste') === 'couper') {
-    const r = await couper(prisma, userUuid(user), c.cle, retourConnecteur());
-    return vers(r.coupee ? 'coupee' : 'absente');
+  const moi = userUuid(user);
+  const retour = retourConnecteur();
+  const geste = f.get('geste');
+  if (geste === 'couper') {
+    const r = await couper(prisma, moi, c.cle, retour);
+    return vers(!r.coupee ? 'absente' : r.revoquee ? 'coupee' : 'coupee_ici', c.cle);
   }
-  if (f.get('geste') !== 'brancher') return vers('refus');
+  if (geste === 'eteindre') return vers((await reglerEcriture(prisma, moi, c, false)) ? 'lecture' : 'absente');
+  if (geste === 'garder') {
+    const r = await trancher(prisma, moi, c.cle, 'garder', retour);
+    return vers(!r.fait ? 'tranche' : r.revoquee ? 'garde' : 'garde_ici', c.cle);
+  }
+  if (geste !== 'brancher' && geste !== 'allumer' && geste !== 'remplacer') return vers('refus');
   // Avant tout départ : c'est lui qui inscrit notre client chez le service.
   if (!connecteursOuverts()) return vers('ferme');
+  if (geste === 'allumer') return vers((await reglerEcriture(prisma, moi, c, true)) ? 'ecriture' : 'refus');
+  if (geste === 'remplacer') {
+    const r = await trancher(prisma, moi, c.cle, 'remplacer', retour);
+    return vers(!r.fait ? 'tranche' : r.revoquee ? 'remplace' : 'remplace_ici', c.cle);
+  }
   try {
-    const d = await partir(prisma, c, user.id, retourConnecteur());
+    const d = await partir(prisma, c, user.id, retour);
     const r = NextResponse.redirect(d.url, 303);
     r.headers.set('Cache-Control', 'no-store');
     r.cookies.set(COOKIE_CONNECTEUR, d.cookie, { httpOnly: true, secure: base.protocol === 'https:', sameSite: 'lax', path: CHEMIN_RETOUR_CONNECTEUR, maxAge: TRANSACTION_CONNECTEUR_S });

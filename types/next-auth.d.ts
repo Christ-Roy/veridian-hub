@@ -11,6 +11,8 @@
 
 import type { DefaultSession } from 'next-auth';
 
+import type { PreuveOrg } from '@/lib/federation/duree';
+
 declare module 'next-auth' {
   interface User {
     /** Organisation dont le fournisseur ouvre la session. */
@@ -25,6 +27,8 @@ declare module 'next-auth' {
       /** `true` : session ouverte par le fournisseur d'une organisation, elle ne prouve pas la personne pour son compte. */
       federe?: boolean;
       federeOrg?: string;
+      /** Organisations dont le fournisseur a reconnu cette personne dans CETTE session (lib/federation/obligation.ts). */
+      preuves?: Record<string, PreuveOrg>;
       /** `true` si la session provient d'une impersonation admin. */
       impersonated?: boolean;
       /** Qui emprunte (`hub_user_id` de l'administrateur), sinon null. */
@@ -45,6 +49,7 @@ declare module 'next-auth/jwt' {
     federeOrg?: string;
     federeJours?: number;
     federeVu?: number;
+    preuves?: Record<string, PreuveOrg>;
     /** `true` sur un JWT issu d'une impersonation admin. */
     impersonated?: boolean;
     /** Qui emprunte (`hub_user_id` de l'administrateur). */

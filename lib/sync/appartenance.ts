@@ -8,7 +8,8 @@
 import type { PrismaClient } from '@prisma/client';
 
 import { estAdresseOperateur, isPlatformAdminId } from '@/lib/admin/check-admin';
-import { discoverAppForEmail, HUB_USER_ID_APPS, readAppSecret, readAppUrl, signGet } from '@/lib/sync/discovery';
+import { idEspaceMeta } from '@/lib/apps/espace-note';
+import { discoverAppForEmail, enteteGet, HUB_USER_ID_APPS, readAppSecret, readAppUrl } from '@/lib/sync/discovery';
 import { horsPerimetre } from '@/lib/sync/identity-audit';
 import { isTestAccount } from '@/lib/sync/test-residue';
 import type { SyncApp, TenantSnapshot } from '@/lib/sync/types';
@@ -66,9 +67,7 @@ export type RapportApp = {
 /** Le workspace de cette app tel que le Hub l'a noté sur le tenant. */
 function espaceNote(t: HubTenant, app: SyncApp): string | null {
   if (app === 'notifuse') return t.notifuseWorkspaceSlug;
-  const m = (t.metadata ?? {}) as Record<string, { workspace_id?: unknown } | undefined>;
-  const id = m[app]?.workspace_id;
-  return typeof id === 'string' ? id : null;
+  return idEspaceMeta(t.metadata, app);
 }
 
 type Lu = { humain: Humain; snapshots: TenantSnapshot[] };
@@ -139,10 +138,10 @@ export async function humainsDe(app: SyncApp, fetchImpl: typeof fetch = fetch): 
   const url = readAppUrl(app);
   const secret = readAppSecret(app);
   if (!url || !secret) return { raison: 'app non configurée au Hub' };
-  const { timestamp, signature } = signGet(secret);
+  const cible = `${url}/api/hub/users`;
   try {
-    const res = await fetchImpl(`${url}/api/hub/users`, {
-      headers: { 'X-Veridian-Timestamp': timestamp, 'X-Veridian-Hub-Signature': signature },
+    const res = await fetchImpl(cible, {
+      headers: enteteGet(app, secret, cible),
       signal: AbortSignal.timeout(DELAI_MS),
     });
     if (!res.ok) return { raison: `GET /api/hub/users : HTTP ${res.status}` };

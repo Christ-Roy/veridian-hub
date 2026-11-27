@@ -12,6 +12,9 @@ import { auth } from '@/auth';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { isImpersonatedSession } from '@/lib/auth/impersonation';
 import { isPlatformAdmin } from '@/lib/admin/check-admin';
+import { fermees, preuveDeSession } from '@/lib/federation/obligation';
+import { PAGE_ORGANISATION } from '@/lib/federation/session';
+import { espacesDe } from '@/lib/mcp/catalogue';
 import { prisma } from '@/lib/prisma';
 import { consommerPreinscriptions } from '@/lib/tenants/preinscription';
 import { resolveTrialBannerState } from '@/lib/trial/banner-state';
@@ -59,6 +62,13 @@ export default async function DashboardLayout({
   // Jamais depuis une session d'emprunt : rejoindre est le geste de la personne, pas de qui regarde son compte.
   const session = await auth();
   if (user.supabaseUserId && !isImpersonatedSession(session) && session?.user?.federe !== true) await consommerPreinscriptions(prisma, user.supabaseUserId).catch((err) => console.error('[preinscription]', err instanceof Error ? err.message.slice(0, 160) : 'erreur'));
+
+  // Une organisation qui demande son fournisseur (VER-261) : si elle est la sienne, ou la seule, rien d'autre à montrer ici. Sinon ses écrans la disent fermée.
+  if (user.supabaseUserId) {
+    const preuve = preuveDeSession(session);
+    const closes = await fermees(prisma, user.supabaseUserId, preuve);
+    if (closes.length && (closes.some((f) => f.proprietaire) || (await espacesDe(prisma, user.supabaseUserId, preuve)).length === 0)) redirect(PAGE_ORGANISATION);
+  }
 
   // PERF (fix N+1 du 2026-05-21, étendu 2026-05-22) : reads indépendants
   // parallélisés via Promise.all. `fetchTrialRows` fait lui-même 2 reads

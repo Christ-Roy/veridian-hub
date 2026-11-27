@@ -3,8 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { denyUnlessEmailProven } from '@/lib/auth/email-proof';
 import { sessionAdmin } from '@/lib/admin/session-admin';
-import { NotifuseClient } from '@/lib/notifuse/client';
-import { resolveNotifuseAutoLogin } from '@/lib/notifuse/resolve-autologin';
+import { lienApp } from '@/lib/apps/lien-app';
 import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
@@ -46,8 +45,6 @@ export async function POST(request: NextRequest) {
       id: true,
       userId: true,
       notifuseWorkspaceSlug: true,
-      notifuseApiKey: true,
-      notifuseUserEmail: true,
     },
   });
 
@@ -61,41 +58,22 @@ export async function POST(request: NextRequest) {
     select: { supabaseUserId: true },
   });
 
-  // Authorization: only the tenant owner OR a platform admin can request a magic link
+  // Authorization: only the tenant owner OR a platform admin can open Mail
   if (tenant.userId !== me?.supabaseUserId && !(await sessionAdmin()).ok) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const apiUrl = process.env.NOTIFUSE_API_URL;
-  const hubSecret = process.env.NOTIFUSE_HUB_API_SECRET;
-  if (!apiUrl || !hubSecret) {
+  if (!tenant.notifuseWorkspaceSlug) {
     return NextResponse.json(
-      { error: 'Notifuse client not configured (NOTIFUSE_API_URL / NOTIFUSE_HUB_API_SECRET)' },
-      { status: 500 },
+      { error: "Aucun workspace Notifuse n'est rattaché à ce compte.", reason: 'not_linked' },
+      { status: 409 },
     );
   }
 
-  const client = new NotifuseClient({ apiUrl, hubSecret });
-
-  // La résolution de l'URL d'auto-login vit dans `lib/notifuse/resolve-autologin.ts`.
-  // Elle gère les deux chemins (clé API tenant, sinon réparation HMAC via
-  // provision idempotent) — c'est ce qui débloque les tenants rattachés par
-  // `hub link`, qui n'ont ni `notifuseApiKey` ni `notifuseUserEmail` en base.
-  const result = await resolveNotifuseAutoLogin(tenant, { prisma, client });
-
-  if (!result.ok) {
-    return NextResponse.json(
-      { error: result.message, reason: result.reason },
-      { status: result.status },
-    );
+  const url = lienApp('notifuse');
+  if (!url) {
+    return NextResponse.json({ error: 'Mail non branché (NOTIFUSE_API_URL)' }, { status: 500 });
   }
 
-  // Préférer auto_login_url (auto-connect via localStorage, sans saisie code).
-  // Fallback magic_link garde l'ancien flow si le frontend a besoin de le tester.
-  return NextResponse.json({
-    autoLoginUrl: result.autoLoginUrl,
-    magicLink: result.magicLink,
-    expiresAt: result.expiresAt,
-    source: result.source,
-  });
+  return NextResponse.json({ url });
 }

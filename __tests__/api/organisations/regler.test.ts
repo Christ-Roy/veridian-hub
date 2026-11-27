@@ -2,12 +2,13 @@
 import { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const m = vi.hoisted(() => ({ user: vi.fn(), emprunt: vi.fn(), role: vi.fn(), regler: vi.fn() }));
+const m = vi.hoisted(() => ({ fermee: vi.fn(() => false), user: vi.fn(), emprunt: vi.fn(), role: vi.fn(), regler: vi.fn() }));
 vi.mock('@/auth', () => ({ auth: async () => ({ user: {} }) }));
 vi.mock('@/lib/auth/get-user', () => ({ getCurrentUser: () => m.user(), userUuid: (u: { supabaseUserId: string }) => u.supabaseUserId }));
 vi.mock('@/lib/auth/impersonation', () => ({ isImpersonatedSession: () => m.emprunt() }));
 vi.mock('@/lib/delegation/interrupteur', () => ({ roleAuHub: (...a: unknown[]) => m.role(...a) }));
 vi.mock('@/lib/mail/oauth-cookies', () => ({ getHubBaseUrl: () => new URL('https://app.veridian.site') }));
+vi.mock('@/lib/federation/session', () => ({ fermeeIci: async () => m.fermee?.() ?? false, preuveIci: async () => ({ par: 'session' }), reponseFermee: () => new Response(null, { status: 403 }) }));
 vi.mock('@/lib/prisma', () => ({ prisma: {} }));
 vi.mock('@/lib/organisations/reglage', async (o) => ({ ...(await o<object>()), reglerOrganisation: (...a: unknown[]) => m.regler(...a) }));
 

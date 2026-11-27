@@ -5,25 +5,25 @@
  * Un retrait coupe d'abord au Hub (la porte MCP et tout jeton suivant refusent aussitôt), puis chez chaque app, et RELIT l'app :
  * « retiré » veut dire relu absent. Une app qui ne sait pas retirer, ou qui échoue, est dite ; rejouer le retrait est sans effet de bord.
  */
-import { createHmac } from 'node:crypto';
-
 import type { PrismaClient } from '@prisma/client';
 
 import { writeAuditLog } from '@/lib/admin/audit-log';
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
+import { entetesSignature } from '@/lib/hmac/signature-hub';
 import { humainsDe } from '@/lib/sync/appartenance';
 import { configuredSyncApps, discoverAppForEmail } from '@/lib/sync/discovery';
 import { suivreOrganisation } from '@/lib/organisations/emission';
 import { couperIntegrations } from '@/lib/delegation/interrupteur';
 import { revoquerPoignees } from '@/lib/delegation/poignee';
 import type { SyncApp, TenantSnapshot } from '@/lib/sync/types';
+import { fusionnerMetadata, retirerDeMetadata } from '@/lib/tenants/metadata-fusion';
 
 const DELAI_MS = 15_000;
 export const ROLES = ['member', 'admin', 'owner'] as const;
 export type Role = (typeof ROLES)[number];
 export type Origine = 'invitation' | 'reprise' | 'operateur' | 'preinscription' | 'federation';
 
-export type DbMembres = Pick<PrismaClient, 'organisationAcces' | 'tenant' | 'tenantMember' | 'user' | 'auditLog' | 'crossAppInvitation' | 'delegationGrant' | 'integrationPaire' | 'tenantPreinscription' | 'userEmail'>;
+export type DbMembres = Pick<PrismaClient, 'organisationAcces' | 'tenant' | 'tenantMember' | 'user' | 'auditLog' | 'crossAppInvitation' | 'delegationGrant' | 'integrationPaire' | 'tenantPreinscription' | 'userEmail' | '$executeRaw'>;
 type Deps = { fetchImpl?: typeof fetch; apps?: readonly SyncApp[]; env?: NodeJS.ProcessEnv };
 
 /** Ce que l'auteur du geste doit lire : les apps où l'accès n'est PAS coupé, et pourquoi (Analytics ne sait pas retirer). */
@@ -38,9 +38,12 @@ export function nonCoupees(apps: IssueApp[]): string | null {
  */
 export function avisCles(apps: IssueApp[]): string | null {
   const l = apps.filter((a) => a.etat === 'retire' || a.etat === 'non_gere').filter((a) => a.cles?.actives !== 0);
-  if (l.length === 0) return null;
+  const rev = apps.filter((a) => (a.cles?.revoquees ?? 0) > 0);
+  const revoquees = rev.length ? `Clés API créées par la personne et révoquées au retrait : ${rev.map((a) => `${a.app} ${a.cles!.revoquees}`).join(', ')}.` : null;
+  if (l.length === 0) return revoquees;
   const dire = (a: IssueApp) => `${a.app} ${a.cles ? `${a.cles.actives}${a.cles.par === 'personne' ? ' créée(s) par cette personne' : ''}` : 'non comptées'}${a.cles?.url ? ` (${a.cles.url})` : ''}`;
-  return `Clés API encore actives après le retrait, à renouveler dans l'app si la personne les connaît : ${l.map(dire).join(', ')}.`;
+  const actives = `Clés API encore actives après le retrait, à renouveler dans l'app si la personne les connaît : ${l.map(dire).join(', ')}.`;
+  return revoquees ? `${revoquees} ${actives}` : actives;
 }
 
 /** Un lien de site ouvre sans compte : qui le connaît lit encore. Compté, jamais coupé (des clients les ont publiés). */
@@ -51,13 +54,15 @@ export function avisLiens(apps: IssueApp[]): string | null {
 
 /** Ce qu'une app dit de ses clés en réponse à remove-member. `active_api_keys` : tout l'espace. Un lien n'est gardé que chez nous. */
 function lireCles(j: unknown): IssueApp['cles'] {
-  const r = (j ?? {}) as { active_api_keys?: unknown; active_api_keys_created_by_member?: unknown; api_keys_url?: unknown };
+  const r = (j ?? {}) as { active_api_keys?: unknown; active_api_keys_created_by_member?: unknown; api_keys_url?: unknown; revoked_api_keys?: unknown };
   const nombre = (v: unknown) => (typeof v === 'number' && Number.isInteger(v) && v >= 0 ? v : null);
   const espace = nombre(r.active_api_keys);
   const actives = espace ?? nombre(r.active_api_keys_created_by_member);
   if (actives === null) return undefined;
   const url = typeof r.api_keys_url === 'string' && /^https:\/\/[a-z0-9.-]+\.veridian\.site\/[\w./?=&%#-]*$/.test(r.api_keys_url) ? r.api_keys_url : undefined;
-  return { actives, par: espace !== null ? 'espace' : 'personne', ...(url ? { url } : {}) };
+  // Academy révoque, depuis 8a026b3 (26/11), les clés créées par la personne retirée : le Hub le dit au lieu de les compter « actives ».
+  const revoquees = nombre(r.revoked_api_keys);
+  return { actives, par: espace !== null ? 'espace' : 'personne', ...(url ? { url } : {}), ...(revoquees ? { revoquees } : {}) };
 }
 
 export class RefusMembre extends Error {
@@ -95,7 +100,7 @@ export async function rejoindre(db: DbMembres, d: { tenantId: string; hubUserId:
   if (!u.emailVerified) throw new RefusMembre('adresse_non_prouvee');
   if (t.userId === d.hubUserId) return { cree: false, role: 'owner' };
   const role = d.role ?? 'member';
-  if (!ROLES.includes(role) || (role !== 'member' && d.origine !== 'operateur')) throw new RefusMembre('role_refuse');
+  if (!ROLES.includes(role) || (role !== 'member' && d.origine !== 'operateur' && !(role === 'admin' && d.origine === 'preinscription'))) throw new RefusMembre('role_refuse');
   const cle = { tenantId_userId: { tenantId: d.tenantId, userId: d.hubUserId } };
   const avant = await db.tenantMember.findUnique({ where: cle });
   if (avant && !avant.deletedAt && (d.origine !== 'operateur' || avant.role === role)) return { cree: false, role: avant.role };
@@ -110,16 +115,16 @@ export async function rejoindre(db: DbMembres, d: { tenantId: string; hubUserId:
   return { cree: true, role };
 }
 
-export type IssueApp = { app: SyncApp; etat: 'retire' | 'suspendu' | 'repris' | 'absent' | 'non_gere' | 'echec'; detail?: string; /** Clés API restées actives, quand l'app les compte. */ cles?: { actives: number; par: 'espace' | 'personne'; url?: string }; /** Liens de site (Analytics) : ils ouvrent sans compte, donc survivent au retrait. */ liens?: { publics: number; prives: number } };
+export type IssueApp = { app: SyncApp; etat: 'retire' | 'suspendu' | 'repris' | 'absent' | 'non_gere' | 'echec'; detail?: string; /** Clés API restées actives, quand l'app les compte. */ cles?: { actives: number; par: 'espace' | 'personne'; url?: string; /** Révoquées par l'app au retrait (Academy, 8a026b3). */ revoquees?: number }; /** Liens de site (Analytics) : ils ouvrent sans compte, donc survivent au retrait. */ liens?: { publics: number; prives: number } };
 
 async function signer(app: SyncApp, methode: string, chemin: string, corps: Record<string, unknown>, deps: Deps): Promise<Response> {
   const config = resolveAppConfig(app, deps.env ?? process.env);
   if (!config) throw new Error(`${app}_not_configured`);
   const body = JSON.stringify(corps);
-  const ts = String(Date.now());
-  return (deps.fetchImpl ?? fetch)(`${config.apiUrl}${chemin}`, {
+  const cible = `${config.apiUrl}${chemin}`;
+  return (deps.fetchImpl ?? fetch)(cible, {
     method: methode,
-    headers: { 'Content-Type': 'application/json', 'X-Veridian-Timestamp': ts, 'X-Veridian-Hub-Signature': createHmac('sha256', config.hubSecret).update(`${ts}.${body}`).digest('hex') },
+    headers: { 'Content-Type': 'application/json', ...entetesSignature({ secret: config.hubSecret, methode, url: cible, corps: body, app }) },
     body,
     signal: AbortSignal.timeout(DELAI_MS),
   });
@@ -285,6 +290,23 @@ export async function retirer(db: DbMembres, d: { tenantId: string; hubUserId: s
 }
 
 /** Les cibles suspendues, notées sur le tenant : une app peut cacher l'espace qu'on vient de suspendre (Prospection, 24/11). */
+/**
+ * Les cibles d'une reprise : la note de metadata, unie à celles de la dernière suspension inscrite au journal, tant qu'aucune reprise
+ * complète ne l'a suivie. Le journal n'est jamais réécrit : une note perdue dans metadata ne laisse plus un espace fermé (26/11, 14:22 :
+ * Prospection jamais rouverte).
+ */
+async function ciblesDeReprise(db: DbMembres, t: Tenant): Promise<Partial<Record<SyncApp, string[]>>> {
+  const n = ciblesNotees(t);
+  const derniere = await db.auditLog.findFirst({ where: { targetId: t.id, action: { in: ['tenant.suspendu', 'tenant.repris'] } }, orderBy: { createdAt: 'desc' }, select: { action: true, payload: true } });
+  const p = (derniere?.payload ?? {}) as { complet?: boolean; cibles?: Partial<Record<SyncApp, string[]>> };
+  if (!derniere || (derniere.action === 'tenant.repris' && p.complet) || !p.cibles || typeof p.cibles !== 'object') return n;
+  const out: Partial<Record<SyncApp, string[]>> = { ...n };
+  for (const [app, ids] of Object.entries(p.cibles) as [SyncApp, unknown][]) {
+    if (Array.isArray(ids)) out[app] = Array.from(new Set([...(out[app] ?? []), ...ids.filter((x): x is string => typeof x === 'string')]));
+  }
+  return out;
+}
+
 function ciblesNotees(t: Tenant): Partial<Record<SyncApp, string[]>> {
   const n = ((t.metadata ?? {}) as { hub_suspension?: { cibles?: Partial<Record<SyncApp, string[]>> } }).hub_suspension?.cibles;
   return n && typeof n === 'object' ? n : {};
@@ -306,10 +328,9 @@ async function basculerAnalytics(t: Tenant, gens: Personne[], suspendre: boolean
   return { issue: vus.orphelins > 0 ? { app, etat: 'non_gere', detail: `organisation suspendue ; ${orphelinsDits(vus.orphelins)}` } : { app, etat: 'suspendu' }, cibles: [t.id] };
 }
 
-async function basculerChez(app: SyncApp, t: Tenant, proprietaire: { email: string }, gens: Personne[], suspendre: boolean, deps: Deps): Promise<{ issue: IssueApp; cibles: string[] }> {
+async function basculerChez(app: SyncApp, t: Tenant, proprietaire: { email: string }, gens: Personne[], suspendre: boolean, notees: string[], deps: Deps): Promise<{ issue: IssueApp; cibles: string[] }> {
   // Rien n'y a été fermé : rien à y rouvrir.
   if (!SUSPENSION[app]) return { issue: suspendre ? await nonFerme(app, gens, 'aucune route de suspension dans cette app', deps) : { app, etat: 'absent' }, cibles: [] };
-  const notees = ciblesNotees(t)[app] ?? [];
   try {
     if (app === 'analytics') return await basculerAnalytics(t, gens, suspendre, notees, deps);
     // La suspension vise un ESPACE de ce tenant : un propriétaire sans lien dans l'app n'empêche pas de le fermer.
@@ -361,17 +382,19 @@ export async function basculerSuspension(db: DbMembres, d: { tenantId: string; s
   const lignes = d.suspendre ? await db.tenantMember.findMany({ where: { tenantId: t.id, deletedAt: null }, select: { userId: true } }) : [];
   const membres = lignes.length ? await db.user.findMany({ where: { supabaseUserId: { in: lignes.map((l) => l.userId) } }, select: { email: true, supabaseUserId: true } }) : [];
   const gens = [{ email: proprietaire.email, hubUserId: t.userId }, ...membres.flatMap((m) => (m.supabaseUserId ? [{ email: m.email, hubUserId: m.supabaseUserId }] : []))];
-  const res = await Promise.all(liste.map((app) => basculerChez(app, t, proprietaire, gens, d.suspendre, deps)));
-  const cibles = { ...ciblesNotees(t) };
+  // La reprise vise ce que la suspension a noté : la note de metadata ET celle du journal (que rien ne réécrit, 26/11).
+  const notees = d.suspendre ? ciblesNotees(t) : await ciblesDeReprise(db, t);
+  const res = await Promise.all(liste.map((app) => basculerChez(app, t, proprietaire, gens, d.suspendre, notees[app] ?? [], deps)));
+  const cibles = { ...notees };
   res.forEach((r, i) => { if (r.cibles.length) cibles[liste[i]] = r.cibles; else delete cibles[liste[i]]; });
-  const { hub_suspension: _avant, ...reste } = (t.metadata ?? {}) as Record<string, unknown>;
-  const metadata = Object.keys(cibles).length ? { ...reste, hub_suspension: { cibles } } : reste;
-  await db.tenant.update({ where: { id: t.id }, data: { metadata: metadata as never } });
+  // Fusion par la base, jamais le JSON entier relu au début : un événement d'app traité entre-temps n'efface plus la note (26/11).
+  if (Object.keys(cibles).length) await fusionnerMetadata(db, t.id, { hub_suspension: { cibles } });
+  else await retirerDeMetadata(db, t.id, ['hub_suspension']);
   const apps = res.map((r) => r.issue);
   // Ce qu'une app suspendue a refusé d'appliquer (423, la version n'avance pas chez elle) repart à la reprise.
   if (!d.suspendre) await suivreOrganisation(db as unknown as PrismaClient, t.id, deps);
   const complet = apps.every((a) => a.etat === 'suspendu' || a.etat === 'repris' || a.etat === 'absent');
-  await writeAuditLog(db as PrismaClient, { action: d.suspendre ? 'tenant.suspendu' : 'tenant.repris', actor: d.acteur, targetType: 'tenant', targetId: t.id, payload: { deja, complet, apps, motif: d.motif ?? null } });
+  await writeAuditLog(db as PrismaClient, { action: d.suspendre ? 'tenant.suspendu' : 'tenant.repris', actor: d.acteur, targetType: 'tenant', targetId: t.id, payload: { deja, complet, apps, motif: d.motif ?? null, cibles } });
   return { deja, apps, complet, avis: nonCoupees(apps) };
 }
 
@@ -379,12 +402,16 @@ export async function basculerSuspension(db: DbMembres, d: { tenantId: string; s
  * À la suppression d'un compte : ses appartenances, et ses invitations. Celles qu'il a envoyées bloquaient la suppression (clé
  * étrangère, 24/11), celles qu'il a reçues gardaient son adresse.
  */
-export async function oublierCompte(db: Pick<PrismaClient, 'tenantMember' | 'crossAppInvitation' | 'tenantPreinscription' | 'tenantIdp'> & Partial<Pick<PrismaClient, 'organisationAcces'>>, u: { id: string; email: string; hubUserId: string | null; tenants?: string[] }): Promise<{ membres: number; invitations: number }> {
+export async function oublierCompte(db: Pick<PrismaClient, 'tenantMember' | 'crossAppInvitation' | 'tenantPreinscription' | 'tenantIdp'> & Partial<Pick<PrismaClient, 'organisationAcces' | 'tenantConnexion' | 'connexionExemption' | 'connexionPreuve'>>, u: { id: string; email: string; hubUserId: string | null; tenants?: string[] }): Promise<{ membres: number; invitations: number }> {
   const m = u.hubUserId ? await db.tenantMember.deleteMany({ where: { userId: u.hubUserId } }) : { count: 0 };
   // Son adresse pré-inscrite ailleurs, et les adresses que ses organisations avaient pré-inscrites.
   await db.organisationAcces?.deleteMany({ where: { OR: [...(u.hubUserId ? [{ hubUserId: u.hubUserId }] : []), { tenantId: { in: u.tenants ?? [] } }] } });
   await db.tenantPreinscription.deleteMany({ where: { OR: [{ email: u.email.trim().toLowerCase() }, { tenantId: { in: u.tenants ?? [] } }] } });
   await db.tenantIdp.deleteMany({ where: { tenantId: { in: u.tenants ?? [] } } });
+  const sien = { OR: [...(u.hubUserId ? [{ hubUserId: u.hubUserId }] : []), { tenantId: { in: u.tenants ?? [] } }] };
+  await db.connexionExemption?.deleteMany({ where: sien });
+  await db.connexionPreuve?.deleteMany({ where: sien });
+  await db.tenantConnexion?.deleteMany({ where: { tenantId: { in: u.tenants ?? [] } } });
   await db.crossAppInvitation.updateMany({ where: { acceptedByUserId: u.id }, data: { acceptedByUserId: null } });
   const i = await db.crossAppInvitation.deleteMany({ where: { OR: [{ inviterUserId: u.id }, { inviteeEmail: { equals: u.email, mode: 'insensitive' } }] } });
   return { membres: m.count, invitations: i.count };

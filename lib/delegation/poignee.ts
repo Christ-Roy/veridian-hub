@@ -18,7 +18,7 @@ type Db = Pick<PrismaClient, 'delegationGrant' | 'tenant' | 'tenantMember'>;
 export const empreinte = (secret: string): string => createHash('sha256').update(secret).digest('hex');
 
 /** Les poignées de ce compte pour cette app, une par organisation vivante. Aucune si l'app n'est la source d'aucune paire servie. */
-export async function emettrePoignees(db: Db, d: { hubUserId: string; app: string }, env: NodeJS.ProcessEnv = process.env): Promise<Poignee[]> {
+export async function emettrePoignees(db: Db, d: { hubUserId: string; app: string; /** Organisations que la session n'ouvre pas. */ sauf?: string[] }, env: NodeJS.ProcessEnv = process.env): Promise<Poignee[]> {
   const source = (test: boolean) => pairesServies(env, test).some((p) => p.source === d.app);
   if (!source(true)) return [];
   const membres = await db.tenantMember.findMany({ where: { userId: d.hubUserId, deletedAt: null }, select: { tenantId: true } });
@@ -26,6 +26,7 @@ export async function emettrePoignees(db: Db, d: { hubUserId: string; app: strin
   const expireLe = new Date(Date.now() + JOURS * 86_400_000);
   const res: Poignee[] = [];
   for (const t of tenants) {
+    if (d.sauf?.includes(t.id)) continue;
     if (!source(await organisationDeTest(db, t.id, env))) continue;
     const grant = randomBytes(32).toString('base64url');
     const cle = { hubUserId: d.hubUserId, app: d.app, tenantId: t.id };

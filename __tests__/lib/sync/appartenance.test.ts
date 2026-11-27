@@ -6,6 +6,7 @@ vi.mock('@/lib/admin/check-admin', () => ({ isPlatformAdminId: () => false, estA
 
 import { humainsDe, classer, releverAppartenance, type HubTenant, type HubUser } from '@/lib/sync/appartenance';
 import type { TenantSnapshot } from '@/lib/sync/types';
+import { exigeV1, exigeV2 } from '../hmac/aide-v2';
 
 const u = (id: string, email: string, prouve = true): HubUser => ({ supabaseUserId: id, email, emailVerified: prouve ? new Date() : null });
 const t = (id: string, userId: string, o: Partial<HubTenant> = {}): HubTenant => ({ id, userId, status: 'active', notifuseWorkspaceSlug: null, metadata: null, ...o });
@@ -19,6 +20,14 @@ const lu = (email: string, snaps: TenantSnapshot[], hub_user_id: string | null =
 const casDe = (r: ReturnType<typeof classer>, email: string) => r.espaces.flatMap((e) => e.membres).find((m) => m.email === email)?.cas;
 
 describe('classer', () => {
+  // 26/11 : l'espace Analytics relié par `hub link` (external_tenant_id seul) était « sans espace » : il est désormais reconnu.
+  it('un espace noté par external_tenant_id seul est relié à son tenant', () => {
+    const hub = { ...HUB, tenants: [...HUB.tenants, t('T3', 'u-prop', { metadata: { analytics: { external_tenant_id: 'org-9' } } })] };
+    const r = classer('analytics', [lu('Prop@client.fr', [s('org-9', { app: 'analytics' })], 'u-prop')], hub);
+    // Sans la lecture d'external_tenant_id, l'espace n'est relié à rien : lien « aucun », personne en « espace_non_relie ».
+    expect(r.espaces.find((e) => e.espace === 'org-9')).toMatchObject({ hubTenantId: 'T3', lien: 'hub' });
+    expect(r.comptes.espace_non_relie).toBe(0);
+  });
   it('chaque humain a son cas', () => {
     const r = classer('notifuse', [
       lu('prop@client.fr', [s('esp', { role: 'owner' })], 'u-prop'),
@@ -145,5 +154,36 @@ describe('humainsDe', () => {
     expect(await lire(() => Response.json({ users: [{ email: 'a@x.fr', hub_user_id: null }] }))).toEqual({ humains: [{ email: 'a@x.fr', hub_user_id: null }] });
     expect(await lire(() => Response.json({ users: [] }))).toEqual({ humains: [] });
     for (const r of [() => new Response('', { status: 500 }), () => Response.json({ users: 'non' }), () => new Response('pas du json'), () => Promise.reject(new Error('coupé'))]) expect(await lire(r as never)).toHaveProperty('raison');
+  });
+});
+
+describe('humainsDe, version de signature', () => {
+  const lire = async () => {
+    vi.stubEnv('ANALYTICS_API_URL', 'https://analytics.test');
+    vi.stubEnv('ANALYTICS_HUB_API_SECRET', 's');
+    let vu: { url: string; h: Record<string, string> } | null = null;
+    await humainsDe('analytics', (async (url: string, init?: RequestInit) => {
+      vu = { url, h: init?.headers as Record<string, string> };
+      return Response.json({ users: [] });
+    }) as unknown as typeof fetch);
+    return vu as unknown as { url: string; h: Record<string, string> };
+  };
+  it('HMAC_V2_APPS=analytics : le GET des humains part en v2', async () => {
+    vi.stubEnv('HMAC_V2_APPS', 'analytics');
+    try {
+      const v = await lire();
+      exigeV2(v.h, 's', 'GET', v.url);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('variable absente ou autre app : v1', async () => {
+    vi.stubEnv('HMAC_V2_APPS', 'notifuse');
+    try {
+      const v = await lire();
+      exigeV1(v.h, 's');
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

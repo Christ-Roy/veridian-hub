@@ -7,6 +7,7 @@ import { createHmac } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 
 import { bundleTier, pushAppPlan, readAppPlan, setAppPlan, tenantHasApp } from '@/lib/plans/app-plan';
+import { exigeV1, exigeV2 } from '../hmac/aide-v2';
 
 const env = {
   ANALYTICS_API_URL: 'https://analytics.app.veridian.site/',
@@ -24,12 +25,18 @@ function fausseBase(metadata: Record<string, unknown> = { analytics: { linked_at
     ligne.metadata = data.metadata;
     return ligne;
   });
+  // La fusion par la base (lib/tenants/metadata-fusion.ts), simulée : les clés du patch posées, les autres intactes.
+  const fusion = vi.fn(async (q: { values: unknown[] }) => {
+    ligne.metadata = { ...ligne.metadata, ...JSON.parse(String(q.values[0])) };
+    return 1;
+  });
   const db = {
+    $executeRaw: fusion,
     tenant: { findUnique: vi.fn(async () => ligne), update },
     tenantTrial: { findMany: vi.fn(async () => [{ state: 'trial_active', trialEndsAt: new Date('2026-12-01T00:00:00Z') }]) },
     subscription: { findMany: vi.fn(async () => []) },
   };
-  return { db: db as any, ligne, update };
+  return { db: db as any, ligne, update: fusion };
 }
 
 describe('pushAppPlan', () => {
@@ -83,6 +90,14 @@ describe('setAppPlan', () => {
     expect(corps).toMatchObject({ trial_status: 'trial_active', trial_ends_at: '2026-12-01T00:00:00.000Z' });
   });
 
+  it('base sans $executeRaw : le plan accepté par l\'app ne s\'écrit jamais en réécrivant metadata entier (26/11)', async () => {
+    const { db, ligne } = fausseBase({ analytics: { linked_at: 'x' }, autre: 1 });
+    const update = vi.fn();
+    const sans = { ...db, $executeRaw: undefined, tenant: { ...db.tenant, update } };
+    await expect(setAppPlan(sans, { tenantId: 't-1', app: 'analytics', plan: 'business', planSource: 'grant_manual' }, { env, fetchImpl: reponse(200, {}) as never })).rejects.toThrow();
+    expect([update.mock.calls.length, ligne.metadata]).toEqual([0, { analytics: { linked_at: 'x' }, autre: 1 }]);
+  });
+
   it('accepté par l\'app : écrit metadata.<app>_plan sans perdre le reste', async () => {
     const { db, ligne } = fausseBase({ analytics: { linked_at: 'x' }, autre: 1 });
     const r = await setAppPlan(db, { tenantId: 't-1', app: 'analytics', plan: 'business', planSource: 'grant_manual', setBy: 'admin' }, { env, fetchImpl: reponse(200, {}) as never });
@@ -125,5 +140,29 @@ describe('lecture et palier', () => {
     expect(bundleTier('veridian-business', false)).toBe('free');
     expect(bundleTier('notifuse-pro', true)).toBeNull();
     expect(bundleTier(null, true)).toBeNull();
+  });
+});
+
+describe('pushAppPlan, version de signature', () => {
+  const pousser = async (app: 'analytics' | 'crm') => {
+    const fetchImpl = reponse(200, { plan: 'pro', previous_plan: 'free' });
+    await pushAppPlan({ app, hubTenantId: 't-1', hubUserId: 'hub-1', plan: 'pro', planSource: 'grant_manual', reason: 'test' }, { env, fetchImpl: fetchImpl as never, nowMs: () => 1_800_000_000_000 });
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    return { url, init, h: init.headers as Record<string, string> };
+  };
+  it('HMAC_V2_APPS=crm : le CRM reçoit la v2, Analytics reste en v1', async () => {
+    vi.stubEnv('HMAC_V2_APPS', 'crm');
+    try {
+      const c = await pousser('crm');
+      exigeV2(c.h, 'secret-crm', 'POST', c.url, String(c.init.body));
+      const a = await pousser('analytics');
+      exigeV1(a.h, 'secret-analytics', String(a.init.body));
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+  it('variable absente : v1 sur `${ts}.${corps}`', async () => {
+    const c = await pousser('crm');
+    exigeV1(c.h, 'secret-crm', String(c.init.body));
   });
 });

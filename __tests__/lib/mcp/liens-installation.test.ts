@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server';
 import { describe, expect, it, vi } from 'vitest';
 
-import { liensInstallation, liensPublics } from '@/lib/mcp/liens-installation';
+import { assistants, langueDe, liensInstallation, liensPublics } from '@/lib/mcp/liens-installation';
 
 const env = { AUTH_URL: 'https://app.veridian.site' } as NodeJS.ProcessEnv;
 const L = liensInstallation(env);
@@ -49,6 +49,7 @@ describe('GET /api/mcp/liens-installation', () => {
     const r = await GET(new NextRequest('https://app.veridian.site/api/mcp/liens-installation'));
     expect(r.headers.get('access-control-allow-origin')).toBe('*');
     expect(r.headers.get('cache-control')).toBe('public, max-age=300');
+    expect(r.headers.get('vary')).toBe('Accept-Language');
     const corps = await r.json();
     expect(corps.url).toMatch(/\/api\/mcp$/);
     expect(corps.assistants.map((a: { cle: string }) => a.cle)).toEqual(['claude', 'chatgpt', 'cursor', 'vscode']);
@@ -75,11 +76,36 @@ describe('liensPublics', () => {
     expect(r.app).toEqual({ cle: 'prospection', nom: 'Prospection', phrase: expect.stringContaining('Prospection') });
     expect(new URL(r.claude).searchParams.get('connectorName')).toBe('Veridian');
   });
+  it('en anglais (Mail, 27/11 : console anglaise, boutons en français) : libellés, étape et phrase ; les liens ne changent pas', async () => {
+    const fr = await liensPublics(reg, 'prospection', env, 'fr');
+    const en = await liensPublics(reg, 'prospection', env, 'en');
+    expect(en.assistants.map((a) => a.libelle)).toEqual(['Add to Claude', 'Open ChatGPT', 'Add to Cursor', 'Add to VS Code']);
+    expect([en.assistants[1].etape?.startsWith('In ChatGPT'), en.app?.phrase.startsWith('One Veridian connection'), en.langue]).toEqual([true, true, 'en']);
+    expect(en.assistants.map((a) => a.installation)).toEqual(fr.assistants.map((a) => a.installation));
+  });
   it('clé inconnue, coupée ou mal formée : app null, liens rendus', async () => {
     for (const k of ['inconnue', 'vieille', "x'; drop", 'A'.repeat(50)]) {
       const r = await liensPublics(reg, k, env);
       expect(r.app).toBeNull();
       expect(r.url).toBe('https://app.veridian.site/api/mcp');
     }
+  });
+});
+
+describe('langueDe', () => {
+  it('?lang d\'abord, puis Accept-Language, le français par défaut ; une valeur inconnue ne compte pas', () => {
+    expect([langueDe('en', 'fr-FR'), langueDe('fr', 'en-US'), langueDe(null, 'en-GB,en;q=0.9'), langueDe(null, 'fr-FR,en;q=0.8'), langueDe('de', null), langueDe(null, null)]).toEqual(['en', 'fr', 'en', 'fr', 'fr', 'fr']);
+  });
+});
+
+describe('liensInstallation et assistants en anglais', () => {
+  it('liensInstallation(env, en) : l\'étape ChatGPT en anglais, les liens identiques au français', () => {
+    const fr = liensInstallation(env, 'fr');
+    const en = liensInstallation(env, 'en');
+    expect([en.instructions.chatgpt.startsWith('In ChatGPT'), en.claude === fr.claude, en.claudeCode === fr.claudeCode]).toEqual([true, true, true]);
+  });
+  it('assistants(l, en) : un libellé anglais par assistant, l\'étape seulement pour ChatGPT', () => {
+    const a = assistants(liensInstallation(env, 'en'), 'en');
+    expect(a.map((x) => [x.libelle, x.etape !== null])).toEqual([['Add to Claude', false], ['Open ChatGPT', true], ['Add to Cursor', false], ['Add to VS Code', false]]);
   });
 });

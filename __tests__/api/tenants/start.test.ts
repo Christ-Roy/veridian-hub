@@ -21,7 +21,7 @@ vi.mock('@/lib/auth/email-proof', () => ({
 
 const provisionTenantsMock = vi.fn(async () => ({
   success: true,
-  notifuse: { success: true, workspaceId: 'ws-1', autoLoginUrl: 'https://nf/auto' },
+  notifuse: { success: true, workspaceId: 'ws-1' },
   prospection: { success: true, tenantId: 't-prosp', loginUrl: 'https://pr/auto' },
 }));
 
@@ -191,7 +191,7 @@ describe('POST /api/tenants/start — goal app_started tunnel', () => {
     tenantRow = null;
     provisionTenantsMock.mockResolvedValueOnce({
       success: false,
-      notifuse: { success: false, workspaceId: undefined, autoLoginUrl: undefined } as any,
+      notifuse: { success: false, workspaceId: undefined } as any,
       prospection: { success: true, tenantId: 't-prosp', loginUrl: 'https://pr/auto' },
     });
     const { POST } = await import('@/app/api/tenants/start/route');

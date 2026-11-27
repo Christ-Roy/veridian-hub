@@ -2,7 +2,7 @@
 /** Appartenance : un seul écrivain, un retrait relu, une suspension dite app par app. */
 import { readFileSync } from 'node:fs';
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const org = vi.hoisted(() => ({ suivre: vi.fn(async (..._a: unknown[]) => []) }));
 vi.mock('@/lib/organisations/emission', () => ({ suivreOrganisation: org.suivre }));
@@ -10,6 +10,7 @@ vi.mock('@/lib/organisations/emission', () => ({ suivreOrganisation: org.suivre 
 import { basculerSuspension, avisCles, nonCoupees, oublierCompte, rejoindre, retirer, retirerDeLApp, type DbMembres } from '@/lib/tenants/membres';
 
 import { parcourir } from '../../contrat/source';
+import { exigeV1, exigeV2 } from '../hmac/aide-v2';
 
 type L = Record<string, any>;
 let tenant: L | null;
@@ -39,7 +40,18 @@ const db = {
     findMany: async ({ where }: L) => invitations.filter((i) => i.inviteeEmail.toLowerCase() === where.inviteeEmail.equals.toLowerCase() && !i.acceptedAt && i.expiresAt > where.expiresAt.gt),
     updateMany: async ({ where, data }: L) => { for (const i of invitations) if (where.id.in.includes(i.id)) Object.assign(i, data); },
   },
-  auditLog: { create: async ({ data }: L) => { audits.push(data); } },
+  auditLog: {
+    create: async ({ data }: L) => { audits.push({ ...data, createdAt: new Date(Date.now() + audits.length) }); },
+    findFirst: async ({ where }: L) => [...audits].reverse().find((a) => a.targetId === where.targetId && where.action.in.includes(a.action)) ?? null,
+  },
+  // La fusion par la base (lib/tenants/metadata-fusion.ts) : un JSON fusionné, ou des clés retirées, jamais le JSON entier remplacé.
+  $executeRaw: async (q: { values: unknown[] }) => {
+    const [v] = q.values;
+    const m = ((tenant!.metadata ??= {}) as L);
+    if (typeof v === 'string') Object.assign(m, JSON.parse(v));
+    else for (const k of v as string[]) delete m[k];
+    return 1;
+  },
 } as unknown as DbMembres;
 
 beforeEach(() => {
@@ -183,6 +195,14 @@ describe('retirer', () => {
     expect(r.avis).toMatch(/notifuse 3 \(https:\/\/notifuse\.app\.veridian\.site\/console\/cles\), crm 1, academy 2 créée\(s\) par cette personne\.$/);
     expect(a.posts.find((p) => p.app === 'academy')?.chemin).toBe('/api/tenants/T/remove-member');
   });
+  it('Academy rend ses clés révoquées au retrait (8a026b3) : lues et dites ; un compte non entier est ignoré', async () => {
+    const a = apps({ academy: ['m@x.fr'] }, { cles: { academy: { active_api_keys: 1, revoked_api_keys: 2 } } });
+    const r = await retirerM(a.f, ['academy']);
+    expect(r.apps[0].cles).toEqual({ actives: 1, par: 'espace', revoquees: 2 });
+    expect(r.avis).toMatch(/révoquées au retrait : academy 2\./);
+    const b = apps({ academy: ['m@x.fr'] }, { cles: { academy: { active_api_keys: 0, revoked_api_keys: 'beaucoup' } } });
+    expect((await retirerM(b.f, ['academy'])).apps[0].cles).toEqual({ actives: 0, par: 'espace' });
+  });
 
   it('ses poignées de délégation dans CE tenant meurent', async () => {
     await retirerM(apps({}).f, ['notifuse']).catch(() => undefined);
@@ -325,6 +345,22 @@ describe('suspension', () => {
     expect(tenant!.metadata).toEqual({ crm: { workspace_id: 'w-crm' } });
   });
 
+  it('note perdue dans metadata entre la suspension et la reprise (événement d\'app réécrit) : la reprise rouvre quand même, par le journal', async () => {
+    const etat: Record<string, string[]> = { notifuse: ['prop@x.fr'], prospection: ['prop@x.fr'] };
+    await basculer(true, apps(etat).f);
+    expect(audits.find((a) => a.action === 'tenant.suspendu')?.payload.cibles).toMatchObject({ prospection: ['tp'] });
+    delete (tenant!.metadata as L).hub_suspension; // 26/11 14:22 : l'avis « suspendu » de Mail a réécrit metadata depuis une lecture périmée.
+    etat.prospection = []; // Prospection ne montre plus un tenant suspendu.
+    const b = apps(etat);
+    const r = await basculer(false, b.f);
+    expect(r.apps.find((x) => x.app === 'prospection')?.etat).toBe('repris');
+    expect(b.posts.filter((p) => p.app === 'prospection').map((p) => [p.chemin, p.corps.tenant_id])).toEqual([['/api/tenants/resume', 'tp']]);
+    // Une reprise complète clôt le journal : un nouveau « reprendre » ne revise rien.
+    const c = apps(etat);
+    await basculer(false, c.f);
+    expect(c.posts.filter((p) => p.app === 'prospection')).toEqual([]);
+  });
+
   it('reprise ratée chez une app : sa cible reste notée, un rejeu la vise encore', async () => {
     const etat: Record<string, string[]> = { prospection: ['prop@x.fr'] };
     await basculer(true, apps(etat).f);
@@ -400,6 +436,11 @@ it('nonCoupees : null quand tout est coupé, sinon chaque app et sa raison', () 
   expect(nonCoupees([{ app: 'analytics', etat: 'non_gere', detail: 'aucune route' }, { app: 'crm', etat: 'echec', detail: 'http_500' }])).toMatch(/analytics \(aucune route\), crm \(http_500\)/);
 });
 
+// 26/11 : Academy révoque au retrait les clés créées par la personne (8a026b3) ; l'avis le dit, et ne les compte pas comme actives.
+it('avisCles : les clés révoquées par l\'app au retrait sont dites, à part des actives', () => {
+  expect(avisCles([{ app: 'academy', etat: 'retire', cles: { actives: 0, par: 'espace', revoquees: 2 } }])).toBe('Clés API créées par la personne et révoquées au retrait : academy 2.');
+  expect(avisCles([{ app: 'academy', etat: 'retire', cles: { actives: 1, par: 'espace', revoquees: 2 } }])).toMatch(/^Clés API créées par la personne et révoquées au retrait : academy 2\. Clés API encore actives .*academy 1/);
+});
 it('avisCles : une app qui ne compte pas est dite « non comptées », zéro et absent se taisent', () => {
   expect(avisCles([{ app: 'crm', etat: 'absent' }, { app: 'academy', etat: 'retire', cles: { actives: 0, par: 'espace' } }])).toBeNull();
   expect(avisCles([{ app: 'notifuse', etat: 'retire' }, { app: 'analytics', etat: 'non_gere' }])).toMatch(/notifuse non comptées, analytics non comptées/);
@@ -429,8 +470,8 @@ it('retirer annule la pré-inscription encore ouverte de cette adresse, dans cet
   secondaires = [];
   expect(preinscrites[1][0].email, 'toutes ses adresses, pas celles d\'un autre').toEqual({ in: ['m@x.fr', 'pro@client.fr'] });
 });
-it('une pré-inscription ne donne que member, et ne rend pas un retiré si elle date d\'avant', async () => {
-  await expect(joindre({ origine: 'preinscription', role: 'admin' })).rejects.toMatchObject({ code: 'role_refuse' });
+it('une pré-inscription ne donne jamais owner (admin, posé par un opérateur, oui), et ne rend pas un retiré si elle date d\'avant', async () => {
+  await expect(joindre({ origine: 'preinscription', role: 'owner' })).rejects.toMatchObject({ code: 'role_refuse' });
   membres = [{ tenantId: 'T', userId: 'u-m', role: 'member', deletedAt: new Date('2026-11-20') }];
   await expect(joindre({ origine: 'preinscription', emiseLe: new Date('2026-11-19') })).rejects.toMatchObject({ code: 'retire' });
   expect(await joindre({ origine: 'preinscription', emiseLe: new Date('2026-11-21') })).toMatchObject({ cree: true, role: 'member' });
@@ -439,4 +480,30 @@ it('une fédération ne donne que member, et ne fait JAMAIS revenir un retiré',
   await expect(joindre({ origine: 'federation', role: 'admin' })).rejects.toMatchObject({ code: 'role_refuse' });
   membres = [{ tenantId: 'T', userId: 'u-m', role: 'member', deletedAt: new Date('2026-11-20') }];
   await expect(joindre({ origine: 'federation', emiseLe: new Date() })).rejects.toMatchObject({ code: 'retire' });
+});
+
+describe('retirerDeLApp, version de signature', () => {
+  afterEach(() => vi.unstubAllEnvs());
+  const retirerCrm = async () => {
+    await joindre();
+    const a = apps({ crm: ['m@x.fr'] });
+    const vus: { url: string; methode: string; corps: string; h: Record<string, string> }[] = [];
+    const f = (async (url: string, init?: RequestInit) => {
+      vus.push({ url, methode: init?.method ?? 'GET', corps: String(init?.body ?? ''), h: init?.headers as Record<string, string> });
+      return a.f(url, init);
+    }) as typeof fetch;
+    await retirerDeLApp('crm', tenant as never, 'm@x.fr', 'u-m', { fetchImpl: f });
+    return vus;
+  };
+  it('HMAC_V2_APPS=crm : chaque appel au CRM (le POST remove-member comme les lectures) part en v2', async () => {
+    vi.stubEnv('HMAC_V2_APPS', 'crm');
+    const vus = await retirerCrm();
+    expect(vus.some((v) => v.methode === 'POST' && v.url.endsWith('/api/tenants/T/remove-member'))).toBe(true);
+    for (const v of vus) exigeV2(v.h, 's', v.methode, v.url, v.corps);
+  });
+  it('variable absente : v1', async () => {
+    const vus = await retirerCrm();
+    expect(vus.length).toBeGreaterThan(0);
+    for (const v of vus) exigeV1(v.h, 's', v.corps);
+  });
 });

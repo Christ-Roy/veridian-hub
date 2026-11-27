@@ -38,7 +38,9 @@ export const resoudrePublique: LookupFunction = (hote, o, cb) => {
 /** Un `fetch` borné, pour `openid-client`. */
 export async function fetchGarde(url: string, o: { method?: string; headers?: Record<string, string>; body?: unknown; signal?: AbortSignal } = {}): Promise<Response> {
   const u = new URL(url);
-  if (u.protocol !== 'https:' || (isIP(u.hostname) && !adressePublique(u.hostname))) throw new Error('adresse_privee');
+  // Une IPv6 littérale garde ses crochets dans `hostname` : sans les ôter, elle n'est pas vue comme une IP, et `request` la joint sans passer par `lookup`.
+  const hote = u.hostname.replace(/^\[(.*)\]$/, '$1');
+  if (u.protocol !== 'https:' || (isIP(hote) && !adressePublique(hote))) throw new Error('adresse_privee');
   const corps = o.body === undefined || o.body === null ? undefined : String(o.body);
   return new Promise((ok, ko) => {
     const r = request(u, { method: o.method ?? 'GET', headers: o.headers, lookup: resoudrePublique, timeout: DELAI_MS, signal: o.signal }, (res) => {

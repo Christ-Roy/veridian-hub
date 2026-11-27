@@ -20,6 +20,13 @@ import { mkdtempSync, rmSync, mkdirSync, writeFileSync, copyFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+/** Lancé d'un hook git, GIT_DIR et consorts renverraient chaque `git` vers le vrai dépôt. */
+const envSansGit = (): NodeJS.ProcessEnv => {
+  const e = { ...process.env };
+  for (const k of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_COMMON_DIR']) delete e[k];
+  return e;
+};
+
 const SCRIPT_SRC = path.resolve(__dirname, '../../../scripts/ci/check-no-stripe-live-key.sh');
 
 /**
@@ -34,16 +41,16 @@ function makeRepo(files: Record<string, string>): string {
   const scriptDst = path.join(root, 'scripts', 'ci', 'check-no-stripe-live-key.sh');
   copyFileSync(SCRIPT_SRC, scriptDst);
 
-  execFileSync('git', ['init', '-q'], { cwd: root });
-  execFileSync('git', ['config', 'user.email', 'test@test.local'], { cwd: root });
-  execFileSync('git', ['config', 'user.name', 'test'], { cwd: root });
+  execFileSync('git', ['init', '-q'], { cwd: root, env: envSansGit() });
+  execFileSync('git', ['config', 'user.email', 'test@test.local'], { cwd: root, env: envSansGit() });
+  execFileSync('git', ['config', 'user.name', 'test'], { cwd: root, env: envSansGit() });
 
   for (const [rel, content] of Object.entries(files)) {
     const dst = path.join(root, rel);
     mkdirSync(path.dirname(dst), { recursive: true });
     writeFileSync(dst, content);
   }
-  execFileSync('git', ['add', '-A'], { cwd: root });
+  execFileSync('git', ['add', '-A'], { cwd: root, env: envSansGit() });
   return root;
 }
 
@@ -52,6 +59,7 @@ function runCheck(root: string): number {
   try {
     execFileSync('bash', ['scripts/ci/check-no-stripe-live-key.sh'], {
       cwd: root,
+      env: envSansGit(),
       stdio: 'pipe',
     });
     return 0;

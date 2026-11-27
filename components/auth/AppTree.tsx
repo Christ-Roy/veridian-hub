@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import { Mail, Search, BarChart3, Users, FileText } from 'lucide-react';
+import { Mail, Search, BarChart3, Users } from 'lucide-react';
 
 /**
  * Écosystème Veridian affiché sous le logo `veridian.hub` dans le panneau
@@ -44,7 +44,6 @@ const APPS: App[] = [
     icon: Users,
     pillClass: 'text-white bg-[linear-gradient(135deg,oklch(0.62_0.2_25),oklch(0.42_0.17_22))] border-transparent',
   },
-  { label: 'cms', icon: FileText, pillClass: '', soon: true },
 ];
 
 export function AppTree({ className }: { className?: string }) {

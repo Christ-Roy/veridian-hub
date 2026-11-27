@@ -5,6 +5,8 @@ import { randomBytes } from 'crypto';
 import { auth } from '@/auth';
 import { isEmailProvenForSession } from '@/lib/auth/email-proof';
 import { RateLimiter } from '@/lib/auth/rate-limit';
+import { getCurrentUser } from '@/lib/auth/get-user';
+import { refusSiMienneFermee } from '@/lib/federation/session';
 import { prisma } from '@/lib/prisma';
 import { sendMail } from '@/lib/email/send';
 import { buildInvitationEmail } from '@/lib/email/templates/invitation';
@@ -34,6 +36,9 @@ export async function POST(request: Request) {
   if (!sessionUser?.id) {
     return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
   }
+  const moi = await getCurrentUser();
+  const ferme = moi ? await refusSiMienneFermee(moi) : null;
+  if (ferme) return ferme;
 
   // Un compte à l'adresse non prouvée n'envoie pas de mail au nom de Veridian.
   if (!(await isEmailProvenForSession(sessionUser.id))) {

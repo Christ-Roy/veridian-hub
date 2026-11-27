@@ -7,6 +7,7 @@ import { MembresDuTenant } from '@/components/workspace/MembresDuTenant';
 import { MembersTable } from '@/components/workspace/MembersTable';
 import type { WorkspaceMember, WorkspaceRole } from '@/types/workspace';
 import { canInviteMembers } from '@/types/workspace';
+import { fermeesIci, PAGE_ORGANISATION } from '@/lib/federation/session';
 import { getCurrentUser } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
 import { membresVus } from '@/lib/tenants/membres-vus';
@@ -17,6 +18,8 @@ export default async function WorkspaceMembersPage() {
   if (!user) {
     redirect('/login');
   }
+  // Le layout ne rejoue pas à chaque navigation : la garde est aussi ici.
+  if ((await fermeesIci(user)).some((f) => f.proprietaire)) redirect(PAGE_ORGANISATION);
 
   // Récupérer le premier workspace dont l'utilisateur est membre.
   // Mono-workspace au lancement (multi-workspace en P3+).

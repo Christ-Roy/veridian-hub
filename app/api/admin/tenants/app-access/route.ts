@@ -28,6 +28,7 @@ import {
   type GatedAppKey,
 } from '@/lib/tenant-apps';
 import { lierAuHub } from '@/lib/apps/lier-hub';
+import { provisionnerAnalytics } from '@/lib/analytics/provision';
 import { ensureAcademyWorkspace } from '@/lib/academy/provision';
 import { ensureCrmWorkspace } from '@/lib/crm/provision';
 import { choisirPlanInitial, setAppPlan } from '@/lib/plans/app-plan';
@@ -57,7 +58,7 @@ export async function POST(request: NextRequest) {
   const email = parsed.data.user_email.trim().toLowerCase();
   const user = await prisma.user.findUnique({
     where: { email },
-    select: { id: true, supabaseUserId: true, emailVerified: true, name: true },
+    select: { id: true, email: true, supabaseUserId: true, emailVerified: true, name: true },
   });
 
   if (!user || !user.supabaseUserId) {
@@ -109,6 +110,7 @@ export async function POST(request: NextRequest) {
   // Rybbit relié, Rybbit répond tenant_not_found et rien n'est écrit : l'écart se lit dans reconcile.
   let analyticsPlan: string | undefined;
   let analyticsLien: string | undefined;
+  let analyticsProvision: string | undefined;
   if (parsed.data.app === 'analytics' && parsed.data.enabled) {
     const tenant = await prisma.tenant.findFirst({
       where: { userId: user.supabaseUserId, deletedAt: null },
@@ -116,6 +118,14 @@ export async function POST(request: NextRequest) {
       orderBy: { createdAt: 'asc' },
     });
     if (tenant) {
+      // Dès l'activation, Analytics crée la personne et son organisation reliée (parente, 26/11) : un client sans site peut entrer.
+      // Route absente chez Analytics : rien n'est inventé, l'issue est dite dans la réponse.
+      if (user.emailVerified) {
+        const p = await provisionnerAnalytics(prisma, { hubUserId: user.supabaseUserId, email: user.email, name: user.name ?? null }, tenant.id).catch(
+          (err: unknown) => ({ ok: false as const, error: err instanceof Error ? err.message.slice(0, 80) : 'erreur' }),
+        );
+        analyticsProvision = p.ok ? `organisation ${p.organizationId}` : (('attente' in p && p.attente) || `non créée : ${'error' in p ? p.error : 'inconnu'}`);
+      } else analyticsProvision = 'adresse à prouver : rien créé';
       // Un plan déjà choisi au Hub est repoussé avec sa source ; sinon rien : un free par défaut
       // marqué grant_manual serait immunisé contre Stripe (décision du 22/11).
       const choisi = choisirPlanInitial(tenant.metadata, 'analytics');
@@ -165,5 +175,6 @@ export async function POST(request: NextRequest) {
     ...(academyWorkspaceId ? { academy_workspace_id: academyWorkspaceId } : {}),
     ...(analyticsPlan ? { analytics_plan: analyticsPlan } : {}),
     ...(analyticsLien ? { analytics_lien: analyticsLien } : {}),
+    ...(analyticsProvision ? { analytics_provision: analyticsProvision } : {}),
   });
 }

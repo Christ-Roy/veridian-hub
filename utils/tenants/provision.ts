@@ -38,8 +38,6 @@ export async function provisionNotifuseTenant(
   success: boolean;
   workspaceId?: string;
   apiKey?: string;
-  magicLink?: string;
-  autoLoginUrl?: string;
   error?: string;
 }> {
   try {
@@ -78,6 +76,9 @@ export async function provisionNotifuseTenant(
         .updatePlan({ tenantId: result.workspace_id, plan: 'free', hubTenantId })
         .catch((err: unknown) => logStep('NOTIFUSE', 'Lien tenant Hub non posé', { error: err instanceof Error ? err.message : 'erreur' }));
     }
+    // Le lien seul, à chaque création comme à chaque rejeu : sans lui, Mail refuse les actions des autres apps (26/11, essai du CRM).
+    const lien = await client.lierTenantHub(result.workspace_id, hubTenantId);
+    if (!lien.ok && !lien.absente) return { success: false, error: `lien Mail refusé : ${lien.code} ${lien.erreur}` };
 
     const tenantId = hubTenantId;
     await prisma.tenant.update({
@@ -113,8 +114,6 @@ export async function provisionNotifuseTenant(
       success: true,
       workspaceId: result.workspace_id,
       apiKey: result.api_key,
-      magicLink: result.magic_link,
-      autoLoginUrl: result.auto_login_url,
     };
   } catch (error: any) {
     const message =
@@ -156,7 +155,6 @@ export async function provisionProspectionTenant(
       email,
       name: email.split('@')[0],
       userId,
-      plan: 'freemium',
       emailProven: await isEmailProvenInDb(prisma, userId),
       hubTenantId: tenantId,
     });
@@ -167,7 +165,6 @@ export async function provisionProspectionTenant(
       prospectionApiKey: data.api_key,
       // VER-106 : plus aucun jeton de connexion gardé au Hub, l'app s'ouvre par le rebond signé.
       prospectionLoginToken: null,
-      prospectionPlan: 'freemium',
       prospectionProvisionedAt: new Date(),
     };
 

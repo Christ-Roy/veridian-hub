@@ -325,7 +325,9 @@ export async function sessionApp(ctx: BrowserContext, app: AppKey | 'hub', base?
 
 /** Page réservée aux connectés, celle qu'on demande pour prouver le retour « sur la page demandée ». */
 export const PAGE_PROTEGEE: Record<AppKey, string> = {
-  prospection: '/prospects',
+  // Atlas est servi sur `/` (26/11) : `/prospects` n'existe plus et `/atlas` redirige vers `/`. C'est la seule page protégée de Prospection
+  // (`/marches` est publique) : « la page demandée » n'y est donc pas discriminante, la session relue par l'app reste la preuve.
+  prospection: '/',
   notifuse: '/console/',
   analytics: '/',
   twenty: '/settings/profile',
@@ -390,6 +392,8 @@ export async function seDeconnecterDeApp(ctx: BrowserContext, app: AppKey, hote?
         waitUntil: 'domcontentloaded',
       });
       await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
+      // Compte neuf chez Prospection : l'accueil « Bienvenue dans Atlas » couvre le rail tant qu'on ne l'écarte pas (écran du 26/11).
+      if (app === 'prospection') await page.getByRole('button', { name: /^Plus tard$/ }).click({ timeout: 5_000 }).catch(() => {});
       const bouton =
         app === 'prospection'
           ? page.locator('[title^="Se déconnecter"]')
@@ -401,7 +405,12 @@ export async function seDeconnecterDeApp(ctx: BrowserContext, app: AppKey, hote?
     await page.waitForLoadState('networkidle', { timeout: 20_000 }).catch(() => {});
     await page.waitForTimeout(3_000);
   } catch (e) {
-    throw new NonAbouti(`bouton de déconnexion de ${app} introuvable : ${(e as Error).message.split('\n')[0]}`);
+    // La première ligne de Playwright ne dit que « Timeout » : la raison (masqué, intercepté par, instable) est plus bas, et l'écran avec.
+    const m = (e as Error).message;
+    const raison = m.split('\n').map((l) => l.trim()).filter((l) => /intercepts pointer|not visible|not stable|outside of the viewport|resolved to|detached/.test(l)).slice(-2).join(' ; ');
+    const capture = `.run/captures/deconnexion-${app}.png`;
+    await page.screenshot({ path: capture, fullPage: false }).catch(() => {});
+    throw new NonAbouti(`bouton de déconnexion de ${app} introuvable : ${m.split('\n')[0]}${raison ? ` (${raison.slice(0, 300)})` : ''} ; écran : ${capture}`);
   } finally {
     await page.close();
   }

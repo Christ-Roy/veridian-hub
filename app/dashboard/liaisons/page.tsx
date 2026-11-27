@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { listerIntegrations, roleAuHub, type EtatPaire } from '@/lib/delegation/interrupteur';
+import { preuveDeSession } from '@/lib/federation/obligation';
 import { espacesDe } from '@/lib/mcp/catalogue';
 import { prisma } from '@/lib/prisma';
 
@@ -55,7 +56,7 @@ export default async function Liaisons({ searchParams }: { searchParams: Promise
   const hubUserId = userUuid(user);
   const avis = AVIS[(await searchParams).avis ?? ''];
   const espaces = await Promise.all(
-    (await espacesDe(prisma, hubUserId)).map(async (e) => ({
+    (await espacesDe(prisma, hubUserId, preuveDeSession(session))).map(async (e) => ({
       ...e,
       au: await roleAuHub(prisma, e.id, hubUserId),
       liaisons: (await listerIntegrations(prisma, e.id)).filter((l) => l.etat !== 'indisponible'),
@@ -64,7 +65,7 @@ export default async function Liaisons({ searchParams }: { searchParams: Promise
   const visibles = espaces.filter((e) => e.liaisons.length > 0);
   return (
     <div className="flex flex-col gap-6 p-4 md:p-8">
-      <DashboardPageHeader title="Liaisons" icon={Link2Icon} description="Ce que vos apps font l'une dans l'autre. Rien n'est jamais supprimé, aucun mail n'est envoyé." />
+      <DashboardPageHeader title="Liaisons" icon={Link2Icon} description="Ce que vos apps font l'une dans l'autre. Rien n'est jamais supprimé ; seule une liaison qui le dit peut envoyer des mails, et elle reste éteinte tant que vous ne l'allumez pas." />
       {avis ? <p role="status" className="text-sm">{avis}</p> : null}
       {visibles.length === 0 ? <p className="text-muted-foreground">Aucune liaison n&apos;est encore disponible pour vos espaces.</p> : null}
       {visibles.map((e) => {

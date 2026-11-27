@@ -40,6 +40,7 @@ describe('sortir', () => {
     const r = await s({ retour: await scellerRetour({ empruntId: 'emprunt-1', session: 'la-mienne', org: 'mon-org' }) });
     expect([r.status, new URL(r.headers.get('location')!).pathname]).toEqual([303, '/dashboard/admin/clients']);
     expect([r.cookies.get(SESSION)?.value, r.cookies.get('veridian_org')?.value, r.cookies.get(RETOUR)?.value]).toEqual(['la-mienne', 'mon-org', '']);
+    expect(new URL(r.headers.get('location')!).search, 'sur la fiche du client quitté').toBe(`?u=${ADMIN}&sortie=emprunt-1`);
     expect(m.audit.mock.calls[0][0].data).toMatchObject({ action: 'admin.impersonate.end', payload: { emprunt: 'emprunt-1', retour: true } });
   });
   it('le retour d\'un AUTRE emprunt, ou forgé : rien n\'est rendu, la session du client tombe', async () => {
@@ -47,6 +48,8 @@ describe('sortir', () => {
     for (const retour of [await scellerRetour({ empruntId: 'emprunt-2', session: 'la-mienne', org: null }), 'forge', undefined]) {
       const r = await s({ retour });
       expect(r.cookies.get(SESSION)?.value).toBe('');
+      // Le navigateur n'efface un cookie `__Secure-` que si l'effacement porte `Secure`.
+      expect(r.headers.getSetCookie().find((c) => c.startsWith(`${SESSION}=;`))).toMatch(/Max-Age=0.*Secure|Secure.*Max-Age=0/i);
       expect(r.headers.get('location')).toContain('/login');
     }
   });

@@ -6,17 +6,19 @@
 import type { PrismaClient } from '@prisma/client';
 
 import { cacheEchecs, cacheOutils, cle, oublierUtilisateur, TTL_ECHEC_MS, TTL_OUTILS_MS } from './cache';
-import { AppInjoignable, CompteAbsent, SessionApp, type OutilApp } from './client-app';
+import { AppInjoignable, CompteAbsent, SessionApp, type OutilApp, type SessionOutils } from './client-app';
 import { signerPourApp } from './identite';
 import type { Appelant } from './oauth';
 import type { Provisionneur } from './provisionneurs';
 
 import { servicesDe, sessionExterne } from '@/lib/connecteurs/porte';
+import type { Deps as DepsConnecteur } from '@/lib/connecteurs/sortie';
+import { fermees, type DbObligation, type Fermee, type Preuve } from '@/lib/federation/obligation';
 import { appsParOrganisation } from '@/lib/tenant-apps/organisation';
 
 export { viderCache } from './cache';
 
-export type Db = Pick<PrismaClient, 'mcpApp' | 'tenantApp' | 'tenant' | 'tenantTrial' | 'tenantMember' | 'organisation'> & Partial<Pick<PrismaClient, 'connexionExterne' | 'connecteurClient' | 'auditLog'>>;
+export type Db = Pick<PrismaClient, 'mcpApp' | 'tenantApp' | 'tenant' | 'tenantTrial' | 'tenantMember' | 'organisation'> & DbObligation & Partial<Pick<PrismaClient, 'connexionExterne' | 'connecteurClient' | 'connecteurOutilVu' | 'auditLog' | 'user'>>;
 
 export type Outil = {
   nom: string;
@@ -26,6 +28,8 @@ export type Outil = {
   annotations?: Record<string, unknown>;
   /** Nom de l'outil chez l'app. */
   local: string;
+  /** Outil d'un service extérieur : d'où vient son texte. Jamais jouable par un programme. */
+  externe?: string;
 };
 
 export type AppInscrite = { appKey: string; label: string; mcpUrl: string; /** Service extérieur relié par la personne : son jeton à elle, aucune identité signée par le Hub. */ externe?: true };
@@ -37,6 +41,9 @@ export type Deps = {
   provisionneurs?: Record<string, Provisionneur>;
   /** La base, pour le jeton d'un service extérieur. */
   db?: Db;
+  /** Épreuve : service extérieur jetable. */
+  connecteur?: DepsConnecteur;
+  delaiExterneMs?: number;
   /** Options des sessions d'app (mode programme). */
   session?: ConstructorParameters<typeof SessionApp>[3];
   /** Rôle dans l'organisation choisie, signé avec tenant_id. */
@@ -49,7 +56,7 @@ export type Deps = {
 };
 
 /** Apps du registre ouvertes à cet utilisateur. */
-export async function appsDe(db: Db, hubUserId: string): Promise<AppInscrite[]> {
+export async function appsDe(db: Db, hubUserId: string, preuve: Preuve): Promise<AppInscrite[]> {
   const apps = await db.mcpApp.findMany({ where: { enabled: true }, orderBy: { appKey: 'asc' } });
   const besoinActivation = apps.filter((a) => a.acces !== 'tous').map((a) => a.appKey);
   const actives = besoinActivation.length
@@ -62,21 +69,22 @@ export async function appsDe(db: Db, hubUserId: string): Promise<AppInscrite[]> 
         ).map((r) => r.appKey),
       )
     : new Set<string>();
-  for (const app of besoinActivation.length ? Array.from(await appsParOrganisation(db, hubUserId)) : []) actives.add(app);
+  for (const app of besoinActivation.length ? Array.from(await appsParOrganisation(db, hubUserId, undefined, (await fermees(db, hubUserId, preuve)).map((f) => f.tenantId))) : []) actives.add(app);
   return apps
     .filter((a) => a.acces === 'tous' || actives.has(a.appKey))
     .map((a) => ({ appKey: a.appKey, label: a.label, mcpUrl: a.mcpUrl }));
 }
 
+export type DbEspaces = Pick<PrismaClient, 'tenant' | 'tenantMember'> & DbObligation;
 export type Espace = { id: string; nom: string; slug: string; role: string };
 
 /** Espaces où l'utilisateur agit : les siens, et ceux dont il est membre. Un espace suspendu n'en est pas (VER-245). */
-export async function espacesDe(db: Db, hubUserId: string): Promise<Espace[]> {
-  return (await tousEspaces(db, hubUserId)).vivants;
+export async function espacesDe(db: DbEspaces, hubUserId: string, preuve: Preuve): Promise<Espace[]> {
+  return (await tousEspaces(db, hubUserId, preuve)).vivants;
 }
 
-/** Les mêmes, avec ceux qui sont suspendus, à part : ils se disent, ils ne s'ouvrent pas. */
-export async function tousEspaces(db: Db, hubUserId: string): Promise<{ vivants: Espace[]; suspendus: Espace[] }> {
+/** Les mêmes, avec ceux qui sont suspendus, et ceux que cette preuve n'ouvre pas, à part : ils se disent, ils ne s'ouvrent pas. */
+export async function tousEspaces(db: DbEspaces, hubUserId: string, preuve: Preuve): Promise<{ vivants: Espace[]; suspendus: Espace[]; fermes: (Espace & Pick<Fermee, 'fournisseur' | 'porte'>)[] }> {
   const champs = { id: true, name: true, slug: true, status: true } as const;
   const [siens, membre] = await Promise.all([
     db.tenant.findMany({ where: { userId: hubUserId, deletedAt: null }, select: champs, orderBy: { createdAt: 'asc' } }),
@@ -91,8 +99,11 @@ export async function tousEspaces(db: Db, hubUserId: string): Promise<{ vivants:
     ...lus.map((t) => ({ id: t.id, nom: t.name, slug: t.slug, role: autres.find((m) => m.tenantId === t.id)?.role ?? 'membre', status: t.status })),
   ];
   const sans = ({ status: _s, ...e }: (typeof tous)[number]): Espace => e;
+  const closes = await fermees(db, hubUserId, preuve);
+  const close = (id: string) => closes.find((f) => f.tenantId === id);
   return {
-    vivants: tous.filter((t) => t.status !== 'suspended' && t.status !== 'deleted').map(sans),
+    vivants: tous.filter((t) => t.status !== 'suspended' && t.status !== 'deleted' && !close(t.id)).map(sans),
+    fermes: tous.filter((t) => t.status !== 'suspended' && t.status !== 'deleted').flatMap((t) => { const f = close(t.id); return f ? [{ ...sans(t), fournisseur: f.fournisseur, porte: f.porte }] : []; }),
     suspendus: tous.filter((t) => t.status === 'suspended').map(sans),
   };
 }
@@ -117,8 +128,8 @@ export async function sessionPour(app: AppInscrite, qui: Appelant, deps: Deps = 
  * Ouvre une session ; si l'app ne connaît pas encore ce compte, le Hub le crée par son chemin de
  * provisionnement habituel, oublie l'échec, et réessaie une fois.
  */
-export async function sessionOuCreation(app: AppInscrite, qui: Appelant, deps: Deps = {}, tenantId?: string): Promise<SessionApp> {
-  if (app.externe) return sessionExterne(deps.db as never, qui.hubUserId, app.appKey);
+export async function sessionOuCreation(app: AppInscrite, qui: Appelant, deps: Deps = {}, tenantId?: string): Promise<SessionOutils> {
+  if (app.externe) return sessionExterne(deps.db as never, qui, app.appKey, deps.connecteur);
   try {
     return await sessionPour(app, qui, deps, tenantId);
   } catch (err) {
@@ -132,9 +143,30 @@ export async function sessionOuCreation(app: AppInscrite, qui: Appelant, deps: D
   }
 }
 
-function versOutil(app: string, o: OutilApp): Outil {
+function versOutil({ appKey: app, label, externe }: AppInscrite, o: OutilApp): Outil {
   const description = (o.description ?? o.title ?? '').split('\n')[0].slice(0, 300);
-  return { nom: `${app}.${o.name}`, app, local: o.name, description, inputSchema: o.inputSchema ?? { type: 'object' }, annotations: o.annotations };
+  return { nom: `${app}.${o.name}`, app, local: o.name, description, inputSchema: o.inputSchema ?? { type: 'object' }, annotations: o.annotations, ...(externe ? { externe: label } : {}) };
+}
+
+/** Un service extérieur lent ne ralentit pas la porte : ce délai passé, il est dit injoignable, et le reste de son travail finit sans nous. */
+const DELAI_EXTERNE_MS = 8_000;
+const enVol = new Map<string, Promise<Outil[]>>();
+
+async function lireOutils(app: AppInscrite, qui: Appelant, deps: Deps): Promise<Outil[]> {
+  const s = await sessionOuCreation(app, qui, deps);
+  return (await s.outils()).filter((o) => typeof o?.name === 'string').map((o) => versOutil(app, o));
+}
+/** Une seule lecture à la fois par service et par personne, bornée. */
+async function lireExterne(app: AppInscrite, qui: Appelant, deps: Deps): Promise<Outil[]> {
+  const k = cle(app.appKey, qui.hubUserId);
+  const p = enVol.get(k) ?? lireOutils(app, qui, deps).finally(() => enVol.delete(k));
+  enVol.set(k, p);
+  let t: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([p, new Promise<never>((_ok, ko) => { t = setTimeout(() => ko(new AppInjoignable(`${app.label} ne répond pas à temps`)), deps.delaiExterneMs ?? DELAI_EXTERNE_MS); })]);
+  } finally {
+    clearTimeout(t);
+  }
 }
 
 export async function outilsApp(app: AppInscrite, qui: Appelant, deps: Deps = {}): Promise<Outil[]> {
@@ -143,10 +175,9 @@ export async function outilsApp(app: AppInscrite, qui: Appelant, deps: Deps = {}
   const c = cacheOutils.get(k);
   if (c && now - c.a < TTL_OUTILS_MS) return c.outils as Outil[];
   const e = cacheEchecs.get(k);
-  if (e && now - e.a < TTL_ECHEC_MS) throw new AppInjoignable(e.raison);
+  if (e && now - e.a < (app.externe ? TTL_OUTILS_MS : TTL_ECHEC_MS)) throw new AppInjoignable(e.raison);
   try {
-    const s = await sessionOuCreation(app, qui, deps);
-    const outils = (await s.outils()).filter((o) => typeof o?.name === 'string').map((o) => versOutil(app.appKey, o));
+    const outils = await (app.externe ? lireExterne : lireOutils)(app, qui, deps);
     cacheOutils.set(k, { a: now, outils });
     cacheEchecs.delete(k);
     return outils;
@@ -160,8 +191,10 @@ export async function outilsApp(app: AppInscrite, qui: Appelant, deps: Deps = {}
 export type Catalogue = { outils: Outil[]; apps: AppInscrite[]; injoignables: { app: string; raison: string }[] };
 
 export async function catalogue(db: Db, qui: Appelant, outilsHub: Outil[], deps: Deps = {}): Promise<Catalogue> {
-  const services = await servicesDe(db as never, qui.hubUserId).catch((err) => (console.error('[mcp] services extérieurs', err instanceof Error ? err.message.slice(0, 120) : 'erreur'), []));
-  const apps: AppInscrite[] = [...(await appsDe(db, qui.hubUserId)), ...services];
+  const siennes = await appsDe(db, qui.hubUserId, qui.preuve);
+  const services = await servicesDe(db as never, qui, () => tousEspaces(db, qui.hubUserId, qui.preuve)).catch((err) => (console.error('[mcp] services extérieurs', err instanceof Error ? err.message.slice(0, 120) : 'erreur'), []));
+  // Une de nos apps garde son nom : un service extérieur ne la remplace jamais.
+  const apps: AppInscrite[] = [...siennes, ...services.filter((s) => !siennes.some((a) => a.appKey === s.appKey))];
   const res = await Promise.allSettled(apps.map((a) => outilsApp(a, qui, { ...deps, db })));
   const outils = [...outilsHub];
   const injoignables: Catalogue['injoignables'] = [];

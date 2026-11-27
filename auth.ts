@@ -19,7 +19,7 @@ import { createCreateUserEvent } from '@/lib/auth/create-user-event';
 import { buildMockOauthProvider } from '@/lib/auth/mock-oauth-provider';
 import { buildGoogleOneTapProvider } from '@/lib/auth/google-one-tap-provider';
 import { horsDeSaBorne } from '@/lib/federation/borne';
-import { federationExpiree, glisser, joursValables } from '@/lib/federation/duree';
+import { federationExpiree, glisser, joursValables, preuvesVivantes } from '@/lib/federation/duree';
 import { consommerTicket, FOURNISSEUR_FEDERATION } from '@/lib/federation/ticket';
 import { createOauthEventLogger } from '@/lib/auth/oauth-event-log';
 import { empruntRetire, impersonationExpiree } from '@/lib/auth/emprunt-bornes';
@@ -76,7 +76,7 @@ const OAUTH_FAILURE_ERROR_NAMES = new Set([
   'AccessDenied',
 ]);
 
-export const { auth, handlers, signIn, signOut } = NextAuth({
+export const { auth, handlers, signIn, signOut, unstable_update } = NextAuth({
   ...authConfig,
   adapter: PrismaAdapter(prisma),
   // Logger structuré (JSON sur stderr) pour les erreurs Auth.js.
@@ -195,7 +195,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
     // Callback signIn extrait dans lib/auth/sign-in-callback.ts pour le tester
     // unitairement. Gère MFA + retour boolean/string (path) selon spec Auth.js v5.
     signIn: createSignInCallback({ prisma, issueAndSendMfaCode, applyProviderEmailProof }),
-    async jwt({ token, user, account }) {
+    async jwt({ token, user, account, trigger, session }) {
       if (user) {
         if (account?.provider === FOURNISSEUR_FEDERATION) {
           token.federe = true;
@@ -218,6 +218,16 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
       if (typeof token.uid === 'string' && (await isSessionRevoked(prisma, token))) {
         return null;
       }
+      // Passée par le fournisseur d'une organisation (lib/federation/prouver.ts). Le navigateur peut écrire ici ce qu'il veut : seul un ticket du Hub, émis pour
+      // cette personne et usé une fois, vaut. Jamais une session d'emprunt ni fédérée.
+      if (trigger === 'update' && token.impersonated !== true && token.federe !== true) {
+        const t = await consommerTicket(prisma, (session as { preuve?: unknown } | null)?.preuve).catch(() => null);
+        const i = t && t.userId === token.uid ? await prisma.tenantIdp.findUnique({ where: { tenantId: t.tenantId }, select: { id: true, actif: true, sessionJours: true } }) : null;
+        if (t && i?.actif) {
+          const s = Math.floor(Date.now() / 1000);
+          token.preuves = preuvesVivantes({ ...(token.preuves ?? {}), [t.tenantId]: { le: s, vu: s, i: i.id, j: joursValables(i.sessionJours) ?? undefined } });
+        }
+      }
       // Les claims `impersonated` / `impersonatedBy` sont posés directement
       // dans le JWT par /api/auth/impersonate-callback (encode @auth/core).
       // Ils ne transitent jamais par l'objet `user` — on les laisse vivre
@@ -235,6 +245,7 @@ export const { auth, handlers, signIn, signOut } = NextAuth({
         session.user.federe = true;
         session.user.federeOrg = typeof token.federeOrg === 'string' ? token.federeOrg : undefined;
       }
+      if (session.user && token?.impersonated !== true) session.user.preuves = preuvesVivantes(token?.preuves);
       // Expose le marqueur d'impersonation côté session pour que les Server
       // Components / routes admin puissent (a) afficher une bannière et
       // (b) refuser la ré-impersonation via isImpersonatedSession().

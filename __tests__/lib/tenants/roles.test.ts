@@ -1,9 +1,10 @@
 // @vitest-environment node
 /** Rôle porté par le Hub : fermé par défaut, jamais une promotion par erreur, et « appliqué » veut dire relu. */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { cacheOutils } from '@/lib/mcp/cache';
 import { APPS_A_ROLE, organisationsPourRebond, pousserRole, roleOrg, rolePorteOuvert } from '@/lib/tenants/roles';
+import { exigeV1, exigeV2 } from '../hmac/aide-v2';
 
 const CREE = new Date('2026-01-01');
 const ENTRE = new Date('2026-02-01');
@@ -121,5 +122,30 @@ describe('pousserRole', () => {
     for (const relu of [500, { hub_tenant_id: 'B', hub_role: 'admin', workspace_id: 'w' }, { hub_tenant_id: 'Z', hub_role: 'admin', native_admin: true, workspace_id: 'w' }]) {
       expect((await pousser(crm(() => Response.json({ applied: true }), relu))).etat).toBe('echec');
     }
+  });
+});
+
+describe('pousserRole, version de signature', () => {
+  afterEach(() => vi.unstubAllEnvs());
+  const pousserVu = async () => {
+    const vus: { url: string; methode: string; corps: string; h: Record<string, string> }[] = [];
+    const f = (async (url: string, i: RequestInit = {}) => {
+      vus.push({ url, methode: i.method ?? 'GET', corps: String(i.body ?? ''), h: i.headers as Record<string, string> });
+      if ((i.method ?? 'GET') === 'GET') return Response.json({ found: true, workspaces: [{ workspace_id: 'w', hub_tenant_id: 'B', hub_role: 'admin', native_admin: true }] });
+      return Response.json({ applied: true, native_role: 'Admin' });
+    }) as unknown as typeof fetch;
+    await pousserRole(db, { tenantId: 'B', hubUserId: 'u' }, { env: TOUS, fetchImpl: f });
+    return vus;
+  };
+  it('HMAC_V2_APPS=crm : le POST du rôle et la relecture partent en v2, liés à leur méthode et à leur chemin', async () => {
+    vi.stubEnv('HMAC_V2_APPS', 'crm');
+    const vus = await pousserVu();
+    expect(vus.some((v) => v.methode === 'POST' && v.url === 'https://crm.test/api/hub/members/role')).toBe(true);
+    for (const v of vus) exigeV2(v.h, 's', v.methode, v.url, v.corps);
+  });
+  it('variable absente : v1', async () => {
+    const vus = await pousserVu();
+    expect(vus.length).toBeGreaterThan(0);
+    for (const v of vus) exigeV1(v.h, 's', v.corps);
   });
 });

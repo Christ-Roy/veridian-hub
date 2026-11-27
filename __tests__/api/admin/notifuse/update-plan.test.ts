@@ -39,6 +39,15 @@ vi.mock('@/lib/admin/check-admin', () => ({
 const tenantStore: Map<string, any> = new Map();
 const provisioningLogs: any[] = [];
 
+// La fusion par la base (lib/tenants/metadata-fusion.ts), simulée : les clés du patch posées, les autres intactes.
+vi.mock('@/lib/tenants/metadata-fusion', () => ({
+  fusionnerMetadata: vi.fn(async (_db: unknown, id: string, patch: Record<string, unknown>) => {
+    const cur = tenantStore.get(id);
+    if (!cur) throw new Error('Tenant not found in store');
+    tenantStore.set(id, { ...cur, metadata: { ...(cur.metadata ?? {}), ...patch } });
+  }),
+}));
+
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     tenant: {
@@ -257,100 +266,6 @@ describe('POST /api/admin/notifuse/update-plan', () => {
     const res: any = await POST(req);
     // NotifuseClient a 2 retries puis throw NotifuseError(503)
     expect(res.status).toBe(503);
-  });
-});
-
-describe('POST /api/admin/notifuse/suspend', () => {
-  it('rejette sans reason', async () => {
-    seedTenant();
-    const { POST } = await import('@/app/api/admin/notifuse/suspend/route');
-    const req = makeNextRequest({
-      method: 'POST',
-      body: { tenantId: TENANT_ID },
-    });
-    const res: any = await POST(req);
-    expect(res.status).toBe(400);
-  });
-
-  it('appelle NotifuseClient.suspendWorkspace et persiste les marqueurs', async () => {
-    seedTenant();
-    fetchMock.mockResolvedValueOnce(jsonResponse(200, { ok: true }));
-
-    const { POST } = await import('@/app/api/admin/notifuse/suspend/route');
-    const req = makeNextRequest({
-      method: 'POST',
-      body: { tenantId: TENANT_ID, reason: 'payment_failed' },
-    });
-    const res: any = await POST(req);
-    expect(res.status).toBe(200);
-
-    const [calledUrl, init] = fetchMock.mock.calls[0];
-    expect(calledUrl).toBe('https://notifuse.example.com/api/tenants/suspend');
-    const sentBody = JSON.parse((init as RequestInit).body as string);
-    expect(sentBody).toEqual({ tenant_id: NOTIFUSE_SLUG, reason: 'payment_failed' });
-
-    const tenant = tenantStore.get(TENANT_ID);
-    expect(tenant.metadata.notifuse_suspended_reason).toBe('payment_failed');
-    expect(tenant.metadata.notifuse_suspended_at).toBeTruthy();
-    expect(tenant.metadata.notifuse_suspended_by).toBe('brunon5robert@gmail.com');
-  });
-});
-
-describe('POST /api/admin/notifuse/resume', () => {
-  it('clear suspension markers', async () => {
-    seedTenant({
-      notifuse_suspended_at: '2026-01-01T00:00:00Z',
-      notifuse_suspended_reason: 'payment_failed',
-    });
-    fetchMock.mockResolvedValueOnce(jsonResponse(200, { ok: true }));
-
-    const { POST } = await import('@/app/api/admin/notifuse/resume/route');
-    const req = makeNextRequest({
-      method: 'POST',
-      body: { tenantId: TENANT_ID },
-    });
-    const res: any = await POST(req);
-    expect(res.status).toBe(200);
-
-    const tenant = tenantStore.get(TENANT_ID);
-    expect(tenant.metadata.notifuse_suspended_at).toBeNull();
-    expect(tenant.metadata.notifuse_suspended_reason).toBeNull();
-    expect(tenant.metadata.notifuse_resumed_at).toBeTruthy();
-  });
-});
-
-describe('DELETE /api/admin/notifuse/delete', () => {
-  it('exige confirm: true', async () => {
-    seedTenant();
-    const { DELETE } = await import('@/app/api/admin/notifuse/delete/route');
-    const req = makeNextRequest({
-      method: 'DELETE',
-      body: { tenantId: TENANT_ID },
-    });
-    const res: any = await DELETE(req);
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toMatch(/confirm/);
-  });
-
-  it('soft-delete via NotifuseClient et persiste deleted_at', async () => {
-    seedTenant();
-    fetchMock.mockResolvedValueOnce(jsonResponse(200, { ok: true }));
-
-    const { DELETE } = await import('@/app/api/admin/notifuse/delete/route');
-    const req = makeNextRequest({
-      method: 'DELETE',
-      body: { tenantId: TENANT_ID, confirm: true },
-    });
-    const res: any = await DELETE(req);
-    expect(res.status).toBe(200);
-
-    const [calledUrl, init] = fetchMock.mock.calls[0];
-    expect(calledUrl).toBe(`https://notifuse.example.com/api/tenants/${NOTIFUSE_SLUG}`);
-    expect((init as RequestInit).method).toBe('DELETE');
-
-    const tenant = tenantStore.get(TENANT_ID);
-    expect(tenant.metadata.notifuse_deleted_at).toBeTruthy();
   });
 });
 

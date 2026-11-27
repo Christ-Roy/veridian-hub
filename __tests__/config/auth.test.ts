@@ -33,7 +33,7 @@ const authSource = fs.readFileSync(
 describe('auth.ts — exports NextAuth complets', () => {
   it('destructure auth + handlers + signIn + signOut depuis NextAuth()', () => {
     expect(authSource).toMatch(
-      /export\s+const\s+\{\s*auth\s*,\s*handlers\s*,\s*signIn\s*,\s*signOut\s*\}\s*=\s*NextAuth\(/,
+      /export\s+const\s+\{\s*auth\s*,\s*handlers\s*,\s*signIn\s*,\s*signOut\s*,\s*unstable_update\s*\}\s*=\s*NextAuth\(/,
     );
   });
 });

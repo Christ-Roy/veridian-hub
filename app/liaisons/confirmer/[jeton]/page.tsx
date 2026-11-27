@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
+import { fermeeIci } from '@/lib/federation/session';
 import { lireDemande } from '@/lib/delegation/interrupteur';
 import { prisma } from '@/lib/prisma';
 
@@ -30,6 +31,7 @@ export default async function Confirmer({ params }: { params: Promise<{ jeton: s
   const user = await getCurrentUser();
   if (!user && jeton !== 'refus') redirect(`/login?callbackUrl=${encodeURIComponent(`/liaisons/confirmer/${jeton}`)}`);
   const d = user && jeton !== 'refus' ? await lireDemande(prisma, jeton, userUuid(user)) : null;
+  if (d && user && (await fermeeIci(userUuid(user), d.tenantId))) redirect('/auth/organisation');
   if (!d) return <Cadre titre="Demande introuvable"><CardDescription>Elle a expiré, a déjà servi, ou seul le propriétaire de l&apos;espace peut la confirmer. Redemandez-la.</CardDescription></Cadre>;
   return (
     <Cadre titre="Allumer une liaison entre vos apps">

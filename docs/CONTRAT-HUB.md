@@ -320,8 +320,8 @@ pour le stade actuel. Trigger de réévaluation : 10+ clients payants.
                     │  - DB hub_app.users         │
                     │  - DB hub_app.subscriptions │
                     └────┬────────────────────┬───┘
-                         │ 2. provision       │ 4. generateMagicLink
-                         │    (HMAC)          │    (Bearer api_key)
+                         │ 2. provision       │ 4. rebond signé
+                         │    (HMAC)          │    (/api/auth/bounce)
                          │ 3. update-plan     │
                          │    (HMAC)          │
                          │ 6. webhook events  │
@@ -535,7 +535,8 @@ au Hub**. Les tables `users` locales restent, comme des copies alimentées par l
 - **Suppression d'un compte** (`hub delete-tenant`, `lib/apps/deprovision.ts`) : avant de retirer le compte, le Hub
   retire ses espaces dans les apps. Prospection : soft-delete §5.8.1, purge à 90 jours (immédiate pour un compte de
   test). Notifuse : `DELETE /api/tenants/<slug>`, que Notifuse traite en soft-delete. Twenty : `DELETE
-  /api/tenants/<tenant Hub>`. Rybbit : le signal « supprimé » coupe l'accès, sites et rapports gardés. Un échec
+  /api/tenants/<tenant Hub>`. Rybbit (27/11) : `DELETE /api/tenants/<tenant Hub>` ; `purge` si tous les membres sont des
+  comptes de test, sinon `conserve` (accès coupé, organisation suspendue, sites et rapports gardés, fils Mon IA supprimés). Un échec
   d'app ne bloque pas la suppression au Hub, il est rendu dans `apps` et `hub reconcile` le voit. Test :
   `__tests__/lib/apps/deprovision.test.ts`.
 - **Exception opérateur** : l'accès de secours du §1.4, jamais pour un client.
@@ -602,11 +603,11 @@ Noms uniques pour toutes les apps : pas de route équivalente sous un autre chem
    → Hub appelle POST notifuse/api/tenants/provision (HMAC)
    → Notifuse crée workspace + user owner + api_key
    → Hub stocke api_key + workspace_id dans hub_app.tenants
-   → Front ouvre l'auto_login_url dans nouvel onglet (TTL 60s)
+   → Front ouvre `open_url` (`/login?next=`, le rebond signé) dans un nouvel onglet
 
 4. User a un workspace Notifuse fonctionnel, trial 15j, plan "free".
    Ses prochains clics "Open Notifuse" depuis le Hub passent par
-   POST notifuse/api/workspaces.generateMagicLink (Bearer api_key).
+   le rebond signé du Hub (`lienApp('notifuse')`, §5.6), qui exige une session à adresse prouvée.
 ```
 
 ### 4.2 Endpoints Hub côté user
@@ -744,9 +745,16 @@ versionné `/api/v1/tenants/*` à partir du jour où on bumpe v2).
 | 4 | `POST /api/tenants/suspend` | HMAC Hub | Stripe webhook → past_due/canceled | ✅ |
 | 5 | `POST /api/tenants/resume` | HMAC Hub | Stripe webhook → resumed | ✅ |
 | 6 | `GET /api/tenants/{id}/health` | HMAC Hub | Cron Hub 1×/h ou check manuel | ✅ |
-| 7 | `POST /api/workspaces.generateMagicLink` | Bearer api_key | User click "Open <App>" | ✅ |
+| 7 | (supprimé) `POST /api/workspaces.generateMagicLink` | Bearer api_key | Remplacé par le rebond signé (§5.6) | n/a |
 | 8 | `DELETE /api/tenants/{id}` | HMAC Hub | `hub delete-tenant` (suppression d'un compte au Hub) | ✅ Notifuse (soft-delete), Twenty ; Prospection passe par le soft-delete §5.8.1 |
 | 9 | `POST /api/sso/issue-magic-link` | HMAC Hub | Bounce OAuth depuis Hub (cf. §6bis.8.3) | ✅ |
+
+**Analytics, provisionnement dès l'ouverture (26/11, parente, défaut remonté par Analytics)** : `POST /api/tenants/provision`, signé
+§6.1.1, corps `{ hub_user_id, email, name, hub_tenant_id, organization_name }`. L'app crée (ou retrouve) la personne PAR son `hub_user_id`
+(jamais par l'adresse ; adresse déjà prise par un autre compte : `409 email_conflict`) et l'organisation dont elle est propriétaire,
+reliée à `hub_tenant_id` (même règle que `link-hub` : jamais écrasé) ; idempotent ; `200 { organization_id }`. Aucun site n'est exigé :
+le client entre dans une organisation vide. Le Hub l'appelle depuis `ouvrir` et `app-access` (adresse prouvée seulement,
+`lib/analytics/provision.ts`) et note `metadata.analytics.workspace_id`. Route absente (404 sans JSON) : « attente » nommée, rien d'inventé.
 
 ### 5.1 `POST /api/tenants/provision`
 
@@ -782,8 +790,7 @@ versionné `/api/v1/tenants/*` à partir du jour où on bumpe v2).
   "api_key_email": "string (email technique de l'api_key)",
   "plan": "string (echo)",
   "created": true,
-  "magic_link": "string (URL signin one-shot, TTL ~15min)",
-  "auto_login_url": "string (URL self-contained, TTL ~60s)"
+  "magic_link": "string (ancien champ de Notifuse, ignoré par le Hub : l'ouverture passe par le rebond, §5.6)"
 }
 ```
 
@@ -906,26 +913,17 @@ Annule l'effet de `suspend`. Idempotent.
 Le Hub appelle cet endpoint en cron horaire pour les tenants actifs et stocke
 le résultat (table `hub_app.tenant_health_check` à créer côté Hub, roadmap P2).
 
-### 5.6 `POST /api/workspaces.generateMagicLink`
+### 5.6 Ouverture de Mail par le rebond signé
 
-**Auth** : `Authorization: Bearer <tenant_api_key>` (pas HMAC).
+Le Hub n'appelle plus `POST /api/workspaces.generateMagicLink` et ne lit plus `auto_login_url` (réponse de
+provision comprise) : un test de contrat (`__tests__/contrat/mail-par-rebond.test.ts`) échoue si l'un des deux
+réapparaît dans `app/`, `lib/`, `components/` ou `utils/`.
 
-**Request** : `{ "user_email": "string" }`
-
-**Response 200** :
-```json
-{
-  "magic_link": "string (URL signin one-shot, TTL ~15min)",
-  "auto_login_url": "string (URL self-contained, TTL ~60s)",
-  "expires_at": "ISO8601"
-}
-```
-
-**Response 404** : user pas membre du workspace.
-**Response 409** : api_key attachée à plusieurs workspaces (ambigu).
-
-L'`api_key` **doit être scoped à un seul workspace** côté app. Si l'app détecte
-qu'une api_key est partagée entre workspaces → 409 systématique.
+Le bouton « Ouvrir Mail » appelle `POST /api/admin/notifuse/magic-link` `{ tenantId }` (session à adresse prouvée,
+propriétaire ou admin plateforme, workspace rattaché) et reçoit `{ url }` : `lienApp('notifuse')`, soit
+`/login?next=<NOTIFUSE_API_URL>/console/`. Le navigateur passe par `/api/auth/bounce/prepare` puis `complete`, où
+`issueMagicLinkForApp('notifuse', …)` émet le lien à usage unique, jamais le Hub lui-même. `POST /api/tenants/start`
+rend de même `notifuse.open_url`. Aucun jeton n'est gardé ni rendu par le Hub.
 
 ### 5.7 Cycle de vie tenant (machine à états)
 
@@ -1056,8 +1054,7 @@ Tous obligatoires en v1.1. Tous sous HMAC Hub (§6.1). Remplacent le `DELETE
   dégradé §5.9 (obfuscation serveur des champs sensibles).
 - **Toutes les routes API en écriture** doivent retourner `402 Payment Required`
   avec le body standard §5.10 (`{ error: "tenant_soft_deleted", upgrade_url: "<hub_pricing_url>" }`).
-- L'`api_key` reste **valide pour le Hub** (`generateMagicLink` continue de
-  fonctionner — c'est ce qui permet à l'user de revenir voir son paywall).
+- Le rebond signé continue de fonctionner : c'est ce qui permet à l'user de revenir voir son paywall.
 - Le user qui consomme un magic link reçoit une session JWT normale, mais
   toutes ses requêtes sont en mode dégradé.
 
@@ -1805,7 +1802,9 @@ et `hub suspension` passent par lui.
   les liens de site, dits dans `avis`, jamais coupés. Hors modules d'organisation : rien à décocher. Cas 38, en prod (25/11) : session, clé personnelle (REST, MCP), porte IA et lien non
   consommé refusés dès la réponse, 65 s, témoin intact ; suspendue, tout se ferme et les visites envoyées pendant sont comptées après la reprise.
 - **Qui ne sait pas** (25/11) : `attach-owner`, Academy. Une app sans route ne se dit « absente » que si aucune des personnes visées n'y a de compte.
-- **Clés API d'un retiré** : jamais coupées (des automatisations en vivent), toujours DITES. `remove-member` rend
+- **Clés API d'un retiré** : coupées seulement là où l'app le fait elle-même (Academy, depuis 8a026b3 le 26/11 : les clés `acad_` créées par la
+  personne sont révoquées, celles d'un propriétaire restent ; `remove-member` rend `revoked_api_keys`, que l'avis du Hub dit à part).
+  Ailleurs jamais coupées (des automatisations en vivent), toujours DITES. `remove-member` rend
   `active_api_keys` (toutes les clés actives de l'espace, hors clé du Hub) et `api_keys_url` (la page où les renouveler, en https sur
   `veridian.site`) ; `avis` les cite app par app, « non comptées » si l'app se tait. État du 24/11, lu dans le code : Academy rend
   `active_api_keys_created_by_member` (clés par auteur) ; Notifuse et CRM, clés d'espace sans auteur noté, pas encore rendues ;
@@ -1863,7 +1862,11 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
   organisations marquées de test au Hub : la preuve en prod, sans aucun client (`lib/delegation/ouverture.ts`).
 - **Événements** : `notifuse>crm` (F3) se règle comme une liaison quand `DELEGATION_EVENEMENTS` l'ouvre (tous, une organisation, ou `@test`) ;
   allumer pose l'abonnement `message.received` chez Notifuse (`/api/hub/evenements/abonnement`), couper le retire. Le Hub reçoit sur
-  `POST /api/evenements/notifuse` (Standard Webhooks, dédoublonné), ne garde ni objet ni corps, et appelle `app_reponse_humaine` avec
+  `POST /api/evenements/notifuse` (Standard Webhooks, dédoublonné), ne garde ni objet ni corps. Champs de Mail (27/11) : `data.email` = le
+  CONTACT rattaché au message (choisi par `match_type`), `data.from` = l'EXPÉDITEUR réel, `data.from_name` = son nom affiché. Le Hub relaie
+  `email` = l'expéditeur (repli : le contact si `from` manque), `contact_email` = le contact quand il diffère, `nom`, `kind`, `match_type`,
+  `subject` (tronqué à 200, comme dans les lots ; relayé, jamais gardé ni journalisé au Hub)
+  (une collègue qui répond depuis une autre adresse a sa propre fiche). Il appelle `app_reponse_humaine` avec
   `sub = integration:<hub_tenant_id>`, `act.sub = app:notifuse`, `crm:tache.ecrire`, 120 s. **Reçu liaison éteinte, un événement est acquitté donc
   PERDU, c'est voulu.** Disjoncteur : 5 écritures en 10 min par contact. Jamais échangeable contre la poignée d'un utilisateur.
 - **Écran** : `/dashboard/liaisons` (adresse stable, les apps y renvoient) : état, allumer, couper, sans IA.
@@ -1884,7 +1887,7 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
 - **Réglage** : `/dashboard/organisation` (propriétaire, admin ; sans modules ni réglages d'app), `hub org regler|etat|importer`.
 - **Pré-inscription** (VER-227 S1, `lib/tenants/preinscription.ts`) : `hub org importer` PRÉ-INSCRIT une adresse sans compte ou non prouvée
   (30 jours). Aucun mail. Au premier passage avec cette adresse exacte, PROUVÉE (tableau de bord, ou rebond vers une app), la personne rejoint
-  l'organisation en `member`, et les apps cochées l'apprennent avant qu'elle y arrive. Un retrait annule ; seul un geste neuf la rouvre.
+  l'organisation avec le rôle posé, et les apps cochées l'apprennent avant qu'elle y arrive. Un retrait annule ; seul un geste neuf la rouvre.
   Jamais depuis une session d'emprunt. `hub org preinscrits|annuler`, liste à l'écran.
 - **Plusieurs adresses** (VER-227 S1b, `lib/adresses`) : une personne ajoute une adresse en prouvant, par un code reçu, qu'elle la tient. Une secondaire
   ne connecte pas, ne reçoit aucun lien : elle fait reconnaître (pré-inscription, fédération). Une adresse active n'appartient qu'à une personne, tenu
@@ -1916,6 +1919,19 @@ et admin = Admin de l'espace relié, member = rôle par défaut).
   (fournisseur, `sub`). Compte neuf : création ouverte ou adresse pré-inscrite. Compte existant prouvé : sa personne le relie, connectée, une fois. Jamais
   prouvé : première preuve, ce qui précédait tombe (M2). Retirée : ne revient pas. Session de 24 h. Une adresse privée en clair ne vaut que pour une
   organisation MARQUÉE de test, et n'y affirme que des comptes de batterie.
+- **Connexion obligatoire** (VER-261, 25/11, `lib/federation/{obligation,connexion,prouver}.ts`, cas 46) : une organisation est « libre » ou « obligatoire par son
+  fournisseur ». Obligatoire = une session qui n'y est pas passée n'ouvre AUCUNE de ses portes (écrans, rebond, porte MCP, liaisons, jetons d'IA, assistant,
+  échange entre apps) ; les autres organisations de la personne restent ouvertes. UNE question, `fermees()`, et la preuve (`session`, `jeton`, `personne`) est un
+  paramètre obligatoire d'`espacesDe` : une porte qui l'oublie ne compile pas. Sa session passe par le fournisseur et reste la sienne (`/auth/organisation`,
+  `/connexion/<alias>`) ; la preuve vit dans le jeton de session, par organisation, sur la durée réglée (30 j au plus), et ne vaut que pour CE fournisseur et un
+  lien (fournisseur, `sub`) vivant. Un jeton d'IA emporte les organisations prouvées à sa remise, et vaut tant que la personne repasse tous les 30 jours.
+  **Accès gardé** : `rattachement` (tombe au premier passage, pour de bon) ou `secours` (le dernier ne s'enlève pas). Obligatoire exige un fournisseur actif et un
+  accès de secours ; on ne coupe pas le fournisseur tant que c'est obligatoire. Au passage en obligatoire, les sessions d'app de ceux qu'elle ferme tombent.
+  **Page de connexion** : le domaine déclaré par nous (`aiguillage`) choisit la méthode, jamais l'identité ; aucun compte n'est lu (`/api/auth/methode`).
+  Écran Organisation (propriétaire règle, admin regarde), `hub org connexion <tenant> voir|obligatoire|libre|domaines|exempter|secours|lever`.
+  **Limite** : une session d'app suit la PERSONNE ; une app qui garde quelque chose de l'organisation fermée est donc refusée en entier au rebond, et une session
+  d'app ouverte régulièrement vit sa propre durée. Un fournisseur ouvert à tous (Infomaniak) ne dit pas qui appartient à l'organisation : le lien (fournisseur,
+  `sub`), posé par sa personne, le dit. La pré-inscription porte un rôle (`member`, `admin`) et `exemptee`.
 - **Organisation active** : `hub_tenant_id` facultatif dans `issue-magic-link`, choisie au Hub, revérifiée au rebond.
 - **Activité** : `POST /api/organisations/activite { hub_tenant_id, hub_user_id, prefixe, depuis }` (signé avec nonce, Academy seule) →
   `{ fait, premier, dernier, nombre }`. `prefixe` nomme l'app (`twenty.create_`), `depuis` ISO, 400 jours au plus. Compte les appels RÉUSSIS par la
@@ -2200,6 +2216,134 @@ L'admin Prospection garde le contrôle souverain sur ses rôles internes
 
 ---
 
+### 5.23 Administrateur de plateforme dans l'espace d'un client (VER-263, 26/11)
+
+Robert, 25/11 : « tout faire comme propriétaire et me faire virer par ce dernier ». Le Hub désigne ses administrateurs de plateforme par `hub_user_id`
+(`PLATFORM_ADMINS`). Chaque app qui a des rôles les pose **admin** dans l'espace de chaque client : tous les droits d'un propriétaire, sauf supprimer l'espace,
+transférer la propriété, retirer ou modifier un propriétaire. **Jamais propriétaire.**
+
+**Route de l'app** (HMAC §6.1, la même pour toutes) :
+
+```
+POST /api/hub/workspace-admins  {workspace_id, hub_user_id, action: "grant"|"revoke", actor_hub_user_id, reason, reinstate: false}
+GET  /api/hub/workspace-admins?workspace_id=X   →  {members: [{hub_user_id, role, admin_granted, admin_withdrawn}]}
+```
+
+- Jamais d'adresse, rien n'est créé : la personne doit être membre de l'espace. `actor_hub_user_id` : l'administrateur connecté, ou `cle:ADMIN_SECRET`
+  (outil `hub`). Refus : 404 `user_not_in_app` | `not_a_member` | `tenant_not_found` ; 409 `admin_withdrawn` | `is_owner`.
+- **Retrait par le client** : l'app le garde, et tout chemin de synchronisation (sync-member, poussée d'organisation, attach-member, nouveau `grant`) rend
+  409 `admin_withdrawn`. Seul `reinstate: true`, geste humain explicite, le remet ; **le Hub ne l'envoie jamais.**
+- **Côté Hub** (`lib/apps/admins-plateforme.ts`) : relire ; `grant` ; relire, « admin » ne se dit que relu. Le Hub n'ajoute personne chez une app (un seul
+  écrivain des membres, jamais de `sync-member`) : pas membre de l'espace = `pas_membre`, à faire entrer par l'organisation ou une invitation, puis rejouer. Appelé à l'ouverture d'un client (`POST /api/admin/tenants/{id}/ouvrir`,
+  donc `nouveau-client`) et par `POST /api/admin/tenants/{id}/admins-plateforme` (`hub admin-partout`). Audit `admin.tenant.admins_plateforme`.
+- **Apps** : Mail SERVI (26/11, fiche Mail 95). Prospection, Analytics, Academy, CRM : à servir sur la même route, puis ajoutées à `APPS_ADMIN`.
+
+### 5.24 Fils de l'assistant « Mon IA » rangés dans l'app (VER-203, 26/11)
+
+La fenêtre de l'assistant (`/ia/chat`, servie par le Hub et insérée dans l'app) ne garde aucun message : chaque fil vit **dans la base de
+l'app hôte** (Robert, 22/11). Le Hub lit et écrit le fil par deux routes que l'app sert. Servies : Academy. À servir : Prospection, Mail, Analytics.
+Le CRM n'en est pas (chat natif, fils rangés par lui, `/api/ia/v1`). Code Hub : `lib/ia/fils.ts`, appelé par `app/api/ia/fil` et `app/api/ia/chat`.
+
+- **Signature** : la signature du Hub (§6.1.1, v2 dès que l'app est dans `HMAC_V2_APPS` : méthode, chemin, query, empreinte du corps, usage
+  unique). L'app refuse tout appel non signé (401), et toute origine navigateur : ces routes ne sont appelées que par le Hub, serveur à serveur.
+- **`GET <APP>/api/hub/ia/fils/:session?hub_user_id=&tenant_id=`** : `200 { messages: UIMessage[] }` si le fil existe pour CE triplet
+  (session, `hub_user_id`, `tenant_id`), `404` sinon. `session` est l'identifiant de session du Hub (UUID). `tenant_id` est l'organisation du
+  Hub (jamais l'identifiant d'espace de l'app). Un fil d'une autre personne ou d'une autre organisation rend `404`, comme un fil absent (pas de `403` : on ne dit pas qu'il existe).
+- **`PUT <APP>/api/hub/ia/fils/:session`** corps `{ hub_user_id, tenant_id, messages: UIMessage[] }` : remplace le fil entier, crée s'il manque.
+  `200 {}`. Un `PUT` sur une session déjà rangée pour un autre triplet rend `409 fil_autre_auteur`, sans rien écrire.
+  Le Hub envoie le fil complet après chaque tour (`onEnd`) ; un échec n'interrompt pas la réponse, il est journalisé (`[ia][fil]`).
+- **`UIMessage`** : le format du SDK `ai` (v5, `{ id, role, parts[], metadata? }`), stocké tel quel (JSON). L'app ne l'interprète pas, sauf pour
+  l'afficher si elle le souhaite. Borne : 1 Mo par fil (`413` au-delà), 200 messages au plus (le Hub ne coupe pas, l'app refuse).
+- **Données** : le fil est une donnée de l'organisation et de la personne. Il suit leur sort (suppression de l'organisation : fils supprimés ; retrait
+  d'un membre : ses fils dans cette organisation supprimés). Jamais de clé d'IA dans un fil : le Hub ne l'y met pas, l'app n'en attend pas.
+- **Épreuve côté app** (attendue avant qu'elle soit déclarée servie) : non signé → 401 ; rejeu v2 → 401 ; fil d'un autre `hub_user_id` → 404 ;
+  `PUT` puis `GET` du même triplet → mêmes messages ; corps de plus de 1 Mo → 413. Côté Hub, `__tests__/lib/ia/fils.test.ts`.
+
+#### 5.24.1 Quand l'app montre la fenêtre (parente, 26/11)
+
+Une fenêtre qui refuserait chaque question ne s'affiche jamais. La fenêtre ne répond qu'avec un moteur branché au compte (sa clé, ou
+l'abonnement ouvert dans cet espace) ; le connecteur, lui, ne la fait pas répondre : il sert l'IA de la personne depuis son propre écran
+(Claude, ChatGPT…), dans toutes ses apps. Avant d'afficher le bouton ou le cadre « Mon IA », l'app demande donc l'état au Hub.
+
+- **Route** : `POST {HUB}/api/ia/etat`, corps `{ hub_user_id, tenant_id }` (organisation du Hub), signée comme `/api/organisations/lire`
+  (`X-Veridian-App`, `X-Veridian-Timestamp` en ms, `X-Veridian-Nonce` à usage unique, `X-Veridian-Hub-Signature` = HMAC-SHA256 hex du
+  secret de l'app sur `ts.nonce.corps`). POST et non GET : la signature porte sur le corps. Apps admises : Academy, Mail, Prospection,
+  Analytics (le CRM a son chat natif). Serveur à serveur seulement ; jamais en cache côté Hub (`no-store`).
+- **Réponse** : `200 { etat }`, avec `etat` ∈ `prete | sans_moteur | eteinte`. `404 espace_inconnu` : la personne n'est pas de cette
+  organisation (ou elle est supprimée). `400`, `401` (signature, nonce rejoué, horodatage), `429` (600 par minute et par app, `Retry-After`).
+- **Règle d'affichage** (chaque app) :
+  - `prete` : l'app montre « Mon IA » et insère le cadre `{HUB}/ia/chat?app=<app>&tenant=<tenant_id>`.
+  - `sans_moteur` : **jamais le cadre**. L'app montre à la place une carte « Relier mon IA » : « Votre IA travaille dans vos apps Veridian
+    depuis son propre écran (Claude, ChatGPT, Mistral…) : reliez-la une fois, sans clé. », bouton vers `{HUB}/dashboard/ia` (nouvel onglet).
+    Jamais de champ ni de mot « clé » proposé (règle de Robert du 25/11).
+  - `eteinte` : ni cadre ni carte (la personne l'a éteint pour cette app ; elle le rallume au Hub).
+  - Hub injoignable, `5xx` ou réponse illisible : ni cadre ni carte, l'app se tait (on n'affiche pas une fenêtre qui pourrait refuser).
+  - L'état peut être gardé 60 s au plus par l'app pour une même personne et organisation.
+- **Marques communes** (celles d'Analytics, 26/11 ; la batterie du Hub les lit, cas 56) : un élément `[data-mon-ia="prete"|"sans_moteur"]`
+  sur toute page connectée avec une organisation active (absent sur `/login`, en mode intégré, et pour tout autre état) ; `prete` :
+  bouton `Mon IA`, dont le clic ouvre un `role=dialog` nommé « Mon IA » et n'insère le cadre qu'à ce moment ; `sans_moteur` : bouton
+  `Relier mon IA`, dont le clic ouvre `[data-carte="relier-mon-ia"]` avec le lien `Relier mon IA` (`href="{HUB}/dashboard/ia"`,
+  `target="_blank"`), sans aucun cadre ni avant ni après le clic. Les libellés ci-dessus sont ceux de l'interface française et se
+  traduisent dans les autres langues ; les marques `data-*`, `role=dialog` et la cible du lien sont fixes (Mail, 27/11).
+- **Contenu de la carte sans moteur** (parente, 27/11, sur la reco de Mail) : l'installation en un clic, un bouton par assistant, lus
+  dans `GET {HUB}/api/mcp/liens-installation?app=<app>` (public, sans donnée personnelle, CORS ouvert, cache 5 min ; détail dans
+  `docs/CONTRAT-MCP.md`) : `assistants[]` donne `libelle`, `installation` (le lien) et `etape` (à afficher quand elle n'est pas nulle,
+  ChatGPT). Puis l'adresse MCP à copier (`url`), la commande Claude Code (`claudeCode`), et le lien vers `{HUB}/dashboard/ia`.
+  Les liens ne sont jamais recopiés en dur : l'app les lit chez le Hub (gardés 5 min au plus). Lecture impossible : la carte garde
+  le texte et le lien vers le Hub, sans boutons. La révocation et la liste des IA reliées restent au Hub (`/dashboard/ia`), jamais dans l'app.
+  La fenêtre « Brancher mon IA » de Mail se fond dans cette carte. Preuve finale par app : capture de la carte sans moteur, en français.
+- **Un seul point d'entrée IA par app** (parente, 27/11) : une seule marque `[data-mon-ia]` par page, et hors d'elle aucun lien ni cadre
+  vers `{HUB}/dashboard/ia` ou `{HUB}/ia/chat` (un bouton « Brancher mon IA » à côté est un doublon). Cas 56, épreuve `double-entree`.
+- **La fenêtre elle-même** suit la même règle (`lib/ia/etat-fenetre.ts`, une seule source) : ouverte sans moteur, elle ne montre aucune
+  saisie, seulement le renvoi « Relier mon IA » (`data-refus="sans_moteur"`) ; éteinte, le lien « Rallumer ».
+- **Épreuve côté app** (avant de dire « servi ») : un compte sans moteur voit la carte et jamais le cadre ; le même compte, une clé branchée,
+  voit le cadre qui répond ; un affichage forcé sans moteur (sabotage du test) doit faire échouer le cas. Côté Hub :
+  `__tests__/api/ia/etat.test.ts`, `__tests__/lib/ia/etat-fenetre.test.ts`.
+
+### 5.25 Activité Mail par lots vers le CRM (Mail → Hub → CRM, Robert 26/11 ; validé par Mail le 26/11)
+
+Chaque fiche CRM reçoit un dossier « Mail » : une ligne par message (envoyé, remis, ouvert, cliqué, rejeté, désinscrit, reçu), **jamais le corps**.
+Mail envoie l'activité au Hub par lots, le Hub la relaie au CRM. À servir côté Hub (route ci-dessous) ; côté Mail, outbox après la revérification DKIM.
+
+- **Route** : `POST {HUB}/api/evenements/notifuse/lot`, corps JSON, signée comme le canal d'événements existant (`/api/evenements/notifuse`) :
+  Standard Webhooks (`webhook-id`, `webhook-timestamp`, `webhook-signature`), secret **propre à l'espace**, posé par le Hub à l'abonnement
+  (`abonnerParDefaut`), `webhook-id` = `lot_id`. Un secret fuité ne touche qu'un espace ; sa rotation existe déjà.
+- **Corps** : `{ workspace_id, lot_id (UUID, rejouable), evenements: [...] }`. Le Hub retrouve l'organisation par l'abonnement de l'espace ;
+  un `hub_tenant_id` envoyé et différent rend `409 tenant_incoherent`, rien n'est traité.
+- **Un événement** : `{ event, occurred_at (RFC 3339), rfc_message_id, thread_id, recipient_email, from_email, from_name, subject, nature, list_id?,
+  automation_id?, broadcast_id?, bounce_type? (hard|soft), host? }`.
+  `event` ∈ `message.sent|delivered|opened|clicked|bounced|unsubscribed|received` ; `nature` ∈ `campaign|sequence|transactional|reply_human|reply_auto|bounce`.
+  `host` (clic seulement) : l'hôte du lien, **jamais l'URL** (ses paramètres peuvent porter des jetons). `subject` tronqué à 200 caractères.
+- **Bornes** : 200 événements et 1 Mo par lot (`413` au-delà). `occurred_at` de plus de 7 jours, ou de plus de 5 min dans le futur : événement ignoré, compté.
+- **Idempotence** : `(workspace_id, rfc_message_id, event)` ; un doublon est accepté sans effet. Le Hub relaie `rfc_message_id` sous une
+  seule forme dans les deux canaux (lot et réponse humaine) : sans chevrons, en minuscules (`normaliserRfc`), pour que le CRM ne range
+  qu'une ligne par message quel que soit l'ordre d'arrivée (Liaisons 0.7.7, 27/11). Plusieurs ouvertures ou clics d'un message ne font
+  qu'une ligne (la première) ; Mail dédoublonne aussi en amont.
+- **Réponses** : `200 { acceptes, doublons, ignores: [{ index, raison }] }`. `400` (lot illisible), `409`, `413` : refus définitif du lot entier,
+  Mail l'abandonne en le journalisant, sans rejeu. `401` : signature refusée, Mail alerte puis rejoue après resynchronisation de l'abonnement.
+  `429` et `5xx` : rejeu avec attente croissante, `Retry-After` respecté.
+- **Relais au CRM** (parente, 26/11) : seuls les destinataires qui **existent déjà** dans l'espace CRM de l'organisation reçoivent une ligne (correspondance
+  d'adresse) ; seule une réponse humaine (`nature = reply_human`) crée une personne, comme le relais actuel des réponses (VER-247). La liaison
+  `notifuse>crm` doit être allumée (sinon : accepté au Hub, rien relayé, compté).
+- **Données** : `recipient_email` ne sert qu'à retrouver la personne ; le Hub ne le journalise pas. Le canal `message.received` actuel reste
+  en parallèle jusqu'à la bascule.
+- **Outil CRM `app_evenements_mail`** (à exposer par le CRM, parente 26/11) : appelé par le Hub avec le même jeton que `app_reponse_humaine`
+  (sujet `integration:<tenant>`, `act` `app:notifuse`, portée **`crm:mail.ecrire`**, 120 s, `jti` à usage unique), en-tête `Idempotency-Key` = `lot_id`.
+  Arguments : `{ workspace_id, evenements: [{ rfc_message_id, event, occurred_at, thread_id, recipient_email, from_email, from_name, subject, nature,
+  list_id?, automation_id?, broadcast_id?, bounce_type?, host? }] }` (au plus 200, ce que le Hub a retenu du lot). Le CRM range **une ligne par
+  `rfc_message_id`** dans le dossier « Mail » de la personne dont l'adresse est `recipient_email`, à part de la synchro Gmail native ; le statut
+  avance (`sent` < `delivered` < `opened` < `clicked`, `bounced` et `unsubscribed` l'emportent), jamais ne recule. Une adresse absente de l'espace :
+  ignorée, **aucune personne créée** (une campagne ne crée jamais de fiche). Réponse : `{ ok: true, lignes: { creees, avancees, ignorees } }`.
+- **Expéditeur et contact** (27/11) : dans un lot, l'expéditeur est `from_email` et le contact `recipient_email` ; dans le canal
+  `message.received`, l'expéditeur est `data.from` et le contact `data.email`. L'identité d'une fiche créée est toujours l'expéditeur.
+  `message.sent` porte `subject` (sinon la ligne du CRM reste sans objet).
+- **Nom de l'expéditeur d'une réponse** (VER-247) : `message.received` porte `from_name` ; le Hub le passe à `app_reponse_humaine` sous `nom`
+  (nettoyé, 200 caractères, jamais une adresse), seulement s'il est présent. Côté Hub servi dès son déploiement ; côté Mail, à émettre ; côté CRM,
+  `nom` doit être accepté (argument facultatif).
+- **Épreuves** (avant de dire « servi ») : signature d'un autre espace → 401 ; même lot rejoué → 200, tout en `doublons` ; 201 événements → 413 ;
+  `hub_tenant_id` faux → 409 ; destinataire absent du CRM → ignoré, aucune personne créée ; `reply_human` → personne créée. Preuve en prod : un envoi
+  réel suivi d'une ouverture, lus dans la fiche CRM (cas de batterie).
+
 ## 6. Authentification — 3 patterns
 
 ### 6.1 Pattern A — HMAC Hub (machine-to-machine)
@@ -2226,6 +2370,29 @@ Le secret `HUB_API_SECRET` est généré au provisioning de l'app et stocké :
 
 **Rotation** : tous les 6 mois. Procédure de bascule via variable `HUB_API_SECRET_NEXT`
 acceptée en parallèle pendant 24h. Coordonné par l'agent Hub.
+
+#### 6.1.1 Signature v2 (VER-264, 26/11) : la seule à viser
+
+La v1 ci-dessus ne lie ni la méthode, ni le chemin, ni la query, et une signature se rejoue 5 min : captée sur un GET, elle vaut pour un
+DELETE d'un autre tenant ; un corps `{"reason":…}` vaut pour une autre route. **La v2 la remplace.**
+
+```
+X-Veridian-Sig-Version: 2
+X-Veridian-Timestamp: <unix_ms>
+X-Veridian-Hub-Signature: hex(hmac_sha256(secret,
+    timestamp + "\n" + MÉTHODE_EN_MAJUSCULES + "\n" + chemin_encodé + "\n" + query_brute_sans_? + "\n" + hex(sha256(corps_brut))))
+```
+
+- `chemin_encodé` et `query_brute` : exactement ce qui part sur le fil (Go : `r.URL.EscapedPath()` et `r.URL.RawQuery` ; Node :
+  `new URL(url).pathname` et `search` sans le `?`). Corps vide : `sha256("")`.
+- **Usage unique** (c'est le « nonce ») : l'app garde les signatures v2 servies sur 2 × la fenêtre de 5 min et refuse un rejeu
+  (`401 Signature already used`). Côté Hub, chaque envoi ET chaque réessai est resigné avec un timestamp neuf.
+- Vérification en temps constant, fenêtre de 5 min comme en v1.
+- **Bascule par app** : l'app accepte v1 ET v2 ; le Hub signe en v2 pour les apps de `HMAC_V2_APPS` (`lib/hmac/signature-hub.ts`, seul
+  signataire du Hub) une fois la vérification de l'app servie ET mesurée (v2 200, rejeu 401, autre query 401, v1 200) ; après une journée
+  sans appel v1 du Hub dans ses journaux, l'app refuse la v1 (Mail : `VERIDIAN_HMAC_REQUIRE_V2=true`).
+- **État au 26/11** : le Hub signe en v2 vers Mail (bd3e66dc), Academy (1e707d7, qui refuse la v1 depuis 12a92cf), Analytics (692c968)
+  Prospection (283c169) et CRM (v54), mesurées en prod (v2 200, rejeu 401, autre route 401). Toutes les apps reçoivent la v2. Référence de vérification : `notifuse-veridian/internal/http/middleware/veridian_hmac.go` (`veridianHubMACv2`).
 
 ### 6.2 Pattern B — Bearer api_key tenant (Hub user-to-app)
 

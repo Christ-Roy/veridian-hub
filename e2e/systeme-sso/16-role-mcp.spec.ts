@@ -130,7 +130,7 @@ cas('twenty', 'porte MCP : un membre à rôle restreint ne lit pas les société
     const posee: Promise<unknown> = avant ? poser(avant.acces) : admin('DELETE', 'mcp-apps?app_key=twenty').then((r) => { if (r.status >= 300) throw new Error(`HTTP ${r.status}`); });
     await posee.catch((e: Error) => ratees.push(`registre MCP du staging : ${e.message}`));
     if (attache) {
-      await lire('remove-member', appelTwenty('POST', `/api/tenants/${TENANT_CRM}/remove-member`, { email: B.email }), (st, c) => st === 200 && /"removed":\s*true/.test(c));
+      await lire('remove-member', appelTwenty('POST', `/api/tenants/${TENANT_CRM}/remove-member`, { email: B.email, hub_user_id: B.hubUserId }), (st, c) => st === 200 && /"removed":\s*true/.test(c));
       await lire('users/sync (deleted)', appelTwenty('POST', '/api/hub/users/sync', { hub_user_id: B.hubUserId, deleted: true }), (st, c) => st < 300 || (st === 404 && c.includes('user_not_in_app')));
     }
     // Le retrait ne doit laisser aucune fiche de membre sans appartenance : une seule ferme l'espace à tous les autres (23/11).

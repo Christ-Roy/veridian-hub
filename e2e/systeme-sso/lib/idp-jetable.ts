@@ -25,6 +25,9 @@ export async function ouvrirIdp(hote = '127.0.0.1', alg: 'ES256' | 'RS256' = 'ES
   let mensonge: Mensonge = null;
   let base = '';
   let appels = 0;
+  /** Réponse à un essai sans écran (prompt=none) : null = un code, comme si la personne avait déjà une session chez lui. */
+  let silence: string | null = null;
+  const prompts: string[] = [];
   const serveur = createServer((req, res) => {
     const u = new URL(req.url ?? '/', base);
     const json = (x: unknown, statut = 200) => { res.writeHead(statut, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(x)); };
@@ -37,6 +40,14 @@ export async function ouvrirIdp(hote = '127.0.0.1', alg: 'ES256' | 'RS256' = 'ES
       portee = u.searchParams.get('scope') ?? '';
       const p = (n: string) => u.searchParams.get(n) ?? '';
       if (p('client_id') !== client.id || p('code_challenge_method') !== 'S256' || !p('nonce') || !p('state')) return json({ error: 'invalid_request' }, 400);
+      prompts.push(p('prompt'));
+      if (p('prompt') === 'none' && silence) {
+        const refus = new URL(p('redirect_uri'));
+        refus.searchParams.set('error', silence);
+        refus.searchParams.set('state', p('state'));
+        res.writeHead(302, { location: refus.href });
+        return res.end();
+      }
       const code = randomBytes(16).toString('base64url');
       codes.set(code, { nonce: p('nonce'), challenge: p('code_challenge'), redirect: p('redirect_uri'), qui });
       const retour = new URL(p('redirect_uri'));
@@ -77,6 +88,10 @@ export async function ouvrirIdp(hote = '127.0.0.1', alg: 'ES256' | 'RS256' = 'ES
     dire: (x: IdentiteDite) => { qui = x; },
     mentir: (x: Mensonge) => { mensonge = x; },
     demandes: () => appels,
+    /** Le `prompt` de chaque demande reçue, dans l'ordre. */
+    prompts: () => [...prompts],
+    /** Ce que répond un essai sans écran : une erreur OIDC (`login_required`…), ou null pour un code. */
+    silencieux: (x: string | null) => { silence = x; },
     /** La dernière portée demandée. */
     portee: () => portee,
     fermer: () => new Promise<void>((ok) => { serveur.closeAllConnections(); serveur.close(() => ok()); }),

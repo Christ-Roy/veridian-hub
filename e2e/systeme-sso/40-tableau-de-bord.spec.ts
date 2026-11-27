@@ -21,6 +21,16 @@ const capture = async (page: Page, nom: string) => {
   await page.screenshot({ path: join(CAPTURES, `${nom}.png`), fullPage: true });
 };
 
+/** Une personne entre par le menu : la page doit y avoir un lien. Déjà sur la page : on la relit. */
+const parLeMenu = async (page: Page, nom: string, chemin: string) => {
+  if (new URL(page.url()).pathname === chemin) await page.reload({ waitUntil: 'networkidle' });
+  else {
+    await page.getByRole('link', { name: nom, exact: true }).first().click();
+    await page.waitForURL((u) => u.pathname === chemin);
+    await page.waitForLoadState('networkidle');
+  }
+};
+
 cas(null, 'tableau de bord : Prospection par le rebond, l\'IA sans clé, liaisons actives par défaut, lien expiré renouvelé', async ({ browser }) => {
   if (/staging/.test(HUB_URL)) throw new NonAbouti('épreuve de prod (Prospection absente de staging)');
   const sabotage = process.env.SSO_SABOTAGE ?? '';
@@ -37,7 +47,7 @@ cas(null, 'tableau de bord : Prospection par le rebond, l\'IA sans clé, liaison
     expect((await ctx.request.post(`${HUB_URL}/api/prospection/regenerate-login`)).status(), 'l\'ancienne porte n\'existe plus').toBe(404);
 
     // L'IA sans clé : un compte sans CRM n'en voit aucune.
-    await page.goto(`${HUB_URL}/dashboard/ia`, { waitUntil: 'networkidle' });
+    await parLeMenu(page, 'Assistants IA', '/dashboard/ia');
     await capture(page, 'ia-sans-crm');
     await expect(page.getByRole('link', { name: 'Ajouter à Claude' })).toBeVisible();
     for (const a of ['Mail', 'Prospection|Atlas']) await expect(page.getByRole('list', { name: 'Apps ouvertes à votre IA' }).getByText(new RegExp(a))).toBeVisible();
@@ -48,11 +58,11 @@ cas(null, 'tableau de bord : Prospection par le rebond, l\'IA sans clé, liaison
     const T = (await lookup(P.email)).json?.tenants?.[0] as { id: string } | undefined;
     if (!T) throw new NonAbouti('compte de test sans tenant');
     noterEspaceTwenty(P.email, T.id);
-    await page.goto(`${HUB_URL}/dashboard/ia`, { waitUntil: 'networkidle' });
+    await parLeMenu(page, 'Assistants IA', '/dashboard/ia');
     await capture(page, 'ia-avec-crm');
     await expect(page.getByRole('list', { name: 'Apps ouvertes à votre IA' }).getByText('CRM')).toBeVisible();
     expect(await page.locator('#ia-cle').isVisible(), 'la clé est repliée').toBe(false);
-    await page.goto(`${HUB_URL}/dashboard/liaisons`, { waitUntil: 'networkidle' });
+    await parLeMenu(page, 'Liaisons', '/dashboard/liaisons');
     await capture(page, 'liaisons');
     await expect(page.getByText('Active par défaut').first()).toBeVisible();
 

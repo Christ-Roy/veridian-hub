@@ -23,7 +23,9 @@ const {
   academyMock,
   lierMock,
   setAppPlanMock,
+  analyticsMock,
 } = vi.hoisted(() => ({
+  analyticsMock: vi.fn(),
   academyMock: vi.fn(),
   lierMock: vi.fn(),
   setAppPlanMock: vi.fn(),
@@ -57,6 +59,7 @@ vi.mock('@/lib/admin/audit-log', () => ({
   resolveActor: () => 'token:ADMIN_SECRET',
 }));
 vi.mock('@/lib/apps/lier-hub', () => ({ lierAuHub: (...a: unknown[]) => lierMock(...a) }));
+vi.mock('@/lib/analytics/provision', () => ({ provisionnerAnalytics: (...a: unknown[]) => analyticsMock(...a) }));
 vi.mock('@/lib/plans/app-plan', async () => {
   const actual = await vi.importActual<any>('@/lib/plans/app-plan');
   return { ...actual, setAppPlan: (...a: unknown[]) => setAppPlanMock(...a) };
@@ -160,6 +163,23 @@ describe('POST /api/admin/tenants/app-access', () => {
       expect.anything(),
       expect.objectContaining({ action: 'admin.tenant.app_access', targetId: 'uuid-1' }),
     );
+  });
+
+  // 26/11 (parente) : l'activation d'Analytics crée la personne et son organisation chez Analytics, jamais pour une adresse non prouvée.
+  it('Analytics activé : provisionnement par hub_user_id si l\'adresse est prouvée, rien sinon, issue dite', async () => {
+    tenantFindFirstMock.mockResolvedValue({ id: 'T1', metadata: {} });
+    lierMock.mockResolvedValue({ linked: true, raison: 'relie' });
+    analyticsMock.mockResolvedValue({ ok: true, organizationId: 'org-5' });
+    setTenantAppEnabledMock.mockResolvedValue({ appKey: 'analytics', enabled: true });
+    findUniqueMock.mockResolvedValue({ id: 'u1', email: 'a@x.io', supabaseUserId: 'uuid-1', emailVerified: new Date(), name: 'A' });
+    const ok = await (await POST(req({ user_email: 'a@x.io', app: 'analytics', enabled: true }))).json();
+    expect(analyticsMock).toHaveBeenCalledWith(expect.anything(), { hubUserId: 'uuid-1', email: 'a@x.io', name: 'A' }, 'T1');
+    expect(ok.analytics_provision).toBe('organisation org-5');
+    analyticsMock.mockClear();
+    findUniqueMock.mockResolvedValue({ id: 'u1', email: 'a@x.io', supabaseUserId: 'uuid-1', emailVerified: null, name: 'A' });
+    const non = await (await POST(req({ user_email: 'a@x.io', app: 'analytics', enabled: true }))).json();
+    expect(analyticsMock).not.toHaveBeenCalled();
+    expect(non.analytics_provision ?? 'refus').not.toMatch(/organisation/);
   });
 
   it('200 happy path désactivation', async () => {

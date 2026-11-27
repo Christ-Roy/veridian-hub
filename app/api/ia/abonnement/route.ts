@@ -10,6 +10,7 @@ import { writeAuditLog } from '@/lib/admin/audit-log';
 import { appelerAtelier, tenantOuvertDuCompte, atelierConfigure, FOURNISSEUR_ABONNEMENT, MOTEUR_ABONNEMENT } from '@/lib/ia/atelier';
 import { contexteUtilisateur } from '@/lib/ia/contexte';
 import { refusSiCroisee } from '@/lib/ia/requete';
+import { fermeeIci, reponseFermee } from '@/lib/federation/session';
 import { prisma } from '@/lib/prisma';
 
 export const runtime = 'nodejs';
@@ -25,6 +26,7 @@ export async function POST(req: NextRequest) {
   // La connexion vit dans l'atelier de l'espace ouvert du compte (un atelier par tenant, décision A).
   const tenantId = await tenantOuvertDuCompte(prisma as never, c.hubUserId);
   if (!tenantId) return NextResponse.json({ error: 'abonnement_ferme' }, { status: 403 });
+  if (await fermeeIci(c.hubUserId, tenantId)) return reponseFermee();
   if (!atelierConfigure(tenantId)) return NextResponse.json({ error: 'atelier_indisponible' }, { status: 503 });
   const corps = (await req.json().catch(() => null)) as { action?: string; code?: unknown; id?: unknown; ok?: unknown } | null;
   const action = corps?.action as keyof typeof ACTIONS | undefined;

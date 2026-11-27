@@ -56,12 +56,6 @@ export interface ProvisionResponse {
   owner_user_id: string;
   api_key: string;
   api_key_email: string;
-  /** Fallback magic link `/console/signin?email=X&code=Y` (saisie manuelle code). */
-  magic_link: string;
-  /** Self-contained URL `/veridian/auto-login?token=<HMAC>` qui logge directement
-   * le user via localStorage (TTL 60s). C'est l'URL que le Hub utilise pour
-   * son bouton "Open Notifuse" sans saisie. */
-  auto_login_url: string;
   plan: NotifusePlan;
   created: boolean;
 }
@@ -97,23 +91,9 @@ export interface StatusResponse {
   quota_resets_at?: string;
 }
 
-export interface MagicLinkInput {
-  apiKey: string;
-  /** La personne (CONTRAT-HUB §5.19.7) ; l'adresse n'est qu'informative. */
-  hubUserId?: string;
-  userEmail: string;
-}
-
-export interface MagicLinkResponse {
-  magic_link: string;
-  /** Self-contained auto-login URL (préférée — pas de saisie de code). */
-  auto_login_url: string;
-  expires_at: string;
-}
-
 /**
  * Réparation d'un workspace existant : attache un user humain comme owner.
- * Idempotent + additif (ne retire jamais d'owner existant).
+ * Idempotent ; un autre propriétaire humain : 409 `owner_exists`, jamais de transfert depuis le Hub.
  *
  * Endpoint Notifuse : POST /api/veridian/admin/attach-owner (HMAC Hub).
  * Cf notifuse-veridian/todo/done/2026-05-17-provision-owner-attach.md.
@@ -121,6 +101,8 @@ export interface MagicLinkResponse {
 export interface AttachOwnerInput {
   tenantId: string;
   ownerEmail: string;
+  /** La personne, par son identifiant Hub (`users.supabase_user_id`), jamais par sa seule adresse (VER-255) : Mail l'exigera. */
+  hubUserId: string;
   /** "owner" par défaut côté Notifuse si omis. */
   role?: 'owner' | 'admin';
 }

@@ -11,9 +11,14 @@
  * structure du middleware lui-même.
  */
 
-import { describe, it, expect } from 'vitest';
+import { NextRequest } from 'next/server';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import fs from 'fs';
 import path from 'path';
+
+vi.mock('next-auth', () => ({ default: () => ({ auth: (h: unknown) => h }) }));
+
+import { avecCsp } from '@/middleware';
 
 // Static analysis — middleware.ts importe NextAuth qui dépend de next/server
 // (pas résolvable dans Vitest sans setup). On vérifie la forme du source.
@@ -24,8 +29,9 @@ const source = fs.readFileSync(
 );
 
 describe('middleware.ts — exports edge-safe', () => {
-  it('exporte middleware (alias auth) + config (matcher)', () => {
-    expect(source).toMatch(/export\s+const\s+\{\s*auth:\s*middleware\s*\}\s*=\s*NextAuth\(/);
+  it('exporte middleware (auth enveloppant le handler CSP) + config (matcher)', () => {
+    expect(source).toMatch(/export\s+const\s+middleware\s*=\s*auth\(avecCsp/);
+    expect(source).toMatch(/const\s+\{\s*auth\s*\}\s*=\s*NextAuth\(authConfig\)/);
     expect(source).toMatch(/export\s+const\s+config\s*=\s*\{[\s\S]*?matcher:/);
   });
 });
@@ -75,3 +81,40 @@ describe('middleware.ts — matcher exclusions', () => {
     expect(source).not.toMatch(/from\s+['"]@\/auth['"]/);
   });
 });
+
+// Fonctionnel (VER-265) : la CSP à nonce s'ajoute SANS ouvrir ce qu'Auth.js fermait. Avec un handler, Auth.js v5 n'applique plus la
+// redirection d'un `authorized()` à false : le handler la rejoue, et ces tests la gardent.
+const req = (chemin: string, user?: { id: string }) => Object.assign(new NextRequest(`https://app.veridian.site${chemin}`), { auth: user ? { user, expires: '2099-01-01' } : null }) as never;
+afterEach(() => vi.unstubAllEnvs());
+
+describe('middleware (avecCsp)', () => {
+  it('page protégée sans session : redirection vers /login avec le retour, aucune page servie', async () => {
+    const r = await avecCsp(req('/dashboard/organisation?x=1'));
+    expect([r.status, new URL(r.headers.get('location')!).pathname, new URL(r.headers.get('location')!).searchParams.get('callbackUrl')]).toEqual([307, '/login', 'https://app.veridian.site/dashboard/organisation?x=1']);
+  });
+  it('avec session : la page passe, avec une CSP Report-Only à nonce neuf, aussi transmise à Next dans la requête', async () => {
+    const a = await avecCsp(req('/dashboard', { id: 'u' }));
+    const b = await avecCsp(req('/dashboard', { id: 'u' }));
+    const csp = a.headers.get('content-security-policy-report-only')!;
+    const n = /'nonce-([^']+)'/.exec(csp)?.[1];
+    expect([a.headers.get('x-middleware-next'), a.headers.get('content-security-policy'), !!n, n === /'nonce-([^']+)'/.exec(b.headers.get('content-security-policy-report-only')!)?.[1]]).toEqual(['1', null, true, false]);
+    expect(a.headers.get('x-middleware-request-content-security-policy-report-only')).toBe(csp);
+    expect(csp).toMatch(/script-src 'self' 'nonce-[^']+' 'strict-dynamic'(;|$)/);
+    expect(csp).not.toMatch(/script-src[^;]*'unsafe-inline'/);
+  });
+  it('CSP_MODE=appliquer : en-tête bloquant ; page publique sans session : servie avec la CSP', async () => {
+    vi.stubEnv('CSP_MODE', 'appliquer');
+    const r = await avecCsp(req('/login'));
+    expect([r.headers.get('x-middleware-next'), !!r.headers.get('content-security-policy'), r.headers.get('content-security-policy-report-only')]).toEqual(['1', true, null]);
+  });
+});
+
+describe('middleware : frame-ancestors dans la CSP (26/11, la CSP bloquante remplaçait l\'en-tête de next.config.js)', () => {
+  it('/login : le Hub seul ; /ia/chat : les apps aussi', async () => {
+    vi.stubEnv('CSP_MODE', 'appliquer');
+    const login = (await avecCsp(req('/login'))).headers.get('content-security-policy')!;
+    const chat = (await avecCsp(req('/ia/chat', { id: 'u' }))).headers.get('content-security-policy')!;
+    expect([/frame-ancestors 'self'(;|$)/.test(login), chat.includes("frame-ancestors 'self' https://*.app.veridian.site")]).toEqual([true, true]);
+  });
+});
+

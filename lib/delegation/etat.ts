@@ -14,6 +14,7 @@ const PAR_DEFAUT: Record<string, string> = {
   'prospection>crm': 'crm:societe.ecrire crm:tache.ecrire',
   'prospection>notifuse': 'notifuse:contacts.ecrire',
   'notifuse>crm': 'crm:tache.ecrire',
+  'notifuse>crm#activite': 'crm:mail.ecrire',
   'crm>notifuse': 'notifuse:contacts.ecrire notifuse:contacts.lire',
   'crm>prospection': 'prospection:entreprise.lire',
 };

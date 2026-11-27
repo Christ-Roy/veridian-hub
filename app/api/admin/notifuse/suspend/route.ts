@@ -8,6 +8,7 @@ import {
   resolveNotifuseTenant,
 } from '@/lib/notifuse/admin-helpers';
 import { prisma } from '@/lib/prisma';
+import { fusionnerMetadata } from '@/lib/tenants/metadata-fusion';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -69,16 +70,11 @@ export async function POST(request: NextRequest) {
   const suspendedBy = session?.user?.email ?? 'admin-secret';
   const suspendedAt = new Date().toISOString();
 
-  await prisma.tenant.update({
-    where: { id: resolved.hubTenantId },
-    data: {
-      metadata: {
-        ...resolved.metadata,
-        notifuse_suspended_at: suspendedAt,
-        notifuse_suspended_reason: reason,
-        notifuse_suspended_by: suspendedBy,
-      } as object,
-    },
+  // Les seules clés de ce geste, fusionnées par la base : jamais le JSON entier relu avant (26/11, lib/tenants/metadata-fusion.ts).
+  await fusionnerMetadata(prisma, resolved.hubTenantId, {
+    notifuse_suspended_at: suspendedAt,
+    notifuse_suspended_reason: reason,
+    notifuse_suspended_by: suspendedBy,
   });
 
   try {

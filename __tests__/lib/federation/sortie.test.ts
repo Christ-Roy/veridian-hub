@@ -29,5 +29,5 @@ describe('resoudrePublique', () => {
 
 it('fetchGarde : en clair, ou vers nos réseaux, rien ne part', async () => {
   m.liste = [{ address: '10.0.0.1', family: 4 }];
-  for (const u of ['http://idp.client.test/', 'https://10.0.0.1/', 'https://idp.client.test/']) await expect(fetchGarde(u)).rejects.toThrow('adresse_privee');
+  for (const u of ['http://idp.client.test/', 'https://10.0.0.1/', 'https://0x0a000001/', 'https://[::1]:9/', 'https://[fd00::1]:9/', 'https://[::ffff:10.0.0.1]:9/', 'https://idp.client.test/']) await expect(fetchGarde(u)).rejects.toThrow('adresse_privee');
 });

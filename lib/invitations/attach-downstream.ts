@@ -48,9 +48,8 @@
  * sans la couche d'abstraction objet — un seul call point.
  */
 
-import { createHmac } from 'node:crypto';
-
 import { type SupportedApp } from './hmac';
+import { entetesSignature } from '@/lib/hmac/signature-hub';
 
 /**
  * Résout le secret HMAC pour signer un appel Hub → app downstream.
@@ -245,19 +244,13 @@ export async function attachMemberDownstream(
   };
   const rawBody = JSON.stringify(bodyObj);
 
-  const timestamp = Date.now().toString();
-  const signature = createHmac('sha256', secret)
-    .update(`${timestamp}.${rawBody}`)
-    .digest('hex');
-
-  const headers: Record<string, string> = {
+  // Signature refaite à CHAQUE tentative : la v2 est à usage unique côté serveur (`lib/hmac/signature-hub.ts`).
+  // Convention des apps (Notifuse `veridian_hmac.go`, Prospection `src/lib/hub/hmac.ts`) : X-Veridian-Timestamp + X-Veridian-Hub-Signature.
+  const entetes = (): Record<string, string> => ({
     'Content-Type': 'application/json',
     'x-veridian-app': 'hub',
-    // Convention unanime apps (Notifuse Go middleware veridian_hmac.go,
-    // Prospection src/lib/hub/hmac.ts) : X-Veridian-Timestamp + X-Veridian-Hub-Signature.
-    'X-Veridian-Timestamp': timestamp,
-    'X-Veridian-Hub-Signature': signature,
-  };
+    ...entetesSignature({ secret, methode: 'POST', url, corps: rawBody, app: input.targetApp }),
+  });
 
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxRetries = input.maxRetries ?? DEFAULT_MAX_RETRIES;
@@ -272,7 +265,7 @@ export async function attachMemberDownstream(
     try {
       const res = await fetchImpl(url, {
         method: 'POST',
-        headers,
+        headers: entetes(),
         body: rawBody,
         signal: controller.signal,
       });

@@ -85,16 +85,18 @@ cas(null, 'adresse principale : promue si elle est prouvée, la même personne p
     [A.email, A2, A3].forEach(noterRybbit);
     rybbitCompte('creer', A.email);
     rybbitCompte('lier', A.email, A.hubUserId ?? undefined);
-    /** Le bouton « ouvrir Mail » : le lien direct (generateMagicLink), et qui s'y retrouve vraiment. */
+    /** Le bouton « ouvrir Mail » : le rebond signé du Hub (/login?next=), et qui s'y retrouve vraiment. */
     const ouvrirMail = async (etat: unknown) => {
-      const tenant = (await avec(etat, (ctx) => ctx.request.post(`${HUB_URL}/api/admin/notifuse/magic-link`, { data: { tenantId: A.tenantId } }).then(async (r) => ({ statut: r.status(), ...((await r.json().catch(() => ({}))) as { autoLoginUrl?: string; source?: string }) }))));
-      if (!tenant.autoLoginUrl) return { statut: tenant.statut, source: null, id: null, email: null };
-      return avec(null, async (ctx) => {
+      return avec(etat, async (ctx) => {
+        const r = await ctx.request.post(`${HUB_URL}/api/admin/notifuse/magic-link`, { data: { tenantId: A.tenantId } });
+        const statut = r.status();
+        const { url } = (await r.json().catch(() => ({}))) as { url?: string };
+        if (!url) return { statut, source: null, id: null, email: null };
         const page = await ctx.newPage();
-        await page.goto(tenant.autoLoginUrl!, { waitUntil: 'networkidle' });
+        await page.goto(new URL(url, HUB_URL).toString(), { waitUntil: 'networkidle' });
         await page.waitForFunction(() => Boolean(localStorage.getItem('auth_token')));
         const moi = await page.evaluate(async () => (await (await fetch('/api/user.me', { headers: { Authorization: `Bearer ${localStorage.getItem('auth_token')}` } })).json()) as { user?: { id?: string; email?: string } });
-        return { statut: tenant.statut, source: tenant.source ?? null, id: moi.user?.id ?? null, email: moi.user?.email?.toLowerCase() ?? null };
+        return { statut, source: 'rebond', id: moi.user?.id ?? null, email: moi.user?.email?.toLowerCase() ?? null };
       });
     };
     const dansCrm = (etat: unknown) => avec(etat, async (ctx) => {
@@ -129,10 +131,18 @@ cas(null, 'adresse principale : promue si elle est prouvée, la même personne p
     expect((await refus(B.etat, A2))[0], 'un autre ne promeut pas la sienne').toBe(404);
 
     idp.dire({ sub: 'a-1', email: A2 });
-    const relier = (etat: unknown) => avec(etat, async (ctx) => { const page = await ctx.newPage(); await page.goto(`${HUB_URL}/connexion/${T.slug}`, { waitUntil: 'networkidle' }); return { chemin: new URL(page.url()).pathname, etat: await ctx.storageState() }; });
+    const relier = (etat: unknown) => avec(etat, async (ctx) => {
+      const page = await ctx.newPage();
+      await page.goto(`${HUB_URL}/connexion/${T.slug}`, { waitUntil: 'networkidle' });
+      const s = (await (await ctx.request.get(`${HUB_URL}/api/auth/session`)).json().catch(() => null)) as { user?: { email?: string; federe?: boolean } } | null;
+      return { chemin: new URL(page.url()).pathname, etat: await ctx.storageState(), federe: s?.user?.federe === true, email: s?.user?.email ?? null };
+    });
     expect((await relier(null)).chemin, 'adresse secondaire : pas d\'entrée sans l\'avoir relié').toBe('/auth/federation');
-    // A a aussi son espace à elle : la session du fournisseur n'ouvrirait que l'organisation, elle est refusée (VER-261). Ses gestes refusés : cas 39.
-    expect((await relier(A.etat)).chemin, 'reliée, mais elle appartient aussi ailleurs').toBe('/auth/federation');
+    // A, déjà connectée par son mot de passe et membre : depuis VER-261 (30a86c1, route /connexion), sa session RESTE la sienne et gagne
+    // l'organisation ; ce n'est pas une session fédérée, la borne de §5.19.6 ne s'y applique pas. La faille serait une session FÉDÉRÉE
+    // ouverte pour une personne qui appartient aussi ailleurs : c'est ce qui est vérifié (cas 39 : ses gestes fédérés refusés).
+    const deA = await relier(A.etat);
+    expect([deA.chemin, deA.federe, deA.email], 'reliée par sa propre session : elle reste la sienne, jamais fédérée').toEqual(['/dashboard', false, A1]);
     expect((await relier(null)).chemin).toBe('/auth/federation');
     expect(await entrer(A1, A.motDePasse), 'contrôle positif : le mot de passe n\'a pas bougé').not.toBeNull();
 

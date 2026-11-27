@@ -207,11 +207,15 @@ ROLE_PORTE=tous
 # Lecture d'activité (§5.19.6) : fermée.
 ACTIVITE_ORGANISATIONS=
 # Cibles de la délégation qui ont dit « garde servie » (lib/delegation/paires.ts) : crm-staging, 24/11.
-DELEGATION_CIBLES=crm,notifuse
+DELEGATION_CIBLES=crm,notifuse,prospection,academy
 # Le CRM agit lui-même dans Mail et Prospection (appelant en staging, 25/11).
 DELEGATION_SOURCES=crm
 # F3 (§2.3) : une réponse reçue dans Mail devient une tâche au CRM. Organisations MARQUÉES de test seulement ; garde du CRM servie en staging (25/11).
 DELEGATION_EVENEMENTS=notifuse>crm@test
+# Signature des appels du Hub vers les apps (lib/hmac/signature-hub.ts) : v2 (méthode, chemin, query, empreinte du corps, usage unique) pour
+# les apps listées, v1 ailleurs. Mail vérifie la v2 depuis bd3e66dc (mesuré le 26/11 : v2 200, rejeu 401, autre query 401). N'ajouter une app
+# qu'une fois sa vérification v2 servie et mesurée. Retour arrière : vider, puis déployer.
+HMAC_V2_APPS=notifuse
 OAUTH_TEST_PROVIDER=true
 # Administrateurs de plateforme, par hub_user_id (VER-263). L'autre ligne ne sert qu'aux rapports.
 PLATFORM_ADMINS=03edb21f-4560-4698-987b-37b5f4d230d1,e2e45000-0000-4000-8000-000000000045

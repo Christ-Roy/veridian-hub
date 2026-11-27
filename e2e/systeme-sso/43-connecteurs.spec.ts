@@ -4,12 +4,16 @@
  * (__tests__/lib/connecteurs) ; le premier service réel est un geste de Robert.
  * Épreuve : `SSO_SABOTAGE=connecteurs-fermes` cherche l'entrée au menu : le cas doit échouer.
  */
+import { mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { expect } from '@playwright/test';
 
 import { HUB_URL } from './lib/cibles';
 import { cas } from './lib/etat';
 import { obtenirJetonMcp, outil } from './lib/mcp';
 import { creerCompteProuve, type Compte } from './lib/parcours';
+import { RUN_DIR } from './lib/versions';
 
 cas(null, 'connexions : fermées, aucun départ vers un service extérieur', async ({ browser }) => {
   const A: Compte = await creerCompteProuve(browser, 'connect', undefined, true);
@@ -22,11 +26,19 @@ cas(null, 'connexions : fermées, aucun départ vers un service extérieur', asy
     expect(await page.getByRole('link', { name: 'Connexions', exact: true }).count(), 'au menu').toBe(process.env.SSO_SABOTAGE === 'connecteurs-fermes' ? 1 : 0);
     await page.goto(`${HUB_URL}/dashboard/connexions`, { waitUntil: 'networkidle' });
     await page.getByText('pas encore ouverte').first().waitFor();
+    mkdirSync(join(RUN_DIR, 'captures'), { recursive: true });
+    await page.screenshot({ path: join(RUN_DIR, 'captures', 'connexions-fermees.png'), fullPage: true });
     expect(await page.getByRole('button', { name: /Brancher/ }).count()).toBe(0);
     for (const c of ['notion', 'linear', 'webflow', 'sentry']) {
       const r = await ctx.request.post(`${HUB_URL}/api/connecteurs`, { headers: { origin: new URL(HUB_URL).origin }, form: { connecteur: c, geste: 'brancher' }, maxRedirects: 0 });
       expect(r.headers().location, `${c} forcé sans l'écran`).toContain('avis=ferme');
     }
+    // Ni l'écriture ni un remplacement ne s'ouvrent ; éteindre et garder, qui retirent un accès, répondent.
+    const geste = async (g: string) => (await ctx.request.post(`${HUB_URL}/api/connecteurs`, { headers: { origin: new URL(HUB_URL).origin }, form: { connecteur: 'notion', geste: g }, maxRedirects: 0 })).headers().location;
+    expect([await geste('allumer'), await geste('remplacer')].map((l) => l?.includes('avis=ferme')), 'allumer, remplacer').toEqual([true, true]);
+    expect([await geste('eteindre'), await geste('garder')].map((l) => /avis=(absente|tranche)/.test(l ?? '')), 'éteindre, garder').toEqual([true, true]);
+    // Le retour d'un service, forgé : rien ne s'échange.
+    expect((await ctx.request.get(`${HUB_URL}/api/connecteurs/retour?code=x&state=y`, { maxRedirects: 0 })).headers().location).toContain('avis=ferme');
     // Couper n'est pas fermé : sans connexion, la route le dit, au lieu de « pas encore ouverte ».
     const coupe = await ctx.request.post(`${HUB_URL}/api/connecteurs`, { headers: { origin: new URL(HUB_URL).origin }, form: { connecteur: 'notion', geste: 'couper' }, maxRedirects: 0 });
     expect(coupe.headers().location, 'couper répond').toContain('avis=absente');

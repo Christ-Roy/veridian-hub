@@ -2,11 +2,14 @@
 
 // Assistant Veridian : la fenêtre de chat commune à toutes les apps (docs/MON-IA.md). Toute écriture
 // s'affiche ici avec son outil et ses paramètres, et ne part qu'après « Autoriser ».
+// En premier : zod doit être réglé sans eval avant que le SDK `ai` construise ses schémas (lib/zod-sans-eval.ts).
+import '@/lib/zod-sans-eval';
 import { useChat } from '@ai-sdk/react';
 import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses, type UIMessage } from 'ai';
 import { useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+
 
 type Props = { app: string; tenantId: string; sessionId: string | null };
 
@@ -42,7 +45,7 @@ function ecrireMemoire(cle: string, v: string | null) {
 
 const MESSAGES_ERREUR: Record<string, string> = {
   chat_desactive: "Vous avez éteint l'assistant pour cette app. Rallumez-le dans votre espace Veridian, rubrique Assistants IA.",
-  pas_de_branchement: "Aucune IA n'est branchée. Branchez la vôtre dans votre espace Veridian, rubrique Assistants IA.",
+  pas_de_branchement: "Aucun moteur n'est plus branché à votre compte : rechargez la fenêtre. Votre IA reliée, elle, travaille depuis son propre écran.",
   plafond: 'Trop de questions en peu de temps : réessayez dans un instant.',
   session_inconnue: 'Cette conversation ne peut pas être reprise ici.',
 };

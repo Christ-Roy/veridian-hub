@@ -494,7 +494,7 @@ model Tenant {
   prospectionLoginToken          String?      @map("prospection_login_token")
   prospectionLoginTokenUsed      Boolean?     @default(false) @map("prospection_login_token_used")
   prospectionLoginTokenCreatedAt DateTime?    @map("prospection_login_token_created_at") @db.Timestamptz(6)
-  prospectionPlan                String?      @default("freemium") @map("prospection_plan")
+  prospectionPlan                String?      @map("prospection_plan")
   prospectionConfig              Json?        @map("prospection_config")
   prospectionProvisionedAt       DateTime?    @map("prospection_provisioned_at") @db.Timestamptz(6)
   metadata                       Json?
@@ -650,6 +650,10 @@ model TenantPreinscription {
   consommeeLe DateTime? @map("consommee_le")
   annuleeLe   DateTime? @map("annulee_le")
   hubUserId   String?   @map("hub_user_id")
+  /// member | admin, posé à la jonction.
+  role        String    @default("member")
+  /// À la jonction, garde son accès habituel jusqu'à son rattachement (lib/federation/obligation.ts).
+  exemptee    Boolean   @default(false)
 
   @@unique([tenantId, email])
   @@index([email])
@@ -685,12 +689,57 @@ model TenantIdp {
   @@schema("hub_app")
 }
 
+/// Connexion d'une organisation : libre, ou obligatoire par son fournisseur (VER-261, lib/federation/obligation.ts). Survit au remplacement du fournisseur.
+model TenantConnexion {
+  tenantId    String   @id @map("tenant_id")
+  obligatoire Boolean  @default(false)
+  /// Domaines qui envoient vers le fournisseur depuis la page de connexion. Ne prouvent JAMAIS une adresse.
+  aiguillage  String[] @default([])
+  majPar      String   @map("maj_par")
+  majLe       DateTime @default(now()) @map("maj_le")
+
+  @@index([obligatoire])
+  @@map("tenant_connexions")
+  @@schema("hub_app")
+}
+
+/// Qui garde son accès habituel dans une organisation obligatoire, nommément.
+model ConnexionExemption {
+  tenantId  String    @map("tenant_id")
+  hubUserId String    @map("hub_user_id")
+  /// rattachement : tombe dès que la personne a relié son identité | secours : reste, et le dernier ne s'enlève pas
+  nature    String
+  posePar   String    @map("pose_par")
+  poseLe    DateTime  @default(now()) @map("pose_le")
+  leveLe    DateTime? @map("leve_le")
+  leveMotif String?   @map("leve_motif")
+
+  @@id([tenantId, hubUserId])
+  @@index([hubUserId])
+  @@map("connexion_exemptions")
+  @@schema("hub_app")
+}
+
+/// Dernier passage réussi d'une personne par le fournisseur de son organisation : ce qui vaut sans session (IA, liaisons entre apps).
+model ConnexionPreuve {
+  tenantId  String   @map("tenant_id")
+  hubUserId String   @map("hub_user_id")
+  idpId     String   @map("idp_id")
+  le        DateTime
+
+  @@id([tenantId, hubUserId])
+  @@map("connexion_preuves")
+  @@schema("hub_app")
+}
+
 /// Notre client OAuth chez un service extérieur, enregistré automatiquement (VER-119, lib/connecteurs).
 model ConnecteurClient {
   connecteur    String
   retour        String
   clientId      String   @map("client_id")
   secretChiffre String?  @map("secret_chiffre")
+  /// Jeton et adresse de gestion de notre inscription (RFC 7592), chiffrés : pour pouvoir l'effacer chez le service.
+  gestionChiffre String? @map("gestion_chiffre")
   creeLe        DateTime @default(now()) @map("cree_le")
 
   @@id([connecteur, retour])
@@ -710,9 +759,31 @@ model ConnexionExterne {
   etat           String    @default("active")
   creeLe         DateTime  @default(now()) @map("cree_le")
   renouveleLe    DateTime  @default(now()) @map("renouvele_le")
+  /// Allumée par la personne, pour ce service seul.
+  ecriture       Boolean   @default(false)
+  /// Nom que le service donne au compte relié, s'il en donne un.
+  compte         String?
+  /// Rebranchement en attente du choix de la personne : jetons neufs, chiffrés.
+  attenteChiffre String?   @map("attente_chiffre")
+  attenteCompte  String?   @map("attente_compte")
+  /// Un renouvellement est en cours (bail entre deux versions du Hub).
+  renouvellementLe DateTime? @map("renouvellement_le")
 
   @@unique([hubUserId, connecteur])
   @@map("connexions_externes")
+  @@schema("hub_app")
+}
+
+/// Outils annoncés par un service extérieur et non relus : relevés pour relecture, jamais servis (lib/connecteurs/outils.ts).
+model ConnecteurOutilVu {
+  connecteur String
+  empreinte  String
+  nom        String
+  definition String
+  vuLe       DateTime @default(now()) @map("vu_le")
+
+  @@id([connecteur, empreinte])
+  @@map("connecteur_outils_vus")
   @@schema("hub_app")
 }
 
@@ -1108,9 +1179,13 @@ model OauthCode {
   codeChallenge String    @map("code_challenge")
   scope         String
   resource      String
+  /// La personne autorise aussi ses services extérieurs.
+  services      Boolean   @default(false)
   expiresAt     DateTime  @map("expires_at") @db.Timestamptz(6)
   usedAt        DateTime? @map("used_at") @db.Timestamptz(6)
   createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  /// Organisations prouvées par leur fournisseur quand l'accès a été donné
+  orgs String[] @default([])
 
   @@index([expiresAt])
   @@map("oauth_codes")
@@ -1127,11 +1202,15 @@ model OauthToken {
   hubUserId  String    @map("hub_user_id")
   scope      String
   resource   String
+  /// Suit le code : ses services extérieurs sont-ils visibles de cette connexion IA.
+  services   Boolean   @default(false)
   expiresAt  DateTime  @map("expires_at") @db.Timestamptz(6)
   usedAt     DateTime? @map("used_at") @db.Timestamptz(6)
   revokedAt  DateTime? @map("revoked_at") @db.Timestamptz(6)
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   lastUsedAt DateTime? @map("last_used_at") @db.Timestamptz(6)
+  /// Organisations prouvées par leur fournisseur quand l'accès a été donné
+  orgs String[] @default([])
 
   @@index([hubUserId])
   @@index([familyId])

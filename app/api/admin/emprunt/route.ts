@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
   if (!cible) return refus(404, 'user_not_found', 'Ce compte n\'existe pas au Hub.');
   if (cible.id === s.userId) return refus(409, 'soi_meme', 'C\'est votre compte : ouvrez l\'app directement.');
   if (isPlatformAdminId(cible.supabaseUserId)) return refus(403, 'cible_admin', 'On n\'entre pas chez un administrateur de plateforme.');
-  if (tenantId && (await organisationActive(prisma, hubUserId, tenantId)) !== tenantId) return refus(409, 'organisation_indisponible', 'Cette organisation n\'est pas, ou plus, la sienne, ou elle est suspendue.');
+  if (tenantId && (await organisationActive(prisma, hubUserId, { par: 'personne' }, tenantId)) !== tenantId) return refus(409, 'organisation_indisponible', 'Cette organisation n\'est pas, ou plus, la sienne, ou elle est suspendue.');
   const vers = entreeDe(app);
   if (!vers) return refus(409, 'not_configured', 'Cette app n\'est pas branchée ici.');
   const secure = secureCookiesEnabled();
@@ -61,6 +61,6 @@ export async function POST(request: NextRequest) {
   res.cookies.set(sessionCookieName(secure), jeton, { ...commun, path: '/', maxAge: IMPERSONATION_SESSION_TTL_S });
   res.cookies.set(cookieRetour(secure), retour, { ...commun, sameSite: 'strict', path: CHEMIN_RETOUR, maxAge: IMPERSONATION_SESSION_TTL_S });
   if (tenantId) res.cookies.set(COOKIE_ACTIF, tenantId, { ...commun, path: '/', maxAge: IMPERSONATION_SESSION_TTL_S });
-  else res.cookies.delete(COOKIE_ACTIF);
+  else res.cookies.set(COOKIE_ACTIF, '', { ...commun, path: '/', maxAge: 0 });
   return res;
 }

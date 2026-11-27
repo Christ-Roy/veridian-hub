@@ -47,6 +47,7 @@ type UserRow = {
   name: string | null;
   supabaseUserId: string | null;
   accounts: Array<{ id: string; provider: string; access_token?: string | null }>;
+  emailVerified?: Date | null;
   onboarding?: { userId: string; metadata: unknown; activatedAt: Date | null; completedAt?: Date | null } | null;
 };
 
@@ -325,7 +326,7 @@ describe('onboarding service', () => {
     });
   });
 
-  it('renvoie activated si le user a déjà un compte credentials', async () => {
+  it('renvoie activated si le user a un mot de passe sur une adresse prouvée', async () => {
     const token = 'already-activated-token';
     const tokenHash = hashOnboardingToken(token);
     prisma.__tokens.set(tokenHash, {
@@ -333,6 +334,7 @@ describe('onboarding service', () => {
       token: tokenHash,
       expires: new Date(Date.now() + 60_000),
     });
+    prisma.__users.get('u_1')!.emailVerified = new Date();
     prisma.__users.get('u_1')!.accounts.push({
       id: 'acc_credentials',
       provider: 'credentials',
@@ -342,6 +344,21 @@ describe('onboarding service', () => {
       ok: false,
       code: 'activated',
     });
+  });
+
+  // Recette du 26/11 : inscrit à l'écran, adresse jamais confirmée ; `hub invite` lui rendait « lien déjà utilisé ». Le lien prouve l'adresse.
+  it('un mot de passe posé SANS preuve d\'adresse ne ferme pas le lien : il reste utilisable', async () => {
+    const token = 'inscrit-non-prouve-token';
+    const tokenHash = hashOnboardingToken(token);
+    prisma.__tokens.set(tokenHash, {
+      identifier: onboardingIdentifier('u_1'),
+      token: tokenHash,
+      expires: new Date(Date.now() + 60_000),
+    });
+    prisma.__users.get('u_1')!.emailVerified = null;
+    prisma.__users.get('u_1')!.accounts.push({ id: 'acc_credentials', provider: 'credentials' });
+
+    await expect(getOnboardingInviteByToken(prisma, token)).resolves.toMatchObject({ ok: true, userId: 'u_1' });
   });
 
   it('met à jour un compte credentials existant au lieu d’en créer un second', async () => {

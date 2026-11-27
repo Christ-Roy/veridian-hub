@@ -270,13 +270,22 @@ ACTIVITE_ORGANISATIONS=359b76d5-bab7-4773-a889-cf4cf0248869
 # Délégation entre apps (§5.23) : cibles qui ont dit « garde servie ». Vide = aucun jeton, aucune poignée.
 # Ouvert à toutes le 24/11. Depuis le 25/11 (Robert) : ACTIVE par défaut où les deux apps sont ouvertes (lib/delegation/etat.ts), se coupe d'un clic, et
 # la coupure tient. `<cible>@test` = organisations marquées de test. Refermer : vider, puis déployer.
-DELEGATION_CIBLES=crm,notifuse,prospection@test
-# Le CRM comme SOURCE (vers Mail, vers Prospection) : organisations de test seulement, jusqu'à « appelant servi » du CRM et l'épreuve commune.
-DELEGATION_SOURCES=crm@test
-# Événements entre apps (F3) : `notifuse>crm` = tous, `notifuse>crm@<tenant>` = une organisation, `@test` = marquées de test. Vide = fermé. Ouvert ne
-# veut pas dire allumé : clic du propriétaire. Seule ouverte (25/11) : celle de Robert ; le CRM sert sa garde (940b9eb,
-# Liaisons 0.5.0 chez lui), parcours vert en staging (cas 27). Ouvrir une autre organisation : le CRM d'abord.
-DELEGATION_EVENEMENTS=notifuse>crm@359b76d5-bab7-4773-a889-cf4cf0248869
+DELEGATION_CIBLES=crm,notifuse,prospection,academy@test
+# Le CRM comme SOURCE pour TOUTES les organisations depuis le 26/11 (épreuves communes 48 staging et 49 prod vertes ; Robert 25/11 : « 3 oui », apps
+# d'un même Hub connectées nativement). Séquences (envoient des mails) : jamais par défaut. Academy : organisations de test, sa réserve d'abord.
+DELEGATION_SOURCES=crm
+# Événements entre apps (F3) : `notifuse>crm` = tous, `notifuse>crm@<tenant>` = une organisation, `@test` = marquées de test. Vide = fermé. Ouvert, il
+# est allumé par défaut où Mail et le CRM sont ouverts (PAR_DEFAUT, lib/delegation/etat.ts), le propriétaire le coupe d'un clic. Seule ouverte (25/11) : celle de Robert ; le CRM sert sa garde (940b9eb,
+# Liaisons 0.5.0 chez lui), parcours vert en staging (cas 27). Ouvrir une autre organisation : le CRM d'abord. Depuis le 26/11, aussi les organisations
+# marquées de test (`@test`) : parcours Mail complet de la session Mail et recette de A à Z (cas 50) en prod, sans aucun client.
+DELEGATION_EVENEMENTS="notifuse>crm@359b76d5-bab7-4773-a889-cf4cf0248869,notifuse>crm@test,notifuse>crm#activite@test"
+# Signature des appels du Hub vers les apps (lib/hmac/signature-hub.ts) : v2 (méthode, chemin, query, empreinte du corps, usage unique) pour
+# les apps listées, v1 ailleurs. N'ajouter une app qu'une fois sa vérification v2 servie et MESURÉE en prod (outil : v2 2xx, rejeu 401, autre
+# route 401, v1 2xx). Mail (bd3e66dc) et Academy (1e707d7) mesurés le 26/11. Analytics : v2 refusée en prod le 26/11, pas encore. Retour
+# arrière : retirer l'app, puis déployer.
+HMAC_V2_APPS=notifuse,academy,analytics,prospection,crm
+# CSP (VER-265) : rapport = Report-Only (violations dans les journaux, [csp_violation]) ; appliquer = bloquante, après un parcours relu.
+CSP_MODE=appliquer
 # Adresses à qui le Hub n'écrit jamais (lib/email/send.ts) : la boîte perso de Robert pour le compte « Préprod CRM » (24/11).
 MAILS_BLOQUES_SHA256=ff9b9ff3e94543f4
 {{ with nomadVar "nomad/jobs/hub" }}

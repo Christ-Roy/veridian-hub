@@ -2,7 +2,7 @@
 type L = Record<string, any>;
 const ok = (l: L, w: L = {}): boolean => Object.entries(w).every(([k, v]) => {
   if (k === 'OR') return (v as L[]).some((x) => ok(l, x));
-  if (k === 'tenantId_app' || k === 'tenantId_paire' || k === 'tenantId_userId' || k === 'tenantId_app_hubUserId') return ok(l, v);
+  if (k === 'tenantId_app' || k === 'tenantId_paire' || k === 'tenantId_userId' || k === 'tenantId_app_hubUserId' || k === 'tenantId_hubUserId') return ok(l, v);
   if (v && typeof v === 'object' && !(v instanceof Date)) {
     if ('gt' in v) return l[k] > v.gt;
     if ('lt' in v) return l[k] < v.lt;
@@ -28,4 +28,6 @@ export function table(unique: string[] = []) {
     upsert: async ({ where, create, update }: L) => { const l = lignes.find((x) => ok(x, where)); if (l) return Object.assign(l, update); const c = { changeLe: new Date(), ...create }; lignes.push(c); return c; },
   };
 }
-export const base = () => ({ organisation: table(), userEmail: table(), delegationGrant: table(['empreinte']), delegationNonce: table(['empreinte']), integrationPaire: table(), integrationDemande: table(['empreinte']), tenant: table(), tenantMember: table(), user: table(), mcpApp: table(), tenantApp: table(), auditLog: table(), organisationAcces: table(['tenantId', 'app', 'hubUserId']) });
+/** Aucune organisation n'exige son fournisseur, sauf si un test l'écrit. */
+const connexion = () => ({ tenantConnexion: table(), connexionExemption: table(), connexionPreuve: table(), tenantIdp: table(), account: table() });
+export const base = () => ({ ...connexion(), organisation: table(), userEmail: table(), delegationGrant: table(['empreinte']), delegationNonce: table(['empreinte']), integrationPaire: table(), integrationDemande: table(['empreinte']), tenant: table(), tenantMember: table(), user: table(), mcpApp: table(), tenantApp: table(), auditLog: table(), organisationAcces: table(['tenantId', 'app', 'hubUserId']) });

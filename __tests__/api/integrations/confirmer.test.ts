@@ -2,14 +2,15 @@
 import { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const m = vi.hoisted(() => ({ auth: vi.fn(), user: vi.fn(), confirmer: vi.fn(), regler: vi.fn(), abonner: vi.fn(async (..._a: unknown[]) => 'sans_objet'), emprunt: vi.fn(), recent: vi.fn() }));
+const m = vi.hoisted(() => ({ fermee: vi.fn(() => false), auth: vi.fn(), user: vi.fn(), confirmer: vi.fn(), regler: vi.fn(), abonner: vi.fn(async (..._a: unknown[]) => 'sans_objet'), emprunt: vi.fn(), recent: vi.fn() }));
 vi.mock('@/auth', () => ({ auth: () => m.auth() }));
 vi.mock('@/lib/auth/get-user', () => ({ getCurrentUser: () => m.user(), userUuid: (u: { supabaseUserId: string }) => u.supabaseUserId }));
 vi.mock('@/lib/auth/impersonation', () => ({ isImpersonatedSession: () => m.emprunt() }));
 vi.mock('@/lib/auth/recent-auth', () => ({ isAuthRecent: (...a: unknown[]) => m.recent(...a), PREUVE_COMPTE_S: 1 }));
-vi.mock('@/lib/delegation/interrupteur', () => ({ confirmerDemande: (...a: unknown[]) => m.confirmer(...a), reglerIntegration: (...a: unknown[]) => m.regler(...a) }));
+vi.mock('@/lib/delegation/interrupteur', () => ({ lireDemande: async () => ({ tenantId: 'T' }), confirmerDemande: (...a: unknown[]) => m.confirmer(...a), reglerIntegration: (...a: unknown[]) => m.regler(...a) }));
 vi.mock('@/lib/evenements/allumage', () => ({ suivreAbonnement: (...a: unknown[]) => m.abonner(...a) }));
 vi.mock('@/lib/mail/oauth-cookies', () => ({ getHubBaseUrl: () => new URL('https://app.veridian.site') }));
+vi.mock('@/lib/federation/session', () => ({ fermeeIci: async () => m.fermee?.() ?? false, preuveIci: async () => ({ par: 'session' }), reponseFermee: () => new Response(null, { status: 403 }) }));
 vi.mock('@/lib/prisma', () => ({ prisma: {} }));
 
 import { POST } from '@/app/api/integrations/confirmer/route';

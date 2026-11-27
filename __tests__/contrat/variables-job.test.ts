@@ -77,6 +77,11 @@ const DYNAMIQUES: Record<string, string | null> = {
 };
 
 describe('variables du job de prod', () => {
+  it('une valeur qui contient # est entre guillemets : sinon Nomad la coupe au # (26/11, DELEGATION_EVENEMENTS tronquée, relais ouvert à tous)', () => {
+    const fautives = job.split('\n').filter((l) => /^[A-Z][A-Z0-9_]*=/.test(l) && l.includes('#') && !/^[A-Z][A-Z0-9_]*="[^"]*"$/.test(l)).map((l) => l.split('=')[0]);
+    expect(fautives).toEqual([]);
+  });
+
   it('toute variable dont le nom se construit à l\'exécution est rendue, ou absente avec sa raison', () => {
     const rendu = (v: string) => new RegExp(`(^|[\\s}])${v}=`, 'm').test(job.replace(/^\s*#.*$/gm, ''));
     expect(rendu('VARIABLE_INEXISTANTE')).toBe(false);

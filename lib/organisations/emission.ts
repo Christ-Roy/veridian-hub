@@ -1,9 +1,8 @@
 /** Envoie le document d'organisation à chaque app cochée, et note ce qu'elle en a fait, relu. Une app en panne n'empêche pas les autres. */
-import { createHmac } from 'node:crypto';
-
 import type { PrismaClient } from '@prisma/client';
 
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
+import { entetesSignature } from '@/lib/hmac/signature-hub';
 import { hubPublicUrl } from '@/lib/organisations/base';
 
 import { avecRecoche, noterVenus, releverAvant, RESERVEES } from './acces';
@@ -17,10 +16,10 @@ type Deps = { env?: NodeJS.ProcessEnv; fetchImpl?: typeof fetch };
 async function signer(app: Module, methode: 'GET' | 'POST', chemin: string, corps: string, deps: Deps): Promise<Response> {
   const c = resolveAppConfig(app, deps.env ?? process.env);
   if (!c) throw new Error(`${app}_not_configured`);
-  const ts = String(Date.now());
-  return (deps.fetchImpl ?? fetch)(`${c.apiUrl}${chemin}`, {
+  const cible = `${c.apiUrl}${chemin}`;
+  return (deps.fetchImpl ?? fetch)(cible, {
     method: methode,
-    headers: { 'Content-Type': 'application/json', 'X-Veridian-Timestamp': ts, 'X-Veridian-Hub-Signature': createHmac('sha256', c.hubSecret).update(`${ts}.${corps}`).digest('hex') },
+    headers: { 'Content-Type': 'application/json', ...entetesSignature({ secret: c.hubSecret, methode, url: cible, corps: methode === 'POST' ? corps : '', app }) },
     ...(methode === 'POST' ? { body: corps } : {}),
     signal: AbortSignal.timeout(DELAI_MS),
   });

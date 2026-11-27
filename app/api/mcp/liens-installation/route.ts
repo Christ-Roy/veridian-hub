@@ -5,16 +5,18 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
 import { CORS } from '@/lib/mcp/config';
-import { liensPublics } from '@/lib/mcp/liens-installation';
+import { langueDe, liensPublics } from '@/lib/mcp/liens-installation';
 import { prisma } from '@/lib/prisma';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const EN_TETES = { ...CORS, 'Cache-Control': 'public, max-age=300' };
+// La langue suit `?lang=` ou Accept-Language : le cache distingue les deux (Vary).
+const EN_TETES = { ...CORS, 'Cache-Control': 'public, max-age=300', Vary: 'Accept-Language' };
 
 export async function GET(req: NextRequest) {
-  const corps = await liensPublics(prisma, req.nextUrl.searchParams.get('app'));
+  const langue = langueDe(req.nextUrl.searchParams.get('lang'), req.headers.get('accept-language'));
+  const corps = await liensPublics(prisma, req.nextUrl.searchParams.get('app'), process.env, langue);
   return NextResponse.json(corps, { headers: EN_TETES });
 }
 

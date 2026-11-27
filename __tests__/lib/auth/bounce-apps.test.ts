@@ -18,7 +18,7 @@
  *  - support de l'env custom + fetchImpl mocké
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createHmac } from 'crypto';
 import {
   issueMagicLinkForApp,
@@ -26,6 +26,7 @@ import {
   listSupportedApps,
   BounceError,
 } from '@/lib/auth/bounce-apps';
+import { exigeV1, exigeV2 } from '../hmac/aide-v2';
 
 const TEST_SECRET = 'hub-api-secret-test-32-bytes-xxxxxxx';
 const TEST_URL = 'https://notifuse.veridian.site';
@@ -412,5 +413,25 @@ describe('organisations au rebond (§5.22)', () => {
     expect((await corpsDe('T-1')).hub_tenant_id).toBe('T-1');
     expect(await corpsDe(null)).not.toHaveProperty('hub_tenant_id');
     expect(await corpsDe()).not.toHaveProperty('hub_tenant_id');
+  });
+});
+
+describe('issueMagicLinkForApp, version de signature', () => {
+  const emettre = async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ magic_link_url: 'https://notifuse.veridian.site/auth/token?t=z' }), { status: 200 }));
+    await issueMagicLinkForApp({ app: 'notifuse', hubUserId: 'uuid-1', email: 'a@b.c' }, { env: makeEnv(), fetchImpl: fetchMock as never, nowMs: () => 1_700_000_000_000 });
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    return { url, corps: String(init.body), h: init.headers as Record<string, string> };
+  };
+  afterEach(() => vi.unstubAllEnvs());
+  it('HMAC_V2_APPS=notifuse : le rebond part en v2, lié à son chemin', async () => {
+    vi.stubEnv('HMAC_V2_APPS', 'notifuse');
+    const v = await emettre();
+    exigeV2(v.h, TEST_SECRET, 'POST', v.url, v.corps);
+    expect(v.h['X-Veridian-Timestamp']).toBe('1700000000000');
+  });
+  it('variable absente : v1', async () => {
+    const v = await emettre();
+    exigeV1(v.h, TEST_SECRET, v.corps);
   });
 });

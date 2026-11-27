@@ -3,10 +3,10 @@
  * échec se dit et n'empêche jamais de COUPER au Hub : éteinte au Hub, un événement reçu est acquitté sans effet.
  */
 import type { PrismaClient } from '@prisma/client';
-import { createHmac } from 'node:crypto';
 import { z } from 'zod';
 
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
+import { entetesSignature } from '@/lib/hmac/signature-hub';
 
 import { poserAbonnement } from './abonnement';
 
@@ -19,10 +19,10 @@ export async function suivreAbonnement(db: Db, d: { tenantId: string; paire: str
     const c = resolveAppConfig('notifuse', env);
     if (!c) return 'echec';
     const body = JSON.stringify({ hub_tenant_id: d.tenantId, actif: d.actif });
-    const ts = String(Date.now());
-    const res = await fetchImpl(`${c.apiUrl}/api/hub/evenements/abonnement`, {
+    const cible = `${c.apiUrl}/api/hub/evenements/abonnement`;
+    const res = await fetchImpl(cible, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Veridian-Timestamp': ts, 'X-Veridian-Hub-Signature': createHmac('sha256', c.hubSecret).update(`${ts}.${body}`).digest('hex') },
+      headers: { 'Content-Type': 'application/json', ...entetesSignature({ secret: c.hubSecret, methode: 'POST', url: cible, corps: body, app: 'notifuse' }) },
       body,
       signal: AbortSignal.timeout(15_000),
     });

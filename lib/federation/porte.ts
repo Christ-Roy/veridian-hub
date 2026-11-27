@@ -9,6 +9,12 @@ export const COOKIE_PAUSE = 'veridian-porte-pause';
 const UN_AN_S = 365 * 24 * 3600;
 export const PAUSE_ESSAI_S = 2 * 60;
 export const PAUSE_DECONNEXION_S = 10 * 60;
+/** Un essai sans écran déjà fait par ce navigateur : le suivant attend un clic. */
+export const COOKIE_SILENCE = 'veridian-silence';
+export const SILENCE_S = 10 * 60;
+export function retenirSilence(r: NextResponse, secure: boolean): void {
+  r.cookies.set(COOKIE_SILENCE, '1', { httpOnly: true, secure, sameSite: 'lax', path: '/', maxAge: SILENCE_S });
+}
 
 export const porteValable = (x: string | undefined): string | null => (x && /^[a-z0-9][a-z0-9-]{0,80}$/.test(x) ? x : null);
 

@@ -47,8 +47,11 @@ export async function ecrireReponseHumaine(db: Pick<PrismaClient, 'mcpApp'>, d: 
   const jeton = await signerAction({ audience: url, hubUserId: `integration:${d.tenantId}`, tenantId: d.tenantId, app: 'notifuse', scope: PORTEE_CRM, jti, ttlS: TTL_ACTION_S }, env);
   const r = d.reponse;
   // `thread_id` est exigé par le CRM : sans fil, le message fait son propre fil, plutôt que de perdre une vraie réponse.
-  // Un signal, pas une donnée : identifiants seulement. Ni objet, ni corps, ni expéditeur ; le CRM relit chez Notifuse.
-  const args = { email: r.email, workspace_id: r.workspaceId, thread_id: r.threadId ?? r.messageId, message_id: r.messageId, rfc_message_id: r.rfcMessageId, survenu_le: r.survenuLe, idempotency_key: r.evenementId, chaine: [...d.chaine, `notifuse>crm:${r.evenementId}`] };
+  // Un signal, pas une donnée : identifiants seulement, plus le nom affiché de l'expéditeur quand Mail le donne (VER-247, 26/11 : sans lui
+  // la fiche créée restait sans prénom ni nom). Ni objet, ni corps ; le CRM relit chez Notifuse.
+  // `kind` et `match_type` : déjà vérifiés ici (réponse humaine rattachée à un envoi) ; le CRM les relit pour créer la fiche d'un expéditeur
+  // absent (27/11 : « Camille Épreuve-Autre » non créée, le Hub les vérifiait sans les transmettre).
+  const args = { ...(r.nom ? { nom: r.nom } : {}), kind: 'reply_human', match_type: r.matchType, email: r.email, ...(r.contactEmail && r.contactEmail !== r.email ? { contact_email: r.contactEmail } : {}), ...(r.objet ? { subject: r.objet } : {}), workspace_id: r.workspaceId, thread_id: r.threadId ?? r.messageId, message_id: r.messageId, rfc_message_id: r.rfcMessageId, survenu_le: r.survenuLe, idempotency_key: r.evenementId, chaine: [...d.chaine, `notifuse>crm:${r.evenementId}`] };
   const res = (await new SessionApp(url, jeton, fetchImpl, { entetes: { 'Idempotency-Key': r.evenementId } }).appeler(OUTIL_CRM, args)) as { isError?: boolean } | null | undefined;
   // Le succès se lit (`ok: true`), il ne se déduit pas d'une absence d'erreur : le CRM refuse aussi en 200, `success: false` dans le texte (24/11).
   const o = res && typeof res === 'object' && !res.isError ? lire(res) : null;
@@ -56,3 +59,31 @@ export async function ecrireReponseHumaine(db: Pick<PrismaClient, 'mcpApp'>, d: 
   if (o.ignore === true) return { jti, effet: 'aucun', raison: typeof o.raison === 'string' ? o.raison.replace(/[^\w -]/g, '').slice(0, 60) : 'ignore' };
   return { jti, effet: o.rejoue === true ? 'rejoue' : 'cree' };
 }
+
+export const OUTIL_CRM_MAIL = 'app_evenements_mail';
+export const PORTEE_CRM_MAIL = 'crm:mail.ecrire';
+export type LignesMail = { creees: number; avancees: number; ignorees: number; raisons_ignorees?: Record<string, number> };
+
+/**
+ * L'activité Mail d'un lot (§5.25) vers l'outil CRM `app_evenements_mail` : même jeton d'intégration que les réponses, portée
+ * `crm:mail.ecrire` (qui n'ouvre rien d'autre). Le CRM range une ligne par message chez une personne existante, jamais ne crée.
+ */
+export async function ecrireEvenementsMail(db: Pick<PrismaClient, 'mcpApp'>, d: { tenantId: string; workspaceId: string; lotId: string; evenements: Record<string, unknown>[] }, env: NodeJS.ProcessEnv = process.env, fetchImpl: typeof fetch = fetch): Promise<{ jti: string; lignes: LignesMail }> {
+  const cible = await db.mcpApp.findUnique({ where: { appKey: CLE_MCP.crm }, select: { mcpUrl: true, enabled: true } });
+  if (!cible?.enabled) throw new Error('target_not_registered');
+  const url = adresseAction('crm', cible.mcpUrl);
+  const jti = randomUUID();
+  const jeton = await signerAction({ audience: url, hubUserId: `integration:${d.tenantId}`, tenantId: d.tenantId, app: 'notifuse', scope: PORTEE_CRM_MAIL, jti, ttlS: TTL_ACTION_S }, env);
+  const res = (await new SessionApp(url, jeton, fetchImpl, { entetes: { 'Idempotency-Key': d.lotId } }).appeler(OUTIL_CRM_MAIL, { workspace_id: d.workspaceId, evenements: d.evenements })) as { isError?: boolean } | null | undefined;
+  const o = res && typeof res === 'object' && !res.isError ? lire(res) : null;
+  if (!o || o === 'refus') throw new Error('crm_refus');
+  const l = (o.lignes ?? {}) as Partial<Record<keyof LignesMail, unknown>>;
+  const n = (x: unknown) => (typeof x === 'number' && Number.isFinite(x) && x >= 0 ? Math.floor(x) : 0);
+  // Liaisons 0.7.5 (27/11) détaille les ignorées : on n'en garde que le décompte par raison (valeurs fermées), jamais l'identifiant du message.
+  const raisons = (Array.isArray(o.ignorees) ? o.ignorees : []).reduce<Record<string, number>>((acc, x) => {
+    const r = String((x as { raison?: unknown } | null)?.raison ?? 'inconnue').replace(/[^\w-]/g, '').slice(0, 40) || 'inconnue';
+    return { ...acc, [r]: (acc[r] ?? 0) + 1 };
+  }, {});
+  return { jti, lignes: { creees: n(l.creees), avancees: n(l.avancees), ignorees: n(l.ignorees), ...(Object.keys(raisons).length ? { raisons_ignorees: raisons } : {}) } };
+}
+

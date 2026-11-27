@@ -5,15 +5,19 @@
 import type { PrismaClient } from '@prisma/client';
 
 import { ensureAcademyWorkspace } from '@/lib/academy/provision';
+import { provisionnerAnalytics } from '@/lib/analytics/provision';
 import { ensureCrmWorkspace } from '@/lib/crm/provision';
 import type { SyncApp } from '@/lib/sync/types';
+import { PAR_CLE } from '@/lib/auth/emprunt-bornes';
+import { abonnerParDefaut } from '@/lib/evenements/naissance';
+import { designerAdminsPlateforme, type Designation } from './admins-plateforme';
 import { provisionNotifuseTenant, provisionProspectionTenant } from '@/utils/tenants/provision';
 
 import { espaceMailVivant, espaceNote, presenteDans } from './presence';
 
 export type Ouverture = { app: SyncApp; etat: 'ouverte' | 'attente' | 'echec'; detail?: string };
 export type Verdict = 'complet' | 'en_partie' | 'non_abouti';
-type Deps = { fetchImpl?: typeof fetch; acteur?: string };
+type Deps = { fetchImpl?: typeof fetch; acteur?: string; auteur?: string };
 
 /** Un échec l'emporte ; puis l'attente ; puis le complet. Rien d'ouvert du tout n'est jamais « complet ». */
 export function verdict(l: readonly Ouverture[]): Verdict {
@@ -21,7 +25,7 @@ export function verdict(l: readonly Ouverture[]): Verdict {
   return l.some((x) => x.etat === 'attente') ? 'en_partie' : 'complet';
 }
 
-export async function ouvrirApps(db: PrismaClient, tenantId: string, apps: readonly SyncApp[], deps: Deps = {}): Promise<{ apps: Ouverture[]; verdict: Verdict } | null> {
+export async function ouvrirApps(db: PrismaClient, tenantId: string, apps: readonly SyncApp[], deps: Deps = {}): Promise<{ apps: Ouverture[]; verdict: Verdict; admins: Designation[] } | null> {
   const champs = { id: true, userId: true, notifuseWorkspaceSlug: true, prospectionProvisionedAt: true, metadata: true } as const;
   const lire = () => db.tenant.findFirst({ where: { id: tenantId, deletedAt: null, status: 'active' }, select: champs });
   const avant = await lire();
@@ -34,7 +38,12 @@ export async function ouvrirApps(db: PrismaClient, tenantId: string, apps: reado
     prospection: async () => { const r = await provisionProspectionTenant(u.email, hubUserId); return { ok: r.success, error: r.error }; },
     crm: async () => (u.emailVerified ? await ensureCrmWorkspace(db, qui, { actorEmail: deps.acteur }) : { ok: false, attente: 'adresse à prouver : sa première connexion' }) as never,
     academy: async () => (u.emailVerified ? await ensureAcademyWorkspace(db, qui, { actorEmail: deps.acteur }) : { ok: false, attente: 'adresse à prouver : sa première connexion' }) as never,
-    analytics: async () => ({ ok: false, attente: 'site à créer dans Analytics (skill rybbit)' }),
+    // Dès le provisionnement (parente 26/11) : Analytics crée la personne et son organisation, reliée ; route absente = attente nommée.
+    analytics: async () => {
+      if (!u.emailVerified) return { ok: false, attente: 'adresse à prouver : sa première connexion' };
+      const r = await provisionnerAnalytics(db, qui, tenantId);
+      return r.ok ? { ok: true } : { ok: false, attente: r.attente, error: r.error };
+    },
   };
   const res: Ouverture[] = [];
   // Une app après l'autre : deux créations en même temps se disputent le même tenant.
@@ -57,5 +66,13 @@ export async function ouvrirApps(db: PrismaClient, tenantId: string, apps: reado
       res.push({ app, etat: 'echec', detail: err instanceof Error ? err.message.slice(0, 160) : 'erreur' });
     }
   }
-  return { apps: res, verdict: verdict(res) };
+  // Mail ouvert : les administrateurs de plateforme y sont posés ADMIN, jamais propriétaires (§5.23). Un échec se dit, il ne défait pas l'ouverture.
+  const admins = res.some((x) => x.app === 'notifuse' && x.etat !== 'echec')
+    ? ((await designerAdminsPlateforme(db, tenantId, { fetchImpl: deps.fetchImpl, acteur: deps.auteur ?? PAR_CLE, raison: 'ouverture du client' }).catch(() => null)) ?? [])
+    : [];
+  // Mail et CRM ouverts : l'événement « Mail vers CRM » actif par défaut a besoin de son abonnement chez Mail. Rejouable (une organisation déjà
+  // abonnée ou réglée n'est pas touchée) ; ré-ouvrir rattrape une organisation née avant l'ouverture de l'événement (26/11 : ff6eaeff, réponses
+  // de Mail refusées 401 faute d'abonnement au Hub). Ne fait jamais échouer l'ouverture.
+  if (res.some((x) => x.app === 'notifuse' && x.etat !== 'echec')) await abonnerParDefaut(db, tenantId).catch(() => undefined);
+  return { apps: res, verdict: verdict(res), admins };
 }

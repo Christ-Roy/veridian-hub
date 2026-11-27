@@ -12,6 +12,7 @@ vi.mock('@/lib/notifications/telegram', () => ({ sendTelegramAlert: (...a: unkno
 
 import { verdictRetraitCrm } from '@/lib/apps/retrait-crm';
 import { pushUserToApps } from '@/lib/identity/push-user';
+import { exigeV1, exigeV2 } from '../hmac/aide-v2';
 
 const MOI = '53245ae1-6bf8-4ec6-870f-32d75b7c0281';
 const ADRESSE_CRM = 'moi-au-crm@example.org';
@@ -120,5 +121,28 @@ describe('fusible du retrait au CRM', () => {
     expect(await verdictRetraitCrm(MOI, { fetchImpl: crm([]).f })).toEqual({ propager: true, raison: 'aucun_espace' });
     vi.stubEnv('CRM_API_URL', '');
     expect(await verdictRetraitCrm(MOI, { fetchImpl: crm([]).f })).toMatchObject({ propager: false, raison: 'decouverte_impossible' });
+  });
+});
+
+describe('lecture du CRM, version de signature', () => {
+  const lire = async () => {
+    const vus: { url: string; h: Record<string, string> }[] = [];
+    const f = (async (url: string, init?: RequestInit) => {
+      vus.push({ url, h: init?.headers as Record<string, string> });
+      return Response.json({ users: [], found: false, workspaces: [] });
+    }) as unknown as typeof fetch;
+    await verdictRetraitCrm(MOI, { fetchImpl: f });
+    return vus;
+  };
+  it('HMAC_V2_APPS=crm : chaque GET part en v2, lié à son chemin et à sa query', async () => {
+    vi.stubEnv('HMAC_V2_APPS', 'crm');
+    const vus = await lire();
+    expect(vus.length).toBeGreaterThan(0);
+    for (const v of vus) exigeV2(v.h, 'secret', 'GET', v.url);
+  });
+  it('variable absente : v1 sur `${ts}.`', async () => {
+    const vus = await lire();
+    expect(vus.length).toBeGreaterThan(0);
+    for (const v of vus) exigeV1(v.h, 'secret');
   });
 });

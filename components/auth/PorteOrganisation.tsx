@@ -13,7 +13,8 @@ export function PorteOrganisation({ porte, organisation, fournisseur, auto }: { 
   const lien = `/connexion/${porte}`;
   useEffect(() => {
     if (!part) return;
-    if (reste <= 0) { window.location.assign(lien); return; }
+    // Le départ automatique essaie d'abord sans écran chez le fournisseur ; un refus revient ici avec le bouton.
+    if (reste <= 0) { window.location.assign(`${lien}?silence=1`); return; }
     const t = setTimeout(() => setReste((n) => n - 1), 1_000);
     return () => clearTimeout(t);
   }, [part, reste, lien]);

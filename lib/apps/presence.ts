@@ -2,6 +2,7 @@
  * Cette personne est-elle VRAIMENT dans l'espace de cette organisation, app par app ? Relu chez l'app, jamais déduit de ce qu'on lui a envoyé (Robert, 25/11 :
  * « ça n'ouvre pas correctement les comptes » : le Hub disait « créé », Mail n'avait personne). Une app qui ne répond pas : on ne sait pas, et on le dit.
  */
+import { idEspaceMeta } from './espace-note';
 import type { PrismaClient } from '@prisma/client';
 
 import { NotifuseClient } from '@/lib/notifuse/client';
@@ -17,8 +18,7 @@ type TenantLu = { id: string; userId: string; notifuseWorkspaceSlug: string | nu
 export function espaceNote(t: Pick<TenantLu, 'notifuseWorkspaceSlug' | 'prospectionProvisionedAt' | 'metadata'>, app: SyncApp): string | true | null {
   if (app === 'notifuse') return t.notifuseWorkspaceSlug;
   if (app === 'prospection') return t.prospectionProvisionedAt ? true : null;
-  const id = ((t.metadata ?? {}) as Record<string, { workspace_id?: unknown } | undefined>)[app]?.workspace_id;
-  return typeof id === 'string' && id ? id : null;
+  return idEspaceMeta(t.metadata, app);
 }
 
 /** Mail liste encore un espace supprimé, sans son état (mesuré le 25/11 par l'épreuve) : l'état se lit sur l'espace lui-même. Illisible : on ne sait pas. */

@@ -11,6 +11,7 @@ const m = vi.hoisted(() => ({ espaces: vi.fn(), tenants: vi.fn() }));
 vi.mock('@/lib/mcp/catalogue', () => ({ espacesDe: (...a: unknown[]) => m.espaces(...a) }));
 vi.mock('@/lib/prisma', () => ({ prisma: { tenant: { findMany: (...a: unknown[]) => m.tenants(...a) } } }));
 vi.mock('@/lib/auth/get-user', () => ({ getCurrentUser: vi.fn(), userUuid: vi.fn() }));
+vi.mock('@/lib/federation/session', () => ({ preuveIci: async () => ({ par: 'session' }) }));
 vi.mock('@/lib/auth/email-proof', () => ({ isEmailProvenForSession: vi.fn() }));
 
 import { espaceDe } from '@/lib/ia/contexte';
@@ -27,22 +28,22 @@ beforeEach(() => {
 
 describe('espaceDe', () => {
   it('par tenant : le sien, avec son workspace CRM', async () => {
-    expect(await espaceDe('u', 't-a', { app: 'crm', workspaceId: undefined })).toEqual({ id: 't-a', slug: 'a', workspaceId: WS_A });
+    expect(await espaceDe('u', 't-a', { par: 'personne' }, { app: 'crm', workspaceId: undefined })).toEqual({ id: 't-a', slug: 'a', workspaceId: WS_A });
   });
   it('par workspace Twenty : le tenant de l\'utilisateur qui le porte', async () => {
-    expect(await espaceDe('u', undefined, { app: 'crm', workspaceId: WS_A })).toMatchObject({ id: 't-a' });
+    expect(await espaceDe('u', undefined, { par: 'personne' }, { app: 'crm', workspaceId: WS_A })).toMatchObject({ id: 't-a' });
   });
   it("le workspace d'un autre client : rien", async () => {
-    expect(await espaceDe('u', undefined, { app: 'crm', workspaceId: WS_B })).toBeNull();
-    expect(await espaceDe('u', 't-b')).toBeNull();
+    expect(await espaceDe('u', undefined, { par: 'personne' }, { app: 'crm', workspaceId: WS_B })).toBeNull();
+    expect(await espaceDe('u', 't-b', { par: 'personne' })).toBeNull();
   });
   it('tenant et workspace qui ne concordent pas : rien', async () => {
     m.espaces.mockResolvedValue([{ id: 't-a' }, { id: 't-b' }]);
-    expect(await espaceDe('u', 't-a', { app: 'crm', workspaceId: WS_B })).toBeNull();
+    expect(await espaceDe('u', 't-a', { par: 'personne' }, { app: 'crm', workspaceId: WS_B })).toBeNull();
   });
   it('workspace mal formé ou sans app : rien', async () => {
-    expect(await espaceDe('u', undefined, { app: 'crm', workspaceId: "' OR 1=1" })).toBeNull();
-    expect(await espaceDe('u', undefined, { app: '', workspaceId: WS_A })).toBeNull();
-    expect(await espaceDe('u', undefined)).toBeNull();
+    expect(await espaceDe('u', undefined, { par: 'personne' }, { app: 'crm', workspaceId: "' OR 1=1" })).toBeNull();
+    expect(await espaceDe('u', undefined, { par: 'personne' }, { app: '', workspaceId: WS_A })).toBeNull();
+    expect(await espaceDe('u', undefined, { par: 'personne' })).toBeNull();
   });
 });

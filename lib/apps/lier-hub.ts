@@ -3,9 +3,8 @@
  * le `tenant_id` du JWT MCP y désigne cet espace. Lien seul : rien d'autre ne change chez l'app, et
  * un lien existant n'est jamais écrasé (docs/CONTRAT-MCP.md).
  */
-import { createHmac } from 'node:crypto';
-
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
+import { entetesSignature } from '@/lib/hmac/signature-hub';
 
 export type LienHub = { linked: boolean; raison: string };
 
@@ -17,13 +16,12 @@ export async function lierAuHub(
   const config = resolveAppConfig(app, opts.env ?? process.env);
   if (!config) return { linked: false, raison: `${app}_not_configured` };
   const body = JSON.stringify({ hub_user_id: input.hubUserId, hub_tenant_id: input.hubTenantId });
-  const ts = String(Date.now());
-  const res = await (opts.fetchImpl ?? fetch)(`${config.apiUrl}/api/tenants/link-hub`, {
+  const cible = `${config.apiUrl}/api/tenants/link-hub`;
+  const res = await (opts.fetchImpl ?? fetch)(cible, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Veridian-Timestamp': ts,
-      'X-Veridian-Hub-Signature': createHmac('sha256', config.hubSecret).update(`${ts}.${body}`).digest('hex'),
+      ...entetesSignature({ secret: config.hubSecret, methode: 'POST', url: cible, corps: body, app }),
     },
     body,
     signal: AbortSignal.timeout(20_000),

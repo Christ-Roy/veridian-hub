@@ -7,18 +7,8 @@
 
 ## Ce que c'est
 
-Le Hub gère l'inscription (Auth.js v5), le billing (Stripe), et le
-provisioning automatique des apps pour chaque nouveau tenant (Notifuse,
-Prospection). CRM (Twenty) : espace créé par `app-access --app twenty`, entrée par rebond.
-
-## Stack
-
-- Next.js 15 (App Router) + pnpm
-- Auth.js v5 (Google OAuth + Credentials bcrypt + MFA email)
-- Prisma 7 sur la grappe pg-saas (base `hub`, rôle `hub`, schema `hub_app`)
-- Stripe (billing, webhooks, plans)
-- shadcn/ui + Tailwind
-- Brevo pour les mails transactionnels (`lib/email/send.ts`), Notifuse fork pour les tenants
+Inscription, facturation (Stripe) et ouverture des apps de chaque organisation. Next.js 15, Auth.js v5, Prisma 7 (pg-saas, base `hub`,
+schéma `hub_app`), shadcn/Tailwind, Brevo pour les mails transactionnels (`lib/email/send.ts`).
 
 ## Session et identité
 
@@ -30,8 +20,14 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
 - **Preuve récente** : `lib/auth/recent-auth.ts` (24 h compte et admin, 7 j facturation).
 - **Rebond** : `api/auth/bounce/prepare` et `complete`. Anti-boucle par app, sur 30 s, jamais remis à
   zéro sur `complete`. Aucun lien hors d'une adresse prouvée.
-- **Batterie** : `pnpm test:systeme`, depuis le bastion, sur ce qui est servi (staging : `HUB_URL=…`). Après une
-  modification, rejouer chaque `SSO_SABOTAGE=<scénario>` : il doit échouer. Elle échoue s'il reste un compte.
+- **Batterie** : `pnpm test:systeme` (`SSO_NAVIGATEUR=distant`), depuis le bastion, sur ce qui est servi (staging : `HUB_URL=…`). Après une
+  modification, rejouer chaque `SSO_SABOTAGE=<scénario>` : il doit échouer. Elle échoue s'il reste un compte. Les essais 48, 49 et la
+  **recette de A à Z** (cas 50, prod, une organisation jetable, tableau et captures dans `.run/recette/`) ne tournent que nommés (`… 50-`).
+  « Servi » = déploiement Nomad `successful`, jamais le seul `/api/health` (le canari répond avant la bascule). Pendant qu'elle tourne,
+  ni ses specs ni ses scripts ne se modifient : bash relit un script en cours (26/11).
+- **Signature vers les apps** (26/11) : `lib/hmac/signature-hub.ts`, seul signataire. `HMAC_V2_APPS` (job) liste les apps en v2 (méthode,
+  chemin, query, empreinte du corps, usage unique : ts neuf à chaque essai) ; vide = v1. Prod : les cinq apps (CRM le 26/11) ; n'ajouter une app qu'après
+  sa vérification v2 servie ET mesurée. Une app ferme la v1 après un jour sans v1 reçue.
 - **Rebond refusé** : jamais muet (08/11, Robert renvoyé sans un mot). Tout refus va sur `/auth/bounce/error` qui
   l'explique (`user_not_in_app`, `hub_user_conflict` : un compte d'app n'appartient qu'au premier compte Hub relié),
   et laisse `[bounce][refus]` (app, code, hub_user_id, jamais l'adresse) ; un succès, `[bounce][reussi]`. Batterie : `09-adresses` ; `10-creation`
@@ -52,30 +48,31 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   et registre (`hub mcp-app add`), ne code aucun outil d'app, présente à l'app un JWT ES256 (`MCP_SIGNING_JWK`).
   `tenant_id` signé seulement si l'IA choisit un espace ; espace non relié → `hub relier --app <app>`. Liens d'ajout : `GET /api/mcp/liens-installation` (public).
 - **Mode programme** (24/11, VER-241) : le code d'un client tourne dans le groupe `programme` (rise), sans réseau ni secret ;
-  anciens clients par `hub.executer_programme`. Fermé par défaut : seule `app/api/mcp` l'offre, jamais Mon IA. Preuve sur ce
-  qui est servi : `scripts/epreuve-programme.sh hub` (0/1/2), cas 18 à 20. Une app qui coupe ses réponses doit lire
-  `X-Veridian-MCP-Appel`.
-- **Mon IA** (VER-203, `docs/MON-IA.md`) : le connecteur d'abord, jamais de clé proposée quand il suffit ; une clé ne sert qu'au chat natif
-  du CRM (`/api/ia/v1`). `hub ia brancher <email> --fournisseur <f> --depuis <VARIABLE>`. Ateliers : un par tenant, rise.
+  anciens clients par `hub.executer_programme`. Fermé par défaut : seule `app/api/mcp` l'offre. Preuve : `scripts/epreuve-programme.sh
+  hub`, cas 18 à 20. Une app qui coupe ses réponses lit `X-Veridian-MCP-Appel`.
+  Trace : début et fin au journal, `hub raw GET programmes` ; cas 20 jamais pendant un programme client.
+- **Mon IA** (`docs/MON-IA.md`) : le connecteur d'abord, jamais de clé proposée ; clé = chat natif du CRM (`/api/ia/v1`).
+  Fenêtre affichée seulement si elle répond (`POST /api/ia/etat`, §5.24.1, cas 55). `hub ia brancher <email> --fournisseur <f> --depuis <VARIABLE>`.
 - **Appartenance, rôle, délégation** (VER-245, contrat §5.19.3 à §5.19.5) : `lib/tenants/membres.ts` seul écrivain de
   `tenant_members`. Rôle porté aux apps (`ROLE_PORTE`) : fermé sans Robert. Liaisons (`DELEGATION_CIBLES`) : ouvertes, éteintes jusqu'au
   clic du propriétaire ; jamais de jeton à `act` sans « garde servie ». Organisation unique (§5.19.6, `hub org`). Cas 21 à 26.
-- **Adresses** (§5.19.6 à 8) : changement fermé chez Academy et par compte non relié ; l'ancienne est prévenue et annule 72 h (`lib/adresses/annulation.ts`). 30 à 33, 42.
-- **Fournisseur d'une organisation** (§5.19.6) : OIDC ou SAML, posé par nous (`hub org idp`) ou par le propriétaire à l'écran (sans domaine, essai d'abord). Session bornée à l'organisation. 39, 41.
-- **Connexions extérieures** (`docs/CONNECTEURS.md`) : Notion, Linear… par OAuth, sans application à créer. Registre figé dans le code. 43.
-- **Garde rapide** : `__tests__/contrat/` (révocation sans `iat`, `authAt`, cibles du rebond, origines) ; tout nouvel
+- **Adresses** (§5.19.6 à 8) : changement fermé chez Academy et pour un compte non relié ; l'ancienne adresse annule 72 h. 30 à 33, 42.
+- **Fournisseur d'une organisation** (§5.19.6) : OIDC ou SAML, `hub org idp` ou à l'écran (essai d'abord). Session bornée à l'organisation. 39, 41.
+- **Connexion obligatoire** (§5.19.6, VER-261) : `hub org connexion`. Toute lecture d'espaces prend une `Preuve` (`lib/federation/obligation.ts`). 46.
+- **Connexions extérieures** (`docs/CONNECTEURS.md`) : FERMÉES (Robert ouvre), aucun appel réel en épreuve. 43.
+- **CSP** (VER-265) : nonce (`lib/security/csp.ts`), bloquante (`CSP_MODE=appliquer`, retour `rapport`) ; rapports `[csp_violation]` ;
+  garde : cas 52 ; zod sans eval (`lib/zod-sans-eval.ts`).
+- **Garde rapide** : `__tests__/contrat/` (révocation sans `iat`, `authAt`, rebond, origines) ; tout nouvel
   `encode(` de JWT de session s'y ajoute. Détail : `docs/PARCOURS-IDENTITE.md`.
-- **Sonde de prod** : « Sonde identité » de `hub-ci.yml` (lecture seule) ; le cron de reconcile alerte au-dessus de
-  `RESIDUE_SEUIL` (0).
-- **Coupure** : aucune (08/11). Base sur pg-saas (Patroni), app en bleu-vert (canari, health check Traefik). Changer les
-  tags Traefik coupe 12 s : regrouper. `e2e/systeme-sso/**` ne redéploie rien.
+- **Sonde de prod** : « Sonde identité » de `hub-ci.yml` ; reconcile alerte au-dessus de `RESIDUE_SEUIL` (0).
+- **Coupure** : aucune (pg-saas Patroni, bleu-vert). Tags Traefik : 12 s de coupure, regrouper. La batterie ne redéploie rien.
 
 ## Que faire si
 
 Outil admin : `hub` (`hub doctor` d'abord : santé, secret, auth admin). Aucune de ces commandes n'affiche de secret.
 
 - **Un client ne peut plus se connecter** : `hub tenant <email>` (adresse prouvée ? apps liées ?), `hub audit --since <date>`.
-  Adresse non prouvée : aucun lien d'app, `hub invite <email>` renouvelle l'accès (`--no-email` : lien seul). Entrer chez lui : `/dashboard/admin/clients` ou `hub open <email>` (`docs/PARCOURS-IDENTITE.md`, cas 45).
+  Adresse non prouvée : aucun lien d'app, `hub invite <email>` renouvelle l'accès (`--no-email` : lien seul). Entrer chez lui : `/dashboard/admin/clients` ou `hub open <email>` (cas 45). Admin dans ses espaces, jamais propriétaire, jamais remis après un retrait : `hub admin-partout` (§5.23).
 - **Un rebond échoue** : `/auth/bounce/error?code=` dit pourquoi (`not_configured` : variable `<APP>_API_URL` ou
   `<APP>_HUB_API_SECRET` absente du job ; `unreachable` : l'app ; refus d'identité : voir « Rebond refusé »).
   `nomad-v logs hub` (tag `[bounce][refus]`). 3 rebonds rapides : anti-boucle, 30 s.
@@ -94,22 +91,14 @@ Outil admin : `hub` (`hub doctor` d'abord : santé, secret, auth admin). Aucune 
 - **Restes de test** : `hub reconcile` (`testResidue.total`) et, par app, `scripts/orphelins-e2e.sh` (skill hub-admin).
   `delete-tenant` déprovisionne les espaces des apps (`lib/apps/deprovision.ts`) et laisse une trace d'audit.
   Le cron alerte au-dessus de `RESIDUE_SEUIL`. La batterie les retire elle-même et échoue s'il en reste.
-- **Batterie rouge** : lire `e2e/systeme-sso/.run/resultat.txt`. ÉCHOUE = vrai défaut (si l'image servie n'est pas
-  listée « avant »). NON ABOUTI = on n'a pas mesuré (Hub en déploiement, jeton Nomad, compte non créé). Relancer
-  un filtre : `bash scripts/test-systeme-sso.sh 08-`. Épreuve : `SSO_SABOTAGE=<scénario>` doit échouer.
-- **Jeton Nomad 403** : une rotation a révoqué celui du shell. `nomad-v` relit `~/credentials/nomad-bastion.env` ;
-  `nomad-v acl status` montre les jetons et leurs échéances. Ne jamais se replier sur le jeton management.
-
-## Commandes
-
-Dév : `dev -d <domaine> pnpm dev` · `pnpm test` (2 workers, nice 19).
+- **Batterie rouge** : `e2e/systeme-sso/.run/resultat.txt`. ÉCHOUE = vrai défaut ; NON ABOUTI = pas mesuré (Hub en déploiement, jeton
+  Nomad, compte non créé). Un filtre : `bash scripts/test-systeme-sso.sh 08-`.
+- **Jeton Nomad 403** : `nomad-v` relit `~/credentials/nomad-bastion.env` ; `nomad-v acl status`. Jamais le jeton management.
 
 ## Où travailler (18/11)
 
-La session du Hub travaille dans le dossier principal, sur `main` (la branche qui déploie), jamais en
-worktree. Avant de commencer : `git fetch && git status -sb` doit dire `main...origin/main` sans
-écart ni fichier modifié, sinon on réaligne d'abord (18/11 : 230 fichiers jamais commités). `~/.claude/hooks/infra-status.sh` est un lien vers ce
-dossier : la branche extraite ici pilote le démarrage de toutes les sessions. Sortie : deux écrivains, worktree refusionné aussitôt.
+Dossier principal, sur `main`, jamais en worktree ; `git fetch && git status -sb` sans écart avant de commencer.
+Dév : `dev -d <domaine> pnpm dev` · `pnpm test` (nice 19).
 
 ## Déploiement : la prod vient de `main`
 
@@ -120,17 +109,15 @@ Un audit CVE ou un test rouge saute le déploiement sans bruit : lire `gh run vi
 ## Règles
 
 - `hub_user_id` = `users.supabase_user_id`, jamais `users.id` (cuid sur la moitié des comptes).
-- Toute route qui mène à une session d'app appelle `denyUnlessEmailProven`
-  (`lib/auth/email-proof.ts`). Un test échoue sur toute nouvelle route non gardée.
-- `hub reconcile` (`lib/sync/`) n'écrit rien : une dérive se lit et se tranche. Il compare
-  aussi les comptes de chaque app au Hub.
+- Toute route qui mène à une session d'app appelle `denyUnlessEmailProven` (`lib/auth/email-proof.ts`) ; un test le garde.
+- `hub reconcile` (`lib/sync/`) n'écrit rien : une dérive se lit et se tranche (comptes de chaque app comparés au Hub).
 - Toute écriture de plan se propage à l'app. Un refus n'écrit rien au Hub.
 - Un tenant supprimé n'est jamais repris par une recherche par `userId` (`__tests__/contrat/tenant-supprime.test.ts`).
 - Le dépôt est **public**, ses logs Actions aussi : aucune adresse client dans une réponse de cron.
 
 - Les env vars **runtime** viennent du job Nomad (`deploy/hub.nomad.hcl`, secrets `nomad/jobs/hub`), jamais de build-args.
 - Stripe = source de vérité billing. Config dans `lib/stripe/`.
-- Couleurs : tokens OKLCH. Autre app : son URL publique.
+- Couleurs : tokens OKLCH.
 - `/api/health` reste disponible (garde du déploiement et sonde de la CI).
 
 ## 💰 Pricing & trial
@@ -141,7 +128,6 @@ Jamais de limite visible. Stripe → Hub → apps, jamais Stripe → app.
 
 ## CI/CD
 
-- `.github/workflows/hub-ci.yml` : test → audit (npm) → docker → **trivy** → deploy-prod (sur `main`) → e2e-prod-smoke → rollback-prod (si fail)
-- **Pas de cron Trivy** : CVE de l'image servie via `secu`, `_trivy-image.yml` à la construction.
-- Logs `nomad-v logs hub`, redeploy `nomad-v run hub`. Skill `/nomad`.
+`hub-ci.yml` : test → audit → docker → trivy → deploy-prod (`main`) → e2e-prod-smoke → rollback. CVE de l'image servie : `secu`.
+Journaux : jeton de déploiement (`read-logs`) ou Loki (`obs search`). Redeploy `nomad-v run hub`.
 

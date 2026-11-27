@@ -3,7 +3,7 @@
  * d'app), identité présentée en JWT ES256 vérifiable par la clé publique, accès par app, bornes.
  */
 import { exportJWK, generateKeyPair, createLocalJWKSet, jwtVerify } from 'jose';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { viderCache } from '@/lib/mcp/catalogue';
 import { SORTIE_MAX_CAR } from '@/lib/mcp/config';
@@ -15,7 +15,7 @@ import { oublierProgrammes, type Moteur } from '@/lib/mcp/programme';
 import { fausseBase, type FausseBase } from './fausse-base';
 
 const HUB_USER = '11111111-2222-3333-4444-555555555555';
-const QUI: Appelant = { hubUserId: HUB_USER, clientId: 'mcpc_test', scope: 'veridian', email: 'client@exemple.fr', name: 'Client', userId: 'u1' };
+const QUI: Appelant = { hubUserId: HUB_USER, clientId: 'mcpc_test', scope: 'veridian', email: 'client@exemple.fr', name: 'Client', userId: 'u1', preuve: { par: 'jeton', orgs: [] } };
 const URL_APP = 'https://analytics.exemple.test/api/mcp';
 
 let ancienneCle: string | undefined;
@@ -331,6 +331,29 @@ describe('client_name dans le jeton présenté aux apps', () => {
   });
 });
 
+describe('organisation qui demande son fournisseur (VER-261)', () => {
+  beforeEach(async () => {
+    await db.tenant.create({ data: { id: 't2', userId: 'quelqu-un', name: 'Organisation', slug: 'organisation', status: 'active', createdAt: new Date() } });
+    await db.tenantMember.create({ data: { tenantId: 't2', userId: HUB_USER, role: 'member', deletedAt: null } });
+    const tous = db.tenant.findMany.bind(db.tenant) as any;
+    (db as any).tenant.findMany = async (q: any) => (q.where.OR ? tous({ where: { id: q.where.id, deletedAt: null } }) : tous(q));
+    (db as any).tenantConnexion = { findMany: async () => [{ tenantId: 't2' }] };
+    (db as any).organisation = { findUnique: async () => null, findMany: async () => [] };
+    (db as any).tenantIdp = { findUnique: async () => ({ id: 'i', issuer: 'https://login.infomaniak.com', alias: 'org', actif: true, sessionJours: 7 }) };
+  });
+  it('rien ne s\'y exécute, sans espace non plus (l\'app prendrait peut-être celle-là) ; l\'autre espace reste ouvert ; mon_compte dit pourquoi', async () => {
+    const f = appFactice();
+    for (const espace of ['organisation', undefined]) {
+      const r = (await appel('executer_outil', { nom: 'analytics.visites_du_site', arguments: {}, ...(espace ? { espace } : {}) }, f)) as any;
+      expect([r.result.isError, r.result.content[0].text], String(espace)).toEqual([true, expect.stringMatching(/Infomaniak.*\/connexion\/org/)]);
+    }
+    expect(((await appel('executer_outil', { nom: 'analytics.visites_du_site', arguments: {}, espace: 'mon-espace' }, f)) as any).result.isError).not.toBe(true);
+    const c = json(await appel('executer_outil', { nom: 'hub.mon_compte' }, f));
+    expect([c.espaces.map((e: any) => e.slug), c.espaces_fermes]).toEqual([['mon-espace'], [expect.objectContaining({ slug: 'organisation', raison: expect.stringContaining('Infomaniak') })]]);
+    expect(((await appel('executer_outil', { nom: 'hub.integrations_lister', espace: 'organisation' }, f)) as any).result.isError).toBe(true);
+  });
+});
+
 describe('espace suspendu ou membre retiré (VER-245)', () => {
   const jouer = (args: Record<string, unknown>, f = appFactice()) => appel('executer_outil', { nom: 'analytics.visites_du_site', ...args }, f).then((r: any) => ({ r: r.result, appels: f.recus.filter((x) => x.corps.method === 'tools/call').length }));
   const suspendre = (id: string) => { (db.tenant as any).lignes.find((t: any) => t.id === id).status = 'suspended'; };
@@ -467,11 +490,19 @@ describe('executer_programme', () => {
     expect(joues()).toEqual(['creer_objectif', 'update_site_config']);
   });
   it('un service extérieur ne se joue jamais depuis un programme, même nommé', async () => {
-    const f = appFactice({ outils: [{ name: 'chercher', description: 'x', inputSchema: { type: 'object' }, annotations: { readOnlyHint: true } }] });
-    const avec = { ...db, connexionExterne: { findMany: async () => [{ connecteur: 'notion' }], findUnique: async () => null } };
-    const r: any = await traiter(avec as never, QUI, { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'executer_programme', arguments: { code: 'x', autoriser: ['notion.chercher'] } } }, { fetchImpl: f.fetchImpl, programme: true, ouvrirMoteur: moteur([{ nom: 'notion.chercher' }]) });
-    expect(f.recus.filter((x) => x.corps.method === 'tools/call')).toEqual([]);
-    expect(JSON.stringify(r)).toMatch(/recues/);
+    vi.stubEnv('CONNECTEURS_OUVERTS', '1');
+    const { cacheOutils } = await import('@/lib/mcp/cache');
+    cacheOutils.set(`notion:${HUB_USER}`, { a: Date.now(), outils: [{ nom: 'notion.chercher', app: 'notion', local: 'chercher', description: '', inputSchema: {}, annotations: { readOnlyHint: true }, externe: 'Notion' }] });
+    const lu: string[] = [];
+    const avec = { ...db, tenant: { ...db.tenant, findMany: async () => [{ id: 't', name: 'E', slug: 'e', status: 'active' }] }, connexionExterne: { findMany: async () => [{ connecteur: 'notion' }], findUnique: async () => { lu.push('jeton'); return null; } } };
+    const qui = { ...QUI, services: true };
+    const direct: any = await traiter(avec as never, qui, { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'executer_outil', arguments: { nom: 'notion.chercher' } } });
+    expect([direct.result.content[0].text.endsWith('est à rebrancher : Connexions, dans votre espace Veridian.'), lu.length], 'témoin : en direct, son jeton est cherché').toEqual([true, 1]);
+    const recu: string[] = [];
+    const ouvrir = async () => { const x = await moteur([{ nom: 'notion.chercher' }])(); return { ...x, envoyer: (e: Record<string, unknown>) => { recu.push(JSON.stringify(e)); x.envoyer(e); } }; };
+    await traiter(avec as never, qui, { jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'executer_programme', arguments: { code: 'x', autoriser: ['notion.chercher'] } } }, { programme: true, ouvrirMoteur: ouvrir });
+    vi.unstubAllEnvs();
+    expect([recu.some((x) => x.includes('service extérieur, en appel direct')), lu.length], 'refusé, et aucun jeton n\'a été cherché').toEqual([true, 1]);
   });
   it('offert seulement quand le moteur est configuré ; sinon trois outils et refus', async () => {
     const r: any = await traiter(db as never, QUI, { jsonrpc: '2.0', id: 1, method: 'tools/list' }, { programme: true, ouvrirMoteur: moteur([]) });
@@ -600,6 +631,9 @@ describe('executer_programme', () => {
     const l = db.auditLog.lignes as any[];
     expect(l.filter((x) => x.action === 'mcp.tool.call').map((x) => [x.payload.outil, x.payload.programme])).toEqual(expect.arrayContaining([['analytics.visites_du_site', r.programme], ['analytics.creer_objectif', r.programme]]));
     expect(l.find((x) => x.action === 'mcp.programme').payload).toMatchObject({ programme: r.programme, etat: 'termine', appels: 2, echecs: 0, autoriser: ['analytics.creer_objectif'] });
+    // Le début est tracé AVANT le premier appel : un programme qui tourne se voit (cas 20, remplacement du moteur).
+    const debut = l.findIndex((x) => x.action === 'mcp.programme.debut' && x.payload.programme === r.programme);
+    expect([debut >= 0, debut < l.findIndex((x) => x.action === 'mcp.tool.call'), typeof l[debut]?.payload.essai]).toEqual([true, true, 'boolean']);
     expect(JSON.stringify(l)).not.toMatch(/SECRET_DU_CODE|CONFIDENTIEL|secret/);
   });
 

@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const PRODUCERS =
-  /provisionTenant|provisionWorkspace|provisionNotifuse|provisionProspection|provisionTenantForApp|provisionAll|issueMagicLinkForApp|resolveNotifuseAutoLogin|regenerateMagicLink|createTenant\(|generateMagicLink|provisionUserServices|provisionUserTenant/;
+  /provisionTenant|provisionWorkspace|provisionNotifuse|provisionProspection|provisionTenantForApp|provisionAll|issueMagicLinkForApp|regenerateMagicLink|createTenant\(|provisionUserServices|provisionUserTenant/;
 const GUARD = /denyUnlessEmailProven/;
 
 // Routes hors session utilisateur : auth propre (admin, cron, webhook HMAC) ou appelée
@@ -29,16 +29,17 @@ const routes = walk('app/api').filter((p) => p.endsWith('route.ts') && !OUT_OF_S
 describe('routes menant à une session d\'app', () => {
   it('la détection voit bien les routes connues (la mesure ne tourne pas à vide)', () => {
     const flagged = routes.filter((p) => PRODUCERS.test(readFileSync(p, 'utf8')));
-    for (const known of [
-      'app/api/auth/bounce/complete/route.ts',
-      'app/api/admin/notifuse/magic-link/route.ts',
-    ]) {
+    for (const known of ['app/api/auth/bounce/complete/route.ts']) {
       expect(flagged).toContain(known);
     }
   });
 
   it.each(routes.filter((p) => PRODUCERS.test(readFileSync(p, 'utf8'))))('%s est gardée', (path) => {
     expect(readFileSync(path, 'utf8')).toMatch(GUARD);
+  });
+
+  it('la route admin qui ouvre Mail par le rebond reste gardée', () => {
+    expect(readFileSync('app/api/admin/notifuse/magic-link/route.ts', 'utf8')).toMatch(GUARD);
   });
 
   it('tenants/start et retry, qui provisionnent via utils/tenants, sont gardées', () => {

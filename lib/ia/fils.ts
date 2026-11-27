@@ -9,9 +9,8 @@
  *
  * L'app ne rend un fil qu'à son auteur et pour son tenant.
  */
-import { createHmac } from 'node:crypto';
-
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
+import { entetesSignature } from '@/lib/hmac/signature-hub';
 
 const TIMEOUT_MS = 8_000;
 
@@ -22,24 +21,19 @@ export type CibleFil = {
 };
 type Opts = { env?: NodeJS.ProcessEnv; fetchImpl?: typeof fetch };
 
-function signer(secret: string, corps: string) {
-  const ts = String(Date.now());
-  return { ts, sig: createHmac('sha256', secret).update(`${ts}.${corps}`).digest('hex') };
-}
-
-/** Adresse et en-têtes d'un appel de fil, ou null si l'app n'est pas joignable pour ce fil. */
-function appel(app: string, t: CibleFil, corps: string, env: NodeJS.ProcessEnv) {
+/** Adresse (sans query) et secret d'un appel de fil ; null si l'app n'est pas joignable pour ce fil. */
+function appel(app: string, t: CibleFil, env: NodeJS.ProcessEnv) {
   const c = resolveAppConfig(app, env);
   if (!c) return null;
-  const { ts, sig } = signer(c.hubSecret, corps);
-  return { url: `${c.apiUrl}/api/hub/ia/fils/${encodeURIComponent(t.sessionId)}`, headers: { 'X-Veridian-Timestamp': ts, 'X-Veridian-Hub-Signature': sig } as Record<string, string> };
+  return { url: `${c.apiUrl}/api/hub/ia/fils/${encodeURIComponent(t.sessionId)}`, secret: c.hubSecret };
 }
 
 export async function lireFil(app: string, t: CibleFil, opts: Opts = {}): Promise<unknown[] | null> {
-  const a = appel(app, t, '', opts.env ?? process.env);
+  const a = appel(app, t, opts.env ?? process.env);
   if (!a) return null;
   const url = `${a.url}?${new URLSearchParams({ hub_user_id: t.hubUserId, tenant_id: t.tenantId })}`;
-  const r = await (opts.fetchImpl ?? fetch)(url, { headers: a.headers, redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT_MS) }).catch(() => null);
+  const headers = entetesSignature({ secret: a.secret, methode: 'GET', url, corps: '', app });
+  const r = await (opts.fetchImpl ?? fetch)(url, { headers, redirect: 'manual', signal: AbortSignal.timeout(TIMEOUT_MS) }).catch(() => null);
   if (!r || !r.ok) return null;
   const j = (await r.json().catch(() => null)) as { messages?: unknown[] } | null;
   return Array.isArray(j?.messages) ? j.messages : null;
@@ -47,14 +41,19 @@ export async function lireFil(app: string, t: CibleFil, opts: Opts = {}): Promis
 
 export async function ecrireFil(app: string, t: CibleFil & { messages: unknown[] }, opts: Opts = {}): Promise<boolean> {
   const corps = JSON.stringify({ hub_user_id: t.hubUserId, tenant_id: t.tenantId, messages: t.messages });
-  const a = appel(app, t, corps, opts.env ?? process.env);
+  const a = appel(app, t, opts.env ?? process.env);
   if (!a) return false;
   const r = await (opts.fetchImpl ?? fetch)(a.url, {
     method: 'PUT',
     redirect: 'manual',
-    headers: { 'Content-Type': 'application/json', ...a.headers },
+    headers: { 'Content-Type': 'application/json', ...entetesSignature({ secret: a.secret, methode: 'PUT', url: a.url, corps, app }) },
     body: corps,
     signal: AbortSignal.timeout(TIMEOUT_MS),
   }).catch(() => null);
+  if (!r?.ok) {
+    // Pourquoi l'app a refusé : le code HTTP et son code d'erreur, jamais le fil (26/11 : « fil non rangé » sans cause lisible).
+    const code = r ? ((await r.json().catch(() => null)) as { error?: unknown } | null)?.error : null;
+    console.warn(JSON.stringify({ tag: '[ia][fil][refus]', app, statut: r?.status ?? 0, erreur: typeof code === 'string' ? code.slice(0, 60) : null }));
+  }
   return Boolean(r?.ok);
 }

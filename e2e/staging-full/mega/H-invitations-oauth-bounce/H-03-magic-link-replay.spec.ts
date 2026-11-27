@@ -10,7 +10,7 @@
  *   - Session-aware (auth via Auth.js).
  *   - Ownership-aware : owner du tenant OR platform admin.
  *   - Body : `{ tenantId: string }`.
- *   - 200 : `{ autoLoginUrl, magicLink, expiresAt }`.
+ *   - 200 : `{ url }`, l'adresse du rebond signé (`/login?next=`), jamais un lien Notifuse.
  *   - 401 : pas de session.
  *   - 403 : session OK mais user ≠ owner ET pas admin platform.
  *   - 404 : tenantId inexistant.
@@ -23,8 +23,8 @@
  *   3. POST avec session valide mais pas le bon owner → 403.
  *   4. POST sans `tenantId` dans body → 400.
  *   5. POST sur tenant fresh (provisionné=non) → 409 OU 200 si downstream câblé.
- *   6. Replay : 2× POST même tenantId → 2 magicLink DIFFÉRENTS (single-use).
- *   7. Format URL : magicLink commence par https://notifuse(.staging|.app)?.veridian.site
+ *   6. Replay : 2× POST même tenantId → même adresse, sans jeton (le jeton à usage unique naît au rebond).
+ *   7. Format : `url` commence par /login?next= et ne porte aucun jeton.
  *   8. INVARIANT pas-de-500 silencieux (autorisé seulement si Notifuse mal config).
  */
 import { test, expect, type APIRequestContext } from '@playwright/test';
@@ -230,18 +230,12 @@ test.describe('Mega H-03 — Magic link Hub → Notifuse (replay + ownership)', 
 
     if (res.status() === 200) {
       const body = await res.json();
-      expect(typeof body.magicLink, 'magicLink doit être string').toBe('string');
-      expect(body.magicLink).toMatch(
-        /^https:\/\/notifuse(\.app|\.staging)?\.veridian\.site/,
-      );
-      expect(
-        typeof body.expiresAt,
-        'expiresAt doit être présent (TTL côté Notifuse)',
-      ).toBe('string');
+      expect(body.url, 'url doit être le rebond du Hub').toMatch(/^\/login\?next=/);
+      expect(JSON.stringify(body)).not.toMatch(/token|auto-login/);
     }
   });
 
-  test('replay : 2× POST owner même tenantId → 2 magic links DIFFÉRENTS (single-use)', async ({
+  test('replay : 2× POST owner même tenantId → même adresse de rebond, aucun jeton', async ({
     playwright,
   }) => {
     const session = await megaSignIn(
@@ -296,19 +290,9 @@ test.describe('Mega H-03 — Magic link Hub → Notifuse (replay + ownership)', 
     ).toBe(200);
     const secondBody = await second.json();
 
-    // INVARIANT SINGLE-USE : les 2 magic links doivent être DIFFÉRENTS
-    expect(
-      secondBody.magicLink,
-      `INVARIANT single-use cassé : magicLink #1 == magicLink #2 (token réutilisé)`,
-    ).not.toBe(firstBody.magicLink);
-
-    // INVARIANT auto-login URL : idem (chaque génération = nouveau jeton)
-    if (firstBody.autoLoginUrl && secondBody.autoLoginUrl) {
-      expect(
-        secondBody.autoLoginUrl,
-        `INVARIANT : autoLoginUrl #1 == autoLoginUrl #2 (jeton réutilisé)`,
-      ).not.toBe(firstBody.autoLoginUrl);
-    }
+    // INVARIANT : le Hub ne garde ni ne fabrique aucun jeton, l'adresse est stable.
+    expect(secondBody.url, 'même adresse de rebond').toBe(firstBody.url);
+    expect(JSON.stringify(secondBody)).not.toMatch(/token|auto-login/);
   });
 });
 

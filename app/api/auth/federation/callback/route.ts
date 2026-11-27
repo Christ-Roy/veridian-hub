@@ -18,6 +18,10 @@ export async function GET(request: NextRequest) {
   if (!t) return s.refus('demande_expiree');
   const i = await idpDe(t);
   if (!i || i.protocole === 'saml') return s.refus('organisation_indisponible');
+  // Essai sans écran : le fournisseur a dit non (pas de session chez lui, consentement à donner…). Lu, journalisé, et la personne retrouve le bouton.
+  const erreur = new URL(request.url).searchParams.get('error');
+  if (t.silence) console.log(JSON.stringify({ tag: '[federation][silence]', level: 'info', tenant_id: i.tenantId, resultat: erreur ? erreur.slice(0, 60) : 'code' }));
+  if (t.silence && erreur) return s.vers(t.prouver ? `/auth/organisation?org=${i.tenantId}&silence=echec` : '/login');
   let identite;
   try {
     identite = await terminer(i, t, new URL(`${CHEMIN_RETOUR}${new URL(request.url).search}`, base));

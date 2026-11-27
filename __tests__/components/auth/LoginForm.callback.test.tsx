@@ -12,6 +12,8 @@ const routerPushMock = vi.fn();
 const routerRefreshMock = vi.fn();
 let search = '';
 let fetchMock = vi.fn();
+/** Première question du formulaire : par où se connecte ce domaine (VER-261). */
+const METHODE = () => new Response(JSON.stringify({ methode: 'habituelle' }), { status: 200 });
 
 vi.mock('next-auth/react', () => ({
   signIn: (...args: unknown[]) => signInMock(...args),
@@ -99,7 +101,7 @@ describe('LoginForm — callbackUrl validé (D8)', () => {
   // D3 : compte à double vérification → /auth/mfa avec la suite demandée, sans session ici.
   it('D3 : double vérification → /auth/mfa?next=… et aucun signIn', async () => {
     search = `callbackUrl=${encodeURIComponent('/dashboard/settings')}`;
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, mfa: true }), { status: 200 }));
+    fetchMock.mockResolvedValueOnce(METHODE()).mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, mfa: true }), { status: 200 }));
     const { container, findByText: _ } = render(<LoginForm />);
     const form = container.querySelector('form')!;
     (form.querySelector('input[name="email"]') as HTMLInputElement).value = 'mfa@b.fr';
@@ -111,7 +113,7 @@ describe('LoginForm — callbackUrl validé (D8)', () => {
   });
 
   it('D3 : mauvais mot de passe au /start → message, pas de signIn', async () => {
-    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ok: false }), { status: 401 }));
+    fetchMock.mockResolvedValueOnce(METHODE()).mockResolvedValueOnce(new Response(JSON.stringify({ ok: false }), { status: 401 }));
     const { container, findByText } = render(<LoginForm />);
     const form = container.querySelector('form')!;
     (form.querySelector('input[name="email"]') as HTMLInputElement).value = 'a@b.fr';

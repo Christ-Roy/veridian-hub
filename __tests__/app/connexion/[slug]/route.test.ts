@@ -2,8 +2,13 @@
 import { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const m = vi.hoisted(() => ({ pret: vi.fn(), demarrer: vi.fn(), auth: vi.fn() }));
+const m = vi.hoisted(() => ({ user: vi.fn(async (): Promise<unknown> => null), membre: vi.fn(async () => false), reliee: vi.fn(async () => true), pret: vi.fn(), demarrer: vi.fn(), auth: vi.fn() }));
 vi.mock('@/auth', () => ({ auth: () => m.auth() }));
+vi.mock('@/lib/auth/get-user', () => ({ getCurrentUser: () => m.user() }));
+vi.mock('@/lib/auth/email-proof', () => ({ isEmailProvenForSession: async () => true }));
+vi.mock('@/lib/auth/recent-auth', () => ({ PREUVE_COMPTE_S: 86_400, isAuthRecent: (a?: number) => a === 1 }));
+vi.mock('@/lib/adresses/federation', () => ({ membreVivant: () => m.membre() }));
+vi.mock('@/lib/federation/prouver', () => ({ dejaReliee: () => m.reliee() }));
 vi.mock('@/lib/prisma', () => ({ prisma: {} }));
 vi.mock('@/lib/federation/idp', () => ({ idpPret: (...a: unknown[]) => m.pret(...a) }));
 vi.mock('@/lib/federation/oidc', async (o) => ({ ...(await o<object>()), demarrer: (...a: unknown[]) => m.demarrer(...a) }));
@@ -34,6 +39,20 @@ describe('GET /connexion/[slug]', () => {
     const l = (await aller('client')).headers.get('location');
     expect(l).toBe('https://app.veridian.site/auth/federation?code=fournisseur_injoignable');
   });
+  it('membre connecté par ses propres moyens : sa session passe par le fournisseur ; première fois sans preuve récente : elle se reconnecte d\'abord', async () => {
+    m.auth.mockResolvedValue({ user: { authAt: 0 } });
+    m.user.mockResolvedValue({ id: 'U', supabaseUserId: 'h' });
+    m.membre.mockResolvedValue(true);
+    await aller('client');
+    expect(m.demarrer.mock.calls[0].slice(-2)).toEqual([{ userId: 'U' }, undefined]);
+    m.reliee.mockResolvedValueOnce(false);
+    expect((await aller('client')).headers.get('location')).toBe('https://app.veridian.site/login?reauth=1&callbackUrl=%2Fconnexion%2Fclient');
+    m.membre.mockResolvedValue(false);
+    m.demarrer.mockClear();
+    await aller('client');
+    expect(m.demarrer.mock.calls[0].slice(-2)).toEqual([undefined, undefined]);
+    m.user.mockResolvedValue(null);
+  });
   it('déjà entrée par CETTE organisation : droit au tableau de bord ; par une autre, ou session ordinaire : chez le fournisseur', async () => {
     m.auth.mockResolvedValue({ user: { federe: true, federeOrg: 'T' } });
     expect((await aller('client')).headers.get('location')).toBe('https://app.veridian.site/dashboard');
@@ -46,5 +65,14 @@ describe('GET /connexion/[slug]', () => {
     const s: number[] = [];
     for (let n = 0; n < 32; n++) s.push((await aller('client', '198.51.100.9')).status);
     expect([s[29], s[31]]).toEqual([303, 429]);
+  });
+  it('départ automatique : d\'abord sans écran (prompt=none), une seule fois par navigateur ; un lien ordinaire, jamais', async () => {
+    const via = (q: string, cookie = '') => GET(new NextRequest(`https://0.0.0.0/x${q}`, { headers: { 'x-forwarded-for': `198.51.100.${++ip}`, ...(cookie ? { cookie } : {}) } }), { params: Promise.resolve({ slug: 'client' }) });
+    m.demarrer.mockClear();
+    const r = await via('?silence=1');
+    expect([m.demarrer.mock.calls[0].at(-1), r.headers.get('set-cookie')]).toEqual([true, expect.stringMatching(/veridian-silence=1;.*Max-Age=600/)]);
+    await via('?silence=1', 'veridian-silence=1');
+    await via('');
+    expect(m.demarrer.mock.calls.slice(1).map((c) => c.at(-1))).toEqual([undefined, undefined]);
   });
 });

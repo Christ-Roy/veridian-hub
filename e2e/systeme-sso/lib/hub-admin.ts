@@ -293,6 +293,11 @@ export async function planDansApp(app: 'analytics' | 'twenty', email: string, hu
   if (!r) throw new NonAbouti(`${app} : découverte injoignable`);
   if (r.status === 404) return null;
   if (!r.ok) throw new NonAbouti(`${app} : découverte HTTP ${r.status}`);
-  const j = (await r.json().catch(() => null)) as { workspaces?: { plan?: string }[] } | null;
+  const j = (await r.json().catch(() => null)) as { workspaces?: ({ plan?: string } & Record<string, unknown>)[] } | null;
+  // Pour le verdict : chaque espace lu, ses identifiants et ses champs sans valeur d'adresse (un doublon se lit avec eux).
+  espacesLus = (j?.workspaces ?? []).map((w) => Object.fromEntries(Object.entries(w).filter(([, v]) => typeof v !== 'string' || !v.includes('@'))));
   return (j?.workspaces ?? []).flatMap((w) => (w.plan ? [w.plan] : []));
 }
+let espacesLus: Record<string, unknown>[] = [];
+/** Les espaces de la dernière découverte lue par `planDansApp`, sans adresse. */
+export const derniersEspacesLus = (): Record<string, unknown>[] => espacesLus;

@@ -2,6 +2,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
+import { preuveIci } from '@/lib/federation/session';
 import { getHubBaseUrl } from '@/lib/mail/oauth-cookies';
 import { prisma } from '@/lib/prisma';
 import { COOKIE_ACTIF, organisationActive } from '@/lib/tenants/actif';
@@ -17,7 +18,7 @@ export async function POST(request: NextRequest) {
   if (!user) return NextResponse.redirect(new URL('/login?callbackUrl=/dashboard/organisation', base), 303);
   const f = await request.formData().catch(() => null);
   const id = IdTenant.safeParse(f?.get('tenant'));
-  const ok = id.success && (await organisationActive(prisma, userUuid(user), id.data)) === id.data;
+  const ok = id.success && (await organisationActive(prisma, userUuid(user), await preuveIci(), id.data)) === id.data;
   const res = NextResponse.redirect(new URL(`/dashboard/organisation?avis=${ok ? 'active' : 'refus'}`, base), 303);
   if (ok) res.cookies.set(COOKIE_ACTIF, id.data!, { httpOnly: true, secure: base.protocol === 'https:', sameSite: 'lax', path: '/', maxAge: 31_536_000 });
   return res;

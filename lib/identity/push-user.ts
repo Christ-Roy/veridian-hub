@@ -12,9 +12,8 @@
  * connexion par email des apps.
  */
 
-import { createHmac } from 'node:crypto';
-
 import { fusibleCrmActif, noterRetraitRetenu, verdictRetraitCrm } from '@/lib/apps/retrait-crm';
+import { entetesSignature } from '@/lib/hmac/signature-hub';
 import { configuredSyncApps, readAppSecret, readAppUrl } from '@/lib/sync/discovery';
 import type { SyncApp } from '@/lib/sync/types';
 
@@ -44,16 +43,14 @@ async function pushToApp(app: SyncApp, push: UserPush, fetchImpl: typeof fetch):
     ...(push.deleted ? { deleted: true } : {}),
     ...(push.revokeSessions ? { revoke_sessions: true } : {}),
   });
-  const timestamp = Date.now().toString();
-  const signature = createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
+  const cible = `${url}/api/hub/users/sync`;
 
   try {
-    const res = await fetchImpl(`${url}/api/hub/users/sync`, {
+    const res = await fetchImpl(cible, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Veridian-Timestamp': timestamp,
-        'X-Veridian-Hub-Signature': signature,
+        ...entetesSignature({ secret, methode: 'POST', url: cible, corps: body, app }),
       },
       body,
       signal: AbortSignal.timeout(TIMEOUT_MS),

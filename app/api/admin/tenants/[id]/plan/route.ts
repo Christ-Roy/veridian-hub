@@ -27,6 +27,7 @@ import { requireAdmin } from '@/lib/admin/require-admin';
 import { buildNotifuseClient } from '@/lib/notifuse/admin-helpers';
 import { isNotifusePlan, NOTIFUSE_PLANS, NotifuseError } from '@/lib/notifuse/types';
 import { prisma } from '@/lib/prisma';
+import { fusionnerMetadata, retirerDeMetadata } from '@/lib/tenants/metadata-fusion';
 import { pushProspectionPlan } from '@/lib/prospection/plan-push';
 import { APP_PLAN_GRIDS, isAppPlan, isPlannedApp, setAppPlan, tenantHasApp, type PlanApp } from '@/lib/plans/app-plan';
 import { trialStatusForTenant } from '@/lib/plans/trial-status';
@@ -120,8 +121,8 @@ export async function POST(
         ? { ...(tenant.metadata as Record<string, unknown>) }
         : {};
     const avant = { plan: meta[`${planApp}_plan`] ?? null, source: meta[`${planApp}_plan_source`] ?? null };
-    for (const suffixe of ['_plan', '_plan_source', '_plan_set_at', '_plan_set_by']) delete meta[`${planApp}${suffixe}`];
-    await prisma.tenant.update({ where: { id: tenantId }, data: { metadata: meta as object } });
+    // Les seules clés du plan, retirées par la base : le reste de metadata n'est jamais réécrit depuis cette lecture (26/11).
+    await retirerDeMetadata(prisma, tenantId, ['_plan', '_plan_source', '_plan_set_at', '_plan_set_by'].map((suffixe) => `${planApp}${suffixe}`));
     try {
       await prisma.provisioningLog.create({
         data: {

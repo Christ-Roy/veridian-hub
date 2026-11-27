@@ -71,6 +71,8 @@ export async function linkApp(
   });
 
   const appPayload = {
+    // L'identifiant d'espace que tout le Hub lit (lib/apps/espace-note.ts) ; manquait jusqu'au 26/11 (Analytics « sans espace »).
+    workspace_id: input.externalTenantId,
     external_tenant_id: input.externalTenantId,
     external_tenant_slug: input.externalTenantSlug,
     tenant_name: input.tenantName,
@@ -164,7 +166,7 @@ function dedicatedColumnsForApp(
       };
     case 'prospection':
       return {
-        prospectionPlan: input.plan ?? 'freemium',
+        prospectionPlan: input.plan ?? null,
         prospectionProvisionedAt: new Date(),
       };
     // cms / analytics : tout dans metadata, pas de colonnes dédiées

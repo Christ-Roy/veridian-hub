@@ -8,18 +8,19 @@
  * Deux apps suivent ce contrat : le CRM (Twenty) et Academy. Une troisième s'ajoute à `ESPACE_APPS`,
  * pas en recopiant ce fichier.
  */
-import { createHmac } from 'node:crypto';
-
 import type { PrismaClient } from '@prisma/client';
 
+import { nomDEspace } from '@/lib/apps/nom-espace';
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
 import { abonnerParDefaut } from '@/lib/evenements/naissance';
+import { entetesSignature } from '@/lib/hmac/signature-hub';
 import { pushUserToApps } from '@/lib/identity/push-user';
 import { oublierUtilisateur } from '@/lib/mcp/cache';
 import { choisirPlanInitial, setAppPlan, type PlanApp } from '@/lib/plans/app-plan';
 import type { SyncApp } from '@/lib/sync/types';
 import { setTenantAppEnabled, type GatedAppKey } from '@/lib/tenant-apps';
 import { assurerTenantHub } from '@/lib/tenants/assurer';
+import { fusionnerMetadata } from '@/lib/tenants/metadata-fusion';
 
 const PROVISION_PATH = '/api/tenants/provision';
 
@@ -64,22 +65,21 @@ export async function provisionAppWorkspace(
   const body = JSON.stringify({
     tenant_id: input.tenantId,
     owner_email: input.email,
-    workspace_name: input.workspaceName.slice(0, cfg.nameMax) || 'Veridian',
+    workspace_name: nomDEspace(input.workspaceName, input.email).slice(0, cfg.nameMax) || 'Veridian',
     plan: 'free',
     email_proven: true,
     metadata: { hub_user_id: input.hubUserId },
   });
-  const timestamp = String((opts.nowMs ?? Date.now)());
-  const signature = createHmac('sha256', config.hubSecret).update(`${timestamp}.${body}`).digest('hex');
+  const cible = `${config.apiUrl}${PROVISION_PATH}`;
+  const signature = entetesSignature({ secret: config.hubSecret, methode: 'POST', url: cible, corps: body, app: cfg.app, maintenant: (opts.nowMs ?? Date.now)() });
 
   let response: Response;
   try {
-    response = await (opts.fetchImpl ?? fetch)(`${config.apiUrl}${PROVISION_PATH}`, {
+    response = await (opts.fetchImpl ?? fetch)(cible, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Veridian-Timestamp': timestamp,
-        'X-Veridian-Hub-Signature': signature,
+        ...signature,
       },
       body,
       signal: AbortSignal.timeout(cfg.timeoutMs),
@@ -97,7 +97,7 @@ export async function provisionAppWorkspace(
   return { ok: true, workspaceId: data.workspace_id, created: data.created === true };
 }
 
-type EspaceDb = Pick<PrismaClient, 'tenant' | 'tenantApp' | 'tenantTrial' | 'subscription'>;
+type EspaceDb = Pick<PrismaClient, 'tenant' | 'tenantApp' | 'tenantTrial' | 'subscription' | '$executeRaw'>;
 
 /**
  * Garantit l'espace d'un utilisateur à adresse prouvée : à l'activation admin, à la première ouverture
@@ -137,18 +137,9 @@ export async function ensureAppWorkspace(
     );
   }
 
-  const current =
-    tenant.metadata && typeof tenant.metadata === 'object' && !Array.isArray(tenant.metadata)
-      ? (tenant.metadata as Record<string, unknown>)
-      : {};
-  await db.tenant.update({
-    where: { id: tenant.id },
-    data: {
-      metadata: {
-        ...current,
-        [cfg.app]: { workspace_id: provision.workspaceId, provisioned_at: new Date().toISOString() },
-      } as object,
-    },
+  // Les seules clés de ce geste, fusionnées par la base : jamais le JSON entier relu avant (26/11, lib/tenants/metadata-fusion.ts).
+  await fusionnerMetadata(db, tenant.id, {
+    [cfg.app]: { workspace_id: provision.workspaceId, provisioned_at: new Date().toISOString() },
   });
   await setTenantAppEnabled(db, {
     userUuid: user.hubUserId,
@@ -165,7 +156,11 @@ export async function ensureAppWorkspace(
   // rendait ce free « offert », donc immunisé : le premier abonné restait en free, sans erreur.
   // Un plan déjà choisi au Hub est repoussé avec sa propre source. Meilleur effort : un refus se lit
   // dans reconcile, il ne bloque pas l'ouverture.
-  const choisi = choisirPlanInitial(current, cfg.app);
+  // Le plan déjà posé se lit dans metadata tel qu'il était avant l'ouverture (l'écriture ci-dessus ne touche que la clé de l'app).
+  const choisi = choisirPlanInitial(
+    tenant.metadata && typeof tenant.metadata === 'object' && !Array.isArray(tenant.metadata) ? (tenant.metadata as Record<string, unknown>) : {},
+    cfg.app,
+  );
   if (choisi) {
     const plan = await setAppPlan(
       db,

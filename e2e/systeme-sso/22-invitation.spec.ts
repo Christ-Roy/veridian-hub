@@ -9,7 +9,7 @@ import { expect } from '@playwright/test';
 
 import { HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
-import { admin, lookup, secretDe } from './lib/hub-admin';
+import { admin, adminOk, lookup, secretDe } from './lib/hub-admin';
 import { obtenirJetonMcp, outil } from './lib/mcp';
 import { creerCompteProuve, type Compte } from './lib/parcours';
 
@@ -19,6 +19,10 @@ cas(null, 'invitation : acceptée, elle rend membre au Hub ; un simple membre n\
   if (/staging/.test(HUB_URL)) throw new NonAbouti('le staging n\'a pas d\'espace Mail relié : se joue en prod');
   const secret = process.env.SSO_SABOTAGE === 'invitation' ? 'x'.repeat(64) : secretDe('HUB_INVITATION_SECRET_NOTIFUSE_PROD');
   const [P, M, X] = [await creerCompteProuve(browser, 'invprop'), await creerCompteProuve(browser, 'invmembre'), await creerCompteProuve(browser, 'invtiers')];
+  // Un compte neuf n'a plus d'espace Mail tant qu'il ne l'ouvre pas : on l'ouvre par le chemin du Hub.
+  const t0 = (await lookup(P.email)).json.tenants[0];
+  const o = await adminOk<{ apps: { etat: string }[] }>('POST', `tenants/${t0.id}/ouvrir`, { apps: ['notifuse'] });
+  if (o.apps[0]?.etat !== 'ouverte') throw new NonAbouti(`espace Mail du propriétaire : ${JSON.stringify(o.apps)}`);
   const t = (await lookup(P.email)).json.tenants[0];
   const creer = async (de: Compte, a: Compte, espace = t.notifuseWorkspaceSlug as string) => {
     const corps = JSON.stringify({ inviter_user_id: de.hubUserId, inviter_email: de.email, invitee_email: a.email, target_app: 'notifuse', target_workspace_id: espace, target_role: 'member' });

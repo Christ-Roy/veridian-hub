@@ -25,6 +25,9 @@ const poignees = vi.hoisted(() => vi.fn(async (..._a: unknown[]): Promise<unknow
 vi.mock('@/lib/delegation/poignee', () => ({ emettrePoignees: poignees }));
 const actif = vi.hoisted(() => vi.fn(async (..._a: unknown[]): Promise<string | null> => null));
 vi.mock('@/lib/tenants/actif', () => ({ COOKIE_ACTIF: 'veridian_org', organisationActive: actif }));
+const closes = vi.hoisted(() => vi.fn(async (..._a: unknown[]): Promise<unknown[]> => []));
+const tient = vi.hoisted(() => vi.fn(async (..._a: unknown[]) => true));
+vi.mock('@/lib/federation/obligation', () => ({ fermees: closes, tientApp: tient, preuveDeSession: () => ({ par: 'session' }) }));
 const preinscrits = vi.hoisted(() => vi.fn(async (..._a: unknown[]) => [] as string[]));
 const emprunt = vi.hoisted(() => ({ oui: false, federe: false }));
 vi.mock('@/lib/tenants/preinscription', () => ({ consommerPreinscriptions: preinscrits }));
@@ -512,6 +515,24 @@ describe('GET /api/auth/bounce/complete', () => {
         expect(res.headers.get('location')).toBe('https://crm.app.veridian.site/auth/token?t=Z');
         expect(JSON.parse(fetchMock.mock.calls[0][1].body).organisations).toEqual(attendu);
       }
+    });
+
+    it('une organisation que la session n\'ouvre pas : l\'app qui la garde reste fermée, rien n\'est émis, le cookie reste ; les autres apps s\'ouvrent sans elle', async () => {
+      closes.mockResolvedValue([{ tenantId: 't-close', nom: 'X', fournisseur: 'F', porte: 'x', proprietaire: false }]);
+      fetchMock.mockReset();
+      const { GET } = await import('@/app/api/auth/bounce/complete/route');
+      const res = await GET(makeReq({ cookie: signNextCookie('https://crm.app.veridian.site/', TEST_SECRET) }));
+      expect(new URL(res.headers.get('location')!).pathname + new URL(res.headers.get('location')!).search).toBe('/auth/organisation?org=t-close');
+      expect([fetchMock.mock.calls.length, res.headers.getSetCookie().length]).toEqual([0, 0]);
+      tient.mockResolvedValueOnce(false);
+      orgs.mockResolvedValueOnce([{ hub_tenant_id: 't-close', role: 'admin', version: 1 }, { hub_tenant_id: 't-ouvert', role: 'member', version: 1 }]);
+      poignees.mockReset();
+      poignees.mockResolvedValueOnce([]);
+      fetchMock.mockResolvedValueOnce(lien());
+      await GET(makeReq({ cookie: signNextCookie('https://crm.app.veridian.site/', TEST_SECRET) }));
+      expect(JSON.parse(fetchMock.mock.calls[0][1].body).organisations.map((o: { hub_tenant_id: string }) => o.hub_tenant_id)).toEqual(['t-ouvert']);
+      expect(poignees.mock.calls[0][1]).toMatchObject({ sauf: ['t-close'] });
+      closes.mockResolvedValue([]);
     });
 
     it('les poignées de CE compte pour CETTE app partent dans le corps signé ; une panne n\'empêche pas d\'entrer', async () => {

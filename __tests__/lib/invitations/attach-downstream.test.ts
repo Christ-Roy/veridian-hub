@@ -25,6 +25,7 @@ import {
   attachMemberPath,
   resolveDownstreamBaseUrl,
 } from '@/lib/invitations/attach-downstream';
+import { exigeV1, exigeV2 } from '../hmac/aide-v2';
 
 const baseInput = {
   targetApp: 'prospection' as const,
@@ -426,5 +427,42 @@ describe('attachMemberDownstream', () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(result.status).toBe('completed');
+  });
+});
+
+describe('attachMemberDownstream, version de signature', () => {
+  const envoyer = async (maxRetries = 0, premier = 201) => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(1_700_000_000_000);
+    const vus: { url: string; h: Record<string, string>; corps: string }[] = [];
+    const f = vi.fn(async (url: string, init: RequestInit) => {
+      vus.push({ url, h: init.headers as Record<string, string>, corps: String(init.body) });
+      vi.setSystemTime(Date.now() + 7);
+      return jsonResponse(vus.length === 1 ? premier : 201, { attached: true, login_url: 'https://x' });
+    });
+    await attachMemberDownstream({ ...baseInput, maxRetries, fetchImpl: f as unknown as typeof fetch });
+    return vus;
+  };
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+  });
+  it('HMAC_V2_APPS=prospection : le POST attach-member part en v2, lié à son chemin', async () => {
+    vi.stubEnv('HMAC_V2_APPS', 'prospection');
+    const [v] = await envoyer();
+    exigeV2(v.h, 'test-secret-1234', 'POST', v.url, v.corps);
+    expect(v.h['x-veridian-app']).toBe('hub');
+  });
+  it('variable absente : v1, comme avant', async () => {
+    const [v] = await envoyer();
+    exigeV1(v.h, 'test-secret-1234', v.corps);
+  });
+  it('v2 : chaque nouvel essai prend un timestamp et une signature neufs (usage unique côté serveur)', async () => {
+    vi.stubEnv('HMAC_V2_APPS', 'prospection');
+    const [a, b] = await envoyer(1, 503);
+    expect(b).toBeDefined();
+    expect(a.h['X-Veridian-Timestamp']).not.toBe(b.h['X-Veridian-Timestamp']);
+    expect(a.h['X-Veridian-Hub-Signature']).not.toBe(b.h['X-Veridian-Hub-Signature']);
+    exigeV2(b.h, 'test-secret-1234', 'POST', b.url, b.corps);
   });
 });

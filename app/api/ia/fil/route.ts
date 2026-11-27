@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
   const sessionId = req.nextUrl.searchParams.get('session');
   if (!estAppFenetre(app) || !sessionId) return NextResponse.json({ error: 'requete_invalide' }, { status: 400 });
   const q = req.nextUrl.searchParams;
-  const espace = await espaceDe(c.hubUserId, q.get('tenant'), { app, workspaceId: null });
+  const espace = await espaceDe(c.hubUserId, q.get('tenant'), c.qui.preuve, { app, workspaceId: null });
   if (!espace) return NextResponse.json({ error: 'espace_inconnu' }, { status: 404 });
   // La session est celle du moteur qui l'a ouverte (clé API ou abonnement), jamais une autre.
   const moteur = await moteurActif(prisma, c.hubUserId);

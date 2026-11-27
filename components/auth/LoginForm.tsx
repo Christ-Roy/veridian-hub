@@ -11,7 +11,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { LoginErrorBanner } from "@/components/auth/LoginErrorBanner";
@@ -49,6 +49,28 @@ export function LoginForm({
     : safeCallback(requestedCallbackUrl);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Le domaine de l'adresse choisit la méthode (VER-261) : une organisation qui demande son fournisseur y envoie. Il ne prouve rien.
+  const [methode, setMethode] = useState<{ vers: string; fournisseur: string } | null>(null);
+  const [autrement, setAutrement] = useState(false);
+  const vue = useRef('');
+  const methodeDe = async (email: string): Promise<{ vers: string; fournisseur: string } | null> => {
+    const domaine = email.trim().toLowerCase().split('@')[1] ?? '';
+    if (!/\.[a-z]{2,}$/.test(domaine)) return null;
+    vue.current = domaine;
+    try {
+      const r = await fetch('/api/auth/methode', { method: 'POST', headers: { 'content-type': 'application/json' }, credentials: 'same-origin', body: JSON.stringify({ email: email.trim() }) });
+      const j = r.ok ? ((await r.json()) as { methode?: string; vers?: string; fournisseur?: string }) : null;
+      return j?.methode === 'fournisseur' && j.vers?.startsWith('/connexion/') ? { vers: j.vers, fournisseur: j.fournisseur ?? 'votre organisation' } : null;
+    } catch {
+      return null;
+    }
+  };
+  const regarder = async (email: string) => {
+    const domaine = email.trim().toLowerCase().split('@')[1] ?? '';
+    if (autrement || domaine === vue.current) return;
+    const m = await methodeDe(email);
+    if (vue.current === domaine || m === null) setMethode(m);
+  };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -58,6 +80,15 @@ export function LoginForm({
     const formData = new FormData(e.currentTarget);
     const email = String(formData.get('email') ?? '');
     const password = String(formData.get('password') ?? '');
+
+    // Son organisation demande son fournisseur : on y part, sauf si elle a choisi « me connecter autrement ».
+    if (!autrement) {
+      const m = methode ?? (await methodeDe(email));
+      if (m) {
+        window.location.assign(m.vers);
+        return;
+      }
+    }
 
     // D10 : Hub coupé, cookie tiers bloqué ou erreur de configuration ne doivent ni laisser le
     // bouton bloqué, ni afficher un faux « mot de passe invalide ».
@@ -144,9 +175,14 @@ export function LoginForm({
                 autoCapitalize="none"
                 autoComplete="email"
                 autoCorrect="off"
+                onBlur={(e) => void regarder(e.currentTarget.value)}
+                onChange={(e) => { if (methode) { setMethode(null); vue.current = ''; } if (autrement) setAutrement(false); void e; }}
                 required
               />
             </Field>
+            {methode ? (
+              <p role="status" className="text-sm text-muted-foreground text-center">Votre organisation se connecte avec {methode.fournisseur}.</p>
+            ) : (
             <Field>
               <div className="flex items-center">
                 <FieldLabel htmlFor="password">Mot de passe</FieldLabel>
@@ -164,13 +200,19 @@ export function LoginForm({
                 required
               />
             </Field>
+            )}
             {error && (
               <p className="text-sm text-destructive text-center">{error}</p>
             )}
             <Field>
               <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? 'Connexion…' : 'Se connecter'}
+                {isSubmitting ? 'Connexion…' : methode ? `Continuer avec ${methode.fournisseur}` : 'Se connecter'}
               </Button>
+              {methode ? (
+                <button type="button" className="inline-flex min-h-11 items-center justify-center text-sm underline" onClick={() => { setAutrement(true); setMethode(null); }}>
+                  Me connecter autrement
+                </button>
+              ) : null}
             </Field>
           </>
         )}

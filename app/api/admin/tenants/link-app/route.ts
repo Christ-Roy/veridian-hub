@@ -17,7 +17,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { prisma } from '@/lib/prisma';
-import { linkApp, type AppLinkApp } from '@/lib/admin/link-app';
+import { linkApp, unlinkApp, type AppLinkApp } from '@/lib/admin/link-app';
+import { NotifuseClient } from '@/lib/notifuse/client';
 import { writeAuditLog, resolveActor } from '@/lib/admin/audit-log';
 import { authenticateAdmin } from '@/lib/admin/authenticate';
 import { isPublicHttpUrl } from '@/lib/security/safe-url';
@@ -153,6 +154,18 @@ export async function POST(request: NextRequest) {
     ownerEmail: parsed.data.owner_email?.trim().toLowerCase() ?? email,
   });
 
+  // Mail doit connaître l'organisation de cet espace, sinon il refuse les actions des autres apps (409 espace_non_relie, 26/11).
+  // Relié ailleurs chez Mail : le lien du Hub est défait, rien n'est re-pointé en silence.
+  let lienMail: string | undefined;
+  if (parsed.data.app === 'notifuse' && process.env.NOTIFUSE_API_URL && process.env.NOTIFUSE_HUB_API_SECRET) {
+    const l = await new NotifuseClient({ apiUrl: process.env.NOTIFUSE_API_URL, hubSecret: process.env.NOTIFUSE_HUB_API_SECRET }).lierTenantHub(parsed.data.external_tenant_slug, result.tenantId);
+    if (!l.ok && l.code === 409) {
+      await unlinkApp(prisma, { userUuid: user.supabaseUserId, app: 'notifuse' });
+      return NextResponse.json({ error: 'mail_deja_relie', message: `Mail relie déjà cet espace ou cette organisation ailleurs (${l.erreur}) : rien n'est lié.` }, { status: 409 });
+    }
+    lienMail = l.ok ? 'relie' : l.absente ? 'route_absente' : `echec ${l.code} ${l.erreur}`;
+  }
+
   // Un plan posé au rattachement doit aussi valoir dans l'app. Le lien reste acquis si
   // l'app refuse : la réponse le dit, et `hub reconcile` garde l'écart visible.
   let planPropagationError: string | undefined;
@@ -188,6 +201,7 @@ export async function POST(request: NextRequest) {
     app: result.app,
     metadata_path: result.metadataPath,
     created: result.created,
+    ...(lienMail ? { lien_mail: lienMail } : {}),
     ...(planPropagationError ? { plan_propagation_error: planPropagationError } : {}),
   });
 }

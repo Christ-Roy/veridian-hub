@@ -60,7 +60,7 @@ export async function POST(req: Request) {
 
   const user = await prisma.user.findFirst({ where: { supabaseUserId: qui.hubUserId }, select: { email: true, emailVerified: true } });
   if (!user?.email || !user.emailVerified) return refuser(qui, 403, 'adresse_non_prouvee', "Ce compte n'a pas d'adresse prouvée.");
-  const espace = await espaceDe(qui.hubUserId, null, { app: APP, workspaceId: qui.workspaceId });
+  const espace = await espaceDe(qui.hubUserId, null, { par: 'personne' }, { app: APP, workspaceId: qui.workspaceId });
   if (!espace) return refuser(qui, 403, 'espace_etranger', "Cet espace n'appartient pas à ce membre.");
   const triplet = { hubUserId: qui.hubUserId, app: APP, tenantId: espace.id };
   if (!(await estActive(prisma, triplet))) return refuser(qui, 403, 'chat_desactive', "L'assistant est éteint pour cette app.");

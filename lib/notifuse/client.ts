@@ -3,21 +3,18 @@
  *
  * Couvre les endpoints HMAC-signés exposés par le fork Notifuse pour piloter le
  * cycle de vie des tenants depuis le Hub (provision, plan, suspend, resume,
- * delete, status) ainsi que l'endpoint authentifié par API key tenant
- * (generateMagicLink) pour fabriquer un lien d'auto-login depuis la console
- * client.
+ * delete, status). L'ouverture de Mail passe par le rebond signé (lib/auth/bounce-apps.ts).
  *
  * Voir docs/saas-standards.md §6.1 pour le format HMAC partagé.
  */
 
-import { createHmac } from 'crypto';
+import { nomDEspace } from '@/lib/apps/nom-espace';
+import { entetesSignature } from '@/lib/hmac/signature-hub';
 
 import {
   AttachOwnerInput,
   AttachOwnerResponse,
   HealthResponse,
-  MagicLinkInput,
-  MagicLinkResponse,
   NotifuseError,
   ProvisionInput,
   ProvisionResponse,
@@ -65,7 +62,7 @@ export class NotifuseClient {
       tenant_id: input.tenantId,
       owner_email: input.ownerEmail,
       ...(input.hubUserId ? { owner_hub_user_id: input.hubUserId } : {}),
-      workspace_name: input.workspaceName,
+      workspace_name: input.workspaceName === undefined ? undefined : nomDEspace(input.workspaceName, input.ownerEmail),
       plan: input.plan,
       ...(input.hubUserId || input.hubTenantId
         ? { metadata: { ...(input.hubUserId ? { hub_user_id: input.hubUserId } : {}), ...(input.hubTenantId ? { hub_tenant_id: input.hubTenantId } : {}) } }
@@ -73,6 +70,23 @@ export class NotifuseClient {
       ...(input.hubTenantId ? { hub_tenant_id: input.hubTenantId } : {}),
       ...(input.emailProven ? { email_proven: true } : {}),
     });
+  }
+
+  /**
+   * Relie l'espace Mail à son organisation du Hub, SANS toucher au plan (POST /api/hub/tenants/link). Mail résout le tenant d'un jeton
+   * d'action par ce lien seul : sans lui, ses actions rendent 409 espace_non_relie. 409 hub_tenant_conflict : déjà relié ailleurs, rien écrit.
+   * `absente` : la route n'est pas encore servie par Mail (404 sans code), le lien reste celui de l'update-plan à la création.
+   */
+  async lierTenantHub(tenantId: string, hubTenantId: string): Promise<{ ok: true; changed: boolean } | { ok: false; absente?: true; code: number; erreur: string }> {
+    try {
+      const r = await this.hmacRequest<{ changed?: boolean }>('POST', '/api/hub/tenants/link', { tenant_id: tenantId, hub_tenant_id: hubTenantId });
+      return { ok: true, changed: r?.changed === true };
+    } catch (err) {
+      if (!(err instanceof NotifuseError)) return { ok: false, code: 0, erreur: err instanceof Error ? err.message.slice(0, 160) : 'erreur' };
+      const code = (err.body as { error?: string } | null)?.error;
+      if (err.code === 404 && !code) return { ok: false, absente: true, code: 404, erreur: 'route_absente' };
+      return { ok: false, code: err.code, erreur: code ?? err.message.slice(0, 160) };
+    }
   }
 
   async updatePlan(input: UpdatePlanInput): Promise<void> {
@@ -105,14 +119,17 @@ export class NotifuseClient {
     );
   }
 
-  /** Workspaces dont l'identifiant commence par ce préfixe, orphelins compris (restes de test). */
+  /**
+   * Workspaces ACTIFS dont l'identifiant commence par ce préfixe, orphelins compris (restes de test). Un espace en suppression douce
+   * (`status: deleted`, purgé à 30 j) n'est pas un reste : même règle que `orphelins-e2e.sh` (26/11, trois espaces retirés comptés).
+   */
   async listTenantsByPrefix(prefix: string): Promise<string[]> {
     const q = new URLSearchParams({ prefix, include_orphans: 'true', limit: '500' });
     const res = await this.hmacRequest<{
-      managed?: { tenant_id: string }[];
-      orphans?: { tenant_id: string }[];
+      managed?: { tenant_id: string; status?: string; deleted_at?: string | null }[];
+      orphans?: { tenant_id: string; status?: string; deleted_at?: string | null }[];
     }>('GET', `/api/veridian/admin/tenants?${q}`, null);
-    return [...(res.managed ?? []), ...(res.orphans ?? [])].map((t) => t.tenant_id);
+    return [...(res.managed ?? []), ...(res.orphans ?? [])].filter((t) => t.status !== 'deleted' && !t.deleted_at).map((t) => t.tenant_id);
   }
 
   async getStatus(tenantId: string): Promise<StatusResponse> {
@@ -123,22 +140,13 @@ export class NotifuseClient {
     );
   }
 
-  async generateMagicLink(input: MagicLinkInput): Promise<MagicLinkResponse> {
-    return this.apiKeyRequest<MagicLinkResponse>(
-      'POST',
-      '/api/workspaces.generateMagicLink',
-      { ...(input.hubUserId ? { hub_user_id: input.hubUserId } : {}), user_email: input.userEmail },
-      input.apiKey,
-    );
-  }
-
   /**
    * Répare un workspace existant en y attachant un user humain comme owner.
    *
    * Idempotent : si l'user est déjà owner du workspace, renvoie
-   * `already_attached: true` sans modif. Additif : ne retire jamais un owner
-   * existant (cf notifuse `service.AttachOwner` qui fait un transfer atomic
-   * quand un autre owner existe déjà).
+   * `already_attached: true` sans modif. Un AUTRE propriétaire humain : 409
+   * `owner_exists`, rien n'est écrit. Mail sait le transférer (`transfer: true`,
+   * qui rétrograde l'ancien) : le Hub ne l'envoie jamais.
    *
    * Use case principal : réparer les tenants prod où `Provision` historique
    * n'avait pas attaché l'owner humain au workspace (bug 2026-05-17, 11 tenants
@@ -150,7 +158,9 @@ export class NotifuseClient {
     const body: Record<string, unknown> = {
       tenant_id: input.tenantId,
       owner_email: input.ownerEmail,
+      hub_user_id: input.hubUserId,
     };
+    if (!input.hubUserId) throw new Error('NotifuseClient.attachOwner: hubUserId est requis (VER-255)');
     if (input.role) {
       body.role = input.role;
     }
@@ -183,12 +193,22 @@ export class NotifuseClient {
 
   // --- internals ---
 
-  private signRequest(body: string): { timestamp: string; signature: string } {
-    const timestamp = Date.now().toString();
-    const signature = createHmac('sha256', this.hubSecret)
-      .update(`${timestamp}.${body}`)
-      .digest('hex');
-    return { timestamp, signature };
+  /**
+   * Les en-têtes d'UNE tentative : signature neuve (timestamp neuf) à chaque envoi et à chaque nouvel essai,
+   * la v2 étant à usage unique côté serveur (`lib/hmac/signature-hub.ts`).
+   */
+  private entetes(method: string, url: string, rawBody: string): Record<string, string> {
+    const headers: Record<string, string> = entetesSignature({
+      secret: this.hubSecret,
+      methode: method,
+      url,
+      corps: rawBody,
+      app: 'notifuse',
+    });
+    if (rawBody) {
+      headers['Content-Type'] = 'application/json';
+    }
+    return headers;
   }
 
   private async hmacRequest<T>(
@@ -197,37 +217,12 @@ export class NotifuseClient {
     body: unknown,
   ): Promise<T> {
     const rawBody = body == null ? '' : JSON.stringify(body);
-    const { timestamp, signature } = this.signRequest(rawBody);
-    const headers: Record<string, string> = {
-      'X-Veridian-Timestamp': timestamp,
-      'X-Veridian-Hub-Signature': signature,
-    };
-    if (rawBody) {
-      headers['Content-Type'] = 'application/json';
-    }
-    return this.executeWithRetry<T>(method, path, headers, rawBody);
-  }
-
-  private async apiKeyRequest<T>(
-    method: 'GET' | 'POST' | 'DELETE',
-    path: string,
-    body: unknown,
-    apiKey: string,
-  ): Promise<T> {
-    const rawBody = body == null ? '' : JSON.stringify(body);
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${apiKey}`,
-    };
-    if (rawBody) {
-      headers['Content-Type'] = 'application/json';
-    }
-    return this.executeWithRetry<T>(method, path, headers, rawBody);
+    return this.executeWithRetry<T>(method, path, rawBody);
   }
 
   private async executeWithRetry<T>(
     method: string,
     path: string,
-    headers: Record<string, string>,
     rawBody: string,
   ): Promise<T> {
     const url = `${this.apiUrl}${path}`;
@@ -240,7 +235,7 @@ export class NotifuseClient {
       try {
         const response = await this.fetchImpl(url, {
           method,
-          headers,
+          headers: this.entetes(method, url, rawBody),
           body: rawBody && method !== 'GET' ? rawBody : undefined,
           signal: controller.signal,
         });

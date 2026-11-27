@@ -5,6 +5,7 @@ import Link from "next/link"
 import {
   BotIcon,
   Building2Icon,
+  Link2Icon,
   FileIcon,
   LayoutDashboardIcon,
   SettingsIcon,
@@ -41,6 +42,11 @@ const navMain = [
     title: "Organisation",
     url: "/dashboard/organisation",
     icon: Building2Icon,
+  },
+  {
+    title: "Liaisons",
+    url: "/dashboard/liaisons",
+    icon: Link2Icon,
   },
   {
     title: "Membres",

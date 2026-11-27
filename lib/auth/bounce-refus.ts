@@ -5,7 +5,7 @@
  */
 
 /** Codes qui disent quelque chose de l'identité ou de l'accès, pas de l'infrastructure : la page les explique. */
-export const REFUS_IDENTITE = ['user_not_in_app', 'hub_user_conflict', 'email_not_proven', 'workspace_suspended'] as const;
+export const REFUS_IDENTITE = ['user_not_in_app', 'hub_user_conflict', 'email_not_proven', 'workspace_suspended', 'organisation_fournisseur'] as const;
 export type RefusIdentite = (typeof REFUS_IDENTITE)[number];
 
 export function journaliserRefus(r: {

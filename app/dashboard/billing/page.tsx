@@ -12,6 +12,7 @@ import { StripePortalButton } from './StripePortalButton';
 import { BillingStatusAlert } from './BillingStatusAlert';
 import { SubscriptionCard, type SubscriptionView } from './SubscriptionCard';
 import { RecentInvoicesCard } from './RecentInvoicesCard';
+import { fermeesIci, PAGE_ORGANISATION } from '@/lib/federation/session';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
 import { getRecentInvoices } from '@/lib/stripe/invoices';
@@ -23,6 +24,8 @@ export default async function BillingPage() {
   if (!user) {
     redirect('/login');
   }
+  // Le layout ne rejoue pas à chaque navigation : la garde est aussi ici.
+  if ((await fermeesIci(user)).some((f) => f.proprietaire)) redirect(PAGE_ORGANISATION);
 
   // Toutes les subscriptions du user (pas seulement active/trialing) — il faut
   // pouvoir afficher l'état d'une sub `canceled` / `past_due`.

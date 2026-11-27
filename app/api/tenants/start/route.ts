@@ -18,6 +18,7 @@ import { requireUser, userUuid } from '@/lib/auth/get-user';
 import { denyUnlessEmailProven } from '@/lib/auth/email-proof';
 import { prisma } from '@/lib/prisma';
 import { membreSeul } from '@/lib/tenants/membre-seul';
+import { lienApp } from '@/lib/apps/lien-app';
 import { provisionTenants } from '@/utils/tenants/provision';
 import { trackGoal, hubSessionId } from '@/lib/analytics/track-event';
 
@@ -123,7 +124,7 @@ export async function POST(request: NextRequest) {
       ? {
           success: result.notifuse.success,
           workspace_id: result.notifuse.workspaceId,
-          auto_login_url: result.notifuse.autoLoginUrl,
+          open_url: lienApp('notifuse'),
           error: result.notifuse.error,
         }
       : null,

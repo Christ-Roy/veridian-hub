@@ -4,5 +4,6 @@
  */
 export function montrerInclusAvecSite(o: { plan: boolean; analytics: boolean; cms: boolean }): boolean {
   const aUnSite = o.plan || o.analytics || o.cms;
-  return aUnSite && !(o.analytics && o.cms);
+  // Le CMS s'éteint (26/11) : il ne se propose plus ; seule Analytics reste à proposer, tant qu'elle n'est pas servie.
+  return aUnSite && !o.analytics;
 }

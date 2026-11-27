@@ -1,8 +1,9 @@
 import { createHmac } from 'crypto';
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { NotifuseClient } from '@/lib/notifuse/client';
 import { NotifuseError } from '@/lib/notifuse/types';
+import { exigeV1, exigeV2 } from '../hmac/aide-v2';
 
 const SECRET = 'test-hub-secret';
 const API_URL = 'https://notifuse.example.com';
@@ -110,35 +111,22 @@ describe('NotifuseClient HMAC requests', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
-  it('uses Bearer auth (not HMAC) for generateMagicLink', async () => {
-    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
-      const headers = init!.headers as Record<string, string>;
-      expect(headers['Authorization']).toBe('Bearer tenant-api-key');
-      expect(headers['X-Veridian-Hub-Signature']).toBeUndefined();
-      expect(headers['X-Veridian-Timestamp']).toBeUndefined();
-      return jsonResponse(200, {
-        magic_link: 'https://notifuse.example.com/m?t=abc',
-        expires_at: '2030-01-01T00:00:00Z',
-      });
-    });
-
+  it('compte d\'épreuve : le nom de l\'espace Mail est préfixé e2e- ; un client garde le sien ; sans nom, rien n\'est envoyé', async () => {
+    const corps: Record<string, unknown>[] = [];
+    const fetchImpl = vi.fn(async (_u: string, init?: RequestInit) => { corps.push(JSON.parse(String(init!.body))); return jsonResponse(200, {}); });
     const client = new NotifuseClient({ apiUrl: API_URL, hubSecret: SECRET, fetchImpl });
-    const res = await client.generateMagicLink({
-      apiKey: 'tenant-api-key',
-      userEmail: 'owner@example.com',
-    });
-
-    expect(res.magic_link).toContain('https://');
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    await client.provisionWorkspace({ tenantId: 't', ownerEmail: 'e2e-sso-moteur-1@veridian.site', workspaceName: 'Veridian' });
+    await client.provisionWorkspace({ tenantId: 't', ownerEmail: 'o@x.fr', workspaceName: 'Boulangerie' });
+    await client.provisionWorkspace({ tenantId: 't', ownerEmail: 'o@x.fr' });
+    expect(corps.map((c) => c.workspace_name)).toEqual(['e2e-Veridian', 'Boulangerie', undefined]);
   });
 
-  it('désigne la personne par hub_user_id (CONTRAT-HUB §5.19.7), au lien direct comme au provisionnement', async () => {
+  it('désigne la personne par hub_user_id (CONTRAT-HUB §5.19.7) au provisionnement', async () => {
     const corps: Record<string, unknown>[] = [];
     const fetchImpl = vi.fn(async (_u: string, init?: RequestInit) => { corps.push(JSON.parse(String(init!.body))); return jsonResponse(200, { magic_link: 'https://notifuse.example.com/m' }); });
     const client = new NotifuseClient({ apiUrl: API_URL, hubSecret: SECRET, fetchImpl });
-    await client.generateMagicLink({ apiKey: 'k', hubUserId: 'h-1', userEmail: 'o@x.fr' });
     await client.provisionWorkspace({ tenantId: 't', ownerEmail: 'o@x.fr', hubUserId: 'h-1' });
-    expect(corps).toEqual([{ hub_user_id: 'h-1', user_email: 'o@x.fr' }, expect.objectContaining({ owner_hub_user_id: 'h-1', metadata: { hub_user_id: 'h-1' } })]);
+    expect(corps).toEqual([expect.objectContaining({ owner_hub_user_id: 'h-1', metadata: { hub_user_id: 'h-1' } })]);
   });
 
   it('throws NotifuseError with code 0 on timeout', async () => {
@@ -185,6 +173,7 @@ describe('NotifuseClient HMAC requests', () => {
       expect(parsed).toEqual({
         tenant_id: 'robertbrunon',
         owner_email: 'robert.brunon@veridian.site',
+        hub_user_id: '11111111-1111-4111-8111-111111111111',
         role: 'owner',
       });
       return jsonResponse(200, {
@@ -202,6 +191,7 @@ describe('NotifuseClient HMAC requests', () => {
     const res = await client.attachOwner({
       tenantId: 'robertbrunon',
       ownerEmail: 'robert.brunon@veridian.site',
+      hubUserId: '11111111-1111-4111-8111-111111111111',
       role: 'owner',
     });
 
@@ -212,6 +202,32 @@ describe('NotifuseClient HMAC requests', () => {
     expect(res.user_id).toMatch(/^[0-9a-f-]{36}$/);
   });
 
+  it('lierTenantHub : le lien seul, sans plan ; conflit rendu ; route absente reconnue (26/11)', async () => {
+    const rep = [jsonResponse(200, { changed: true }), jsonResponse(409, { error: 'hub_tenant_conflict' }), jsonResponse(404, {}), jsonResponse(404, { error: 'tenant_not_found' })];
+    const corps: unknown[] = [];
+    const fetchImpl = vi.fn(async (_u: string, init?: RequestInit) => { corps.push(JSON.parse(init!.body as string)); return rep.shift()!; });
+    const client = new NotifuseClient({ apiUrl: API_URL, hubSecret: SECRET, fetchImpl: fetchImpl as unknown as typeof fetch });
+    const r = [];
+    for (let i = 0; i < 4; i++) r.push(await client.lierTenantHub('ws', 'T'));
+    expect(r).toEqual([{ ok: true, changed: true }, { ok: false, code: 409, erreur: 'hub_tenant_conflict' }, { ok: false, absente: true, code: 404, erreur: 'route_absente' }, { ok: false, code: 404, erreur: 'tenant_not_found' }]);
+    expect(corps[0]).toEqual({ tenant_id: 'ws', hub_tenant_id: 'T' });
+  });
+
+  it('attachOwner : un autre propriétaire humain, 409 rendu tel quel, jamais de transfert demandé ni rejoué (VER-263)', async () => {
+    const corps: unknown[] = [];
+    const fetchImpl = vi.fn(async (_u: string, init?: RequestInit) => { corps.push(JSON.parse(init!.body as string)); return jsonResponse(409, { error: 'owner_exists' }); });
+    const client = new NotifuseClient({ apiUrl: API_URL, hubSecret: SECRET, fetchImpl: fetchImpl as unknown as typeof fetch });
+    await expect(client.attachOwner({ tenantId: 'ws', ownerEmail: 'b@x.fr', hubUserId: '11111111-1111-4111-8111-111111111111', role: 'owner' })).rejects.toMatchObject({ code: 409 });
+    expect(corps).toEqual([{ tenant_id: 'ws', owner_email: 'b@x.fr', hub_user_id: '11111111-1111-4111-8111-111111111111', role: 'owner' }]);
+  });
+
+  it('attachOwner désigne la personne par son hub_user_id et ne part jamais sans lui (VER-255)', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(200, {}));
+    const client = new NotifuseClient({ apiUrl: API_URL, hubSecret: SECRET, fetchImpl: fetchImpl as unknown as typeof fetch });
+    await expect(client.attachOwner({ tenantId: 'ws', ownerEmail: 'a@b.io', hubUserId: '' })).rejects.toThrow(/hubUserId/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it('attachOwner omet le champ role si non précisé (default Notifuse = owner)', async () => {
     const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
       const parsed = JSON.parse(init!.body as string);
@@ -219,6 +235,7 @@ describe('NotifuseClient HMAC requests', () => {
       expect(parsed).toEqual({
         tenant_id: 'ws-1',
         owner_email: 'alice@test.io',
+        hub_user_id: '11111111-1111-4111-8111-111111111111',
       });
       return jsonResponse(200, {
         tenant_id: 'ws-1',
@@ -230,7 +247,7 @@ describe('NotifuseClient HMAC requests', () => {
       });
     });
     const client = new NotifuseClient({ apiUrl: API_URL, hubSecret: SECRET, fetchImpl });
-    const res = await client.attachOwner({ tenantId: 'ws-1', ownerEmail: 'alice@test.io' });
+    const res = await client.attachOwner({ tenantId: 'ws-1', ownerEmail: 'alice@test.io', hubUserId: '11111111-1111-4111-8111-111111111111' });
     expect(res.role).toBe('owner');
   });
 
@@ -246,7 +263,7 @@ describe('NotifuseClient HMAC requests', () => {
       }),
     );
     const client = new NotifuseClient({ apiUrl: API_URL, hubSecret: SECRET, fetchImpl });
-    const res = await client.attachOwner({ tenantId: 'ws-1', ownerEmail: 'alice@test.io' });
+    const res = await client.attachOwner({ tenantId: 'ws-1', ownerEmail: 'alice@test.io', hubUserId: '11111111-1111-4111-8111-111111111111' });
     expect(res.attached).toBe(false);
     expect(res.already_attached).toBe(true);
   });
@@ -260,7 +277,7 @@ describe('NotifuseClient HMAC requests', () => {
       maxRetries: 0,
     });
     await expect(
-      client.attachOwner({ tenantId: 'missing', ownerEmail: 'a@b.io' }),
+      client.attachOwner({ tenantId: 'missing', ownerEmail: 'a@b.io', hubUserId: '11111111-1111-4111-8111-111111111111' }),
     ).rejects.toMatchObject({ name: 'NotifuseError', code: 404 });
   });
 
@@ -318,5 +335,59 @@ describe('NotifuseClient HMAC requests', () => {
   it('getHealth: throws si tenantId vide (garde-fou)', async () => {
     const client = new NotifuseClient({ apiUrl: API_URL, hubSecret: SECRET });
     await expect(client.getHealth('')).rejects.toThrow(/tenantId is required/);
+  });
+});
+
+describe('NotifuseClient, version de signature', () => {
+  const appeler = async (maxRetries: number, premier: number) => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(1_700_000_000_000);
+    const vus: { url: string; method: string; h: Record<string, string>; corps: string }[] = [];
+    const fetchImpl = vi.fn(async (url: string, init?: RequestInit) => {
+      vus.push({ url, method: String(init?.method), h: init!.headers as Record<string, string>, corps: String(init?.body ?? '') });
+      vi.setSystemTime(Date.now() + 7);
+      return jsonResponse(vus.length === 1 ? premier : 200, { ok: true });
+    });
+    const client = new NotifuseClient({ apiUrl: 'https://notifuse.example.com', hubSecret: 'test-hub-secret', fetchImpl, maxRetries });
+    await client.getStatus('t').catch(() => undefined);
+    return vus;
+  };
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+  });
+  it('HMAC_V2_APPS=notifuse : l\'appel part en v2, lié à sa méthode et à son chemin', async () => {
+    vi.stubEnv('HMAC_V2_APPS', 'notifuse');
+    const [v] = await appeler(0, 200);
+    exigeV2(v.h, 'test-hub-secret', v.method, v.url, v.corps);
+  });
+  it('variable absente, ou nommant une autre app : v1', async () => {
+    vi.stubEnv('HMAC_V2_APPS', 'crm');
+    const [v] = await appeler(0, 200);
+    exigeV1(v.h, 'test-hub-secret', v.corps);
+  });
+  it('v2 : chaque nouvel essai après un 503 prend un timestamp et une signature neufs', async () => {
+    vi.stubEnv('HMAC_V2_APPS', 'notifuse');
+    const [a, b] = await appeler(2, 503);
+    expect(b).toBeDefined();
+    expect(a.h['X-Veridian-Timestamp']).not.toBe(b.h['X-Veridian-Timestamp']);
+    expect(a.h['X-Veridian-Hub-Signature']).not.toBe(b.h['X-Veridian-Hub-Signature']);
+    exigeV2(b.h, 'test-hub-secret', b.method, b.url, b.corps);
+  });
+});
+
+describe('NotifuseClient.listTenantsByPrefix', () => {
+  it('rend les espaces actifs, orphelins compris ; un espace en suppression douce n\'est pas un reste', async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(200, {
+      managed: [
+        { tenant_id: 'e2eactif', status: 'active' },
+        { tenant_id: 'e2eretire', status: 'deleted', deleted_at: '2026-11-26T13:24:22Z' },
+        { tenant_id: 'e2edate', deleted_at: '2026-11-26T13:24:22Z' },
+      ],
+      orphans: [{ tenant_id: 'e2eorphelin' }],
+    }));
+    const client = new NotifuseClient({ apiUrl: API_URL, hubSecret: SECRET, fetchImpl });
+    expect(await client.listTenantsByPrefix('e2e')).toEqual(['e2eactif', 'e2eorphelin']);
+    expect(String(fetchImpl.mock.calls[0][0])).toContain('/api/veridian/admin/tenants?prefix=e2e&include_orphans=true');
   });
 });

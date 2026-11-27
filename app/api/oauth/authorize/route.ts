@@ -6,8 +6,10 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
 import { auth } from '@/auth';
+import { connecteursOuverts } from '@/lib/connecteurs/registre';
 import { isEmailProvenForSession } from '@/lib/auth/email-proof';
 import { getCurrentUser } from '@/lib/auth/get-user';
+import { orgsProuvees, preuveDeSession } from '@/lib/federation/obligation';
 import { hubIssuer } from '@/lib/mcp/config';
 import { lireParams } from '@/lib/mcp/http';
 import { creerCode, validerDemande } from '@/lib/mcp/oauth';
@@ -44,7 +46,8 @@ export async function POST(request: NextRequest) {
   if (p.decision !== 'autoriser') {
     return vers(v.demande.redirectUri, { error: 'access_denied', state: v.demande.state, iss });
   }
-  const code = await creerCode(prisma, v.demande, user.supabaseUserId);
+  // Ses services extérieurs : seulement si l'écran qu'elle vient de lire les citait, et jamais par une session d'organisation ou d'emprunt (refusées plus haut).
+  const code = await creerCode(prisma, v.demande, user.supabaseUserId, await orgsProuvees(prisma, preuveDeSession(session)), connecteursOuverts() && p.services === '1');
   await prisma.auditLog
     .create({ data: { action: 'mcp.oauth.consent', actor: `user:${user.supabaseUserId}`, targetType: 'oauth_client', targetId: v.demande.clientId, payload: { client: v.demande.clientName } } })
     .catch(() => {});

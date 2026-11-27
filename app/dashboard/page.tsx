@@ -9,6 +9,7 @@ import { OutilsOrganisation } from './components/OutilsOrganisation';
 import { OnboardingChecklist } from './components/OnboardingChecklist';
 import { DashboardPageHeader } from '@/components/dashboard/PageHeader';
 import { LayoutDashboard } from 'lucide-react';
+import { fermeesIci, PAGE_ORGANISATION } from '@/lib/federation/session';
 import { getCurrentUser, userUuid } from '@/lib/auth/get-user';
 import { prisma } from '@/lib/prisma';
 import { APPS } from '@/lib/pricing/plans';
@@ -17,6 +18,7 @@ import { lienApp } from '@/lib/apps/lien-app';
 import { montrerInclusAvecSite } from '@/lib/apps/inclus-avec-site';
 import { organisationsSeules } from '@/lib/tenants/membre-seul';
 import { resolveAnalyticsCardTarget } from '@/lib/analytics/dashboard-target';
+import { idEspaceMeta } from '@/lib/apps/espace-note';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 /**
@@ -41,6 +43,8 @@ export default async function DashboardPage({
   if (!user) {
     redirect('/login');
   }
+  // Le layout ne rejoue pas à chaque navigation : la garde est aussi ici.
+  if ((await fermeesIci(user)).some((f) => f.proprietaire)) redirect(PAGE_ORGANISATION);
 
   const params = await searchParams;
   const showDebug = process.env.NODE_ENV === 'development' && params.debug === '1';
@@ -142,9 +146,11 @@ export default async function DashboardPage({
   // l'app d'analytics reconnaît cet email et lui donne au moins un site, la
   // carte s'affiche même sans activation manuelle. Un client qui a un site
   // doit le voir ; l'inverse était un oubli d'activation silencieux.
+  // Un espace Analytics noté (provisionnement, `hub link`) suffit : sans site, le client doit pouvoir entrer (parente, 26/11).
   const showActiveAnalyticsBase =
-    isAnalyticsEnabled || hasLifetimeSiteVitrine || hasServiceAnalytics;
-  const showActiveCms = isCmsEnabled || hasLifetimeSiteVitrine || hasServiceCms;
+    isAnalyticsEnabled || hasLifetimeSiteVitrine || hasServiceAnalytics || !!idEspaceMeta(tenant?.metadata, 'analytics');
+  // Le CMS s'éteint (parente, 26/11) : visible seulement là où il est actif (activé par un opérateur, ou configuré), jamais proposé.
+  const showActiveCms = isCmsEnabled || hasServiceCms || !!idEspaceMeta(tenant?.metadata, 'cms');
 
   const emailProven = await isEmailProvenForSession(user.id);
   // Cible de la carte Analytics. On demande à l'app d'analytics quels sites
@@ -311,7 +317,6 @@ export default async function DashboardPage({
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {!showActiveAnalytics && <ShadowAppCard app={APPS.analytics} />}
-            {!showActiveCms && <ShadowAppCard app={APPS.cms} />}
           </div>
         </section>
       )}

@@ -2,11 +2,17 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
 import { auth } from '@/auth';
+import { isEmailProvenForSession } from '@/lib/auth/email-proof';
+import { getCurrentUser } from '@/lib/auth/get-user';
+import { isImpersonatedSession } from '@/lib/auth/impersonation';
 import { ipClient } from '@/lib/auth/ip-client';
 import { RateLimiter } from '@/lib/auth/rate-limit';
+import { isAuthRecent, PREUVE_COMPTE_S } from '@/lib/auth/recent-auth';
+import { membreVivant } from '@/lib/adresses/federation';
 import { partir } from '@/lib/federation/depart';
 import { idpPret } from '@/lib/federation/idp';
-import { pauserPorte, PAUSE_ESSAI_S } from '@/lib/federation/porte';
+import { dejaReliee } from '@/lib/federation/prouver';
+import { COOKIE_SILENCE, pauserPorte, PAUSE_ESSAI_S, retenirSilence } from '@/lib/federation/porte';
 import { getHubBaseUrl } from '@/lib/mail/oauth-cookies';
 import { prisma } from '@/lib/prisma';
 
@@ -27,11 +33,18 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     // Déjà entrée par cette organisation, session vivante : pas de nouveau consentement.
     const session = await auth();
     if (session?.user?.federe === true && session.user.federeOrg === i.tenantId) return NextResponse.redirect(new URL('/dashboard', base), 303);
-    const d = await partir(i, base);
+    // Connectée par ses propres moyens et membre : sa session reste la sienne, et gagne cette organisation.
+    const u = session?.user && !isImpersonatedSession(session) && session.user.federe !== true ? await getCurrentUser() : null;
+    const membre = u?.supabaseUserId ? await membreVivant(prisma, i.tenantId, u.supabaseUserId) : false;
+    if (u && membre && !(await dejaReliee(prisma, i, u.id)) && !isAuthRecent(session!.user!.authAt, PREUVE_COMPTE_S)) return NextResponse.redirect(new URL(`/login?reauth=1&callbackUrl=${encodeURIComponent(`/connexion/${slug}`)}`, base), 303);
+    // `?silence=1` (départ automatique de la page de connexion) : d'abord sans écran, une fois ; ce navigateur s'en souvient.
+    const silence = request.nextUrl.searchParams.get('silence') === '1' && i.protocole !== 'saml' && !request.cookies.has(COOKIE_SILENCE);
+    const d = await partir(i, base, { ...(u && membre && (await isEmailProvenForSession(u.id)) ? { prouver: { userId: u.id } } : {}), ...(silence ? { silence } : {}) });
     const r = NextResponse.redirect(d.url, 303);
     r.headers.set('Cache-Control', 'no-store');
     d.poser(r);
     pauserPorte(r, PAUSE_ESSAI_S, base.protocol === 'https:');
+    if (silence) retenirSilence(r, base.protocol === 'https:');
     return r;
   } catch (err) {
     console.error(JSON.stringify({ tag: '[federation]', level: 'error', msg: 'fournisseur injoignable', slug, error: err instanceof Error ? err.message.slice(0, 160) : 'erreur' }));
