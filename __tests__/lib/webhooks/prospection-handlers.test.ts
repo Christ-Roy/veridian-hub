@@ -42,14 +42,10 @@ describe('prospectionHandlers — handler table shape', () => {
     expect(Object.keys(prospectionHandlers).sort()).toEqual(
       [
         'tenant.activity_threshold_reached',
-        'tenant.member_added',
-        'tenant.member_removed',
         'tenant.member_role_changed',
         'tenant.owner_changed',
-        'tenant.purged',
         'tenant.quota_exceeded',
         'tenant.resumed',
-        'tenant.soft_deleted',
         'tenant.suspended',
         'tenant.touched',
       ].sort(),
@@ -92,23 +88,9 @@ describe('prospectionHandlers — Niveau 2 delegation (app=prospection)', () => 
     expect(applyResumedMock.mock.calls[0][0]).toBe('prospection');
   });
 
-  it('tenant.member_added → applyMemberEvent(prospection, added)', async () => {
-    const { prospectionHandlers } = await import(
-      '@/lib/webhooks/prospection-handlers'
-    );
-    await prospectionHandlers['tenant.member_added']({
-      event: 'tenant.member_added',
-      tenant_id: 't-uuid',
-      data: { user_email: 'x@y.com', role: 'member' },
-      idempotency_key: '00000000-0000-4000-8000-000000000022',
-      occurred_at: '2026-05-23T17:00:00Z',
-    });
-    expect(applyMemberEventMock).toHaveBeenCalledWith(
-      'prospection',
-      't-uuid',
-      'added',
-      { user_email: 'x@y.com', role: 'member' },
-      '2026-05-23T17:00:00Z',
-    );
+  it('les quatre échos d\'ordres du Hub ne sont plus traités (27/11 : le Hub est la source)', async () => {
+    const { prospectionHandlers } = await import('@/lib/webhooks/prospection-handlers');
+    for (const e of ['tenant.soft_deleted', 'tenant.purged', 'tenant.member_added', 'tenant.member_removed']) expect(prospectionHandlers[e], e).toBeUndefined();
+    expect([applySoftDeletedMock, applyPurgedMock, applyMemberEventMock].every((m) => m.mock.calls.length === 0)).toBe(true);
   });
 });

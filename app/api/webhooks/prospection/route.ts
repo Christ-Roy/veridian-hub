@@ -7,9 +7,10 @@
  *     `prospection_purge_eligible_at`) est posé par `lib/apps/deprovision.ts` sur la réponse synchrone du soft-delete ;
  *   - `tenant.member_removed` : noté par `lib/tenants/membres.ts` (`retirer`) quand le retrait est relu chez Prospection ;
  *   - `tenant.member_added` : le Hub n'ajoute personne chez Prospection (seul écrivain des membres : lib/tenants/membres.ts) ; rien à recevoir.
- * Ces quatre échos ne sont d'ailleurs jamais arrivés (aucun planificateur ne vidait la file de Prospection depuis le 19/06).
- * La route reste servie tant que Prospection n'a pas coupé ses échos ; elle ne reçoit plus, à terme, que ce que seul Prospection sait
- * (`tenant.touched`, `tenant.quota_exceeded`, `tenant.activity_threshold_reached`, `tenant.member_role_changed`).
+ * Ces quatre échos ne sont d'ailleurs jamais arrivés (aucun planificateur ne vidait la file de Prospection depuis le 19/06). Prospection les
+ * a coupés (0b8821e, 27/11 18:56Z) et le Hub ne les traite plus : un écho qui arriverait encore est noté, sans effet.
+ * Restent ce que seul Prospection sait : `tenant.touched`, `tenant.quota_exceeded`, `tenant.activity_threshold_reached`,
+ * `tenant.member_role_changed`, `tenant.owner_changed`, et `tenant.suspended` / `tenant.resumed` (encore émis par Prospection).
  * Gestionnaires : `lib/webhooks/prospection-handlers.ts`.
  */
 

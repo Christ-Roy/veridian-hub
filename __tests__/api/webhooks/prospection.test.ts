@@ -436,7 +436,7 @@ describe('POST /api/webhooks/prospection — Niveau 2 sync events', () => {
     );
   });
 
-  it('dispatches tenant.member_added → applyMemberEvent(prospection, added)', async () => {
+  it('tenant.member_added : écho d\'un ordre du Hub, plus traité (27/11) : 200, aucun effet', async () => {
     const { POST } = await import('@/app/api/webhooks/prospection/route');
     const body = {
       event: 'tenant.member_added',
@@ -450,13 +450,7 @@ describe('POST /api/webhooks/prospection — Niveau 2 sync events', () => {
       makeReq({ authHeader: `Bearer ${TOKEN}`, body }) as any,
     );
     expect(res.status).toBe(200);
-    expect(syncMocks.applyMemberEvent).toHaveBeenCalledWith(
-      'prospection',
-      't_prospection_3',
-      'added',
-      { user_email: 'm@x.com', role: 'member' },
-      '2026-05-23T17:00:00Z',
-    );
+    expect(syncMocks.applyMemberEvent).not.toHaveBeenCalled();
   });
 
   it('handler throw → 500 + row stays unprocessed (replayable by app)', async () => {

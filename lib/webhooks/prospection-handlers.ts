@@ -14,15 +14,17 @@
 
 import type { HandlerTable } from '@/lib/webhooks/receiver';
 import {
-  applyMemberEvent,
   applyOwnerChanged,
-  applyPurged,
   applyQuotaExceeded,
   applyResumed,
-  applySoftDeleted,
   applySuspended,
 } from '@/lib/sync/snapshot-updater';
 
+/**
+ * Le Hub est la source (parente, 27/11) : tenant.soft_deleted, tenant.purged, tenant.member_added et tenant.member_removed ne sont plus
+ * reçus. Le Hub pose ces états lui-même sur la réponse de ses propres appels (lib/apps/deprovision.ts, lib/tenants/membres.ts), et
+ * Prospection a coupé ces échos (0b8821e, 27/11 18:56Z). Un écho qui arriverait encore est noté, sans effet (receiver : 200).
+ */
 export const prospectionHandlers: HandlerTable = {
   'tenant.touched': async (payload) => {
     console.info(
@@ -75,24 +77,6 @@ export const prospectionHandlers: HandlerTable = {
     );
   },
 
-  'tenant.soft_deleted': async (payload) => {
-    await applySoftDeleted(
-      'prospection',
-      payload.tenant_id,
-      payload.data as { soft_deleted_at?: string; reason?: string } | undefined,
-      payload.occurred_at,
-    );
-  },
-
-  'tenant.purged': async (payload) => {
-    await applyPurged(
-      'prospection',
-      payload.tenant_id,
-      payload.data as { purged_at?: string; rows_deleted?: number } | undefined,
-      payload.occurred_at,
-    );
-  },
-
   'tenant.owner_changed': async (payload) => {
     await applyOwnerChanged(
       'prospection',
@@ -115,23 +99,4 @@ export const prospectionHandlers: HandlerTable = {
     );
   },
 
-  'tenant.member_added': async (payload) => {
-    await applyMemberEvent(
-      'prospection',
-      payload.tenant_id,
-      'added',
-      payload.data as { user_email?: string; role?: string } | undefined,
-      payload.occurred_at,
-    );
-  },
-
-  'tenant.member_removed': async (payload) => {
-    await applyMemberEvent(
-      'prospection',
-      payload.tenant_id,
-      'removed',
-      payload.data as { user_email?: string; reason?: string } | undefined,
-      payload.occurred_at,
-    );
-  },
 };
