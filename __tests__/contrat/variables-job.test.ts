@@ -22,7 +22,6 @@ const FACULTATIVES: Record<string, string> = {
   ANALYTICS_TRACK_URL_STAGING: 'staging seulement',
   ANALYTICS_TRACK_SITE_ID: 'défaut : site veridian.site (2) en prod, rien hors prod',
   AUTH_DEBUG: 'débogage local',
-  CONNECTEURS_OUVERTS: 'absente = fermé, voulu : services extérieurs en attente de relecture et de Robert (25/11)',
   DASHBOARD_GTM_ID: 'repli NEXT_PUBLIC_GTM_ID',
   DASHBOARD_NOTIFUSE_API_URL: 'repli NEXT_PUBLIC_NOTIFUSE_API_URL',
   DASHBOARD_NOTIFUSE_URL: 'repli NEXT_PUBLIC_NOTIFUSE_URL',

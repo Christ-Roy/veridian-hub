@@ -279,6 +279,9 @@ DELEGATION_SOURCES=crm
 # Liaisons 0.5.0 chez lui), parcours vert en staging (cas 27). Ouvrir une autre organisation : le CRM d'abord. Depuis le 26/11, aussi les organisations
 # marquées de test (`@test`) : parcours Mail complet de la session Mail et recette de A à Z (cas 50) en prod, sans aucun client.
 DELEGATION_EVENEMENTS="notifuse>crm@359b76d5-bab7-4773-a889-cf4cf0248869,notifuse>crm#activite@359b76d5-bab7-4773-a889-cf4cf0248869,notifuse>crm@test,notifuse>crm#activite@test"
+# Connexions extérieures (docs/CONNECTEURS.md) : ouvertes à Robert SEUL (27/11, son accord « bossez sans me solliciter »), le temps de relire les outils
+# de chaque service avec ses comptes. « 1 » ouvrira à tous, après relecture. Fermer : retirer la ligne, puis déployer.
+CONNECTEURS_OUVERTS=@53245ae1-6bf8-4ec6-870f-32d75b7c0281
 # Signature des appels du Hub vers les apps (lib/hmac/signature-hub.ts) : v2 (méthode, chemin, query, empreinte du corps, usage unique) pour
 # les apps listées, v1 ailleurs. N'ajouter une app qu'une fois sa vérification v2 servie et MESURÉE en prod (outil : v2 2xx, rejeu 401, autre
 # route 401, v1 2xx). Mail (bd3e66dc) et Academy (1e707d7) mesurés le 26/11. Analytics : v2 refusée en prod le 26/11, pas encore. Retour
