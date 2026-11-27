@@ -17,7 +17,7 @@ describe('POST lire', () => {
   it('l\'app cochée lit le document, sans les réglages des autres', async () => {
     const r = await lire();
     expect([r.status, (await r.json()).reglages]).toEqual([200, { academy: { a: 1 } }]);
-    expect(m.appel.mock.calls[0][4]).toEqual(['academy', 'notifuse', 'prospection', 'crm']);
+    expect(m.appel.mock.calls[0][4]).toEqual(['academy', 'notifuse', 'prospection', 'crm', 'analytics']);
   });
   it('app non cochée ou organisation non réglée : 404, la même réponse', async () => {
     m.doc.mockResolvedValue({ modules: [], reglages: {} });

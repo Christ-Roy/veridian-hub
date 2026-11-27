@@ -135,6 +135,20 @@ describe('designerAdminsPlateforme chez Academy (a244873, 27/11)', () => {
   });
 });
 
+describe('designerAdminsPlateforme chez Analytics (5ff5e08d8, 27/11)', () => {
+  beforeEach(() => {
+    vi.stubEnv('NOTIFUSE_HUB_API_SECRET', '');
+    vi.stubEnv('ANALYTICS_API_URL', 'https://analytics');
+    vi.stubEnv('ANALYTICS_HUB_API_SECRET', 's3cret');
+  });
+  it('membre : désigné admin par le tenant Hub, relu ; 409 is_owner jamais forcé', async () => {
+    let n = 0;
+    rep = (a) => (a.methode === 'GET' ? (n++ === 0 ? membres({ hub_user_id: ROBERT, role: 'member' }) : membres({ hub_user_id: ROBERT, role: 'admin' })) : [200, {}]);
+    expect((await tout())!.filter((x) => x.app === 'analytics')).toEqual([{ app: 'analytics', hubUserId: ROBERT, etat: 'admin' }]);
+    expect(appels.filter((a) => a.url.startsWith('https://analytics')).map((a) => a.url)[0]).toBe('https://analytics/api/hub/workspace-admins?workspace_id=T');
+  });
+});
+
 describe('designerAdminsPlateforme, version de signature', () => {
   const capter = async () => {
     const vus: { url: string; methode: string; brut: string; h: Record<string, string> }[] = [];
