@@ -391,7 +391,7 @@ Bascule prod réussie le 08/05/2026 matin. Voir
 - **`corepack prepare pnpm@latest`** = piège : pnpm 11 exige Node 22+, donc plante sur node:20-alpine. **Pin obligatoire** : `corepack prepare pnpm@10.33.0 --activate`.
 - **2 lockfiles incohérents** = piège silencieux : si `package.json` mis à jour via `npm install`, le `pnpm-lock.yaml` devient obsolète et le Dockerfile `pnpm install --frozen-lockfile` plante. Toujours vérifier le PM utilisé par le Dockerfile AVANT d'installer en local.
 - **3 agents parallèles sur lots disjoints** scalent bien : 56 fichiers refacto en 1 matinée (vs 2 jours sur Prospection en mode séquentiel). Critère : agents reçoivent les helpers partagés DÉJÀ créés par le lead (lib/auth/get-user.ts dans ce cas).
-- **Compte test mdp Robert** : `Mincraft5*55` est le mdp Hub de Robert sur **les deux comptes** (`brunon5robert@gmail.com` ET `robert.brunon@veridian.site`). Mon premier test curl a échoué car le payload n'envoyait pas correctement les cookies CSRF, pas un problème de mdp.
+- **Compte test mdp Robert** : retiré du dépôt (public) le 27/11, VER-237 ; il vit hors dépôt, dans `~/credentials/` (jamais recopié ici). Mon premier test curl a échoué car le payload n'envoyait pas correctement les cookies CSRF, pas un problème de mdp.
 
 ### Containers prod (référence)
 

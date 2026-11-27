@@ -18,6 +18,7 @@ import { cas, NonAbouti } from './lib/etat';
 import { activerTwentyAuHub, admin, adminOk, lookup, marquerTest, secretDe, secretServiStaging } from './lib/hub-admin';
 import { obtenirJetonMcp, outil } from './lib/mcp';
 import { creerCompteProuve, noterEspaceTwenty, type Compte } from './lib/parcours';
+import { signatureVersApp } from './lib/signature-app';
 
 const PAIRE = 'notifuse>crm';
 
@@ -28,8 +29,7 @@ cas(null, 'une réponse humaine reçue dans Mail devient une tâche au CRM, une 
   const CRM_STAGING = 'https://crm.staging.veridian.site/mcp';
   const versMail = async (methode: string, chemin: string, corps?: object) => {
     const body = corps ? JSON.stringify(corps) : '';
-    const ts = String(Date.now());
-    const r = await fetch(`${MAIL}${chemin}`, { method: methode, headers: { 'content-type': 'application/json', 'X-Veridian-Timestamp': ts, 'X-Veridian-Hub-Signature': createHmac('sha256', mail).update(`${ts}.${body}`).digest('hex') }, body: body || undefined, signal: AbortSignal.timeout(60_000) });
+    const r = await fetch(`${MAIL}${chemin}`, { method: methode, headers: { 'content-type': 'application/json', ...signatureVersApp('notifuse', mail, methode, `${MAIL}${chemin}`, body) }, body: body || undefined, signal: AbortSignal.timeout(60_000) });
     return { status: r.status, json: (await r.json().catch(() => null)) as any };
   };
   const poses: string[] = [];

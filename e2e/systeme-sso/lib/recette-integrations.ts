@@ -15,6 +15,7 @@ import { admin, adminOk, lookup, secretDe, secretServiStaging } from './hub-admi
 import { obtenirJetonMcp, outil } from './mcp';
 import { ouvrirApp } from './parcours';
 import type { Recette } from './recette';
+import { signatureVersApp } from './signature-app';
 
 const STAGING = /staging/.test(HUB_URL);
 const MODELE_GRATUIT = 'nvidia/nemotron-3-ultra-550b-a55b:free'; // appel d'outil vérifié à 0 $ le 22/11 (cas 15)
@@ -354,8 +355,7 @@ export async function reponseMailVersCrm(r: Recette): Promise<string> {
 
   const versMail = async (chemin: string, corps: object) => {
     const body = JSON.stringify(corps);
-    const ts = String(Date.now());
-    const rep = await fetch(`${MAIL}${chemin}`, { method: 'POST', headers: { 'content-type': 'application/json', 'X-Veridian-Timestamp': ts, 'X-Veridian-Hub-Signature': createHmac('sha256', mailHub).update(`${ts}.${body}`).digest('hex') }, body, signal: AbortSignal.timeout(60_000) }).catch((err) => {
+    const rep = await fetch(`${MAIL}${chemin}`, { method: 'POST', headers: { 'content-type': 'application/json', ...signatureVersApp('notifuse', mailHub, 'POST', `${MAIL}${chemin}`, body) }, body, signal: AbortSignal.timeout(60_000) }).catch((err) => {
       throw new NonAbouti(`Mail injoignable : ${m((err as Error).message, 80)}`);
     });
     return { status: rep.status, json: (await rep.json().catch(() => null)) as any };

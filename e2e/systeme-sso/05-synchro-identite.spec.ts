@@ -3,7 +3,6 @@
  * email changés au Hub se relisent dans chaque app, sur le compte de test, par la route que
  * `hub reconcile` utilise. L'adresse et le nom d'origine sont rétablis, puis relus.
  */
-import { createHmac } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -15,6 +14,7 @@ import { cas, NonAbouti } from './lib/etat';
 import { identite } from './lib/hub-admin';
 import { assurerRybbit, compte, contexteDe, ouvrirApp } from './lib/monde';
 import { noter } from './lib/parcours';
+import { signatureVersApp } from './lib/signature-app';
 
 const SECRET_DE: Partial<Record<AppKey, string>> = {
   prospection: 'PROSPECTION_TENANT_API_SECRET',
@@ -34,12 +34,11 @@ function secret(app: AppKey): string {
 type Local = { hub_user_id: string | null; email: string; name: string | null };
 
 async function comptesDe(app: AppKey): Promise<Local[]> {
-  const ts = String(Date.now());
-  const sig = createHmac('sha256', secret(app)).update(`${ts}.`).digest('hex');
+  const url = `${APP_URL[app]}/api/hub/users`;
   let res: Response;
   try {
-    res = await fetch(`${APP_URL[app]}/api/hub/users`, {
-      headers: { 'X-Veridian-Timestamp': ts, 'X-Veridian-Hub-Signature': sig },
+    res = await fetch(url, {
+      headers: signatureVersApp(app === 'twenty' ? 'crm' : app, secret(app), 'GET', url),
       signal: AbortSignal.timeout(30_000),
     });
   } catch (e) {

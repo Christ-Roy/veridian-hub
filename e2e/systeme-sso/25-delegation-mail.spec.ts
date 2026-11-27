@@ -14,6 +14,7 @@ import { APP_URL, HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
 import { activerTwentyAuHub, admin, adminOk, lookup, marquerTest, secretDe, secretServiStaging } from './lib/hub-admin';
 import { creerCompteProuve, noterEspaceTwenty, type Compte } from './lib/parcours';
+import { signatureVersApp } from './lib/signature-app';
 
 const PAIRE = 'prospection>notifuse';
 
@@ -26,8 +27,7 @@ cas(null, 'délégation vers Mail : importe sans envoyer, une fois par jeton et 
   const mail = secret('NOTIFUSE_HUB_API_SECRET');
   const versMail = async (methode: string, chemin: string, corps?: object) => {
     const body = corps ? JSON.stringify(corps) : '';
-    const ts = String(Date.now());
-    const r = await fetch(`${MAIL}${chemin}`, { method: methode, headers: { 'content-type': 'application/json', 'X-Veridian-Timestamp': ts, 'X-Veridian-Hub-Signature': createHmac('sha256', mail).update(`${ts}.${body}`).digest('hex') }, body: body || undefined, signal: AbortSignal.timeout(60_000) });
+    const r = await fetch(`${MAIL}${chemin}`, { method: methode, headers: { 'content-type': 'application/json', ...signatureVersApp('notifuse', mail, methode, `${MAIL}${chemin}`, body) }, body: body || undefined, signal: AbortSignal.timeout(60_000) });
     return { status: r.status, texte: (await r.text()).slice(0, 300) };
   };
   const slug = `e2edel${Date.now().toString(36)}`;

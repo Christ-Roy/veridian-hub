@@ -8,10 +8,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { createHmac } from 'node:crypto';
 
 import { APP_URL, HUB_URL } from './cibles';
 import { NonAbouti } from './etat';
+import { signatureVersApp } from './signature-app';
 
 let secret: string | null = null;
 
@@ -203,11 +203,10 @@ function secretTwenty(): string {
 /** Appel signé du Hub vers Academy (prod seulement : le Hub de staging n'a pas Academy). Secret lu au moment du test, jamais affiché. */
 export async function appelAcademy(chemin: string, corps: unknown): Promise<Response> {
   const body = JSON.stringify(corps);
-  const ts = Date.now().toString();
-  const signature = createHmac('sha256', secretDe('ACADEMY_HUB_API_SECRET')).update(`${ts}.${body}`).digest('hex');
-  return fetch(`https://academy.app.veridian.site${chemin}`, {
+  const url = `https://academy.app.veridian.site${chemin}`;
+  return fetch(url, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'X-Veridian-Timestamp': ts, 'X-Veridian-Hub-Signature': signature },
+    headers: { 'content-type': 'application/json', ...signatureVersApp('academy', secretDe('ACADEMY_HUB_API_SECRET'), 'POST', url, body) },
     body,
     signal: AbortSignal.timeout(30_000),
   });
@@ -215,15 +214,10 @@ export async function appelAcademy(chemin: string, corps: unknown): Promise<Resp
 
 export async function appelTwenty(methode: 'POST' | 'DELETE', chemin: string, corps?: unknown): Promise<Response> {
   const body = corps === undefined ? '' : JSON.stringify(corps);
-  const ts = Date.now().toString();
-  const signature = createHmac('sha256', secretTwenty()).update(`${ts}.${body}`).digest('hex');
-  return fetch(`${APP_URL.twenty}${chemin}`, {
+  const url = `${APP_URL.twenty}${chemin}`;
+  return fetch(url, {
     method: methode,
-    headers: {
-      'content-type': 'application/json',
-      'X-Veridian-Timestamp': ts,
-      'X-Veridian-Hub-Signature': signature,
-    },
+    headers: { 'content-type': 'application/json', ...signatureVersApp('crm', secretTwenty(), methode, url, body) },
     body: body || undefined,
     signal: AbortSignal.timeout(90_000),
   });
@@ -283,11 +277,10 @@ export async function planDansApp(app: 'analytics' | 'twenty', email: string, hu
   const nom = app === 'analytics'
     ? 'ANALYTICS_HUB_API_SECRET'
     : new URL(APP_URL.twenty).hostname.includes('.staging.') ? 'CRM_HUB_API_SECRET_STAGING' : 'CRM_HUB_API_SECRET_PROD';
-  const ts = Date.now().toString();
-  const signature = createHmac('sha256', secretDe(nom)).update(`${ts}.`).digest('hex');
   const joint = hubUserId ? `&hub_user_id=${encodeURIComponent(hubUserId)}` : '';
-  const r = await fetch(`${APP_URL[app]}/api/users/by-email?email=${encodeURIComponent(email)}${joint}`, {
-    headers: { 'X-Veridian-Timestamp': ts, 'X-Veridian-Hub-Signature': signature },
+  const url = `${APP_URL[app]}/api/users/by-email?email=${encodeURIComponent(email)}${joint}`;
+  const r = await fetch(url, {
+    headers: signatureVersApp(app === 'twenty' ? 'crm' : app, secretDe(nom), 'GET', url),
     signal: AbortSignal.timeout(20_000),
   }).catch(() => null);
   if (!r) throw new NonAbouti(`${app} : découverte injoignable`);

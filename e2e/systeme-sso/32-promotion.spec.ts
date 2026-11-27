@@ -8,7 +8,6 @@
  * doivent faire échouer le cas.
  */
 import { execFileSync } from 'node:child_process';
-import { createHmac } from 'node:crypto';
 
 import { expect, type BrowserContext } from '@playwright/test';
 
@@ -17,6 +16,7 @@ import { cas, NonAbouti } from './lib/etat';
 import { activerTwentyAuHub, admin, adminOk, appelAcademy, lookup, marquerTest, rybbitCompte, secretDe } from './lib/hub-admin';
 import { ouvrirIdp, type IdentiteDite } from './lib/idp-jetable';
 import { adresseDe, attendreSessionHub, connexionHub, creerCompteProuve, noter, noterEspaceTwenty, noterRybbit, ouvrirApp, sessionApp, type Compte } from './lib/parcours';
+import { signatureVersApp } from './lib/signature-app';
 
 const DOMAINE = 'veridian.site';
 const COPIES = { notifuse: [APP_URL.notifuse, 'NOTIFUSE_HUB_API_SECRET'], crm: [APP_URL.twenty, 'CRM_HUB_API_SECRET_PROD'], prospection: [APP_URL.prospection, 'PROSPECTION_TENANT_API_SECRET'], analytics: [APP_URL.analytics, 'ANALYTICS_HUB_API_SECRET'] } as const;
@@ -39,9 +39,8 @@ cas(null, 'adresse principale : promue si elle est prouvée, la même personne p
 
   /** Les comptes d'une app, tels que `hub reconcile` les lit. Secret lu au moment du test, jamais affiché. */
   const copies = async (app: App): Promise<{ hub_user_id: string | null; email: string }[]> => {
-    const ts = String(Date.now());
-    const sig = createHmac('sha256', secretDe(COPIES[app][1])).update(`${ts}.`).digest('hex');
-    const r = await fetch(`${COPIES[app][0]}/api/hub/users`, { headers: { 'X-Veridian-Timestamp': ts, 'X-Veridian-Hub-Signature': sig }, signal: AbortSignal.timeout(30_000) });
+    const url = `${COPIES[app][0]}/api/hub/users`;
+    const r = await fetch(url, { headers: signatureVersApp(app, secretDe(COPIES[app][1]), 'GET', url), signal: AbortSignal.timeout(30_000) });
     if (!r.ok) throw new NonAbouti(`${app} : lecture des comptes HTTP ${r.status}`);
     return ((await r.json()) as { users: { hub_user_id: string | null; email: string }[] }).users;
   };

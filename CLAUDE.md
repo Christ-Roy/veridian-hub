@@ -25,9 +25,9 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
   **recette de A à Z** (cas 50, prod, une organisation jetable, tableau et captures dans `.run/recette/`) ne tournent que nommés (`… 50-`).
   « Servi » = déploiement Nomad `successful`, jamais le seul `/api/health` (le canari répond avant la bascule). Pendant qu'elle tourne,
   ni ses specs ni ses scripts ne se modifient : bash relit un script en cours (26/11).
-- **Signature vers les apps** (26/11) : `lib/hmac/signature-hub.ts`, seul signataire. `HMAC_V2_APPS` (job) liste les apps en v2 (méthode,
-  chemin, query, empreinte du corps, usage unique : ts neuf à chaque essai) ; vide = v1. Prod : les cinq apps (CRM le 26/11) ; n'ajouter une app qu'après
-  sa vérification v2 servie ET mesurée. Une app ferme la v1 après un jour sans v1 reçue.
+- **Signature vers les apps** : `lib/hmac/signature-hub.ts`, seul signataire, batterie comprise (`lib/signature-app.ts`, 27/11 : Academy refuse
+  la v1). `HMAC_V2_APPS` (job) : apps en v2 (méthode, chemin, query, empreinte du corps, usage unique) ; vide = v1. Prod : les cinq ; n'ajouter une app
+  qu'après sa v2 servie ET mesurée. Une app ferme la v1 après un jour sans v1 reçue.
 - **Rebond refusé** : jamais muet (08/11, Robert renvoyé sans un mot). Tout refus va sur `/auth/bounce/error` qui
   l'explique (`user_not_in_app`, `hub_user_conflict` : un compte d'app n'appartient qu'au premier compte Hub relié),
   et laisse `[bounce][refus]` (app, code, hub_user_id, jamais l'adresse) ; un succès, `[bounce][reussi]`. Batterie : `09-adresses` ; `10-creation`

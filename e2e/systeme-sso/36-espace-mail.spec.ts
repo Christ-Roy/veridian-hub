@@ -2,7 +2,6 @@
  * L'espace Mail de chacun (25/11) : deux adresses au même début ont chacune le leur ; un provisionnement rejoué rend le même ; deux provisionnements qui
  * se croisent n'en font qu'un, et un seul tenant. Vu échouer avant le correctif (v160) : le second compte n'avait jamais d'espace.
  */
-import { createHmac } from 'node:crypto';
 
 import { expect, type BrowserContext } from '@playwright/test';
 
@@ -10,6 +9,7 @@ import { APP_URL, HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
 import { lookup, secretDe } from './lib/hub-admin';
 import { creerCompteProuve, noterWorkspace, type Compte } from './lib/parcours';
+import { signatureVersApp } from './lib/signature-app';
 
 cas(null, 'espace Mail : chacun le sien, au même début d\'adresse, rejoué, et en course', async ({ browser }) => {
   if (/staging/.test(HUB_URL)) throw new NonAbouti('le Hub de staging n\'a pas Mail en face');
@@ -18,8 +18,8 @@ cas(null, 'espace Mail : chacun le sien, au même début d\'adresse, rejoué, et
   const commencer = (c: Compte) => avec(c.etat, async (ctx) => { const r = await ctx.request.post(`${HUB_URL}/api/tenants/start`, { data: { app: 'notifuse' }, timeout: 120_000 }); return [r.status(), (await r.json().catch(() => null)) as { already_provisioned?: boolean } | null] as const; });
   /** Les espaces où Mail voit cette personne. */
   const chezMail = async (c: Compte) => {
-    const ts = String(Date.now());
-    const r = await fetch(`${APP_URL.notifuse}/api/users/by-email?email=${encodeURIComponent(c.email)}&hub_user_id=${c.hubUserId}`, { headers: { 'X-Veridian-Timestamp': ts, 'X-Veridian-Hub-Signature': createHmac('sha256', secretDe('NOTIFUSE_HUB_API_SECRET')).update(`${ts}.`).digest('hex') }, signal: AbortSignal.timeout(30_000) });
+    const url = `${APP_URL.notifuse}/api/users/by-email?email=${encodeURIComponent(c.email)}&hub_user_id=${c.hubUserId}`;
+    const r = await fetch(url, { headers: signatureVersApp('notifuse', secretDe('NOTIFUSE_HUB_API_SECRET'), 'GET', url), signal: AbortSignal.timeout(30_000) });
     return (((await r.json().catch(() => null)) as { workspaces?: { workspace_id: string }[] } | null)?.workspaces ?? []).map((w) => w.workspace_id);
   };
   // Même début : les 20 premiers caractères utiles de l'adresse sont identiques.
