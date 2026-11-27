@@ -8,7 +8,6 @@
  */
 import { execFileSync } from 'node:child_process';
 import { createHmac, randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -17,7 +16,7 @@ import { expect } from '@playwright/test';
 import { attendreMail, exigerBoite } from './lib/boite';
 import { HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
-import { lookup, statutNotifuse } from './lib/hub-admin';
+import { lookup, statutNotifuse, secretDe } from './lib/hub-admin';
 import { creerCompteProuve } from './lib/parcours';
 
 const ADRESSE = 'e2e-sso-essai@veridian.site';
@@ -32,12 +31,7 @@ function essai(...args: string[]): string {
   }
 }
 
-function secretWebhook(): string {
-  const txt = readFileSync(path.join(os.homedir(), 'credentials', '.all-creds.env'), 'utf8');
-  const m = txt.match(/^\s*NOTIFUSE_HUB_WEBHOOK_SECRET\s*=\s*(.*)$/m);
-  if (!m) throw new NonAbouti('NOTIFUSE_HUB_WEBHOOK_SECRET introuvable dans ~/credentials/.all-creds.env');
-  return m[1].trim().replace(/^['"]|['"]$/g, '');
-}
+const secretWebhook = (): string => secretDe('NOTIFUSE_HUB_WEBHOOK_SECRET');
 
 /** Exactement ce que Notifuse émet au 5e mail (voie legacy HMAC, mesuré le 08/11). */
 async function signal(slug: string, cle: string) {

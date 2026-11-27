@@ -189,15 +189,7 @@ export function rybbitCompte(action: 'creer' | 'supprimer' | 'lier', email: stri
  */
 function secretTwenty(): string {
   // Le secret suit le Twenty visé : celui du staging signait aussi la prod, d'où un 401 au retrait (08/11/2026).
-  const nom = new URL(APP_URL.twenty).hostname.includes('.staging.') ? 'CRM_HUB_API_SECRET_STAGING' : 'CRM_HUB_API_SECRET_PROD';
-  try {
-    const txt = readFileSync(path.join(os.homedir(), 'credentials', '.all-creds.env'), 'utf8');
-    const m = txt.match(new RegExp(`^\\s*${nom}\\s*=\\s*(.*)$`, 'm'));
-    if (m) return m[1].trim().replace(/^['"]|['"]$/g, '');
-  } catch {
-    /* tombe sur NonAbouti ci-dessous */
-  }
-  throw new NonAbouti(`${nom} introuvable dans ~/credentials/.all-creds.env`);
+  return secretDe(new URL(APP_URL.twenty).hostname.includes('.staging.') ? 'CRM_HUB_API_SECRET_STAGING' : 'CRM_HUB_API_SECRET_PROD');
 }
 
 /** Appel signé du Hub vers Academy (prod seulement : le Hub de staging n'a pas Academy). Secret lu au moment du test, jamais affiché. */
@@ -258,7 +250,13 @@ export async function activerAnalyticsAuHub(email: string): Promise<string | und
   return r.json?.analytics_plan;
 }
 
+/**
+ * Un secret nommé, lu au moment du test, jamais affiché : l'ENVIRONNEMENT d'abord (batterie sous `lourd --navigateur --secrets`, 27/11 : rien
+ * ne quitte le bastion qu'en mémoire), puis ~/credentials/.all-creds.env sur le bastion. Absent des deux : NON ABOUTI.
+ */
 export function secretDe(nom: string): string {
+  const e = process.env[nom];
+  if (e && e.trim()) return e.trim();
   try {
     const txt = readFileSync(path.join(os.homedir(), 'credentials', '.all-creds.env'), 'utf8');
     const m = txt.match(new RegExp(`^\\s*${nom}\\s*=\\s*(.*)$`, 'm'));
@@ -266,7 +264,7 @@ export function secretDe(nom: string): string {
   } catch {
     /* tombe sur NonAbouti ci-dessous */
   }
-  throw new NonAbouti(`${nom} introuvable dans ~/credentials/.all-creds.env`);
+  throw new NonAbouti(`${nom} introuvable (environnement ou ~/credentials/.all-creds.env)`);
 }
 
 /**

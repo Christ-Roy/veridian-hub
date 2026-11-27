@@ -29,12 +29,15 @@ fi
 mkdir -p .run
 exec 9>.run/verrou
 flock -n 9 || { echo "✗ NON ABOUTI : une autre batterie tourne déjà dans ce dossier"; exit 2; }
-rm -f .run/versions.json .run/resultat.* .run/monde-*.json .run/restes.json  # le registre des comptes est conservé : un crash ne doit rien orpheliner
+# Sous lourd (scripts/batterie-lourd.sh), .run/versions.json a été lu sur le bastion avant l'envoi : il se garde.
+[ "${SSO_SUR_LOURD:-}" = 1 ] || rm -f .run/versions.json
+rm -f .run/resultat.* .run/monde-*.json .run/restes.json  # le registre des comptes est conservé : un crash ne doit rien orpheliner
 
 # Le Hub doit être là avant de mesurer quoi que ce soit (un déploiement le coupe ~30 s).
 HUB="${HUB_URL:-https://app.veridian.site}"
 FIN=$(( $(date +%s) + ${SSO_ATTENTE_HUB:-180} ))
-until curl -fsS -m 10 "$HUB/api/health" 2>/dev/null | grep -q '"status":"ok"'; do
+# Sous lourd, la santé a été lue sur le bastion (l'image Playwright n'a pas curl) : on ne la relit pas.
+until [ "${SSO_SUR_LOURD:-}" = 1 ] || curl -fsS -m 10 "$HUB/api/health" 2>/dev/null | grep -q '"status":"ok"'; do
   if [ "$(date +%s)" -ge "$FIN" ]; then
     echo "✗ NON ABOUTI : le Hub ne répond pas sur $HUB/api/health. Vérifier HUB_URL et le déploiement en cours."
     exit 2

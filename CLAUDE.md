@@ -20,7 +20,7 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
 - **Preuve récente** : `lib/auth/recent-auth.ts` (24 h compte et admin, 7 j facturation).
 - **Rebond** : `api/auth/bounce/prepare` et `complete`. Anti-boucle par app, sur 30 s, jamais remis à
   zéro sur `complete`. Aucun lien hors d'une adresse prouvée.
-- **Batterie** : `pnpm test:systeme` (`SSO_NAVIGATEUR=distant`), depuis le bastion, sur ce qui est servi (staging : `HUB_URL=…`). Après une
+- **Batterie** : `bash scripts/batterie-lourd.sh <filtre>` (calcul sur node02, le bastion lit), sur ce qui est servi. Après une
   modification, rejouer chaque `SSO_SABOTAGE=<scénario>` : il doit échouer. Elle échoue s'il reste un compte. Les essais 48, 49 et la
   **recette de A à Z** (cas 50, prod, une organisation jetable, tableau et captures dans `.run/recette/`) ne tournent que nommés (`… 50-`).
   « Servi » = déploiement Nomad `successful`, jamais le seul `/api/health` (le canari répond avant la bascule). Pendant qu'elle tourne,

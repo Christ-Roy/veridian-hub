@@ -3,14 +3,14 @@
  * suppression à Prospection et Notifuse). Appelé en fin de scénario, par `99-nettoyage` et par le
  * teardown : un échec, même dans la batterie, ne laisse rien. Un compte non retiré reste au registre.
  */
-import { execFileSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { NonAbouti } from './etat';
-import { lookup, reconcile, retirerEspaceTwenty, rybbitCompte, supprimerTenantHub } from './hub-admin';
+import { lookup, reconcile, retirerEspaceTwenty, rybbitCompte, secretDe, supprimerTenantHub } from './hub-admin';
+import { signatureVersApp } from './signature-app';
 import { comptesNotes, comptesRybbitNotes, espacesTwenty, oublierCompte, oublierEspacesTwenty, oublierRybbit, oublierWorkspaces, workspacesNotes } from './parcours';
-import { HUB_URL, PREFIXE_COMPTE } from './cibles';
+import { APP_URL, HUB_URL, PREFIXE_COMPTE } from './cibles';
 import { RUN_DIR } from './versions';
 
 const attendre = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -29,22 +29,30 @@ async function retirerDeRybbit(email: string): Promise<void> {
   }
 }
 
+/**
+ * Les deux routes d'administration de Mail que la CLI `notifuse-admin` appelle, signées par le signataire du Hub (v2) : la batterie ne dépend plus
+ * d'un outil du bastion (27/11, batterie sous `lourd --navigateur`). Même corps, même réponse que `notifuse-admin wipe` et `admin:tenants`.
+ */
+async function adminMail(methode: 'GET' | 'POST', chemin: string, corps?: object): Promise<any> {
+  const url = `${APP_URL.notifuse}${chemin}`;
+  const brut = corps ? JSON.stringify(corps) : '';
+  const r = await fetch(url, { method: methode, headers: { 'content-type': 'application/json', ...signatureVersApp('notifuse', secretDe('NOTIFUSE_HUB_API_SECRET'), methode, url, brut) }, body: brut || undefined, signal: AbortSignal.timeout(120_000) });
+  const j = await r.json().catch(() => null);
+  if (!r.ok) throw new Error(`Mail ${methode} ${chemin.split('?')[0]} : HTTP ${r.status} ${JSON.stringify(j).slice(0, 120)}`);
+  return j;
+}
+
 /** Effacement immédiat, base comprise : le soft-delete la garderait 30 jours. */
-function effacerWorkspace(id: string) {
-  const sortie = execFileSync('notifuse-admin', ['wipe', '--ids', id], { encoding: 'utf8', timeout: 120_000 });
-  const r = JSON.parse(sortie) as { errors?: Record<string, string> };
-  if (r.errors && Object.keys(r.errors).length) throw new Error(`wipe ${id} : ${JSON.stringify(r.errors).slice(0, 120)}`);
+async function effacerWorkspace(id: string) {
+  const r = (await adminMail('POST', '/api/veridian/admin/wipe-test-tenants', { tenant_ids: [id] })) as { errors?: Record<string, string> };
+  if (r?.errors && Object.keys(r.errors).length) throw new Error(`wipe ${id} : ${JSON.stringify(r.errors).slice(0, 120)}`);
 }
 
 /** Les workspaces de la batterie encore présents chez Notifuse, supprimés ou non. */
-function workspacesRestants(): string[] {
+async function workspacesRestants(): Promise<string[]> {
   try {
-    const sortie = execFileSync('notifuse-admin', ['admin:tenants', '--prefix', 'e2esso', '--orphans'], {
-      encoding: 'utf8',
-      timeout: 60_000,
-    });
-    const r = JSON.parse(sortie) as { managed?: { tenant_id: string }[]; orphans?: { tenant_id: string }[] };
-    return [...(r.managed ?? []), ...(r.orphans ?? [])].map((t) => t.tenant_id);
+    const r = (await adminMail('GET', '/api/veridian/admin/tenants?prefix=e2esso&include_orphans=true')) as { managed?: { tenant_id: string }[]; orphans?: { tenant_id: string }[] };
+    return [...(r?.managed ?? []), ...(r?.orphans ?? [])].map((t) => t.tenant_id);
   } catch (e) {
     throw new NonAbouti(`décompte des workspaces Notifuse impossible : ${(e as Error).message.slice(0, 120)}`);
   }
@@ -57,7 +65,7 @@ export async function nettoyerCompte(email: string): Promise<void> {
   const u = await lookup(email);
   // Le registre d'abord : un compte déjà supprimé au Hub (scénario « compte supprimé ») n'y figure plus.
   const hub = ((u.json?.tenants ?? []) as { notifuseWorkspaceSlug?: string }[]).map((t) => t.notifuseWorkspaceSlug);
-  for (const id of Array.from(new Set([...workspacesNotes(email), ...hub]))) if (id) effacerWorkspace(id);
+  for (const id of Array.from(new Set([...workspacesNotes(email), ...hub]))) if (id) await effacerWorkspace(id);
   oublierWorkspaces(email);
   if (u.status !== 404) {
     await supprimerTenantHub(email);
@@ -96,7 +104,7 @@ export async function mesurerRestes(): Promise<string[]> {
   return [
     ...tous.filter((x) => x.includes(`:${PREFIXE_COMPTE}`)),
     // Le Hub staging n'a pas de Notifuse : ce décompte-là ne vaut qu'en prod.
-    ...(/staging/.test(HUB_URL) ? [] : workspacesRestants()).map((w) => `notifuse-workspace:${w}`),
+    ...(/staging/.test(HUB_URL) ? [] : await workspacesRestants()).map((w) => `notifuse-workspace:${w}`),
   ];
 }
 
