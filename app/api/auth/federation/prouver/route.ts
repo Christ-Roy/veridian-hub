@@ -47,7 +47,7 @@ async function aller(request: NextRequest, base: URL, tenantBrut: unknown, silen
   if (!user?.supabaseUserId || !session?.user) return vers(`/login?callbackUrl=${PAGE_ORGANISATION}`);
   // Une session d'emprunt ne prouve personne ; une session fédérée n'a qu'une organisation, la sienne.
   if (isImpersonatedSession(session) || session.user.federe === true) return vers('/auth/federation?code=session_refusee');
-  if (!debit.enforce(user.id).ok) return NextResponse.json({ error: 'rate_limited' }, { status: 429, headers: { 'Retry-After': '600' } });
+  if (!(await debit.enforce(user.id)).ok) return NextResponse.json({ error: 'rate_limited' }, { status: 429, headers: { 'Retry-After': '600' } });
   const id = IdTenant.safeParse(tenantBrut);
   if (!id.success || !(await membreVivant(prisma, id.data, user.supabaseUserId))) return vers('/auth/federation?code=non_attendu');
   const l = await prisma.tenantIdp.findUnique({ where: { tenantId: id.data }, select: { id: true } });

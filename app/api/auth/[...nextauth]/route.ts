@@ -74,15 +74,15 @@ async function withRateLimit(
   // enforceWithBypass : bypass E2E staging via header secret valide
   // (cf. RateLimiter.enforceWithBypass). En prod le bypass est ignoré
   // par `shouldBypassRateLimit` → comportement identique au legacy.
-  let result: ReturnType<typeof limiter.enforceWithBypass>;
+  let result: Awaited<ReturnType<typeof limiter.enforceWithBypass>>;
   if (limiter === credentialsLoginLimiter) {
     // Le plafond large par IP d'abord : une rafale d'adresses ne consomme que lui.
-    const ipResult = credentialsLoginIpLimiter.enforceWithBypass(ip, req.headers);
+    const ipResult = (await credentialsLoginIpLimiter.enforceWithBypass(ip, req.headers));
     result = ipResult.ok
-      ? limiter.enforceWithBypass(`${ip}|${await loginEmail(req)}`, req.headers)
+      ? (await limiter.enforceWithBypass(`${ip}|${await loginEmail(req)}`, req.headers))
       : ipResult;
   } else {
-    result = limiter.enforceWithBypass(ip, req.headers);
+    result = (await limiter.enforceWithBypass(ip, req.headers));
   }
   if (!result.ok) {
     console.warn(

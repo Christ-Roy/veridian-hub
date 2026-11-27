@@ -19,7 +19,7 @@ const Email = z.string().trim().max(254).email();
 export async function POST(request: NextRequest) {
   const base = getHubBaseUrl(request.url);
   if (request.headers.get('origin') !== base.origin) return NextResponse.json({ error: 'forbidden_origin' }, { status: 403 });
-  if (!debit.enforce(ipClient(request.headers)).ok) return NextResponse.json({ error: 'rate_limited' }, { status: 429, headers: { 'Retry-After': '600' } });
+  if (!(await debit.enforce(ipClient(request.headers))).ok) return NextResponse.json({ error: 'rate_limited' }, { status: 429, headers: { 'Retry-After': '600' } });
   const page = (q: Record<string, string>) => {
     const u = new URL('/auth/premiere-entree', base);
     for (const [k, v] of Object.entries(q)) u.searchParams.set(k, v);

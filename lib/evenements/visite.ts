@@ -83,7 +83,7 @@ export async function recevoirVisites(db: Db, h: Headers, brut: string, env: Nod
   const lot = p0.data;
   if (lot.visites.length > VISITES_MAX_LOT) return refus(413, 'too_many_events');
   const tenantId = lot.hub_tenant_id;
-  if (deborde(`visite:${tenantId}`, now, LOTS_PAR_MINUTE)) return refus(429, 'rate_limited', 60);
+  if ((await deborde(`visite:${tenantId}`, now, LOTS_PAR_MINUTE))) return refus(429, 'rate_limited', 60);
 
   const vide = (raison: string): ReceptionVisites => ({ statut: 200, corps: { acceptes: 0, doublons: 0, ignores: [], raison } });
   const p = paire('analytics>crm#visite');

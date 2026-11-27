@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
   const moi = userUuid(user);
   if ((await roleAuHub(prisma, id.data, moi)) !== 'owner') return vers('proprietaire_seul');
   if (await fermeeIci(moi, id.data)) return vers('organisation_fournisseur');
-  if (!debit.enforce(user.id).ok) return vers('trop_de_gestes');
+  if (!(await debit.enforce(user.id)).ok) return vers('trop_de_gestes');
   const acteur = `user:${user.id}`;
   const geste = f.get('geste');
   if (geste === 'obligatoire' || geste === 'libre') {

@@ -28,7 +28,7 @@ const bodySchema = z.object({
 
 export async function POST(request: Request) {
   const ip = extractClientIp(request.headers);
-  const rate = credentialsLoginIpLimiter.enforceWithBypass(ip, request.headers);
+  const rate = (await credentialsLoginIpLimiter.enforceWithBypass(ip, request.headers));
   if (!rate.ok) {
     return NextResponse.json(
       { ok: false, error: 'rate_limited' },

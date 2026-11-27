@@ -14,8 +14,8 @@ const STATUT = { envoye: 200, encore_valable: 409, actif: 409, invalide: 404 } a
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  const parIp = renouvellementIpLimiter.enforceWithBypass(extractClientIp(request.headers), request.headers);
-  const trop = !parIp.ok ? parIp : renouvellementLienLimiter.enforceWithBypass(hashOnboardingToken(token), request.headers);
+  const parIp = (await renouvellementIpLimiter.enforceWithBypass(extractClientIp(request.headers), request.headers));
+  const trop = !parIp.ok ? parIp : (await renouvellementLienLimiter.enforceWithBypass(hashOnboardingToken(token), request.headers));
   if (!trop.ok) return NextResponse.json({ code: 'rate_limited' }, { status: 429, headers: { 'Retry-After': String(trop.retryAfterSeconds) } });
 
   const r = await renouvelerLienActivation(prisma, token);

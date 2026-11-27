@@ -21,7 +21,7 @@ const rendre = (j: unknown, status = 200) => NextResponse.json(j, { status, head
 
 export async function POST(request: NextRequest) {
   if (request.headers.get('origin') !== getHubBaseUrl(request.url).origin) return rendre({ error: 'forbidden_origin' }, 403);
-  if (!debit.enforce(ipClient(request.headers)).ok) return rendre({ error: 'rate_limited' }, 429);
+  if (!(await debit.enforce(ipClient(request.headers))).ok) return rendre({ error: 'rate_limited' }, 429);
   const c = Corps.safeParse(await request.json().catch(() => null));
   if (!c.success) return rendre({ methode: 'habituelle' });
   try {

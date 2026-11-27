@@ -91,7 +91,7 @@ export async function issueEmailProof(
   if (recent) return false;
   // Avant d'effacer les jetons : le lien déjà reçu reste valable. Le compte d'abord, pour qu'un tiers n'use pas le
   // plafond d'une adresse qu'il n'a plus le droit de viser.
-  if (!preuvesParCompte.enforce(user.id).ok || !preuvesParAdresse.enforce(hashToken(user.email.trim().toLowerCase())).ok) {
+  if (!(await preuvesParCompte.enforce(user.id)).ok || !(await preuvesParAdresse.enforce(hashToken(user.email.trim().toLowerCase()))).ok) {
     console.warn(JSON.stringify({ tag: '[email-proof-ratelimit]', level: 'warn', user_id: user.id, ts: new Date().toISOString() }));
     return false;
   }

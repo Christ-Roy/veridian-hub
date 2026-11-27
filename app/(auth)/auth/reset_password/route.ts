@@ -85,7 +85,7 @@ export async function POST(request: NextRequest) {
   // Cas 2 : consommation token
   const consume = consumeSchema.safeParse(payload);
   if (consume.success) {
-    const rate = resetConsumeLimiter.enforceWithBypass(ip, request.headers);
+    const rate = (await resetConsumeLimiter.enforceWithBypass(ip, request.headers));
     if (!rate.ok) {
       logRateLimit('[reset-password-consume-ratelimit]', ip, rate.retryAfterSeconds);
       return tooManyResponse(rate.retryAfterSeconds);
@@ -100,13 +100,13 @@ export async function POST(request: NextRequest) {
 
     // IP d'abord (frein anti-flood générique), puis email visé (anti
     // mail-bombing d'une cible). Les deux comptent la tentative même refusée.
-    const ipRate = resetRequestIpLimiter.enforceWithBypass(ip, request.headers);
+    const ipRate = (await resetRequestIpLimiter.enforceWithBypass(ip, request.headers));
     if (!ipRate.ok) {
       logRateLimit('[reset-password-request-ratelimit]', ip, ipRate.retryAfterSeconds);
       return tooManyResponse(ipRate.retryAfterSeconds);
     }
 
-    const emailRate = resetRequestEmailLimiter.enforceWithBypass(email, request.headers);
+    const emailRate = (await resetRequestEmailLimiter.enforceWithBypass(email, request.headers));
     if (!emailRate.ok) {
       logRateLimit('[reset-password-request-ratelimit]', email, emailRate.retryAfterSeconds);
       return tooManyResponse(emailRate.retryAfterSeconds);

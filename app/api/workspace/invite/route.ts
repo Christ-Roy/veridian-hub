@@ -70,7 +70,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Droits insuffisants' }, { status: 403 });
   }
 
-  for (const r of [invitationsParInvitant.enforce(sessionUser.id), invitationsParAdresse.enforce(email.trim().toLowerCase())]) {
+  for (const r of [(await invitationsParInvitant.enforce(sessionUser.id)), (await invitationsParAdresse.enforce(email.trim().toLowerCase()))]) {
     if (!r.ok) {
       return NextResponse.json(
         { error: 'Trop d’invitations envoyées. Réessayez plus tard.' },

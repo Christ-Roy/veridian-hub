@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
   }
 
   const ip = extractClientIp(request.headers);
-  const rate = onboardingQualificationLimiter.enforceWithBypass(`${userId}:${ip}`, request.headers);
+  const rate = (await onboardingQualificationLimiter.enforceWithBypass(`${userId}:${ip}`, request.headers));
   if (!rate.ok) return rateLimited(rate.retryAfterSeconds);
 
   const json = await request.json().catch(() => null);
@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
   }
 
   const ip = extractClientIp(request.headers);
-  const rate = onboardingQualificationLimiter.enforceWithBypass(`${userId}:${ip}`, request.headers);
+  const rate = (await onboardingQualificationLimiter.enforceWithBypass(`${userId}:${ip}`, request.headers));
   if (!rate.ok) return rateLimited(rate.retryAfterSeconds);
 
   const record = await getUserOnboardingRecord(prisma, userId);

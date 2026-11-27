@@ -19,7 +19,7 @@ export async function GET(
   { params }: { params: Promise<{ token: string }> },
 ) {
   const ip = extractClientIp(request.headers);
-  const rate = onboardingVerifyLimiter.enforceWithBypass(ip, request.headers);
+  const rate = (await onboardingVerifyLimiter.enforceWithBypass(ip, request.headers));
   if (!rate.ok) return rateLimited(rate.retryAfterSeconds);
 
   const { token } = await params;

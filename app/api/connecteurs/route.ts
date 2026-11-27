@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
   const f = await request.formData().catch(() => null);
   const c = connecteur(f?.get('connecteur'));
   if (!f || !c) return vers('refus');
-  if (!debit.enforce(user.id).ok) return vers('trop');
+  if (!(await debit.enforce(user.id)).ok) return vers('trop');
   const moi = userUuid(user);
   const retour = retourConnecteur();
   const geste = f.get('geste');

@@ -30,7 +30,7 @@ export async function POST(
   { params }: { params: Promise<{ token: string }> },
 ) {
   const ip = extractClientIp(request.headers);
-  const rate = onboardingConsumeLimiter.enforceWithBypass(ip, request.headers);
+  const rate = (await onboardingConsumeLimiter.enforceWithBypass(ip, request.headers));
   if (!rate.ok) return rateLimited(rate.retryAfterSeconds);
 
   const json = await request.json().catch(() => null);

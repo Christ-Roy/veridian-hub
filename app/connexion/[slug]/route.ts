@@ -24,7 +24,7 @@ const debit = new RateLimiter({ capacity: 30, windowMs: 60_000, name: 'federatio
 export async function GET(request: NextRequest, { params }: { params: Promise<{ slug: string }> }) {
   const base = getHubBaseUrl(request.url);
   const habituelle = () => NextResponse.redirect(new URL('/login', base), 303);
-  if (!debit.enforce(ipClient(request.headers)).ok) return NextResponse.json({ error: 'rate_limited' }, { status: 429, headers: { 'Retry-After': '60' } });
+  if (!(await debit.enforce(ipClient(request.headers))).ok) return NextResponse.json({ error: 'rate_limited' }, { status: 429, headers: { 'Retry-After': '60' } });
   const { slug } = await params;
   if (!/^[a-z0-9][a-z0-9-]{0,80}$/.test(slug)) return habituelle();
   try {

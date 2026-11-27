@@ -11,7 +11,7 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: NextRequest) {
-  const rate = mcpTokenLimiter.enforce(extractClientIp(request.headers));
+  const rate = (await mcpTokenLimiter.enforce(extractClientIp(request.headers)));
   if (!rate.ok) return NextResponse.json({ error: 'rate_limited' }, { status: 429, headers: CORS });
   try {
     const p = await lireParams(request);

@@ -55,10 +55,10 @@ type RouteParams = {
 export async function GET(request: NextRequest, ctx: RouteParams) {
   // ─── Pre-verify rate-limit (IP) — anti-flood ──────────────────────────
   const ip = extractClientIp(request.headers);
-  const preRate = mailSendAsUserPreVerifyLimiter.enforceWithBypass(
+  const preRate = (await mailSendAsUserPreVerifyLimiter.enforceWithBypass(
     ip,
     request.headers,
-  );
+  ));
   if (!preRate.ok) {
     return jsonError('rate_limit', 429, {
       retry_after: preRate.retryAfterSeconds,

@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
     const r = await confirmerCode(prisma, u, d.email, d.code);
     return r === 'ajoutee' ? rendre({ ok: true }) : rendre({ error: r }, r === 'prise' ? 409 : 400);
   }
-  if ((d.geste === 'federer' || d.geste === 'promouvoir') && !debit[d.geste].enforce(u.id).ok) return rendre({ error: 'rate_limited' }, 429);
+  if ((d.geste === 'federer' || d.geste === 'promouvoir') && !(await debit[d.geste].enforce(u.id)).ok) return rendre({ error: 'rate_limited' }, 429);
   if (d.geste === 'federer') {
     const i = await fournisseurPour(prisma, u, d.email);
     if (!i) return rendre({ error: 'domaine_non_federe' }, 404);

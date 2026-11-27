@@ -80,12 +80,12 @@ export async function authenticateAdmin(
       ),
     } as AdminAuthDenied;
   };
-  const plein = contourne ? null : adminApiLimiter.depasse(ip);
+  const plein = contourne ? null : (await adminApiLimiter.depasse(ip));
   if (plein && !plein.ok) return trop(plein);
   // Un échec compte ; le plafond franchi par cet échec rend le 429.
-  const echec = (refus: NextResponse): AdminAuthDenied => {
+  const echec = async (refus: NextResponse): Promise<AdminAuthDenied> => {
     if (contourne) return { ok: false, response: refus };
-    const r = adminApiLimiter.enforce(ip);
+    const r = (await adminApiLimiter.enforce(ip));
     return r.ok ? { ok: false, response: refus } : trop(r);
   };
 
@@ -98,6 +98,6 @@ export async function authenticateAdmin(
   // 3. Session d'un administrateur de plateforme. Une clé fausse fournie compte comme un échec même si une session passe ensuite.
   const s = await sessionAdmin();
   if (!s.ok) return echec(refusAdmin(s.raison));
-  if (cle && !options.sessionSeule) adminApiLimiter.enforce(ip);
+  if (cle && !options.sessionSeule) (await adminApiLimiter.enforce(ip));
   return { ok: true, sessionEmail: s.email, hubUserId: s.hubUserId, admin: { userId: s.userId, hubUserId: s.hubUserId, email: s.email } };
 }

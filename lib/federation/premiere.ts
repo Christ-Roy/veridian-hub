@@ -66,8 +66,8 @@ async function attendue(db: Db, i: IdpPret, email: string): Promise<Attendue | n
 /** Même réponse que l'adresse soit attendue ou non. `trop` : le débit, seul refus visible. */
 export async function demanderPremiere(db: Db, i: IdpPret, p: Premiere, brut: string, send: typeof sendMail = sendMail, now = new Date()): Promise<'demande' | 'trop'> {
   const email = normaliserEmail(brut);
-  if (!codesPremiere.enforce(cle(p)).ok) return 'trop';
-  if (!(await attendue(db, i, email)) || !codesParAdresse.enforce(email).ok) return 'demande';
+  if (!(await codesPremiere.enforce(cle(p))).ok) return 'trop';
+  if (!(await attendue(db, i, email)) || !(await codesParAdresse.enforce(email)).ok) return 'demande';
   const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
   await db.verificationToken.deleteMany({ where: { identifier: identifiant(p, email) } });
   await db.verificationToken.create({ data: { identifier: identifiant(p, email), token: empreinte(p, email, code), expires: new Date(now.getTime() + CODE_PREMIERE_MIN * 60_000) } });
@@ -78,7 +78,7 @@ export async function demanderPremiere(db: Db, i: IdpPret, p: Premiere, brut: st
 /** Le code est juste : l'identifiant est lié pour de bon, et elle entre. Tout est relu ici. */
 export async function confirmerPremiere(db: Db, i: IdpPret, p: Premiere, brut: string, code: string, now = new Date()): Promise<{ userId: string; hubUserId: string; neuf: boolean } | { refus: RefusFederation | 'code_faux' | 'trop' }> {
   const email = normaliserEmail(brut);
-  if (!essaisPremiere.enforce(cle(p)).ok) return { refus: 'trop' };
+  if (!(await essaisPremiere.enforce(cle(p))).ok) return { refus: 'trop' };
   const l = await db.verificationToken.findFirst({ where: { identifier: identifiant(p, email), expires: { gt: now } }, select: { token: true, identifier: true } });
   const attendu = Buffer.from(empreinte(p, email, /^\d{6}$/.test(code) ? code : 'x'));
   const garde = Buffer.from(l?.token ?? ''.padEnd(attendu.length, '0'));

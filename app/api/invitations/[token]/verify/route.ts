@@ -44,10 +44,10 @@ export async function GET(
   const ip = extractClientIp(request.headers);
   // enforceWithBypass : bypass E2E staging via header secret valide
   // (cf. lib/auth/rate-limit.ts). En prod le bypass est ignoré.
-  const rateResult = invitationVerifyLimiter.enforceWithBypass(
+  const rateResult = (await invitationVerifyLimiter.enforceWithBypass(
     ip,
     request.headers,
-  );
+  ));
   if (!rateResult.ok) {
     return NextResponse.json(
       { error: 'rate_limited' },

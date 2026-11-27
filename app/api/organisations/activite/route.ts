@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
   if (corps.length > 2_000) return rendre({ error: 'invalid_request' }, 400);
   const v = await verifierAppel(prisma, request.headers, corps, Date.now(), ['academy'] as const);
   if ('statut' in v) return rendre({ error: v.error }, v.statut);
-  if (deborde(`activite:${v.app}`, Date.now(), 120)) return rendre({ error: 'rate_limited' }, 429, { 'Retry-After': '60' });
+  if ((await deborde(`activite:${v.app}`, Date.now(), 120))) return rendre({ error: 'rate_limited' }, 429, { 'Retry-After': '60' });
   let brut: unknown = null;
   try { brut = JSON.parse(corps); } catch { /* refusé juste après */ }
   const c = DemandeActivite.safeParse(brut);

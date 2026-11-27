@@ -60,7 +60,7 @@ export async function GET(request: NextRequest) {
 
   // Rate-limit avant tout — un scraper qui spamme doit cap, peu importe l'auth.
   const ip = extractClientIp(request.headers);
-  const rate = meLiteLimiter.enforceWithBypass(ip, request.headers);
+  const rate = (await meLiteLimiter.enforceWithBypass(ip, request.headers));
   if (!rate.ok) {
     return NextResponse.json(
       { authenticated: false, error: 'rate_limited' },

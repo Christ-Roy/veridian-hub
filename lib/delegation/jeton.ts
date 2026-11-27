@@ -18,6 +18,7 @@ import { listerIntegrations } from './interrupteur';
 import { organisationDeTest } from './ouverture';
 import { adresseAction, CLE_MCP, pairePour, paireServie, porteesAccordees, paire as trouverPaire, type AppPaire } from './paires';
 import { empreinte } from './poignee';
+import { compterFenetre, viderLimiteur } from '@/lib/auth/compteurs';
 
 export const FENETRE_MS = 5 * 60_000;
 export const TTL_ACTION_S = 120;
@@ -50,14 +51,16 @@ export async function verifierAppel<A extends SyncApp = AppPaire>(db: Pick<Prism
   return { app };
 }
 
-const fenetres = new Map<string, number[]>();
-export const oublierDebit = () => fenetres.clear();
-export function deborde(cle: string, now: number, max = PAR_MINUTE): boolean {
-  const l = (fenetres.get(cle) ?? []).filter((t) => t > now - 60_000);
-  l.push(now);
-  fenetres.set(cle, l);
-  if (fenetres.size > 5_000) fenetres.clear();
-  return l.length > max;
+/** Plafond par minute et par clé, partagé entre instances (table compteurs_fenetre). Panne de base : débordé (fermé), journalisé. */
+export const oublierDebit = () => viderLimiteur(LIMITEUR_DEBORDE);
+const LIMITEUR_DEBORDE = 'deborde';
+export async function deborde(cle: string, now: number, max = PAR_MINUTE): Promise<boolean> {
+  try {
+    return (await compterFenetre(LIMITEUR_DEBORDE, cle, 60_000, now)).compte > max;
+  } catch (err) {
+    console.error('[deborde-indisponible]', err instanceof Error ? err.message : err);
+    return true;
+  }
 }
 
 export type Demande = { subject_grant: string; audience: string; scope: string; motif?: string };
@@ -89,7 +92,7 @@ export async function echanger(db: Db, app: AppPaire, d: Demande, env: NodeJS.Pr
   }
   if (t.status === 'suspended' || t.status === 'deleted') return refuser('tenant_suspended');
   if (!(await liaisonActive(db, p, g.tenantId))) return refuser('integration_off');
-  if (deborde(`${app}:${g.tenantId}`, Date.now())) return { statut: 429, error: 'rate_limited', retryAfterS: 60 };
+  if ((await deborde(`${app}:${g.tenantId}`, Date.now()))) return { statut: 429, error: 'rate_limited', retryAfterS: 60 };
 
   const cibleMcp = await db.mcpApp.findUnique({ where: { appKey: CLE_MCP[p.cible] }, select: { mcpUrl: true, enabled: true, acces: true } });
   if (!cibleMcp?.enabled) return { statut: 503, error: 'target_not_registered' };

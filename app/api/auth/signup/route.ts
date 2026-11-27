@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
   // (cf. lib/auth/rate-limit.ts) → comportement strictement identique
   // au code legacy `enforce(ip)`.
   const ip = extractClientIp(request.headers);
-  const rate = signupLimiter.enforceWithBypass(ip, request.headers);
+  const rate = (await signupLimiter.enforceWithBypass(ip, request.headers));
   if (!rate.ok) {
     console.warn(
       JSON.stringify({

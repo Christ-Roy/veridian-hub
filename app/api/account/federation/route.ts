@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
   if (!u.emailVerified) return rendre({ error: 'email_not_verified' }, 403);
   const c = Corps.safeParse(await request.json().catch(() => null));
   if (!c.success) return rendre({ error: 'invalid' }, 400);
-  if (!debit.enforce(u.id).ok) return rendre({ error: 'rate_limited' }, 429);
+  if (!(await debit.enforce(u.id)).ok) return rendre({ error: 'rate_limited' }, 429);
   if (c.data.geste === 'delier') return (await delier(prisma, u, c.data.tenant_id)) ? rendre({ ok: true }) : rendre({ error: 'not_found' }, 404);
   const i = await fournisseurDe(prisma, u, c.data.tenant_id);
   if (!i) return rendre({ error: 'not_found' }, 404);

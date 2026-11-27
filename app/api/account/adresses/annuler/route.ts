@@ -14,7 +14,7 @@ const debit = new RateLimiter({ capacity: 10, windowMs: 60_000, name: 'adresse-a
 
 export async function POST(request: NextRequest) {
   const base = getHubBaseUrl(request.url);
-  if (!debit.enforce(ipClient(request.headers)).ok) return NextResponse.json({ error: 'rate_limited' }, { status: 429, headers: { 'Retry-After': '60' } });
+  if (!(await debit.enforce(ipClient(request.headers))).ok) return NextResponse.json({ error: 'rate_limited' }, { status: 429, headers: { 'Retry-After': '60' } });
   const jeton = (await request.formData().catch(() => null))?.get('token');
   const r = await annuler(prisma, jeton);
   const res = NextResponse.redirect(new URL(`/auth/adresse?result=${'refus' in r ? r.refus : 'rendue'}`, base), 303);

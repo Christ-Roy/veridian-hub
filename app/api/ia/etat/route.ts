@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
     tracer(String(request.headers.get('x-veridian-app') ?? 'inconnue').slice(0, 20), v.statut, v.error);
     return rendre({ error: v.error }, v.statut);
   }
-  if (deborde(`ia-etat:${v.app}`, now, PAR_MINUTE)) return NextResponse.json({ error: 'rate_limited' }, { status: 429, headers: { 'Retry-After': '60', 'Cache-Control': 'no-store' } });
+  if ((await deborde(`ia-etat:${v.app}`, now, PAR_MINUTE))) return NextResponse.json({ error: 'rate_limited' }, { status: 429, headers: { 'Retry-After': '60', 'Cache-Control': 'no-store' } });
   let brut: unknown = null;
   try { brut = JSON.parse(corps); } catch { /* refusé juste après */ }
   const c = Corps.safeParse(brut);

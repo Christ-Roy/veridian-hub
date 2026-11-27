@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
   const qui = await verifierAcces(prisma, brut);
   if (!qui) return nonAutorise('jeton invalide, expiré ou révoqué');
 
-  const rate = mcpCallLimiter.enforce(qui.hubUserId);
+  const rate = (await mcpCallLimiter.enforce(qui.hubUserId));
   if (!rate.ok) {
     return NextResponse.json({ error: 'rate_limited' }, { status: 429, headers: { ...CORS, 'Retry-After': String(rate.retryAfterSeconds) } });
   }

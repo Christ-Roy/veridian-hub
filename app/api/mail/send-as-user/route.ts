@@ -119,10 +119,10 @@ function normalizeToList(to: string | string[]): string[] {
 export async function POST(request: NextRequest) {
   // ─── Pre-verify rate-limit (IP) — anti-flood avant HMAC CPU ──────────
   const ip = extractClientIp(request.headers);
-  const preRate = mailSendAsUserPreVerifyLimiter.enforceWithBypass(
+  const preRate = (await mailSendAsUserPreVerifyLimiter.enforceWithBypass(
     ip,
     request.headers,
-  );
+  ));
   if (!preRate.ok) {
     return jsonError(
       'rate_limit',
@@ -176,10 +176,10 @@ export async function POST(request: NextRequest) {
 
   // ─── Post-HMAC rate-limit (app:user_id) ──────────────────────────────
   const userRateKey = `${app}:${parsed.data.user_id}`;
-  const userRate = mailSendAsUserLimiter.enforceWithBypass(
+  const userRate = (await mailSendAsUserLimiter.enforceWithBypass(
     userRateKey,
     request.headers,
-  );
+  ));
   if (!userRate.ok) {
     return jsonError(
       'rate_limit',

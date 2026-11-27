@@ -28,7 +28,7 @@ export async function POST() {
   if ((await auth())?.user?.impersonated === true) {
     return NextResponse.json({ error: 'forbidden_impersonated' }, { status: 403 });
   }
-  const rate = sessionsRevokeAllLimiter.enforce(user.id);
+  const rate = (await sessionsRevokeAllLimiter.enforce(user.id));
   if (!rate.ok) {
     return NextResponse.json(
       { error: 'rate_limited' },

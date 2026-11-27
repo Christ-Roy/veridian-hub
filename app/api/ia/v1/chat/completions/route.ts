@@ -66,7 +66,7 @@ export async function POST(req: Request) {
   const triplet = { hubUserId: qui.hubUserId, app: APP, tenantId: espace.id };
   if (!(await estActive(prisma, triplet))) return refuser(qui, 403, 'chat_desactive', "L'assistant est éteint pour cette app.");
   for (const [lim, nom] of [[parMinute, 'minute'], [parJour, 'jour']] as const) {
-    if (!lim.enforce(qui.hubUserId).ok) return refuser(qui, 429, `plafond_${nom}`, 'Trop de questions en peu de temps.');
+    if (!(await lim.enforce(qui.hubUserId)).ok) return refuser(qui, 429, `plafond_${nom}`, 'Trop de questions en peu de temps.');
   }
   const moteur = await moteurActif(prisma, qui.hubUserId);
   if (!moteur) return refuser(qui, 409, 'pas_de_branchement', "Aucune IA n'est branchée à ce compte Veridian.");

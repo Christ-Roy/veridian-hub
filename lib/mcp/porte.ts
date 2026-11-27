@@ -312,7 +312,7 @@ async function programme(db: DbPorte, qui: Appelant, cat: Catalogue, args: Recor
   const espaces = await tousEspaces(db, qui.hubUserId, qui.preuve);
   const choisi = espaceChoisi(espaces, args.espace);
   if (choisi.refus) return choisi.refus;
-  const place = prendrePlace(qui.hubUserId);
+  const place = await prendrePlace(qui.hubUserId);
   if (!place.ok) return texte(place.message, true);
 
   const id = randomUUID();
@@ -389,7 +389,7 @@ async function programme(db: DbPorte, qui: Appelant, cat: Catalogue, args: Recor
     return presenter(id, bilan);
   } finally {
     abandon.abort();
-    place.rendre();
+    await place.rendre();
   }
 }
 

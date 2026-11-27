@@ -46,13 +46,13 @@ export async function adressesProuvees(db: Pick<PrismaClient, 'userEmail'>, u: {
  */
 export async function demanderCode(db: Db, u: Personne, brut: string, send: typeof sendMail = sendMail, now = new Date()): Promise<'demande' | 'trop'> {
   const email = normaliserEmail(brut);
-  if (!codesParCompte.enforce(u.id).ok) return 'trop';
+  if (!(await codesParCompte.enforce(u.id)).ok) return 'trop';
   const [principale, titulaire, siennes] = await Promise.all([
     db.user.findUnique({ where: { email }, select: { id: true } }),
     titulaireSecondaire(db, email),
     db.userEmail.count({ where: { userId: u.id, detacheeLe: null } }),
   ]);
-  if (principale || titulaire || siennes >= ADRESSES_MAX || !codesParAdresse.enforce(email).ok) return 'demande';
+  if (principale || titulaire || siennes >= ADRESSES_MAX || !(await codesParAdresse.enforce(email)).ok) return 'demande';
   const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
   const ligne = { email, codeEmpreinte: empreinte(u.id, email, code), essais: 0, expireLe: new Date(now.getTime() + CODE_MIN * 60_000) };
   await db.userEmailCode.upsert({ where: { userId: u.id }, create: { userId: u.id, ...ligne }, update: ligne });

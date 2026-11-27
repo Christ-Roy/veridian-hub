@@ -6,6 +6,8 @@
  */
 import { AppDebit, AppInjoignable } from './client-app';
 import type { Outil } from './catalogue';
+import { compterFenetre, lireFenetre, viderLimiteur } from '@/lib/auth/compteurs';
+import { verrouCourant } from './verrou-programme';
 
 export const DELAI_MS = 45_000;
 export const APPELS_MAX = 200;
@@ -97,30 +99,43 @@ export function valeurDe(r: Contenu): unknown {
 
 // ── Un programme à la fois par utilisateur, et un budget d'appels par minute ─────────────────
 
-const enCours = new Set<string>();
-const appelsRecents = new Map<string, number[]>();
+/** Compteur des appels d'un compte, par minute, partagé entre instances. */
+const LIMITEUR_APPELS = 'programme-appels';
+const FENETRE_APPELS_MS = 60_000;
 
-function recents(utilisateur: string, maintenant: number): number[] {
-  const l = (appelsRecents.get(utilisateur) ?? []).filter((t) => t > maintenant - 60_000);
-  if (l.length) appelsRecents.set(utilisateur, l);
-  else appelsRecents.delete(utilisateur);
-  return l;
+/** Efface le budget d'appels (tests). Le verrou de programme se libère avec chaque programme. */
+export function oublierProgrammes(): Promise<void> {
+  return viderLimiteur(LIMITEUR_APPELS);
 }
 
-export function oublierProgrammes() {
-  enCours.clear();
-  appelsRecents.clear();
-}
-
-/** Prend la place de l'utilisateur, ou dit pourquoi pas. */
-export function prendrePlace(utilisateur: string, maintenant = Date.now()): { ok: true; rendre: () => void } | { ok: false; message: string } {
-  if (enCours.has(utilisateur)) return { ok: false, message: 'Un programme de ce compte est déjà en cours : attendre sa fin (45 s au plus).' };
-  const l = recents(utilisateur, maintenant);
-  if (l.length >= APPELS_MINUTE_MAX) {
-    return { ok: false, message: `Trop d'appels par programme en une minute : réessayer dans ${Math.max(1, Math.ceil((l[0] + 60_000 - maintenant) / 1000))} s.` };
+/**
+ * Prend la place de l'utilisateur, ou dit pourquoi pas. Un programme à la fois par compte (verrou partagé, lib/mcp/verrou-programme.ts)
+ * et budget d'appels par minute (compteur partagé). Le verrou est pris d'abord ; si le budget refuse, il est rendu aussitôt.
+ */
+export async function prendrePlace(
+  utilisateur: string,
+  maintenant = Date.now(),
+): Promise<{ ok: true; rendre: () => Promise<void> } | { ok: false; message: string }> {
+  const prise = await verrouCourant().prendre(utilisateur);
+  if (!prise.ok) {
+    if (prise.raison === 'occupe') return { ok: false, message: 'Un programme de ce compte est déjà en cours : attendre sa fin (45 s au plus).' };
+    console.error('[programme-verrou] indisponible', prise.erreur ?? '');
+    return { ok: false, message: 'Le verrou des programmes ne répond pas : réessayer dans un instant.' };
   }
-  enCours.add(utilisateur);
-  return { ok: true, rendre: () => enCours.delete(utilisateur) };
+  let compte: number;
+  let resetAt: number;
+  try {
+    ({ compte, resetAt } = await lireFenetre(LIMITEUR_APPELS, utilisateur, FENETRE_APPELS_MS, maintenant));
+  } catch (err) {
+    console.error('[programme-budget] indisponible', err instanceof Error ? err.message : err);
+    await prise.liberer();
+    return { ok: false, message: 'Le budget d\'appels ne répond pas : réessayer dans un instant.' };
+  }
+  if (compte >= APPELS_MINUTE_MAX) {
+    await prise.liberer();
+    return { ok: false, message: `Trop d'appels par programme en une minute : réessayer dans ${Math.max(1, Math.ceil((resetAt - maintenant) / 1000))} s.` };
+  }
+  return { ok: true, rendre: prise.liberer };
 }
 
 export type DemandeProgramme = {
@@ -209,8 +224,12 @@ export async function executerProgramme(d: DemandeProgramme): Promise<Bilan> {
       attente.push(() => {
         enVol.set(id, o.nom);
         attenteCar -= taille;
-        appelsRecents.set(d.utilisateur, [...recents(d.utilisateur, Date.now()), Date.now()]);
-        jouerAvecDebit(o, args)
+        // Le budget se compte avant de jouer ; s'il ne peut pas l'être, l'appel n'est PAS joué (refus fermé).
+        compterFenetre(LIMITEUR_APPELS, d.utilisateur, FENETRE_APPELS_MS, Date.now())
+          .catch(() => {
+            throw new Error("budget d'appels indisponible : appel non joué, réessayer");
+          })
+          .then(() => jouerAvecDebit(o, args))
           .then((r) => valeurDe(r))
           .then(
             (valeur) => {

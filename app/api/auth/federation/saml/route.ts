@@ -18,7 +18,7 @@ const debit = new RateLimiter({ capacity: 30, windowMs: 60_000, name: 'federatio
 
 export async function POST(request: NextRequest) {
   const base = getHubBaseUrl(request.url);
-  if (!debit.enforce(ipClient(request.headers)).ok) return NextResponse.json({ error: 'rate_limited' }, { status: 429, headers: { 'Retry-After': '60' } });
+  if (!(await debit.enforce(ipClient(request.headers))).ok) return NextResponse.json({ error: 'rate_limited' }, { status: 429, headers: { 'Retry-After': '60' } });
   if (Number(request.headers.get('content-length') ?? 0) > 400_000) return NextResponse.json({ error: 'too_large' }, { status: 413 });
   const s = sortieDe(base, { nom: COOKIE_SAML, chemin: CHEMIN_ACS });
   const t = ouvrir(request.cookies.get(COOKIE_SAML)?.value);

@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
   if (!(await estActive(prisma, triplet))) return NextResponse.json({ error: 'chat_desactive' }, { status: 403 });
 
   for (const [lim, nom] of [[parMinute, 'minute'], [parJour, 'jour']] as const) {
-    const r = lim.enforce(c.hubUserId);
+    const r = (await lim.enforce(c.hubUserId));
     if (!r.ok) {
       await writeAuditLog(prisma, { action: 'ia.refus', actor: c.email, targetType: 'ia_chat', targetId: c.hubUserId, payload: { app, raison: `plafond_${nom}` } });
       return NextResponse.json({ error: 'plafond', par: nom }, { status: 429, headers: { 'Retry-After': String(r.retryAfterSeconds) } });

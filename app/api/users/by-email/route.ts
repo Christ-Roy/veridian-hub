@@ -60,10 +60,10 @@ export async function GET(request: NextRequest) {
   //    enforceWithBypass : bypass E2E staging via header secret valide
   //    (cf. lib/auth/rate-limit.ts). En prod le bypass est ignoré.
   const ip = extractClientIp(request.headers);
-  const preRate = discoveryPreVerifyLimiter.enforceWithBypass(
+  const preRate = (await discoveryPreVerifyLimiter.enforceWithBypass(
     ip,
     request.headers,
-  );
+  ));
   if (!preRate.ok) {
     return NextResponse.json(
       { error: 'rate_limited' },
@@ -93,10 +93,10 @@ export async function GET(request: NextRequest) {
   //    sans pénaliser les autres apps.
   //    enforceWithBypass aussi sur le post-HMAC pour la cohérence E2E —
   //    un client E2E qui pose le header bypass doit traverser les 2 couches.
-  const appRate = discoveryAppLimiter.enforceWithBypass(
+  const appRate = (await discoveryAppLimiter.enforceWithBypass(
     hmac.app,
     request.headers,
-  );
+  ));
   if (!appRate.ok) {
     return NextResponse.json(
       { error: 'rate_limited' },

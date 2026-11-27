@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
 
   // ─── Rate-limit (anti-flood) ───────────────────────────────────────────
   const ip = extractClientIp(request.headers);
-  const rate = oauthCallbackLimiter.enforceWithBypass(ip, request.headers);
+  const rate = (await oauthCallbackLimiter.enforceWithBypass(ip, request.headers));
   if (!rate.ok) {
     return NextResponse.json(
       { ok: false, error: 'rate_limited' },

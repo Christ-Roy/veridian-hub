@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
   if (!f || !id.success) return vers('refus');
   if ((await roleAuHub(prisma, id.data, userUuid(user))) !== 'owner') return vers('proprietaire_seul');
   if (await fermeeIci(userUuid(user), id.data)) return vers('organisation_fournisseur');
-  if (!debit.enforce(user.id).ok) return vers('trop_de_gestes');
+  if (!(await debit.enforce(user.id)).ok) return vers('trop_de_gestes');
 
   const acteur = `user:${user.id}`;
   const champ = (n: string) => String(f.get(n) ?? '').trim();
