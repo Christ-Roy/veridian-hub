@@ -79,9 +79,12 @@ cas(null, 'adresse recyclée : un compte neuf entre partout chez lui, et n\'hér
     const refusCrm = await activerTwentyAuHub(N.email).then(() => null, (err) => String(err instanceof Error ? err.message : err).slice(0, 200));
     const TN = (await lookup(N.email)).json?.tenants?.[0] as { id: string } | undefined;
     if (TN) noterEspaceTwenty(N.email, TN.id);
+    // Épreuve (27/11 : passait sans rien prouver) : le compte neuf entre DANS l'organisation, et l'on attend que les apps l'aient reçu avant de relire.
+    let sabote = '';
     if (process.env.SSO_SABOTAGE === 'recycle-membre') {
       const a = await admin('POST', `tenants/${T.id}/members`, { hub_user_id: N.hubUserId });
-      console.log(`sabotage : ${a.status} ${JSON.stringify(a.json).slice(0, 400)}`);
+      sabote = `sabotage : HTTP ${a.status} ${JSON.stringify((a.json as { organisation?: unknown }).organisation ?? a.json).slice(0, 300)} ; `;
+      await pause(20_000);
     }
     const neuf = await voir(await ctxDe(N), N.email);
     console.log(`vu : ${JSON.stringify({ avantM, neuf, commun })}`);
@@ -92,7 +95,7 @@ cas(null, 'adresse recyclée : un compte neuf entre partout chez lui, et n\'hér
     };
     const entre = { prospection: Boolean(neuf.prospection?.length), mail: Boolean(neuf.mail?.length), crm: Boolean(neuf.crm) };
     expect.soft(refusCrm, 'son espace CRM, ouvert par l\'opérateur').toBeNull();
-    expect.soft(herite, 'ce que le compte neuf a hérité').toEqual({ prospection: 0, mail: 0, crm: 0 });
+    expect.soft(herite, `${sabote}ce que le compte neuf a hérité`).toEqual({ prospection: 0, mail: 0, crm: 0 });
     expect.soft(entre, `il entre partout : ${[refusCrm, ...neuf.erreurs].filter(Boolean).join(' | ')}`).toEqual({ prospection: true, mail: true, crm: true });
     // Ce que M tenait est fermé, et ne s'est pas rouvert avec le compte neuf.
     const meM = (await (await cM.request.get(`${APP_URL.prospection}/api/me`)).json().catch(() => null)) as { workspaces?: unknown[] } | null;

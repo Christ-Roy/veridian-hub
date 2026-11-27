@@ -54,7 +54,8 @@ describe('client préinscrit (Google, 27/11)', () => {
     const remettre = avec({});
     try {
       s.preinscrire('pre-1', 'sec-1', [RETOUR]);
-      vi.stubEnv('PRE_ID', 'pre-1'); vi.stubEnv('PRE_SECRET', 'sec-1');
+      // Rendues en toJSON par le job : entre guillemets, elles se lisent pareil.
+      vi.stubEnv('PRE_ID', '"pre-1"'); vi.stubEnv('PRE_SECRET', '"sec-1"');
       const avant = s.vu.enregistrements;
       const a = await aller();
       expect([a.url.searchParams.get('client_id'), a.url.searchParams.get('access_type'), s.vu.enregistrements - avant, clients().length]).toEqual(['pre-1', 'offline', 0, 0]);

@@ -59,7 +59,9 @@ const decouvrir = async (c: Connecteur, id: string, secret: string | undefined, 
 async function notreClient(db: Db, c: Connecteur, retour: string, d: Deps): Promise<oidc.Configuration | null> {
   if (c.preinscrit) {
     // Client créé chez le service (Google) : lu dans l'environnement, jamais en base, jamais inscrit d'ici.
-    const [id, secret] = [process.env[c.preinscrit.id]?.trim(), process.env[c.preinscrit.secret]?.trim()];
+    // Rendues par le job en `toJSON` : des guillemets peuvent rester autour de la valeur selon l'analyse du fichier d'environnement ; on les retire.
+    const lue = (nom: string) => process.env[nom]?.trim().replace(/^"(.*)"$/, '$1') || undefined;
+    const [id, secret] = [lue(c.preinscrit.id), lue(c.preinscrit.secret)];
     return id && secret ? decouvrir(c, id, secret, d) : null;
   }
   const l = await db.connecteurClient.findUnique({ where: { connecteur_retour: { connecteur: c.cle, retour } } });
