@@ -37,9 +37,10 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 
-const sendTelegramAlertMock = vi.fn(async () => true);
-vi.mock('@/lib/notifications/telegram', () => ({
-  sendTelegramAlert: (...args: unknown[]) => sendTelegramAlertMock(...args),
+const alerteMock = vi.fn(async () => true);
+vi.mock('@/lib/notifications/alerte', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/notifications/alerte')>()),
+  emettreAlerte: (...args: unknown[]) => alerteMock(...args),
 }));
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -88,7 +89,7 @@ describe('dispatchStripeEvent — RELEVANT_EVENT_TYPES filtering', () => {
       expect(result.reason).toMatch(/not relevant/);
     }
     expect(manageSubscriptionMock).not.toHaveBeenCalled();
-    expect(sendTelegramAlertMock).not.toHaveBeenCalled();
+    expect(alerteMock).not.toHaveBeenCalled();
   });
 });
 
@@ -250,7 +251,7 @@ describe('dispatchStripeEvent — V1 log-only events', () => {
 
     expect(result.status).toBe('processed');
     expect(manageSubscriptionMock).not.toHaveBeenCalled();
-    expect(sendTelegramAlertMock).not.toHaveBeenCalled();
+    expect(alerteMock).not.toHaveBeenCalled();
   });
 
   it('invoice.payment_succeeded → processed (audit only)', async () => {
@@ -266,7 +267,7 @@ describe('dispatchStripeEvent — V1 log-only events', () => {
 
     expect(result.status).toBe('processed');
     expect(manageSubscriptionMock).not.toHaveBeenCalled();
-    expect(sendTelegramAlertMock).not.toHaveBeenCalled();
+    expect(alerteMock).not.toHaveBeenCalled();
   });
 
   it('invoice.payment_failed with attempt<3 → processed without alert', async () => {
@@ -301,8 +302,8 @@ describe('dispatchStripeEvent — V1 log-only events', () => {
 
     expect(result.status).toBe('processed');
     expect(alertFn).toHaveBeenCalledTimes(1);
-    const message = alertFn.mock.calls[0][0];
-    expect(message).toMatch(/Stripe dunning/);
+    const message = JSON.stringify(alertFn.mock.calls[0][0]);
+    expect(message).toMatch(/stripe.dunning/);
     expect(message).toMatch(/cus_dunning/);
     expect(message).toMatch(/3 paiements/);
   });
@@ -432,8 +433,8 @@ describe('dispatchStripeEvent — failure handling', () => {
       expect(result.error).toMatch(/Stripe API down/);
     }
     expect(alertFn).toHaveBeenCalledTimes(1);
-    const message = alertFn.mock.calls[0][0];
-    expect(message).toMatch(/dispatcher KO/);
+    const message = JSON.stringify(alertFn.mock.calls[0][0]);
+    expect(message).toMatch(/stripe.dispatcher_ko/);
     expect(message).toMatch(/evt_failed_42/);
     expect(message).toMatch(/Stripe API down/);
   });
@@ -477,8 +478,8 @@ describe('dispatchStripeEvent — failure handling', () => {
 
     expect(result.status).toBe('processed');
     expect(alertFn).toHaveBeenCalledTimes(1);
-    const message = alertFn.mock.calls[0][0];
-    expect(message).toMatch(/Stripe propagation KO/);
+    const message = JSON.stringify(alertFn.mock.calls[0][0]);
+    expect(message).toMatch(/stripe.propagation_ko/);
     expect(message).toMatch(/evt_prop_77/);
     expect(message).toMatch(/tenant_99/);
     expect(message).toMatch(/notifuse/);
@@ -507,7 +508,7 @@ describe('dispatchStripeEvent — failure handling', () => {
 });
 
 describe('dispatchStripeEvent — alertFn default fallback', () => {
-  it('uses sendTelegramAlert when opts.alertFn not provided (on failure)', async () => {
+  it('uses emettreAlerte when opts.alertFn not provided (on failure)', async () => {
     manageSubscriptionMock.mockRejectedValueOnce(new Error('boom'));
 
     const { dispatchStripeEvent } = await import('@/lib/stripe/dispatcher');
@@ -519,6 +520,6 @@ describe('dispatchStripeEvent — alertFn default fallback', () => {
     const result = await dispatchStripeEvent(event);
 
     expect(result.status).toBe('failed');
-    expect(sendTelegramAlertMock).toHaveBeenCalledTimes(1);
+    expect(alerteMock).toHaveBeenCalledTimes(1);
   });
 });

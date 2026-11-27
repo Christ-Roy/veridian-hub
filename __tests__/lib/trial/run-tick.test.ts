@@ -182,14 +182,14 @@ describe('runTrialTick — phase activate', () => {
 
     const updatePlanMock = vi.fn().mockResolvedValue(undefined);
     const sendEmailMock = vi.fn().mockResolvedValue(undefined);
-    const notifyTelegramMock = vi.fn().mockResolvedValue(true);
+    const notifierAlerteMock = vi.fn();
     const hasActiveStripeSubMock = vi.fn().mockResolvedValue(false);
 
     const { runTrialTick } = await import('@/lib/trial/run-tick');
     const summary = await runTrialTick({
       notifuseClient: { updatePlan: updatePlanMock } as never,
       sendEmail: sendEmailMock,
-      notifyTelegram: notifyTelegramMock,
+      notifierAlerte: notifierAlerteMock,
       hasActiveStripeSubForTenant: hasActiveStripeSubMock,
       now: NOW,
     });
@@ -223,8 +223,8 @@ describe('runTrialTick — phase activate', () => {
     expect(sendEmailMock.mock.calls[0][0].subject).toMatch(/essai Pro/i);
 
     // Telegram notification fired
-    expect(notifyTelegramMock).toHaveBeenCalled();
-    expect(notifyTelegramMock.mock.calls[0][0]).toMatch(/Trial Pro activé/);
+    expect(notifierAlerteMock).toHaveBeenCalled();
+    expect(notifierAlerteMock.mock.calls[0][0]).toMatchObject({ gravite: 'info', evenement: 'trial.active' });
   });
 
   it('records error in summary if update-plan throws but does not crash the tick', async () => {
@@ -244,7 +244,7 @@ describe('runTrialTick — phase activate', () => {
     const summary = await runTrialTick({
       notifuseClient: { updatePlan: updatePlanMock } as never,
       sendEmail: vi.fn(),
-      notifyTelegram: vi.fn().mockResolvedValue(true),
+      notifierAlerte: vi.fn(),
       hasActiveStripeSubForTenant: vi.fn().mockResolvedValue(false),
       now: NOW,
     });
@@ -316,7 +316,7 @@ describe('runTrialTick — phase notify ending soon', () => {
     const summary = await runTrialTick({
       notifuseClient: { updatePlan: vi.fn() } as never,
       sendEmail: sendEmailMock,
-      notifyTelegram: vi.fn().mockResolvedValue(true),
+      notifierAlerte: vi.fn(),
       hasActiveStripeSubForTenant: vi.fn().mockResolvedValue(false),
       now: NOW,
     });
@@ -339,7 +339,7 @@ describe('runTrialTick — phase notify ending soon', () => {
     const { runTrialTick } = await import('@/lib/trial/run-tick');
     const summary = await runTrialTick({
       sendEmail: vi.fn(),
-      notifyTelegram: vi.fn().mockResolvedValue(true),
+      notifierAlerte: vi.fn(),
       hasActiveStripeSubForTenant: vi.fn().mockResolvedValue(false),
       notifuseClient: { updatePlan: vi.fn() } as never,
       now: NOW,
@@ -377,7 +377,7 @@ describe('runTrialTick — phase notify ending soon', () => {
     const summary = await runTrialTick({
       notifuseClient: { updatePlan: vi.fn() } as never,
       sendEmail: sendEmailMock,
-      notifyTelegram: vi.fn().mockResolvedValue(true),
+      notifierAlerte: vi.fn(),
       // ← la signature "hasSub=true" simule le scénario user qui paie déjà
       hasActiveStripeSubForTenant: vi.fn().mockResolvedValue(true),
       now: NOW,
@@ -428,7 +428,7 @@ describe('runTrialTick — phase finalize', () => {
     const summary = await runTrialTick({
       notifuseClient: { updatePlan: updatePlanMock } as never,
       sendEmail: vi.fn(),
-      notifyTelegram: vi.fn().mockResolvedValue(true),
+      notifierAlerte: vi.fn(),
       hasActiveStripeSubForTenant: vi.fn().mockResolvedValue(true),
       now: NOW,
     });
@@ -469,13 +469,13 @@ describe('runTrialTick — phase finalize', () => {
 
     const updatePlanMock = vi.fn().mockResolvedValue(undefined);
     const sendEmailMock = vi.fn().mockResolvedValue(undefined);
-    const notifyTelegramMock = vi.fn().mockResolvedValue(true);
+    const notifierAlerteMock = vi.fn();
 
     const { runTrialTick } = await import('@/lib/trial/run-tick');
     const summary = await runTrialTick({
       notifuseClient: { updatePlan: updatePlanMock } as never,
       sendEmail: sendEmailMock,
-      notifyTelegram: notifyTelegramMock,
+      notifierAlerte: notifierAlerteMock,
       hasActiveStripeSubForTenant: vi.fn().mockResolvedValue(false),
       now: NOW,
     });
@@ -495,8 +495,8 @@ describe('runTrialTick — phase finalize', () => {
     expect(sendEmailMock).toHaveBeenCalledWith(
       expect.objectContaining({ to: 'expired@example.com' }),
     );
-    expect(notifyTelegramMock).toHaveBeenCalled();
-    expect(notifyTelegramMock.mock.calls[0][0]).toMatch(/Trial expiré/);
+    expect(notifierAlerteMock).toHaveBeenCalled();
+    expect(notifierAlerteMock.mock.calls[0][0]).toMatchObject({ gravite: 'info', evenement: 'trial.expire' });
   });
 });
 
@@ -524,7 +524,7 @@ describe('runTrialTick — race condition simulation', () => {
     const summary1 = await runTrialTick({
       notifuseClient: { updatePlan: updatePlanMock } as never,
       sendEmail: vi.fn(),
-      notifyTelegram: vi.fn().mockResolvedValue(true),
+      notifierAlerte: vi.fn(),
       hasActiveStripeSubForTenant: vi.fn().mockResolvedValue(false),
       now: NOW,
     });
@@ -538,7 +538,7 @@ describe('runTrialTick — race condition simulation', () => {
     const summary2 = await runAgain({
       notifuseClient: { updatePlan: updatePlanMock } as never,
       sendEmail: vi.fn(),
-      notifyTelegram: vi.fn().mockResolvedValue(true),
+      notifierAlerte: vi.fn(),
       hasActiveStripeSubForTenant: vi.fn().mockResolvedValue(false),
       now: NOW,
     });
@@ -596,7 +596,7 @@ describe('runTrialTick — batch resolvers (N+1 fix)', () => {
     const summary = await runTrialTick({
       notifuseClient: { updatePlan: updatePlanMock } as never,
       sendEmail: sendEmailMock,
-      notifyTelegram: vi.fn().mockResolvedValue(true),
+      notifierAlerte: vi.fn(),
       hasActiveStripeSubForTenant: vi.fn().mockResolvedValue(false),
       now: NOW,
     });
@@ -676,7 +676,7 @@ describe('runTrialTick — batch resolvers (N+1 fix)', () => {
     const summary = await runTrialTick({
       notifuseClient: { updatePlan: updatePlanMock } as never,
       sendEmail: vi.fn().mockResolvedValue(undefined),
-      notifyTelegram: vi.fn().mockResolvedValue(true),
+      notifierAlerte: vi.fn(),
       // PAS de hasActiveStripeSubForTenant → on prend la voie batch DB.
       now: NOW,
     });
@@ -744,7 +744,7 @@ describe('runTrialTick — batch resolvers (N+1 fix)', () => {
     const summary = await runTrialTick({
       notifuseClient: { updatePlan: updatePlanMock } as never,
       sendEmail: sendEmailMock,
-      notifyTelegram: vi.fn().mockResolvedValue(true),
+      notifierAlerte: vi.fn(),
       hasActiveStripeSubForTenant: vi.fn().mockResolvedValue(false),
       now: NOW,
     });
@@ -797,7 +797,7 @@ describe('runTrialTick — Notifuse reçoit son slug, la ligne porte l\'id du te
     const summary = await runTrialTick({
       notifuseClient: { updatePlan: updatePlanMock } as never,
       sendEmail: vi.fn().mockResolvedValue(undefined),
-      notifyTelegram: vi.fn().mockResolvedValue(true),
+      notifierAlerte: vi.fn(),
       hasActiveStripeSubForTenant: vi.fn().mockResolvedValue(false),
       now: NOW,
     });

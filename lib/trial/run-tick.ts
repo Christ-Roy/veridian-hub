@@ -60,7 +60,7 @@ import { buildNotifuseClient } from '@/lib/notifuse/admin-helpers';
 import type { NotifuseClient } from '@/lib/notifuse/client';
 import type { NotifusePlan } from '@/lib/notifuse/types';
 import { sendMail } from '@/lib/email/send';
-import { sendTelegramAlert } from '@/lib/notifications/telegram';
+import { emettreAlerte, type AlerteEntree } from '@/lib/notifications/alerte';
 import {
   buildTrialEndingSoonEmail,
   buildTrialExpiredEmail,
@@ -96,7 +96,8 @@ export interface TickSummary {
 export interface TickDeps {
   notifuseClient?: NotifuseClient;
   sendEmail?: (params: { to: string; subject: string; html: string }) => Promise<void>;
-  notifyTelegram?: (message: string) => Promise<boolean>;
+  /** Ligne d'alerte `flux=alerte` (mockable). Défaut : `emettreAlerte`. */
+  notifierAlerte?: (alerte: AlerteEntree) => unknown;
   /** @deprecated Garder pour back-compat tests. Préférer `hasActiveStripeSubBatch`. */
   hasActiveStripeSubForTenant?: (tenantId: string, app: string) => Promise<boolean>;
   /** Batch resolver : 1 appel pour tout le batch finalize. */
@@ -123,7 +124,7 @@ export async function runTrialTick(deps: TickDeps = {}): Promise<TickSummary> {
         subject: params.subject,
         html: params.html,
       }));
-  const notifyTelegram = deps.notifyTelegram ?? sendTelegramAlert;
+  const notifierAlerte = deps.notifierAlerte ?? emettreAlerte;
 
   // Batch resolvers — par défaut tapent la DB en 2 queries chacun. Les tests
   // peuvent surcharger via deps pour piloter en mémoire.
@@ -165,7 +166,7 @@ export async function runTrialTick(deps: TickDeps = {}): Promise<TickSummary> {
     now,
     notifuseClient,
     sendEmail,
-    notifyTelegram,
+    notifierAlerte,
     resolveOwnerEmailBatch,
     summary,
   );
@@ -181,7 +182,7 @@ export async function runTrialTick(deps: TickDeps = {}): Promise<TickSummary> {
     notifuseClient,
     hasActiveStripeSubBatch,
     sendEmail,
-    notifyTelegram,
+    notifierAlerte,
     resolveOwnerEmailBatch,
     summary,
   );
@@ -197,7 +198,7 @@ async function processActivations(
   now: Date,
   notifuseClient: NotifuseClient,
   sendEmail: NonNullable<TickDeps['sendEmail']>,
-  notifyTelegram: NonNullable<TickDeps['notifyTelegram']>,
+  notifierAlerte: NonNullable<TickDeps['notifierAlerte']>,
   resolveOwnerEmailBatch: (
     tenantIds: string[],
   ) => Promise<Map<string, string | null>>,
@@ -268,8 +269,13 @@ async function processActivations(
         await sendEmail({ to: ownerEmail, subject: tpl.subject, html: tpl.html });
       }
 
-      await notifyTelegram(
-        `🎉 <b>Trial Pro activé</b>\napp=${row.app}\ntenant=${row.tenant_id}\nexpire=${trialEndsAt.toISOString()}`,
+      await Promise.resolve(
+        notifierAlerte({
+          gravite: 'info',
+          evenement: 'trial.active',
+          message: 'Trial Pro activé',
+          detail: { app: row.app, tenant_id: row.tenant_id, expire: trialEndsAt.toISOString() },
+        }),
       ).catch(() => undefined);
 
       summary.activated += 1;
@@ -402,7 +408,7 @@ async function processFinalize(
     tenantIds: string[],
   ) => Promise<Map<string, boolean>>,
   sendEmail: NonNullable<TickDeps['sendEmail']>,
-  notifyTelegram: NonNullable<TickDeps['notifyTelegram']>,
+  notifierAlerte: NonNullable<TickDeps['notifierAlerte']>,
   resolveOwnerEmailBatch: (
     tenantIds: string[],
   ) => Promise<Map<string, string | null>>,
@@ -454,8 +460,13 @@ async function processFinalize(
           data: { state: 'converted', updatedAt: now },
         });
         summary.converted += 1;
-        await notifyTelegram(
-          `💳 <b>Trial converti (Stripe sub active)</b>\napp=${row.app}\ntenant=${row.tenant_id}`,
+        await Promise.resolve(
+          notifierAlerte({
+            gravite: 'info',
+            evenement: 'trial.converti',
+            message: 'Trial converti (abonnement Stripe actif)',
+            detail: { app: row.app, tenant_id: row.tenant_id },
+          }),
         ).catch(() => undefined);
         continue;
       }
@@ -478,8 +489,13 @@ async function processFinalize(
         await sendEmail({ to: ownerEmail, subject: tpl.subject, html: tpl.html });
       }
 
-      await notifyTelegram(
-        `📉 <b>Trial expiré + downgrade free</b>\napp=${row.app}\ntenant=${row.tenant_id}`,
+      await Promise.resolve(
+        notifierAlerte({
+          gravite: 'info',
+          evenement: 'trial.expire',
+          message: 'Trial expiré, retour au plan free',
+          detail: { app: row.app, tenant_id: row.tenant_id },
+        }),
       ).catch(() => undefined);
 
       summary.expired += 1;

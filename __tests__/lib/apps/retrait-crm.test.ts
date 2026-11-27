@@ -5,10 +5,10 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const m = vi.hoisted(() => ({ audit: vi.fn(), telegram: vi.fn() }));
+const m = vi.hoisted(() => ({ audit: vi.fn(), alerte: vi.fn() }));
 vi.mock('@/lib/prisma', () => ({ prisma: {} }));
 vi.mock('@/lib/admin/audit-log', () => ({ writeAuditLog: (...a: unknown[]) => m.audit(...a) }));
-vi.mock('@/lib/notifications/telegram', () => ({ sendTelegramAlert: (...a: unknown[]) => m.telegram(...a) }));
+vi.mock('@/lib/notifications/alerte', () => ({ emettreAlerte: (...a: unknown[]) => m.alerte(...a) }));
 
 import { verdictRetraitCrm } from '@/lib/apps/retrait-crm';
 import { pushUserToApps } from '@/lib/identity/push-user';
@@ -52,7 +52,7 @@ beforeEach(() => {
   vi.spyOn(console, 'log').mockImplementation(() => undefined);
   vi.spyOn(console, 'warn').mockImplementation(() => undefined);
   m.audit.mockResolvedValue(undefined);
-  m.telegram.mockResolvedValue(true);
+  m.alerte.mockReturnValue(undefined);
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -69,8 +69,8 @@ describe('fusible du retrait au CRM', () => {
     expect(c.corpsPush).toEqual([{ hub_user_id: MOI, revoke_sessions: true }]);
     expect(JSON.stringify(c.corpsPush)).not.toContain('deleted');
     expect(m.audit).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ action: 'crm.retrait.attente', targetId: MOI, payload: { raison: 'espace_vivant', espaces: 1 } }));
-    expect(m.telegram).toHaveBeenCalledOnce();
-    expect(JSON.stringify([m.audit.mock.calls, m.telegram.mock.calls]), 'aucune adresse').not.toContain('@');
+    expect(m.alerte).toHaveBeenCalledOnce();
+    expect(JSON.stringify([m.audit.mock.calls, m.alerte.mock.calls]), 'aucune adresse').not.toContain('@');
   });
 
   it('seul dans aucun espace (cas habituel, espace déjà supprimé) : le retrait part', async () => {

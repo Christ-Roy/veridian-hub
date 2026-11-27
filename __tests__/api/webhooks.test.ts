@@ -10,7 +10,7 @@
  *   5. 200 si checkout.session.completed avec subscription → idem
  *   6. 200 (avec outcome=failed) si handler throw → ASSERTIONS FORTES :
  *      a) markEventProcessed appelé avec error: 'DB down' (signal côté DB)
- *      b) sendTelegramAlert appelé avec message d'erreur (signal opérationnel)
+ *      b) ligne d'alerte émise (emettreAlerte) (signal opérationnel)
  *      Ces assertions garantissent que si quelqu'un retire le signalement
  *      d'erreur côté code applicatif, le test casse.
  */
@@ -34,12 +34,13 @@ vi.mock('@/utils/stripe/prisma-sync', () => ({
   manageSubscriptionStatusChange: (...args: any[]) => manageSubscriptionMock(...args),
 }));
 
-// Mock Telegram → on veut SPY que l'alerte est levée quand le dispatcher catch
+// Mock émetteur d'alerte → on veut SPY que l'alerte est levée quand le dispatcher catch
 // un throw. C'est le signal opérationnel le plus critique : si Robert n'est
 // pas notifié, une désync billing peut traîner des jours sans détection.
-const sendTelegramAlertMock = vi.fn(async () => true);
-vi.mock('@/lib/notifications/telegram', () => ({
-  sendTelegramAlert: (...args: any[]) => sendTelegramAlertMock(...args),
+const alerteMock = vi.fn(async () => true);
+vi.mock('@/lib/notifications/alerte', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/notifications/alerte')>()),
+  emettreAlerte: (...args: any[]) => alerteMock(...args),
 }));
 
 // Mock Prisma → on veut SPY que stripeEvent.update est appelé avec un `error`
@@ -112,7 +113,7 @@ describe('POST /api/webhooks (Stripe)', () => {
       where: { eventId: 'evt_1' },
       data: { processedAt: expect.any(Date), error: null },
     });
-    expect(sendTelegramAlertMock).not.toHaveBeenCalled();
+    expect(alerteMock).not.toHaveBeenCalled();
   });
 
   it('handles customer.subscription.created → calls handler + marks processed', async () => {
@@ -141,7 +142,7 @@ describe('POST /api/webhooks (Stripe)', () => {
       data: { processedAt: expect.any(Date), error: null },
     });
     // Happy path : pas d'alerte Telegram
-    expect(sendTelegramAlertMock).not.toHaveBeenCalled();
+    expect(alerteMock).not.toHaveBeenCalled();
   });
 
   it('handles checkout.session.completed (mode=subscription) → calls handler + marks processed', async () => {
@@ -171,7 +172,7 @@ describe('POST /api/webhooks (Stripe)', () => {
       where: { eventId: 'evt_3' },
       data: { processedAt: expect.any(Date), error: null },
     });
-    expect(sendTelegramAlertMock).not.toHaveBeenCalled();
+    expect(alerteMock).not.toHaveBeenCalled();
   });
 
   it('returns 200 (with failed outcome) if handler throws — signals error via Telegram + stripe_events.error', async () => {
@@ -190,14 +191,14 @@ describe('POST /api/webhooks (Stripe)', () => {
     const body = await res.json();
     expect(body.outcome).toBe('failed');
 
-    // 2) SIGNAL CRITIQUE A — alerte Telegram envoyée. C'est ce que Robert
-    //    voit dans son Telegram quand un webhook plante. Si on perd ce
+    // 2) SIGNAL CRITIQUE A — ligne d'alerte émise. C'est ce que Grafana
+    //    reprend (mail critique) quand un webhook plante. Si on perd ce
     //    signal, on peut traîner une désync billing des jours sans
     //    s'en apercevoir → test doit casser si le dispatcher arrête
     //    d'appeler alertFn dans le catch.
-    expect(sendTelegramAlertMock).toHaveBeenCalledTimes(1);
-    const alertMessage = sendTelegramAlertMock.mock.calls[0][0] as string;
-    expect(alertMessage).toContain('Stripe webhook dispatcher KO');
+    expect(alerteMock).toHaveBeenCalledTimes(1);
+    const alertMessage = JSON.stringify(alerteMock.mock.calls[0][0]);
+    expect(alertMessage).toContain('stripe.dispatcher_ko');
     expect(alertMessage).toContain('customer.subscription.deleted');
     expect(alertMessage).toContain('evt_4');
     expect(alertMessage).toContain('DB down');

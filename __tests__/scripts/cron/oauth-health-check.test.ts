@@ -23,8 +23,6 @@ beforeEach(() => {
   delete process.env.MICROSOFT_OAUTH_CLIENT_ID;
   delete process.env.MICROSOFT_OAUTH_CLIENT_SECRET;
   delete process.env.MICROSOFT_OAUTH_OBJECT_ID;
-  delete process.env.TELEGRAM_BOT_TOKEN;
-  delete process.env.ALERT_CHAT_ID;
   process.env.OAUTH_HEALTH_WARN_DAYS = '90';
   vi.resetModules();
 });
@@ -210,40 +208,6 @@ describe('checkMicrosoftSecretExpiry', () => {
     const r = await checkMicrosoftSecretExpiry();
     expect(r.ok).toBe(false);
     expect(r.detail).toContain('403');
-  });
-});
-
-describe('sendTelegramAlert', () => {
-  it('no-op silencieux quand TELEGRAM_BOT_TOKEN absent', async () => {
-    const { sendTelegramAlert } = await import('../../../scripts/cron/oauth-health-check');
-    await sendTelegramAlert('hi');
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  it('appelle l\'API Telegram quand configuré', async () => {
-    process.env.TELEGRAM_BOT_TOKEN = 'tok';
-    process.env.ALERT_CHAT_ID = '42';
-    fetchMock.mockResolvedValueOnce({ ok: true, status: 200 });
-
-    const { sendTelegramAlert } = await import('../../../scripts/cron/oauth-health-check');
-    await sendTelegramAlert('alert!');
-
-    expect(fetchMock).toHaveBeenCalledOnce();
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toContain('api.telegram.org/bottok/sendMessage');
-    expect(init.method).toBe('POST');
-    const body = JSON.parse(init.body as string);
-    expect(body.chat_id).toBe('42');
-    expect(body.text).toBe('alert!');
-  });
-
-  it('ne throw pas si fetch Telegram échoue', async () => {
-    process.env.TELEGRAM_BOT_TOKEN = 'tok';
-    process.env.ALERT_CHAT_ID = '42';
-    fetchMock.mockRejectedValueOnce(new Error('network'));
-
-    const { sendTelegramAlert } = await import('../../../scripts/cron/oauth-health-check');
-    await expect(sendTelegramAlert('alert!')).resolves.toBeUndefined();
   });
 });
 

@@ -15,21 +15,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const runTrialTickMock = vi.fn();
-const sendTelegramAlertMock = vi.fn();
+const alerteMock = vi.fn();
 
 vi.mock('@/lib/trial/run-tick', () => ({
   runTrialTick: (...args: unknown[]) => runTrialTickMock(...args),
 }));
 
-vi.mock('@/lib/notifications/telegram', () => ({
-  sendTelegramAlert: (...args: unknown[]) => sendTelegramAlertMock(...args),
+vi.mock('@/lib/notifications/alerte', () => ({
+  emettreAlerte: (...args: unknown[]) => alerteMock(...args),
 }));
 
 const ORIGINAL_SECRET = process.env.CRON_SECRET;
 
 beforeEach(() => {
   runTrialTickMock.mockReset();
-  sendTelegramAlertMock.mockReset();
+  alerteMock.mockReset();
   process.env.CRON_SECRET = 'test-cron-secret-xyz';
   vi.resetModules();
 });
@@ -93,9 +93,9 @@ describe('POST /api/cron/trial-tick — route wrapper', () => {
     expect(body.durationMs).toBeGreaterThanOrEqual(0);
   });
 
-  it('returns 500 + Telegram alert when runTrialTick throws', async () => {
+  it('returns 500 + ligne d\'alerte when runTrialTick throws', async () => {
     runTrialTickMock.mockRejectedValueOnce(new Error('boom downstream'));
-    sendTelegramAlertMock.mockResolvedValueOnce(true);
+    alerteMock.mockResolvedValueOnce(true);
 
     const { POST } = await import('@/app/api/cron/trial-tick/route');
     const res = await POST(makeRequest('Bearer test-cron-secret-xyz') as never);
@@ -103,8 +103,8 @@ describe('POST /api/cron/trial-tick — route wrapper', () => {
     const body = await res.json();
     expect(body.ok).toBe(false);
     expect(body.error).toMatch(/boom downstream/);
-    expect(sendTelegramAlertMock).toHaveBeenCalled();
-    expect(sendTelegramAlertMock.mock.calls[0][0]).toMatch(/Cron trial-tick KO/);
+    expect(alerteMock).toHaveBeenCalled();
+    expect(alerteMock.mock.calls[0][0]).toMatchObject({ evenement: 'trial.cron_ko' });
   });
 });
 

@@ -2,7 +2,7 @@
  * Contrat : chaque variable d'environnement que lit le code du Hub est rendue par le job de prod
  * (`deploy/hub.nomad.hcl`, celui que pose la CI), ou figure ci-dessous comme FACULTATIVE avec sa
  * raison. 08/11 : `MICROSOFT_OAUTH_CLIENT_ID` manquait au job, le Hub envoyait `client_id=undefined`
- * et la connexion Microsoft de Robert échouait ; Telegram manquait aussi, en silence.
+ * et la connexion Microsoft de Robert échouait.
  *
  * Ajouter une variable au code sans l'ajouter au job (ou ici, avec sa raison) fait échouer ce test.
  * La liste FACULTATIVES est aussi la liste de « ce qui manque » : la vider, c'est câbler.

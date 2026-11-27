@@ -9,14 +9,14 @@
 import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 
 const runReconcileMock = vi.fn();
-const sendTelegramAlertMock = vi.fn();
+const alerteMock = vi.fn();
 
 vi.mock('@/lib/sync/reconcile', () => ({
   runReconcile: (...args: unknown[]) => runReconcileMock(...args),
 }));
 
-vi.mock('@/lib/notifications/telegram', () => ({
-  sendTelegramAlert: (...args: unknown[]) => sendTelegramAlertMock(...args),
+vi.mock('@/lib/notifications/alerte', () => ({
+  emettreAlerte: (...args: unknown[]) => alerteMock(...args),
 }));
 
 const ORIGINAL_SECRET = process.env.CRON_SECRET;
@@ -24,9 +24,9 @@ const ORIGINAL_THRESHOLD = process.env.RECONCILE_ALERT_THRESHOLD;
 
 beforeEach(() => {
   runReconcileMock.mockReset();
-  sendTelegramAlertMock.mockReset();
+  alerteMock.mockReset();
   // Par défaut le mock Telegram résout (la route appelle `.catch()` dessus).
-  sendTelegramAlertMock.mockResolvedValue(true);
+  alerteMock.mockResolvedValue(true);
   process.env.CRON_SECRET = 'test-cron-secret-xyz';
   delete process.env.RECONCILE_ALERT_THRESHOLD;
   vi.resetModules();
@@ -169,8 +169,8 @@ describe('POST /api/cron/reconcile-tenants — route wrapper', () => {
     });
     const { POST } = await import('@/app/api/cron/reconcile-tenants/route');
     await POST(makeRequest('Bearer test-cron-secret-xyz') as never);
-    expect(sendTelegramAlertMock).toHaveBeenCalledTimes(1);
-    expect(sendTelegramAlertMock.mock.calls[0][0]).toMatch(/drift/);
+    expect(alerteMock).toHaveBeenCalledTimes(1);
+    expect(alerteMock.mock.calls[0][0]).toMatchObject({ evenement: 'reconcile.derive', gravite: 'erreur' });
   });
 
   it('does not alert when drifts < threshold', async () => {
@@ -189,22 +189,20 @@ describe('POST /api/cron/reconcile-tenants — route wrapper', () => {
     });
     const { POST } = await import('@/app/api/cron/reconcile-tenants/route');
     await POST(makeRequest('Bearer test-cron-secret-xyz') as never);
-    expect(sendTelegramAlertMock).not.toHaveBeenCalled();
+    expect(alerteMock).not.toHaveBeenCalled();
   });
 
-  it('returns 500 + Telegram alert when runReconcile throws', async () => {
+  it('returns 500 + ligne d\'alerte when runReconcile throws', async () => {
     runReconcileMock.mockRejectedValueOnce(new Error('boom reconcile'));
-    sendTelegramAlertMock.mockResolvedValueOnce(true);
+    alerteMock.mockResolvedValueOnce(true);
     const { POST } = await import('@/app/api/cron/reconcile-tenants/route');
     const res = await POST(makeRequest('Bearer test-cron-secret-xyz') as never);
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.ok).toBe(false);
     expect(body.error).toMatch(/boom reconcile/);
-    expect(sendTelegramAlertMock).toHaveBeenCalled();
-    expect(sendTelegramAlertMock.mock.calls[0][0]).toMatch(
-      /Cron reconcile-tenants KO/,
-    );
+    expect(alerteMock).toHaveBeenCalled();
+    expect(alerteMock.mock.calls[0][0]).toMatchObject({ evenement: 'reconcile.cron_ko' });
   });
 });
 

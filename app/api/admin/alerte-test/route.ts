@@ -1,13 +1,13 @@
 /**
- * POST /api/admin/alerte-test : envoie une alerte Telegram libellée « test » et dit si elle est livrée.
+ * POST /api/admin/alerte-test : écrit une alerte `info` libellée « test » sur stdout et dit la ligne écrite.
  *
- * Le contrôle du canal d'alerte du Hub (08/11 : il lisait une variable de salon qui n'existe pas, ses
- * alertes ne partaient jamais). Livrée = l'API Telegram confirme (`ok` et `message_id`). Admin seulement.
+ * Le contrôle du chemin d'alerte du Hub (Grafana seule source, plus de Telegram : Robert, 23/11 puis 27/11). Preuve de bout en bout :
+ * relire la ligne dans Loki (`obs search`, `flux=alerte` et `evenement=hub.alerte_test`). Admin seulement.
  */
 import { NextRequest, NextResponse } from 'next/server';
 
 import { authenticateAdmin } from '@/lib/admin/authenticate';
-import { sendTelegramAlert } from '@/lib/notifications/telegram';
+import { construireAlerte } from '@/lib/notifications/alerte';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
@@ -15,8 +15,11 @@ export const runtime = 'nodejs';
 export async function POST(request: NextRequest) {
   const garde = await authenticateAdmin(request);
   if (!garde.ok) return garde.response;
-  const delivered = await sendTelegramAlert(
-    `🧪 <b>Test</b> : alerte de contrôle du Hub (${new Date().toISOString()}). Aucune action à faire.`,
-  );
-  return NextResponse.json({ delivered }, { status: delivered ? 200 : 502 });
+  const ligne = construireAlerte({
+    gravite: 'info',
+    evenement: 'hub.alerte_test',
+    message: 'Alerte de contrôle du Hub. Aucune action à faire.',
+  });
+  console.log(JSON.stringify(ligne));
+  return NextResponse.json({ emitted: true, dedup: ligne.dedup, ts: ligne.ts });
 }

@@ -27,7 +27,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-import { sendTelegramAlert } from '@/lib/notifications/telegram';
+import { emettreAlerte } from '@/lib/notifications/alerte';
 import { identityCounts } from '@/lib/sync/identity-audit';
 import { runReconcile } from '@/lib/sync/reconcile';
 import type { SyncApp } from '@/lib/sync/types';
@@ -84,13 +84,19 @@ export async function POST(request: NextRequest) {
     const summary = await runReconcile({ limit, apps });
 
     if (summary.driftsDetected >= ALERT_THRESHOLD) {
-      await sendTelegramAlert(
-        `<b>Reconcile tenants drift</b>\n` +
-          `${summary.driftsDetected} drift(s) sur ${summary.usersScanned} tenants. ` +
-          `${summary.appsUnreachable} apps unreachable. ` +
-          `${summary.tenantsWithoutUser.length} tenant(s) sans user.\n` +
-          `Mode: ${summary.mode}.`,
-      ).catch(() => undefined);
+      emettreAlerte({
+        gravite: 'erreur',
+        evenement: 'reconcile.derive',
+        message: `Reconcile tenants : ${summary.driftsDetected} dérive(s) sur ${summary.usersScanned} tenants.`,
+        detail: {
+          derives: summary.driftsDetected,
+          tenants_scannes: summary.usersScanned,
+          apps_injoignables: summary.appsUnreachable,
+          tenants_sans_user: summary.tenantsWithoutUser.length,
+          mode: summary.mode,
+        },
+        dedup: 'hub|reconcile.derive',
+      });
     }
 
     const httpDurationMs = Date.now() - startedAt;
@@ -104,9 +110,12 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[cron-reconcile-tenants] fatal:', msg);
-    await sendTelegramAlert(
-      `<b>Cron reconcile-tenants KO</b>\n${msg.slice(0, 500)}`,
-    ).catch(() => undefined);
+    emettreAlerte({
+      gravite: 'erreur',
+      evenement: 'reconcile.cron_ko',
+      message: `Cron reconcile-tenants KO : ${msg.slice(0, 200)}`,
+      dedup: 'hub|reconcile.cron_ko',
+    });
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }

@@ -14,7 +14,7 @@
  *        - invoice.payment_failed        → marquer dunning (V1 logging only)
  *        - customer.deleted              → soft-delete tenants liés
  *   3. Si propagation HMAC échoue après les retry du NotifuseClient
- *      (3 essais avec backoff exponentiel), alerte Telegram à Robert.
+ *      (3 essais avec backoff exponentiel), ligne d'alerte `flux=alerte` sur stdout (Grafana, jamais Telegram).
  *
  * Côté tests, on injecte un client Notifuse mocké via `opts.notifuseClient`
  * pour vérifier le comportement sans toucher au réseau.
@@ -27,7 +27,9 @@ import {
   manageSubscriptionStatusChange,
   type PropagationResult,
 } from '@/utils/stripe/prisma-sync';
-import { sendTelegramAlert } from '@/lib/notifications/telegram';
+import { emettreAlerte, sansAdresse, type AlerteEntree } from '@/lib/notifications/alerte';
+import { estCompteDeTest } from '@/lib/email/compte-de-test';
+import { estDeTest } from '@/lib/tenants/marque-test';
 import type { NotifuseClient } from '@/lib/notifuse/client';
 
 export type StripeDispatchOutcome =
@@ -48,9 +50,9 @@ export interface DispatcherOptions {
    */
   notifuseClient?: NotifuseClient;
   /**
-   * Hook d'alerte Telegram (mockable). Par défaut → `sendTelegramAlert`.
+   * Hook d'alerte (mockable). Par défaut → `emettreAlerte` : une ligne JSON `flux=alerte` sur stdout.
    */
-  alertFn?: (message: string) => Promise<boolean>;
+  alertFn?: (alerte: AlerteEntree) => unknown;
 }
 
 const RELEVANT_EVENT_TYPES = new Set<string>([
@@ -128,7 +130,7 @@ export async function markEventProcessed(
  * validation de signature et persistance event.
  *
  * Renvoie un `StripeDispatchOutcome` qui résume l'action prise. Ne throw pas :
- * en cas d'erreur de propagation, on log + alert Telegram, mais on doit
+ * en cas d'erreur de propagation, on log + ligne d'alerte, mais on doit
  * retourner 200 à Stripe pour éviter retry inutile (le retry est géré côté
  * Hub via le cron qui re-tente les `processed_at IS NULL`).
  */
@@ -136,7 +138,7 @@ export async function dispatchStripeEvent(
   event: Stripe.Event,
   opts: DispatcherOptions = {},
 ): Promise<StripeDispatchOutcome> {
-  const alertFn = opts.alertFn ?? sendTelegramAlert;
+  const alertFn = opts.alertFn ?? emettreAlerte;
 
   if (!RELEVANT_EVENT_TYPES.has(event.type)) {
     return { status: 'ignored', eventId: event.id, reason: `event_type ${event.type} not relevant` };
@@ -203,7 +205,7 @@ export async function dispatchStripeEvent(
       }
 
       case 'invoice.payment_failed': {
-        // V1 : alerte Telegram pour visibilité dunning. V2 = state machine
+        // V1 : ligne d'alerte pour visibilité dunning. V2 = state machine
         // dunning (suspend après N échecs).
         const invoice = event.data.object as Stripe.Invoice;
         const attempt = invoice.attempt_count ?? 0;
@@ -212,11 +214,15 @@ export async function dispatchStripeEvent(
             `attempt=${attempt} amount_due=${invoice.amount_due}`,
         );
         if (attempt >= 3) {
-          await alertFn(
-            `<b>Stripe dunning</b>\nCustomer ${invoice.customer} a échoué ${attempt} paiements ` +
-              `(${invoice.amount_due / 100}${invoice.currency?.toUpperCase()}). ` +
-              `Suspend à câbler côté Hub.`,
-          );
+          const cl = await classerEvenement(event, null);
+          await alertFn({
+            gravite: 'avertissement',
+            evenement: 'stripe.dunning',
+            message: `Dunning Stripe : ${attempt} paiements échoués, suspension à câbler côté Hub.`,
+            impact: cl.impact,
+            essai: cl.essai,
+            detail: { event_id: event.id, stripe_customer: extractCustomerId(event), tentatives: attempt, montant: invoice.amount_due / 100, devise: invoice.currency?.toUpperCase() },
+          });
         }
         return { status: 'processed', eventId: event.id };
       }
@@ -232,10 +238,20 @@ export async function dispatchStripeEvent(
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[stripe-dispatch] ${event.type} failed:`, message);
-    await alertFn(
-      `<b>Stripe webhook dispatcher KO</b>\nevent=${event.type} id=${event.id}\nerr: ${message.slice(0, 500)}`,
-    ).catch(() => undefined);
+    console.error(`[stripe-dispatch] ${event.type} failed:`, sansAdresse(message));
+    const cl = await classerEvenement(event, null);
+    try {
+      await alertFn({
+        gravite: 'critique',
+        evenement: 'stripe.dispatcher_ko',
+        message: `Webhook Stripe non traité (${event.type}) : ${message.slice(0, 200)}`,
+        impact: cl.impact,
+        essai: cl.essai,
+        detail: { event_id: event.id, event_type: event.type, stripe_customer: extractCustomerId(event) },
+      });
+    } catch {
+      // une alerte ne fait jamais échouer le webhook
+    }
     return { status: 'failed', eventId: event.id, error: message };
   }
 }
@@ -279,27 +295,68 @@ async function softDeleteTenantsForCustomer(customerId: string): Promise<void> {
 }
 
 /**
- * Si la propagation HMAC vers une app downstream a échoué, alerte Telegram.
+ * Si la propagation HMAC vers une app downstream a échoué, ligne d'alerte.
  * Le NotifuseClient retry déjà 3× en interne — donc si on arrive ici, c'est
  * que l'app est vraiment down.
  */
 async function maybeAlertPropagationFailures(
   result: PropagationResult,
   event: Stripe.Event,
-  alertFn: (msg: string) => Promise<boolean>,
+  alertFn: (alerte: AlerteEntree) => unknown,
 ): Promise<void> {
   if (!result.failures || result.failures.length === 0) return;
 
-  const lines = result.failures
-    .map((f) => `  • ${f.app} → ${f.targetPlan}: ${f.error}`)
-    .join('\n');
+  const cl = await classerEvenement(event, result.tenantId);
+  try {
+    await alertFn({
+      gravite: 'critique',
+      evenement: 'stripe.propagation_ko',
+      message: `Facturation désynchronisée : propagation Stripe vers ${result.failures.length} app(s) échouée après les retries.`,
+      impact: cl.impact,
+      essai: cl.essai,
+      detail: {
+        event_id: event.id,
+        event_type: event.type,
+        tenant_id: result.tenantId,
+        stripe_customer: extractCustomerId(event),
+        apps: result.failures.map((f) => f.app).join(','),
+        plans: result.failures.map((f) => f.targetPlan).join(','),
+        erreur: result.failures[0]?.error?.slice(0, 200),
+      },
+    });
+  } catch {
+    // une alerte ne fait jamais échouer le webhook
+  }
+}
 
-  await alertFn(
-    `<b>Stripe propagation KO (3 retries exhausted)</b>\n` +
-      `event=${event.type} id=${event.id}\n` +
-      `tenant=${result.tenantId ?? '?'} customer=${extractCustomerId(event) ?? '?'}\n` +
-      lines,
-  ).catch(() => undefined);
+/**
+ * Un client réel, ou pas ? Seul un client réel rend une alerte `critique`. Essai = événement Stripe en mode test, organisation marquée de
+ * test (`estDeTest`), ou propriétaire dont l'adresse est celle d'un compte d'épreuve (`estCompteDeTest`). Aucune adresse n'en sort.
+ * Lecture impossible : on traite comme un vrai client (mieux vaut réveiller pour rien que se taire).
+ */
+async function classerEvenement(
+  event: Stripe.Event,
+  tenantId: string | null,
+): Promise<{ impact: 'client' | 'interne'; essai: boolean }> {
+  if ((event as { livemode?: boolean }).livemode === false) return { impact: 'interne', essai: true };
+  try {
+    let userId: string | null = null;
+    if (tenantId) {
+      const t = await prisma.tenant.findFirst({ where: { id: tenantId }, select: { userId: true, metadata: true } });
+      if (t && estDeTest(t.metadata)) return { impact: 'interne', essai: true };
+      userId = t?.userId ?? null;
+    }
+    const customerId = extractCustomerId(event);
+    const u = userId
+      ? await prisma.user.findFirst({ where: { supabaseUserId: userId }, select: { email: true } })
+      : customerId
+        ? await prisma.user.findFirst({ where: { stripeCustomerId: customerId }, select: { email: true } })
+        : null;
+    if (u?.email && estCompteDeTest(u.email)) return { impact: 'interne', essai: true };
+  } catch {
+    // lecture impossible : vrai client par défaut
+  }
+  return { impact: 'client', essai: false };
 }
 
 function extractCustomerId(event: Stripe.Event): string | null {

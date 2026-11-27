@@ -8,11 +8,7 @@
  *      Le secret actuel expire 2028-05-20.
  *   2. Le discovery doc Google répond et l'`issuer` est conforme.
  *
- * En cas de problème → exit 1 + alerte Telegram via le bot Veridian.
- *
- * Variables d'environnement requises (injectées par le workflow CI) :
- *   - TELEGRAM_BOT_TOKEN (secret GitHub Actions, identique au pattern hub-staging.yml)
- *   - ALERT_CHAT_ID (idem)
+ * En cas de problème → exit 1 + ligne d'alerte `flux=alerte` (lib/notifications/alerte.ts).
  *
  * Variables optionnelles :
  *   - MICROSOFT_OAUTH_TENANT_ID, MICROSOFT_OAUTH_CLIENT_ID, MICROSOFT_OAUTH_CLIENT_SECRET
@@ -24,9 +20,9 @@
  *   tsx scripts/cron/oauth-health-check.ts
  */
 
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const ALERT_CHAT_ID = process.env.ALERT_CHAT_ID;
 const WARN_DAYS = Number(process.env.OAUTH_HEALTH_WARN_DAYS ?? '90');
+
+import { emettreAlerte } from '../../lib/notifications/alerte';
 
 const MICROSOFT_TENANT_ID = process.env.MICROSOFT_OAUTH_TENANT_ID;
 const MICROSOFT_CLIENT_ID = process.env.MICROSOFT_OAUTH_CLIENT_ID;
@@ -40,32 +36,6 @@ export interface HealthCheckResult {
   check: string;
   ok: boolean;
   detail: string;
-}
-
-export async function sendTelegramAlert(message: string): Promise<void> {
-  if (!TELEGRAM_BOT_TOKEN || !ALERT_CHAT_ID) {
-    console.log('  (Telegram non configuré — alerte non envoyée)');
-    return;
-  }
-  try {
-    const res = await fetch(
-      `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          chat_id: ALERT_CHAT_ID,
-          text: message,
-          parse_mode: 'Markdown',
-        }),
-      },
-    );
-    if (!res.ok) {
-      console.error(`  Telegram API non-200 : ${res.status}`);
-    }
-  } catch (err) {
-    console.error('  Échec envoi Telegram :', err);
-  }
 }
 
 export async function checkGoogleDiscovery(): Promise<HealthCheckResult> {
@@ -242,12 +212,12 @@ async function main(): Promise<void> {
     return;
   }
 
-  const msg =
-    `🚨 *OAuth health check FAIL* (Hub Veridian)\n\n` +
-    failed.map((r) => `• \`${r.check}\` : ${r.detail}`).join('\n') +
-    `\n\nRunbook : \`runbooks/services/hub/oauth-smoke.md\``;
-
-  await sendTelegramAlert(msg);
+  emettreAlerte({
+    gravite: 'erreur',
+    evenement: 'oauth.sante_ko',
+    message: 'OAuth health check en échec (Hub). Runbook : runbooks/services/hub/oauth-smoke.md',
+    detail: { controles: failed.map((r) => r.check).join(','), detail: failed.map((r) => r.detail).join(' | ').slice(0, 300) },
+  });
 
   process.exit(1);
 }

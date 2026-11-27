@@ -61,10 +61,10 @@ export async function verdictRetraitCrm(hubUserId: string, deps: Deps = {}): Pro
 export async function noterRetraitRetenu(hubUserId: string, v: Extract<VerdictRetrait, { propager: false }>): Promise<void> {
   console.warn(JSON.stringify({ tag: '[crm-retrait][attente]', level: 'warn', hub_user_id: hubUserId, raison: v.raison, espaces: v.espaces, ts: new Date().toISOString() }));
   try {
-    const [{ prisma }, { writeAuditLog }, { sendTelegramAlert }] = await Promise.all([
+    const [{ prisma }, { writeAuditLog }, { emettreAlerte }] = await Promise.all([
       import('@/lib/prisma'),
       import('@/lib/admin/audit-log'),
-      import('@/lib/notifications/telegram'),
+      import('@/lib/notifications/alerte'),
     ]);
     await writeAuditLog(prisma, {
       action: 'crm.retrait.attente',
@@ -73,9 +73,12 @@ export async function noterRetraitRetenu(hubUserId: string, v: Extract<VerdictRe
       targetId: hubUserId,
       payload: { raison: v.raison, espaces: v.espaces },
     });
-    await sendTelegramAlert(
-      `Hub (avertissement) : retrait du CRM retenu pour ${hubUserId} (${v.raison}, ${v.espaces} espace(s) vivant(s)). Sessions coupées, accès refusé au Hub. À rejouer après le correctif du CRM : hub crm-retraits.`,
-    );
+    emettreAlerte({
+      gravite: 'avertissement',
+      evenement: 'crm.retrait_retenu',
+      message: 'Retrait du CRM retenu : sessions coupées, accès refusé au Hub. À rejouer après le correctif du CRM : hub crm-retraits.',
+      detail: { hub_user_id: hubUserId, raison: v.raison, espaces: 'espaces' in v ? v.espaces : null },
+    });
   } catch (err) {
     console.error('[crm-retrait] trace ou alerte impossible', err instanceof Error ? err.message : 'erreur');
   }

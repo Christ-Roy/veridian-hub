@@ -17,7 +17,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 
-import { sendTelegramAlert } from '@/lib/notifications/telegram';
+import { emettreAlerte } from '@/lib/notifications/alerte';
 import { runTrialTick } from '@/lib/trial/run-tick';
 
 export const runtime = 'nodejs';
@@ -63,9 +63,12 @@ export async function POST(request: NextRequest) {
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error('[cron-trial-tick] fatal:', msg);
-    await sendTelegramAlert(
-      `<b>Cron trial-tick KO</b>\n${msg.slice(0, 500)}`,
-    ).catch(() => undefined);
+    emettreAlerte({
+      gravite: 'erreur',
+      evenement: 'trial.cron_ko',
+      message: `Cron trial-tick KO : ${msg.slice(0, 200)}`,
+      dedup: 'hub|trial.cron_ko',
+    });
     return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }
