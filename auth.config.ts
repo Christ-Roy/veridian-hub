@@ -107,6 +107,7 @@ export const authConfig = {
         '/api/onboarding',
         '/api/auth',
         '/api/health',
+        '/api/vivant',
         '/api/webhooks',
       ];
 

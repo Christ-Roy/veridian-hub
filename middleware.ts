@@ -58,11 +58,12 @@ export const config = {
      *   Sûr car la route n'a aucune logique auth (catalogue public statique).
      * - api/admin/emprunt, api/auth/emprunt, api/auth/impersonate-callback : elles REMPLACENT la session.
      *   Le middleware re-signe celle qui arrive et la reposerait par-dessus. Elles se gardent seules.
+     * - api/vivant : sonde superficielle du healthcheck Traefik, ni session ni cookie (VER-270).
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
      * - images - .svg, .png, .jpg, .jpeg, .gif, .webp
      */
-    '/((?!api/pricing/plans|api/admin/emprunt|api/auth/emprunt|api/auth/impersonate-callback|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/((?!api/pricing/plans|api/vivant$|api/admin/emprunt|api/auth/emprunt|api/auth/impersonate-callback|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };

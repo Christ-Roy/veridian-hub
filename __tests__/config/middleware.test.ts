@@ -62,6 +62,13 @@ describe('middleware.ts — matcher exclusions', () => {
     expect(source).toMatch(/api\/pricing\/plans/);
   });
 
+  it('exclut /api/vivant, et lui seul (VER-270) : la sonde du healthcheck Traefik ne lit aucune session ni ne pose de cookie', () => {
+    const motif = source.match(/'(\/\(\(\?![^']+\)\.\*\))'/)?.[1];
+    expect(motif, 'matcher lu dans la source').toBeTruthy();
+    const passe = (chemin: string) => new RegExp(`^${motif!.replace(/\\\\/g, '\\')}$`).test(chemin);
+    expect(['/api/vivant', '/api/vivantx', '/api/vivant/x', '/api/health', '/dashboard'].map(passe)).toEqual([false, true, true, true, true]);
+  });
+
   it('exclut les routes qui remplacent la session (VER-263) : le middleware reposerait l\'ancienne par-dessus', () => {
     for (const r of ['api/admin/emprunt', 'api/auth/emprunt', 'api/auth/impersonate-callback']) expect(source).toMatch(new RegExp(`\\(\\?![^']*\\|${r}\\|`));
   });
