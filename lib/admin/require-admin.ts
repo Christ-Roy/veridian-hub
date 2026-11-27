@@ -1,35 +1,15 @@
-import { timingSafeEqual } from 'node:crypto';
+/**
+ * SHIM : `requireAdmin` n'a plus de logique. Le seul gardien est `authenticateAdmin` (`lib/admin/authenticate.ts`).
+ * Gardé uniquement pour `app/api/admin/connecteurs/route.ts`, fichier hors de ce chantier : à supprimer quand il migre.
+ */
 import { NextRequest, NextResponse } from 'next/server';
 
-import { sessionAdmin, type SessionAdmin } from '@/lib/admin/session-admin';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 
-/** Le même refus partout : le corps dit quoi faire, jamais si le compte existe. */
-export function refusAdmin(raison: Extract<SessionAdmin, { ok: false }>['raison']): NextResponse {
-  if (raison === 'non_connecte') return NextResponse.json({ error: 'unauthorized', message: 'Provide x-admin-secret or authenticate.' }, { status: 401 });
-  if (raison === 'preuve_ancienne') return NextResponse.json({ error: 'recent_auth_required', login_url: '/login?reauth=1' }, { status: 403 });
-  if (raison === 'emprunt') return NextResponse.json({ error: 'forbidden', message: 'Impersonated session has no admin access.' }, { status: 403 });
-  return NextResponse.json({ error: 'forbidden' }, { status: 403 });
-}
+export { refusAdmin, secretAdminValide } from '@/lib/admin/authenticate';
 
-/** Comparaison en temps constant ; sans secret posé, rien ne passe. */
-export function secretAdminValide(fourni: string | null): boolean {
-  const attendu = process.env.ADMIN_SECRET;
-  if (!attendu || !fourni) return false;
-  const a = Buffer.from(fourni);
-  const b = Buffer.from(attendu);
-  if (a.length !== b.length) {
-    timingSafeEqual(a, Buffer.alloc(a.length));
-    return false;
-  }
-  return timingSafeEqual(a, b);
-}
-
-/**
- * Garde des routes d'administration : `x-admin-secret` (outil `hub`, batterie) ou session d'un administrateur de plateforme.
- * `null` : autorisé. Sinon la réponse à rendre telle quelle.
- */
+/** `null` : autorisé. Sinon la réponse à rendre telle quelle. */
 export async function requireAdmin(request: NextRequest): Promise<NextResponse | null> {
-  if (secretAdminValide(request.headers.get('x-admin-secret'))) return null;
-  const s = await sessionAdmin();
-  return s.ok ? null : refusAdmin(s.raison);
+  const garde = await authenticateAdmin(request);
+  return garde.ok ? null : garde.response;
 }
