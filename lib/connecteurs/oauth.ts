@@ -149,11 +149,17 @@ export async function desinscrire(db: Db, c: Connecteur, retour: string, d: Deps
   return 'effacee';
 }
 
+/** Le départ chez le service : paramètres du service D'ABORD, puis ceux de sécurité, qui ne s'écrasent donc jamais. */
+async function urlDepart(conf: oidc.Configuration, c: Connecteur, retour: string, state: string, verifier: string, d: Deps): Promise<URL> {
+  const url = oidc.buildAuthorizationUrl(conf, { ...(c.depart ?? {}), redirect_uri: retour, state, code_challenge: await oidc.calculatePKCECodeChallenge(verifier), code_challenge_method: 'S256', resource: c.mcpUrl, ...(c.portee ? { scope: c.portee } : {}) });
+  tenirAdresse(url.href, [c.oauth.autorisation], d);
+  return url;
+}
+
 export async function partir(db: Db, c: Connecteur, userId: string, retour: string, d: Deps = {}): Promise<{ url: string; cookie: string }> {
   const conf = await notreClientOuInscription(db, c, retour, d);
   const [state, verifier] = [oidc.randomState(), oidc.randomPKCECodeVerifier()];
-  const url = oidc.buildAuthorizationUrl(conf, { ...(c.depart ?? {}), redirect_uri: retour, state, code_challenge: await oidc.calculatePKCECodeChallenge(verifier), code_challenge_method: 'S256', resource: c.mcpUrl, ...(c.portee ? { scope: c.portee } : {}) });
-  tenirAdresse(url.href, [c.oauth.autorisation], d);
+  const url = await urlDepart(conf, c, retour, state, verifier, d);
   const t: TransactionConnecteur = { t: 'connecteur', cle: c.cle, userId, state, verifier, exp: Math.floor((d.now ?? Date.now()) / 1000) + TRANSACTION_CONNECTEUR_S };
   return { url: url.href, cookie: chiffrer(JSON.stringify(t)) };
 }
@@ -189,4 +195,36 @@ export async function revoquer(db: Db, c: Connecteur, jetons: readonly string[],
   } catch {
     return false;
   }
+}
+
+/**
+ * Inscrire Veridian chez un service et l'éprouver JUSQU'À son écran de consentement, sans personne (opérateur, 27/11 : accord de Robert). Le même chemin que
+ * le clic « Brancher » (une seule inscription, gardée en base), puis le départ construit comme `partir`, lu sans suivre les redirections :
+ * `accepte` (un code revient chez nous), `ecran` (le service montre sa connexion ou son consentement), `refus` (erreur rendue chez nous, ou HTTP en échec :
+ * Canva acceptait l'inscription puis refusait notre retour). Aucun jeton n'est demandé, rien n'est gardé de la transaction.
+ */
+export type Sonde = { inscrit: boolean; client_id: string; methode: string | null; ecran: 'accepte' | 'ecran' | 'refus'; detail: string };
+export async function inscrireEtSonder(db: Db, c: Connecteur, retour: string, d: Deps = {}): Promise<Sonde> {
+  const avant = c.preinscrit ? null : await db.connecteurClient.findUnique({ where: { connecteur_retour: { connecteur: c.cle, retour } } });
+  const conf = await notreClientOuInscription(db, c, retour, d);
+  const meta = conf.clientMetadata() as { client_id: string; token_endpoint_auth_method?: string };
+  const url = await urlDepart(conf, c, retour, oidc.randomState(), oidc.randomPKCECodeVerifier(), d);
+  const base = { inscrit: !c.preinscrit && !avant, client_id: meta.client_id, methode: meta.token_endpoint_auth_method ?? null };
+  let r: Response;
+  try {
+    r = await (d.fetchImpl ?? fetch)(url.href, { redirect: 'manual', signal: AbortSignal.timeout(15_000) });
+  } catch (err) {
+    return { ...base, ecran: 'refus', detail: `injoignable : ${err instanceof Error ? err.message.slice(0, 80) : 'erreur'}` };
+  }
+  const loc = r.headers.get('location');
+  if (loc) {
+    const u = new URL(loc, url);
+    if (`${u.origin}${u.pathname}` === retour) {
+      const erreur = u.searchParams.get('error');
+      return erreur ? { ...base, ecran: 'refus', detail: `${erreur.slice(0, 60)} ${(u.searchParams.get('error_description') ?? '').slice(0, 120)}`.trim() } : { ...base, ecran: 'accepte', detail: 'code rendu' };
+    }
+    return { ...base, ecran: 'ecran', detail: `HTTP ${r.status} vers ${u.host}${u.pathname.slice(0, 60)}` };
+  }
+  if (r.status === 200) return { ...base, ecran: 'ecran', detail: 'HTTP 200, page du service' };
+  return { ...base, ecran: 'refus', detail: `HTTP ${r.status}` };
 }

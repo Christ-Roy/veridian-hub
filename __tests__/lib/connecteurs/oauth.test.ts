@@ -5,7 +5,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 const reg = vi.hoisted(() => ({ c: null as any }));
 vi.mock('@/lib/connecteurs/registre', () => ({ connecteur: (k: string) => (k === 'essai' ? reg.c : null), CONNECTEURS: [] }));
 
-import { CHEMIN_RETOUR_CONNECTEUR, COOKIE_CONNECTEUR, desinscrire, ouvrirTransaction, partir, renouveler, revoquer, terminer, TRANSACTION_CONNECTEUR_S } from '@/lib/connecteurs/oauth';
+import { CHEMIN_RETOUR_CONNECTEUR, COOKIE_CONNECTEUR, desinscrire, inscrireEtSonder, ouvrirTransaction, partir, renouveler, revoquer, terminer, TRANSACTION_CONNECTEUR_S } from '@/lib/connecteurs/oauth';
 
 import { fausseBaseConnexions } from './fausse-base';
 import { ouvrirService } from '../../../e2e/systeme-sso/lib/service-jetable';
@@ -48,6 +48,21 @@ describe('partir', () => {
     expect(clients()).toEqual([]);
   });
 });
+describe('inscrireEtSonder (27/11)', () => {
+  it('inscrit UNE fois, relit le client, et le départ va jusqu\'au bout : accepté ; rejoué : rien de neuf chez lui', async () => {
+    const avant = s.vu.enregistrements;
+    const a = await inscrireEtSonder(db, reg.c, RETOUR, D);
+    expect([a.ecran, a.inscrit, Boolean(a.client_id), s.vu.enregistrements - avant, clients().length]).toEqual(['accepte', true, true, 1, 1]);
+    const b = await inscrireEtSonder(db, reg.c, RETOUR, D);
+    expect([b.ecran, b.inscrit, b.client_id, s.vu.enregistrements - avant]).toEqual(['accepte', false, a.client_id, 1]);
+  });
+  it('inscription acceptée puis retour refusé (Canva) : refus, avec la raison du service', async () => {
+    s.mentir('retour_refuse');
+    const r = await inscrireEtSonder(db, reg.c, RETOUR, D);
+    expect([r.ecran, r.detail.startsWith('invalid_redirect_uri')]).toEqual(['refus', true]);
+  });
+});
+
 describe('client préinscrit (Google, 27/11)', () => {
   const avec = (extra: object) => { const garde = reg.c; reg.c = { ...garde, preinscrit: { id: 'PRE_ID', secret: 'PRE_SECRET' }, depart: { access_type: 'offline' }, ...extra }; return () => { reg.c = garde; }; };
   it('le client vient du coffre : aucune inscription, rien en base ; le code s\'échange ; on ne l\'efface jamais', async () => {

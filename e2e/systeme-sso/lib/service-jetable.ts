@@ -5,7 +5,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 
-export type MensongeService = null | 'sans_enregistrement' | 'state' | 'jeton_refuse' | 'refresh_refuse' | 'panne' | 'sans_refresh' | 'secret_exige' | 'jeton_ailleurs' | 'revocation_ailleurs' | 'autorisation_ailleurs' | 'enregistrement_ailleurs' | 'gestion_ailleurs' | 'redirige' | 'enorme' | 'lent' | 'goutte' | 'sans_revocation' | 'revocation_refusee' | 'sans_gestion' | 'mcp_erreur' | 'mcp_redirige' | 'mcp_enorme';
+export type MensongeService = null | 'retour_refuse' | 'sans_enregistrement' | 'state' | 'jeton_refuse' | 'refresh_refuse' | 'panne' | 'sans_refresh' | 'secret_exige' | 'jeton_ailleurs' | 'revocation_ailleurs' | 'autorisation_ailleurs' | 'enregistrement_ailleurs' | 'gestion_ailleurs' | 'redirige' | 'enorme' | 'lent' | 'goutte' | 'sans_revocation' | 'revocation_refusee' | 'sans_gestion' | 'mcp_erreur' | 'mcp_redirige' | 'mcp_enorme';
 
 type OutilJetable = { name: string; description?: string; inputSchema?: unknown; annotations?: Record<string, unknown> };
 export const OUTILS_JETABLES: readonly OutilJetable[] = [
@@ -72,6 +72,8 @@ export async function ouvrirService() {
         const p = (n: string) => u.searchParams.get(n) ?? '';
         const c = clients.get(p('client_id'));
         if (!c?.retours.includes(p('redirect_uri')) || p('code_challenge_method') !== 'S256') return json({ error: 'invalid_request' }, 400);
+        // Comme Canva (25/11) : l'inscription passe, puis notre adresse de retour est refusée, ERREUR rendue chez nous.
+        if (mensonge === 'retour_refuse') { const e = new URL(p('redirect_uri')); e.searchParams.set('error', 'invalid_redirect_uri'); res.writeHead(302, { location: e.href }); return res.end(); }
         const code = neuf();
         codes.set(code, { client: p('client_id'), challenge: p('code_challenge'), retour: p('redirect_uri'), resource: p('resource') });
         const r = new URL(p('redirect_uri'));
