@@ -4,7 +4,7 @@
  * de plateforme y entre comme MEMBRE (le Hub n'ajoute jamais personne chez une app hors de ce chemin), puis il est désigné ADMIN dans chacune, relu,
  * jamais propriétaire. Rejouer ne change rien. Le propriétaire reste le seul propriétaire partout.
  * L'administrateur de plateforme est Robert (PLATFORM_ADMINS du job, public dans deploy/hub.nomad.hcl) : son compte passe par l'organisation jetable et en
- * sort avec elle au ménage de la batterie (suppression du tenant, espaces déprovisionnés). Prod seulement (le Hub de staging n'a pas toutes les apps).
+ * sort AVANT le ménage (retiré et relu dans chaque app), puis l'organisation est supprimée et purgée partout. Prod seulement (le Hub de staging n'a pas toutes les apps).
  * Épreuve : `SSO_SABOTAGE=ouvrir-sans-membre` saute l'entrée comme membre : le cas doit échouer (« pas_membre » partout).
  */
 import { expect } from '@playwright/test';
@@ -49,5 +49,10 @@ cas(null, 'ouvrir un client d\'un coup : cinq apps ouvertes et relues, l\'admini
   expect(vu, 'admin relu dans les cinq apps').toEqual([...APPS].map((a) => `${a}=admin`).sort());
   const d2 = await adminOk<{ designations: { app: string; hubUserId: string; etat: string }[] }>('POST', `tenants/${T.id}/admins-plateforme`, { raison: 'rejeu' });
   expect(d2.designations.filter((x) => x.hubUserId === ADMIN_PLATEFORME).map((x) => `${x.app}=${x.etat}`).sort(), 'rejoué : rien ne change').toEqual(vu);
-  return `ouvert d'un coup [${ouvertes.join(', ')}] ; réglé [${emises.join(', ')}] ; administrateur de plateforme : ${vu.join(', ')}`;
+  // 5. Il sort de l'organisation AVANT le ménage (27/11) : sinon une app qui ne purge que les organisations 100 % d'épreuve (Analytics) la CONSERVE,
+  // suspendue, avec lui dedans. Retiré et relu dans chaque app.
+  const ret = await admin<Json>('POST', `tenants/${T.id}/remove-member`, { hub_user_id: ADMIN_PLATEFORME });
+  const sorti = (ret.json.apps as { app: string; etat: string; detail?: string }[]).map((a) => `${a.app}=${a.etat}${a.detail ? ` (${a.detail})` : ''}`);
+  expect((ret.json.apps as { app: string; etat: string }[]).filter((a) => (APPS as readonly string[]).includes(a.app)).every((a) => a.etat === 'retire' || a.etat === 'absent'), `retrait : ${sorti.join(', ')}`).toBe(true);
+  return `ouvert d'un coup [${ouvertes.join(', ')}] ; réglé [${emises.join(', ')}] ; administrateur de plateforme : ${vu.join(', ')} ; ressorti [${sorti.join(', ')}]`;
 }, { timeout: 600_000 });
