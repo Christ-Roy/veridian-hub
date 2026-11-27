@@ -1,4 +1,13 @@
-# Dérogation : le job `hub` reste à UNE instance (VER-270, 27/11/2026)
+# Dérogation : le job `hub` à deux instances (VER-270, 27/11/2026)
+
+> **État au 27/11, 23:20 : `count = 2` servi (v249), sur ovh-prod et veridian-app-01.** Mesures en prod :
+> - compteur partagé : 40 appels admin à clé fausse depuis une IP, 30 refus 401 puis 429 dès le 31e (un compteur en mémoire en laisserait ~60) ;
+> - mise à jour roulante (87544a1, canary = 0, une copie à la fois) : 1 raté sur 379 sondes à la seconde, sur une seule route ;
+> - bascule : l'allocation d'ovh-prod arrêtée à 22:17:08 UTC (jeton de déploiement), remplacée par Nomad, 0 raté sur 260 sondes ;
+> - v248 a montré qu'un canari est impossible ici : troisième allocation, `distinct_hosts`, deux nœuds. Garde : `scripts/ci/check-prod-gitops-reliability.sh`.
+> **Reste avant la levée** (parente) : le parcours IA (programme, cas 18 à 20) mesuré à deux instances.
+>
+> Ce qui suit est l'audit d'origine, conservé.
 
 Décision : **pas de `count = 2` pour le groupe `stack`** pour l'instant. Le jobspec n'est pas modifié.
 Pourquoi : des états tenus en mémoire de processus cassent à deux instances, et deux d'entre eux
