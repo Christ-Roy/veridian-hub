@@ -53,6 +53,9 @@ cas(null, 'ouvrir un client d\'un coup : cinq apps ouvertes et relues, l\'admini
   // suspendue, avec lui dedans. Retiré et relu dans chaque app.
   const ret = await admin<Json>('POST', `tenants/${T.id}/remove-member`, { hub_user_id: ADMIN_PLATEFORME });
   const sorti = (ret.json.apps as { app: string; etat: string; detail?: string }[]).map((a) => `${a.app}=${a.etat}${a.detail ? ` (${a.detail})` : ''}`);
-  expect((ret.json.apps as { app: string; etat: string }[]).filter((a) => (APPS as readonly string[]).includes(a.app)).every((a) => a.etat === 'retire' || a.etat === 'absent'), `retrait : ${sorti.join(', ')}`).toBe(true);
+  // Analytics dit `non_gere` quand la personne a AUSSI des espaces sans organisation reliée (ceux de Robert, hors de cette épreuve) : retirée de
+  // CETTE organisation quand même, et c'est ce que le détail dit en premier.
+  const sortie = (a: { app: string; etat: string; detail?: string }) => a.etat === 'retire' || a.etat === 'absent' || (a.app === 'analytics' && a.etat === 'non_gere' && /^retiré de l'organisation/.test(a.detail ?? ''));
+  expect((ret.json.apps as { app: string; etat: string; detail?: string }[]).filter((a) => (APPS as readonly string[]).includes(a.app)).every(sortie), `retrait : ${sorti.join(', ')}`).toBe(true);
   return `ouvert d'un coup [${ouvertes.join(', ')}] ; réglé [${emises.join(', ')}] ; administrateur de plateforme : ${vu.join(', ')} ; ressorti [${sorti.join(', ')}]`;
 }, { timeout: 600_000 });
