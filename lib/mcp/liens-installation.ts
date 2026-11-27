@@ -32,7 +32,30 @@ export const INSTRUCTIONS_CHATGPT =
   'choisissez l\'authentification OAuth, acceptez l\'avertissement, puis « Create as a plugin » et installez le plugin. ' +
   'Selon votre offre, un administrateur de votre espace ChatGPT peut devoir l\'autoriser.';
 
-export function liensInstallation(env: NodeJS.ProcessEnv = process.env): LiensInstallation {
+/** Les langues des libellés servis aux apps (Mail, 27/11 : une console anglaise affichait les boutons en français). */
+export type Langue = 'fr' | 'en';
+const TEXTES: Record<Langue, { claude: string; chatgpt: string; cursor: string; vscode: string; etapeChatgpt: string; phrase: (app: string) => string }> = {
+  fr: {
+    claude: 'Ajouter à Claude', chatgpt: 'Ouvrir ChatGPT', cursor: 'Ajouter à Cursor', vscode: 'Ajouter à VS Code', etapeChatgpt: INSTRUCTIONS_CHATGPT,
+    phrase: (app) => `Une seule connexion Veridian : votre IA accède à ${app} et à vos autres apps Veridian.`,
+  },
+  en: {
+    claude: 'Add to Claude', chatgpt: 'Open ChatGPT', cursor: 'Add to Cursor', vscode: 'Add to VS Code',
+    etapeChatgpt:
+      'In ChatGPT on the web, Plugins page (chatgpt.com/plugins): the + button, then “Add custom MCP server”; paste the Veridian address, ' +
+      'choose OAuth authentication, accept the warning, then “Create as a plugin” and install the plugin. ' +
+      'Depending on your plan, an administrator of your ChatGPT workspace may need to allow it.',
+    phrase: (app) => `One Veridian connection: your AI reaches ${app} and your other Veridian apps.`,
+  },
+};
+/** `?lang=fr|en` d'abord, puis la première langue d'Accept-Language ; le français par défaut. */
+export function langueDe(param: string | null, acceptLanguage: string | null): Langue {
+  const p = (param ?? '').toLowerCase();
+  if (p === 'fr' || p === 'en') return p;
+  return /^\s*en\b/i.test(acceptLanguage ?? '') ? 'en' : 'fr';
+}
+
+export function liensInstallation(env: NodeJS.ProcessEnv = process.env, langue: Langue = 'fr'): LiensInstallation {
   const url = mcpResource(env);
   const claude =
     `https://claude.ai/customize/connectors?modal=add-custom-connector` +
@@ -50,7 +73,7 @@ export function liensInstallation(env: NodeJS.ProcessEnv = process.env): LiensIn
     cursor,
     vscode,
     claudeCode: `claude mcp add --transport http ${NOM_CONNECTEUR.toLowerCase()} ${url}`,
-    instructions: { chatgpt: INSTRUCTIONS_CHATGPT },
+    instructions: { chatgpt: TEXTES[langue].etapeChatgpt },
   };
 }
 
@@ -63,12 +86,13 @@ export type Assistant = {
   etape: string | null;
 };
 
-export function assistants(l: LiensInstallation): Assistant[] {
+export function assistants(l: LiensInstallation, langue: Langue = 'fr'): Assistant[] {
+  const t = TEXTES[langue];
   return [
-    { cle: 'claude', libelle: 'Ajouter à Claude', installation: l.claude, etape: null },
-    { cle: 'chatgpt', libelle: 'Ouvrir ChatGPT', installation: l.chatgpt, etape: l.instructions.chatgpt },
-    { cle: 'cursor', libelle: 'Ajouter à Cursor', installation: l.cursor, etape: null },
-    { cle: 'vscode', libelle: 'Ajouter à VS Code', installation: l.vscode, etape: null },
+    { cle: 'claude', libelle: t.claude, installation: l.claude, etape: null },
+    { cle: 'chatgpt', libelle: t.chatgpt, installation: l.chatgpt, etape: l.instructions.chatgpt },
+    { cle: 'cursor', libelle: t.cursor, installation: l.cursor, etape: null },
+    { cle: 'vscode', libelle: t.vscode, installation: l.vscode, etape: null },
   ];
 }
 
@@ -77,8 +101,8 @@ export function assistants(l: LiensInstallation): Assistant[] {
  * avant l'app qui affiche les boutons ; le connecteur reste « Veridian », un seul pour toutes les apps
  * (un connecteur par app en créerait plusieurs chez l'utilisateur). Clé inconnue ou coupée : `app: null`.
  */
-export async function liensPublics(db: Pick<PrismaClient, 'mcpApp'>, appKey: string | null, env: NodeJS.ProcessEnv = process.env) {
-  const l = liensInstallation(env);
+export async function liensPublics(db: Pick<PrismaClient, 'mcpApp'>, appKey: string | null, env: NodeJS.ProcessEnv = process.env, langue: Langue = 'fr') {
+  const l = liensInstallation(env, langue);
   let app: { cle: string; nom: string; phrase: string } | null = null;
   if (appKey && /^[a-z0-9-]{1,40}$/.test(appKey)) {
     const ligne = await db.mcpApp.findUnique({ where: { appKey } });
@@ -86,9 +110,9 @@ export async function liensPublics(db: Pick<PrismaClient, 'mcpApp'>, appKey: str
       app = {
         cle: ligne.appKey,
         nom: ligne.label,
-        phrase: `Une seule connexion Veridian : votre IA accède à ${ligne.label} et à vos autres apps Veridian.`,
+        phrase: TEXTES[langue].phrase(ligne.label),
       };
     }
   }
-  return { ...l, assistants: assistants(l), app };
+  return { ...l, assistants: assistants(l, langue), app, langue };
 }
