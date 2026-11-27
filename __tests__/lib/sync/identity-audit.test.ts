@@ -40,6 +40,15 @@ describe('compareIdentities', () => {
     expect(r.awaitingProof).toEqual(['nonprouve@x.fr']);
   });
 
+  it('nom vide chez l\'app face à un nom au Hub : écart ; clé absente : rien ; nom vide au Hub : compté à part (27/11)', () => {
+    const hub = [{ supabaseUserId: 'id-1', email: 'a@x.fr', name: 'Robert Brunon', emailVerified: new Date() }, { supabaseUserId: 'id-2', email: 'b@x.fr', name: '  ', emailVerified: new Date() }];
+    const r = compareIdentities([{ hub_user_id: 'id-1', email: 'a@x.fr', name: null }, { hub_user_id: 'id-2', email: 'b@x.fr', name: 'B' }], hub as never);
+    expect(r.nameMismatch).toEqual(['a@x.fr']);
+    expect(r.nomVideAuHub).toEqual(['b@x.fr']);
+    expect(compareIdentities([{ hub_user_id: 'id-1', email: 'a@x.fr' }], hub as never).nameMismatch).toEqual([]);
+    expect(compareIdentities([{ hub_user_id: 'id-1', email: 'a@x.fr', name: 'Robert Brunon' }], hub as never).nameMismatch).toEqual([]);
+  });
+
   it('voit un écart d\'email et de nom sur un compte relié', () => {
     const r = compareIdentities([{ hub_user_id: 'id-1', email: 'ancien@x.fr', name: 'Al' }], HUB);
     expect(r.emailMismatch).toEqual(['ancien@x.fr']);

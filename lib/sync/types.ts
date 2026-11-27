@@ -101,6 +101,8 @@ export interface IdentityAuditApp {
   horsPerimetre?: { email: string; raison: string }[];
   emailMismatch: string[];
   nameMismatch: string[];
+  /** Comptes reliés dont le nom est vide AU HUB : aucune app ne peut l'afficher (27/11, « Bonjour, » sans prénom). */
+  nomVideAuHub?: string[];
 }
 
 export type IdentityAudit = Partial<Record<SyncApp, IdentityAuditApp>>;

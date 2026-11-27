@@ -21,7 +21,7 @@ type LocalUser = { hub_user_id?: string | null; email?: string | null; name?: st
 type HubUser = { supabaseUserId: string | null; email: string; name: string | null; emailVerified?: Date | null };
 
 function emptyAudit(status: IdentityAuditApp['status']): IdentityAuditApp {
-  return { status, localAccounts: 0, withoutHub: [], unlinked: [], awaitingProof: [], horsPerimetre: [], emailMismatch: [], nameMismatch: [] };
+  return { status, localAccounts: 0, withoutHub: [], unlinked: [], awaitingProof: [], horsPerimetre: [], emailMismatch: [], nameMismatch: [], nomVideAuHub: [] };
 }
 
 /**
@@ -69,7 +69,11 @@ export function compareIdentities(locals: LocalUser[], hubUsers: HubUser[], app?
       continue;
     }
     if (hubUser.email.toLowerCase() !== email) audit.emailMismatch.push(email);
-    if (local.name && hubUser.name && local.name !== hubUser.name) audit.nameMismatch.push(email);
+    // 27/11 : Academy saluait Robert d'un « Bonjour, » sans prénom. Son nom manquait AU HUB, et un nom vide ne se voyait nulle part. Un nom vide
+    // chez l'app (clé présente) face à un nom au Hub est un écart ; une app qui ne rend pas la clé ne dit rien. Un nom vide au Hub se compte à part.
+    const nomHub = (hubUser.name ?? '').trim();
+    if (nomHub && 'name' in local && (local.name ?? '').trim() !== nomHub) audit.nameMismatch.push(email);
+    if (!nomHub) audit.nomVideAuHub!.push(email);
   }
   return audit;
 }
@@ -129,6 +133,7 @@ export function identityCounts(audit: IdentityAudit | undefined) {
         horsPerimetre: a.horsPerimetre?.length ?? 0,
         emailMismatch: a.emailMismatch.length,
         nameMismatch: a.nameMismatch.length,
+        nomVideAuHub: a.nomVideAuHub?.length ?? 0,
       },
     ]),
   );
