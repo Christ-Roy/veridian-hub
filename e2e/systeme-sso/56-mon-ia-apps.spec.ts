@@ -74,6 +74,12 @@ async function pageApp(ctx: BrowserContext, app: AppFenetre, chemin: string): Pr
   const page = await ctx.newPage();
   await page.goto(`${urlDe(app)}${chemin}`, { waitUntil: 'networkidle' });
   await page.getByRole('button', { name: /^Plus tard$/ }).click({ timeout: 5_000 }).catch(() => {});
+  // Mail ouvre la console sur le choix de l'espace : la marque ne vit que dans un espace. On entre dans celui du compte (son identifiant
+  // s'affiche « ID: e2esso… », sans dépendre de la langue).
+  if (app === 'notifuse' && /\/console\/?$/.test(new URL(page.url()).pathname)) {
+    await page.getByText(/ID:\s*e2esso/).first().click({ timeout: 15_000 });
+    await page.waitForLoadState('networkidle').catch(() => undefined);
+  }
   return page;
 }
 
@@ -103,7 +109,8 @@ for (const { app, chemin } of APPS.filter((x) => !process.env.SSO_MON_IA_APP || 
       expect(await cadreDe(p1).count(), 'sans moteur, avant le clic : aucun cadre').toBe(0);
       await unSeulPointDEntree(p1);
       // Le bouton de la marque, quel que soit son libellé (traduit selon la langue de l'interface, §5.24.1).
-      await zone.locator('button').first().click({ timeout: 10_000 });
+      // La marque peut porter le bouton (Prospection) ou l'entourer (Analytics, Academy).
+      await p1.locator('button[data-mon-ia], [data-mon-ia] button').first().click({ timeout: 10_000 });
       const carte = p1.locator('[data-carte="relier-mon-ia"]');
       await expect(carte, 'la carte du connecteur').toBeVisible({ timeout: 10_000 });
       const lien = carte.locator(`a[href="${HUB_URL}/dashboard/ia"]`).first();
@@ -125,7 +132,7 @@ for (const { app, chemin } of APPS.filter((x) => !process.env.SSO_MON_IA_APP || 
       await expect(p2.locator('[data-mon-ia]').first(), 'avec un moteur : l\'app a lu prete').toHaveAttribute('data-mon-ia', 'prete', { timeout: 20_000 });
       expect(await cadreDe(p2).count(), 'avant le clic : pas de cadre inséré').toBe(0);
       await unSeulPointDEntree(p2);
-      await p2.locator('[data-mon-ia="prete"] button').first().click({ timeout: 10_000 });
+      await p2.locator('button[data-mon-ia="prete"], [data-mon-ia="prete"] button').first().click({ timeout: 10_000 });
       await expect(p2.getByRole('dialog').first(), 'le dialogue de l\'assistant').toBeVisible({ timeout: 10_000 });
       const cadre = cadreDe(p2).first();
       await cadre.waitFor({ timeout: 30_000 });
