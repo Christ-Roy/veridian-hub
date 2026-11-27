@@ -69,3 +69,21 @@ pour les candidats, l'inscription de Veridian chez eux. Ensuite, connecté à ap
 | Candidats (13) | Même ligne, une fois chacun passé au registre (inscription acceptée et relue) | idem |
 
 Le Hub ouvre à tous (`CONNECTEURS_OUVERTS=1`) seulement quand les outils d'un service sont relus. Couper reste possible à tout moment.
+
+## Google et Microsoft (27/11/2026)
+
+**Google** : MCP officiels (`drivemcp`, `calendarmcp`, `gmailmcp.googleapis.com/mcp/v1`), autorisation `accounts.google.com`, sans inscription automatique.
+Le registre sait servir un **client préinscrit** (`preinscrit` : noms des variables de son identifiant et de son secret, lus dans l'environnement,
+jamais inscrit ni effacé d'ici ; `depart` : paramètres figés, placés AVANT ceux de sécurité). Candidats : `gdrive` (`drive.file`, non sensible) et
+`gagenda` (`calendar.events.readonly`, sensible : vérification gratuite, ou mode Test). Gmail en lecture n'existe qu'en portée RESTREINTE
+(`gmail.readonly`, `gmail.modify`, `mail.google.com`) : évaluation de sécurité payante, donc absent (dépense à décider par Robert).
+Avant la première connexion :
+- **Robert, console Google, projet `veridian-preprod`, client « Veridian Integrations »** : ajouter l'adresse de retour
+  `https://app.veridian.site/api/connecteurs/retour` (le client ne connaît que `/api/integrations/<service>/callback`), et s'ajouter comme
+  utilisateur de test (mode Test : jusqu'à 100 utilisateurs, portées sensibles sans vérification, avec un avertissement à l'écran).
+- **Infra** : poser `INTEG_GOOGLE_CLIENT_ID` et `INTEG_GOOGLE_CLIENT_SECRET` dans `nomad/jobs/hub`, et les rendre au job. Sans elles, Google n'est pas
+  branchable (le Hub ne s'inscrit jamais à sa place).
+
+**Microsoft** : pas de MCP utilisable. Les serveurs Outlook (Work IQ, Agent 365) sont en préversion, réservés aux locataires « Frontier » d'entreprise,
+avec consentement d'un administrateur ; le MCP Graph exclut courrier et agenda. Le client « Veridian Integrations » (`INTEG_MICROSOFT_*`) reste au coffre,
+inutilisé. Rien à coder tant qu'un MCP grand public n'existe pas (le Hub ne code aucun outil).

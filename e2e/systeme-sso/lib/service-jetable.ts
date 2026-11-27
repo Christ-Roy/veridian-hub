@@ -126,6 +126,8 @@ export async function ouvrirService() {
     hotes: ((h: string) => ({ emetteur: base, autorisation: h, jeton: h, enregistrement: h, revocation: h }))(new URL(base).host),
     vu,
     mentir: (x: MensongeService) => { mensonge = x; },
+    /** Un client créé à la main chez le service (Google, 27/11) : aucun enregistrement, aucun jeton de gestion. */
+    preinscrire: (id: string, secret: string, retours: string[]) => { clients.set(id, { retours, secret, gestion: '' }); },
     /** Ce que `tools/list` annonce, ce qu'un outil rend, le compte autorisé, et ce qui se croise avec le prochain renouvellement. */
     annoncer: (l: readonly OutilJetable[]) => { outils = [...l]; },
     rendre: (r: unknown) => { resultat = r; },

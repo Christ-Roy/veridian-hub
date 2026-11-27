@@ -12,6 +12,13 @@ export type OutilRelu = { acces: Acces; empreinte: string };
 export type HotesOAuth = { emetteur: string; autorisation: string; jeton: string; enregistrement: string; revocation: string };
 export type Connecteur = {
   cle: string; nom: string; texte: string; mcpUrl: string; oauth: HotesOAuth; outils: Readonly<Record<string, OutilRelu>>; /** Portée demandée ; absente : celle que le service annonce. */ portee?: string;
+  /**
+   * Client créé chez le service, à la main (Google, 27/11 : pas d'inscription automatique) : les NOMS des variables qui portent son identifiant et son secret.
+   * Jamais d'inscription d'ici, jamais d'effacement chez lui. Variables absentes : le service n'est pas branchable.
+   */
+  preinscrit?: { id: string; secret: string };
+  /** Paramètres de départ propres au service, figés (Google : `access_type=offline` pour un jeton de renouvellement). */
+  depart?: Readonly<Record<string, string>>;
 };
 
 /** Les quatre s'autorisent chez eux, sur l'hôte même de leur serveur MCP. Un autre hôte annoncé un jour : refus, jamais suivi. */
@@ -27,6 +34,12 @@ export const CONNECTEURS: readonly Connecteur[] = [
   { cle: 'webflow', nom: 'Webflow', texte: 'Vos sites et contenus Webflow.', mcpUrl: 'https://mcp.webflow.com/mcp', oauth: chezLui('mcp.webflow.com'), outils: {} },
   { cle: 'sentry', nom: 'Sentry', texte: 'Erreurs et projets Sentry.', mcpUrl: 'https://mcp.sentry.dev/mcp', oauth: chezLui('mcp.sentry.dev'), outils: {} },
 ];
+
+/** Google : autorisation chez accounts.google.com, jeton et révocation chez oauth2.googleapis.com, aucune inscription (lu le 27/11). */
+const GOOGLE: HotesOAuth = { emetteur: 'https://accounts.google.com', autorisation: 'accounts.google.com', jeton: 'oauth2.googleapis.com', enregistrement: '', revocation: 'oauth2.googleapis.com' };
+const CLIENT_GOOGLE = { id: 'INTEG_GOOGLE_CLIENT_ID', secret: 'INTEG_GOOGLE_CLIENT_SECRET' } as const;
+/** Sans `access_type=offline`, Google ne rend pas de jeton de renouvellement ; `prompt=consent` le redemande à chaque branchement. */
+const DEPART_GOOGLE = { access_type: 'offline', prompt: 'consent' } as const;
 
 /**
  * Candidats (VER-114, 27/11/2026) : serveur MCP officiel dont les métadonnées PUBLIQUES annoncent l'inscription automatique (RFC 7591), adresses figées
@@ -47,6 +60,11 @@ export const CANDIDATS: readonly Connecteur[] = [
   { cle: 'posthog', nom: 'PostHog', texte: 'Analyses de produit PostHog.', mcpUrl: 'https://mcp.posthog.com/mcp', oauth: { emetteur: 'https://oauth.posthog.com', autorisation: 'oauth.posthog.com', jeton: 'oauth.posthog.com', enregistrement: 'oauth.posthog.com', revocation: 'oauth.posthog.com' }, outils: {} },
   { cle: 'todoist', nom: 'Todoist', texte: 'Tâches et projets Todoist.', mcpUrl: 'https://ai.todoist.net/mcp', oauth: { emetteur: 'https://todoist.com', autorisation: 'todoist.com', jeton: 'todoist.com', enregistrement: 'todoist.com', revocation: 'todoist.com' }, outils: {} },
   { cle: 'calendly', nom: 'Calendly', texte: 'Rendez-vous et disponibilités Calendly.', mcpUrl: 'https://mcp.calendly.com/', oauth: { emetteur: 'https://calendly.com/', autorisation: 'calendly.com', jeton: 'calendly.com', enregistrement: 'calendly.com', revocation: '' }, outils: {} },
+  // Google (27/11) : MCP officiels, client « Veridian Integrations » créé dans la console (projet veridian-preprod), pas d'inscription automatique.
+  // Portées sans évaluation payante seulement : drive.file (non sensible) ; calendar.events.readonly (sensible : vérification gratuite, ou mode Test).
+  // Gmail en lecture n'existe qu'en portée RESTREINTE (évaluation de sécurité payante) : absent, c'est une dépense à décider par Robert.
+  { cle: 'gdrive', nom: 'Google Drive', texte: 'Les fichiers Drive que vous ouvrez avec Veridian.', mcpUrl: 'https://drivemcp.googleapis.com/mcp/v1', oauth: GOOGLE, outils: {}, portee: 'https://www.googleapis.com/auth/drive.file', preinscrit: CLIENT_GOOGLE, depart: DEPART_GOOGLE },
+  { cle: 'gagenda', nom: 'Google Agenda', texte: 'Les événements de votre agenda Google, en lecture.', mcpUrl: 'https://calendarmcp.googleapis.com/mcp/v1', oauth: GOOGLE, outils: {}, portee: 'https://www.googleapis.com/auth/calendar.events.readonly', preinscrit: CLIENT_GOOGLE, depart: DEPART_GOOGLE },
 ];
 
 /**

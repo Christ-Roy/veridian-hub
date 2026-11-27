@@ -57,6 +57,11 @@ const decouvrir = async (c: Connecteur, id: string, secret: string | undefined, 
 
 /** Notre client chez ce service. Jamais inscrit d'ici : renouveler, échanger ou couper n'inscrit personne. */
 async function notreClient(db: Db, c: Connecteur, retour: string, d: Deps): Promise<oidc.Configuration | null> {
+  if (c.preinscrit) {
+    // Client créé chez le service (Google) : lu dans l'environnement, jamais en base, jamais inscrit d'ici.
+    const [id, secret] = [process.env[c.preinscrit.id]?.trim(), process.env[c.preinscrit.secret]?.trim()];
+    return id && secret ? decouvrir(c, id, secret, d) : null;
+  }
   const l = await db.connecteurClient.findUnique({ where: { connecteur_retour: { connecteur: c.cle, retour } } });
   return l ? decouvrir(c, l.clientId, l.secretChiffre ? dechiffrer(l.secretChiffre) : undefined, d) : null;
 }
@@ -112,7 +117,8 @@ async function notreClientOuInscription(db: Db, c: Connecteur, retour: string, d
   const k = `${c.cle} ${retour}`;
   const enCours = inscriptions.get(k);
   if (enCours) return enCours;
-  const p = (async () => (await notreClient(db, c, retour, d)) ?? inscrire(db, c, retour, d))().finally(() => inscriptions.delete(k));
+  // Préinscrit : jamais d'inscription automatique ; ses variables absentes, il n'est pas branchable.
+  const p = (async () => (await notreClient(db, c, retour, d)) ?? (c.preinscrit ? Promise.reject(new Error('non_inscrit')) : inscrire(db, c, retour, d)))().finally(() => inscriptions.delete(k));
   inscriptions.set(k, p);
   return p;
 }
@@ -131,6 +137,8 @@ async function effacerChez(c: Connecteur, i: { jeton: string | null; adresse: st
 
 /** Efface notre inscription chez ce service. Gardée chez nous tant qu'il ne l'a pas confirmé. */
 export async function desinscrire(db: Db, c: Connecteur, retour: string, d: Deps = {}): Promise<'effacee' | 'absente' | 'sans_jeton' | 'echec'> {
+  // Un client préinscrit appartient à la console du service : on ne l'efface jamais d'ici.
+  if (c.preinscrit) return 'sans_jeton';
   const l = await db.connecteurClient.findUnique({ where: { connecteur_retour: { connecteur: c.cle, retour } } });
   if (!l) return 'absente';
   if (!l.gestionChiffre) return 'sans_jeton';
@@ -142,7 +150,7 @@ export async function desinscrire(db: Db, c: Connecteur, retour: string, d: Deps
 export async function partir(db: Db, c: Connecteur, userId: string, retour: string, d: Deps = {}): Promise<{ url: string; cookie: string }> {
   const conf = await notreClientOuInscription(db, c, retour, d);
   const [state, verifier] = [oidc.randomState(), oidc.randomPKCECodeVerifier()];
-  const url = oidc.buildAuthorizationUrl(conf, { redirect_uri: retour, state, code_challenge: await oidc.calculatePKCECodeChallenge(verifier), code_challenge_method: 'S256', resource: c.mcpUrl, ...(c.portee ? { scope: c.portee } : {}) });
+  const url = oidc.buildAuthorizationUrl(conf, { ...(c.depart ?? {}), redirect_uri: retour, state, code_challenge: await oidc.calculatePKCECodeChallenge(verifier), code_challenge_method: 'S256', resource: c.mcpUrl, ...(c.portee ? { scope: c.portee } : {}) });
   tenirAdresse(url.href, [c.oauth.autorisation], d);
   const t: TransactionConnecteur = { t: 'connecteur', cle: c.cle, userId, state, verifier, exp: Math.floor((d.now ?? Date.now()) / 1000) + TRANSACTION_CONNECTEUR_S };
   return { url: url.href, cookie: chiffrer(JSON.stringify(t)) };

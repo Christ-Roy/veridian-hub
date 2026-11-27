@@ -17,8 +17,8 @@ it('connecteursOuverts : fermé par défaut, « 1 » ouvre à tous, « @id » à
   expect(connecteursOuverts('h1', { CONNECTEURS_OUVERTS: 'h1' } as never), 'sans @ : rien').toBe(false);
 });
 it('CANDIDATS (VER-114) : jamais servis, disjoints du registre, HTTPS, PKCE de rigueur, jamais un service d\'argent', () => {
-  expect(CANDIDATS.length).toBe(13);
-  expect(CANDIDATS.every((c) => c.mcpUrl.startsWith('https://') && c.oauth.emetteur.startsWith('https://') && Boolean(c.oauth.enregistrement) && /^[a-z]{3,20}$/.test(c.cle))).toBe(true);
+  expect(CANDIDATS.length).toBe(15);
+  expect(CANDIDATS.every((c) => c.mcpUrl.startsWith('https://') && c.oauth.emetteur.startsWith('https://') && (Boolean(c.oauth.enregistrement) || Boolean(c.preinscrit)) && /^[a-z]{3,20}$/.test(c.cle))).toBe(true);
   expect(CANDIDATS.filter((c) => connecteur(c.cle) !== null || CONNECTEURS.some((x) => x.cle === c.cle)).map((c) => c.cle), 'un candidat n\'est pas servi').toEqual([]);
   expect(CANDIDATS.filter((c) => ['stripe', 'paypal', 'canva'].includes(c.cle))).toEqual([]);
   expect(CANDIDATS.every((c) => Object.keys(c.outils).length === 0)).toBe(true);
@@ -37,4 +37,11 @@ it('outils : empreinte entière, et jamais un nom d\'écriture classé en lectur
 it('outilRelu, saitEcrire', () => {
   const c = { ...CONNECTEURS[0], outils: { a: { acces: 'ecriture' as const, empreinte: 'x' } } };
   expect([outilRelu(c, 'a')?.acces, outilRelu(c, 'b'), outilRelu(c, 'constructor'), outilRelu(c, '__proto__'), saitEcrire(c), saitEcrire(CONNECTEURS[0])]).toEqual(['ecriture', null, null, null, true, false]);
+});
+it('Google (27/11) : client préinscrit au coffre, jamais une portée restreinte, jeton de renouvellement demandé', () => {
+  const g = CANDIDATS.filter((c) => c.preinscrit);
+  expect(g.map((c) => c.cle)).toEqual(['gdrive', 'gagenda']);
+  const restreintes = /gmail\.(readonly|modify|compose|metadata)|mail\.google\.com|auth\/drive(\.readonly)?$/;
+  expect(g.filter((c) => restreintes.test(c.portee ?? ''))).toEqual([]);
+  expect(g.every((c) => c.depart?.access_type === 'offline' && c.preinscrit?.id === 'INTEG_GOOGLE_CLIENT_ID' && c.oauth.enregistrement === '')).toBe(true);
 });

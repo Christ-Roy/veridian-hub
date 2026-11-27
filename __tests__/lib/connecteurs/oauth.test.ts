@@ -48,6 +48,39 @@ describe('partir', () => {
     expect(clients()).toEqual([]);
   });
 });
+describe('client préinscrit (Google, 27/11)', () => {
+  const avec = (extra: object) => { const garde = reg.c; reg.c = { ...garde, preinscrit: { id: 'PRE_ID', secret: 'PRE_SECRET' }, depart: { access_type: 'offline' }, ...extra }; return () => { reg.c = garde; }; };
+  it('le client vient du coffre : aucune inscription, rien en base ; le code s\'échange ; on ne l\'efface jamais', async () => {
+    const remettre = avec({});
+    try {
+      s.preinscrire('pre-1', 'sec-1', [RETOUR]);
+      vi.stubEnv('PRE_ID', 'pre-1'); vi.stubEnv('PRE_SECRET', 'sec-1');
+      const avant = s.vu.enregistrements;
+      const a = await aller();
+      expect([a.url.searchParams.get('client_id'), a.url.searchParams.get('access_type'), s.vu.enregistrements - avant, clients().length]).toEqual(['pre-1', 'offline', 0, 0]);
+      expect((await terminer(db, a.t, a.retour, RETOUR, D)).acces).toBeTruthy();
+      expect(await desinscrire(db, reg.c, RETOUR, D)).toBe('sans_jeton');
+    } finally { remettre(); vi.unstubAllEnvs(); vi.stubEnv('VAULT_ENC_KEY', 'k'.repeat(40)); }
+  });
+  it('variables absentes : pas branchable, et JAMAIS une inscription automatique à la place', async () => {
+    const remettre = avec({});
+    try {
+      const avant = s.vu.enregistrements;
+      await expect(partir(db, reg.c, 'U', RETOUR, D)).rejects.toThrow('non_inscrit');
+      expect([s.vu.enregistrements - avant, clients().length]).toEqual([0, 0]);
+    } finally { remettre(); }
+  });
+  it('un paramètre du service n\'écrase jamais state, PKCE ni le retour', async () => {
+    const remettre = avec({ depart: { state: 'force', code_challenge: 'force', redirect_uri: 'https://ailleurs.test/x' } });
+    try {
+      s.preinscrire('pre-2', 'sec-2', [RETOUR]);
+      vi.stubEnv('PRE_ID', 'pre-2'); vi.stubEnv('PRE_SECRET', 'sec-2');
+      const p = (await aller()).url.searchParams;
+      expect([p.get('state') === 'force', p.get('code_challenge') === 'force', p.get('redirect_uri')]).toEqual([false, false, RETOUR]);
+    } finally { remettre(); vi.unstubAllEnvs(); vi.stubEnv('VAULT_ENC_KEY', 'k'.repeat(40)); }
+  });
+});
+
 it('ouvrirTransaction : 10 min, ne se forge pas', async () => {
   const { cookie } = await aller();
   const plus = Date.now() + TRANSACTION_CONNECTEUR_S * 1000 + 1_000;
