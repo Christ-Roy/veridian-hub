@@ -11,5 +11,5 @@ const EN_V2 = () => (process.env.SSO_SIGNATURE_V1 === '1' ? '' : /staging/.test(
 
 /** En-têtes signés pour UNE requête : `url` complète (chemin et query signés tels qu'envoyés), `corps` = les octets exacts envoyés. */
 export function signatureVersApp(app: string, secret: string, methode: string, url: string, corps = ''): Record<string, string> {
-  return entetesSignature({ secret, methode, url, corps, app, env: { HMAC_V2_APPS: EN_V2() } as NodeJS.ProcessEnv });
+  return entetesSignature({ secret, methode, url, corps, app, env: { ...process.env, HMAC_V2_APPS: EN_V2() } });
 }

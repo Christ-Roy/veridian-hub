@@ -71,7 +71,7 @@ async function notifuseHmac(
 ): Promise<{ status: number; json: Record<string, unknown> }> {
   const raw = body == null ? '' : JSON.stringify(body);
   // Le signataire du Hub, en v2 (Mail le vérifie depuis bd3e66dc) : jamais un HMAC refait ici.
-  const headers: Record<string, string> = entetesSignature({ secret: NOTIFUSE_HUB_SECRET, methode: method, url: `${NOTIFUSE_URL}${path}`, corps: raw, app: 'notifuse', env: { HMAC_V2_APPS: 'notifuse' } as NodeJS.ProcessEnv });
+  const headers: Record<string, string> = entetesSignature({ secret: NOTIFUSE_HUB_SECRET, methode: method, url: `${NOTIFUSE_URL}${path}`, corps: raw, app: 'notifuse', env: { ...process.env, HMAC_V2_APPS: 'notifuse' } });
   if (raw) headers['Content-Type'] = 'application/json';
 
   const res = await fetch(`${NOTIFUSE_URL}${path}`, {

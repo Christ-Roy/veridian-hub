@@ -29,6 +29,7 @@
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", "shared/shared/**/*.ts"],
   "exclude": [
     "node_modules",
+    "e2e",
     "_pocs",
     "tmp",
     "__tests__",
