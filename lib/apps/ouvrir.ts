@@ -10,7 +10,7 @@ import { ensureCrmWorkspace } from '@/lib/crm/provision';
 import type { SyncApp } from '@/lib/sync/types';
 import { PAR_CLE } from '@/lib/auth/emprunt-bornes';
 import { abonnerParDefaut } from '@/lib/evenements/naissance';
-import { designerAdminsPlateforme, type Designation } from './admins-plateforme';
+import { APPS_ADMIN, designerAdminsPlateforme, type Designation } from './admins-plateforme';
 import { provisionNotifuseTenant, provisionProspectionTenant } from '@/utils/tenants/provision';
 
 import { espaceMailVivant, espaceNote, presenteDans } from './presence';
@@ -66,8 +66,9 @@ export async function ouvrirApps(db: PrismaClient, tenantId: string, apps: reado
       res.push({ app, etat: 'echec', detail: err instanceof Error ? err.message.slice(0, 160) : 'erreur' });
     }
   }
-  // Mail ouvert : les administrateurs de plateforme y sont posés ADMIN, jamais propriétaires (§5.23). Un échec se dit, il ne défait pas l'ouverture.
-  const admins = res.some((x) => x.app === 'notifuse' && x.etat !== 'echec')
+  // Une app à rôles ouverte (Mail, Academy) : les administrateurs de plateforme y sont posés ADMIN, jamais propriétaires (§5.23). Un échec se dit, il
+  // ne défait pas l'ouverture.
+  const admins = res.some((x) => APPS_ADMIN.includes(x.app) && x.etat !== 'echec')
     ? ((await designerAdminsPlateforme(db, tenantId, { fetchImpl: deps.fetchImpl, acteur: deps.auteur ?? PAR_CLE, raison: 'ouverture du client' }).catch(() => null)) ?? [])
     : [];
   // Mail et CRM ouverts : l'événement « Mail vers CRM » actif par défaut a besoin de son abonnement chez Mail. Rejouable (une organisation déjà

@@ -1,5 +1,5 @@
 // @vitest-environment node
-/** L'administrateur de plateforme posé ADMIN chez Mail, jamais propriétaire, jamais remis après un retrait du client (VER-263, §5.23). */
+/** L'administrateur de plateforme posé ADMIN chez Mail et Academy, jamais propriétaire, jamais remis après un retrait du client (VER-263, §5.23). */
 import { createHmac } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -22,7 +22,9 @@ const fetchImpl = (async (url: string, i: RequestInit) => {
 const membres = (...l: object[]) => [200, { workspace_id: 'ws', members: l }] as [number, unknown];
 let t: { userId: string; notifuseWorkspaceSlug: string | null } | null;
 const db = { tenant: { findFirst: async () => t }, user: { findMany: async () => [{ supabaseUserId: ROBERT, email: 'robert@v' }] } } as never;
-const jouer = () => designerAdminsPlateforme(db, 'T', { fetchImpl, acteur: ROBERT, raison: 'appel du client' });
+const tout = () => designerAdminsPlateforme(db, 'T', { fetchImpl, acteur: ROBERT, raison: 'appel du client' });
+/** Les désignations chez Mail seulement (Academy, sans URL ici, se dit « non branchée » à part). */
+const jouer = async () => { const r = await tout(); return r && r.filter((x) => x.app === 'notifuse'); };
 const posts = () => appels.filter((a) => a.methode === 'POST').map((a) => a.url.replace('https://mail', ''));
 
 beforeEach(() => {
@@ -97,6 +99,39 @@ describe('designerAdminsPlateforme', () => {
     vi.stubEnv('NOTIFUSE_HUB_API_SECRET', '');
     rep = () => membres();
     expect((await jouer())![0].etat).toBe('non_branchee');
+  });
+});
+
+describe('designerAdminsPlateforme chez Academy (a244873, 27/11)', () => {
+  beforeEach(() => {
+    vi.stubEnv('NOTIFUSE_HUB_API_SECRET', '');
+    vi.stubEnv('ACADEMY_API_URL', 'https://academy');
+    vi.stubEnv('ACADEMY_HUB_API_SECRET', 's3cret');
+  });
+  const academy = async () => (await tout())!.filter((x) => x.app === 'academy');
+  it('membre : désigné admin dans l\'espace du TENANT Hub (workspace_id = tenant), relu, signé', async () => {
+    let n = 0;
+    rep = (a) => (a.methode === 'GET' ? (n++ === 0 ? membres({ hub_user_id: CLIENT, role: 'owner' }, { hub_user_id: ROBERT, role: 'member' }) : membres({ hub_user_id: ROBERT, role: 'admin' })) : [200, {}]);
+    expect(await academy()).toEqual([{ app: 'academy', hubUserId: ROBERT, etat: 'admin' }]);
+    const vers = appels.filter((a) => a.url.startsWith('https://academy'));
+    expect(vers.map((a) => [a.methode, a.url])).toEqual([
+      ['GET', 'https://academy/api/hub/workspace-admins?workspace_id=T'],
+      ['POST', 'https://academy/api/hub/workspace-admins'],
+      ['GET', 'https://academy/api/hub/workspace-admins?workspace_id=T'],
+    ]);
+    expect(vers[1].corps).toMatchObject({ workspace_id: 'T', action: 'grant', reinstate: false });
+    expect(vers.every((a) => a.signe)).toBe(true);
+  });
+  it('organisation sans espace Academy (404 tenant_not_found) : sans_espace, rien d\'envoyé', async () => {
+    rep = () => [404, { error: 'tenant_not_found' }];
+    expect((await academy())[0]).toMatchObject({ etat: 'sans_espace', detail: 'tenant_not_found' });
+    expect(appels.filter((a) => a.methode === 'POST')).toEqual([]);
+  });
+  it('retiré par le client chez Academy : jamais remis, le nom de l\'app dit où', async () => {
+    rep = (a) => (a.methode === 'GET' ? membres({ hub_user_id: ROBERT, role: 'member' }) : [409, { error: 'admin_withdrawn' }]);
+    expect((await academy())[0].etat).toBe('retire_par_le_client');
+    rep = () => membres({ hub_user_id: CLIENT, role: 'owner' });
+    expect((await academy())[0]).toMatchObject({ etat: 'pas_membre', detail: expect.stringContaining('espace Academy') });
   });
 });
 

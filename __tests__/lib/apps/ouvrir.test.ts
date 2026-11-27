@@ -8,7 +8,7 @@ vi.mock('@/lib/crm/provision', () => ({ ensureCrmWorkspace: (...a: unknown[]) =>
 vi.mock('@/lib/academy/provision', () => ({ ensureAcademyWorkspace: (...a: unknown[]) => m.academy(...a) }));
 vi.mock('@/lib/apps/presence', async (o) => ({ ...(await o<object>()), presenteDans: (...a: unknown[]) => m.presente(...a), espaceMailVivant: (...a: unknown[]) => m.vivant(...a) }));
 
-vi.mock('@/lib/apps/admins-plateforme', () => ({ designerAdminsPlateforme: (...a: unknown[]) => m.designer(...a) }));
+vi.mock('@/lib/apps/admins-plateforme', () => ({ APPS_ADMIN: ['notifuse', 'academy'], designerAdminsPlateforme: (...a: unknown[]) => m.designer(...a) }));
 vi.mock('@/lib/analytics/provision', () => ({ provisionnerAnalytics: (...a: unknown[]) => m.analytics(...a) }));
 vi.mock('@/lib/evenements/naissance', () => ({ abonnerParDefaut: (...a: unknown[]) => m.abonner(...a) }));
 
@@ -54,6 +54,14 @@ describe('ouvrirApps : administrateurs de plateforme', () => {
     m.mail.mockResolvedValue({ success: false, error: 'non' });
     t = { ...t, notifuseWorkspaceSlug: null };
     await ouvrirApps(db, 'T', ['notifuse']);
+    expect(m.designer).not.toHaveBeenCalled();
+  });
+  it('Academy ouverte seule (27/11, §5.23 servi par Academy) : les administrateurs sont désignés ; Prospection seule : personne', async () => {
+    m.academy.mockImplementation(async () => { t = { ...t, metadata: { academy: { workspace_id: 'a' } } }; return { ok: true }; });
+    m.designer.mockResolvedValue([{ app: 'academy', hubUserId: 'r', etat: 'admin' }]);
+    expect((await ouvrirApps(db, 'T', ['academy']))!.admins).toEqual([{ app: 'academy', hubUserId: 'r', etat: 'admin' }]);
+    m.designer.mockClear();
+    await ouvrirApps(db, 'T', ['prospection']);
     expect(m.designer).not.toHaveBeenCalled();
   });
   it('sans auteur : l\'outil nommé par sa clé ; une panne de désignation ne défait pas l\'ouverture', async () => {
