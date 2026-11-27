@@ -16,6 +16,8 @@ D="${SSO_NAV_DIR:-$RACINE/e2e/systeme-sso/.run/navigateur}"
 PORT_CONTENEUR=9323
 DUREE="${SSO_NAV_DUREE:-3600}"
 ATTENTE="${SSO_NAV_ATTENTE:-900}"
+# Plafond quand le journal de lourd avance encore (premier lancement sur un nœud sans cache : Chromium, 113 Mio, Prospection 27/11).
+ATTENTE_MAX="${SSO_NAV_ATTENTE_MAX:-3600}"
 # Le nœud est celui où Nomad a placé l'allocation (lu sur elle), jamais figé ici : `lourd --navigateur` choisit (infra, 27/11 : six lancements
 # empilés derrière un node02 plein). Nom Nomad → alias ssh : veridian-node-02 → node02, veridian-rise-01 → rise.
 NOEUD=""
@@ -65,10 +67,15 @@ demarrer() {
   # Depuis la racine du dépôt : lourd y copie l'arbre, installe ses dépendances, donc la même version de Playwright.
   ( cd "$RACINE" && exec lourd --navigateur sh -c "exec timeout -k 5 $DUREE npx --no-install playwright run-server --host 0.0.0.0 --port $PORT_CONTENEUR --path /$alea" ) >"$D/lourd.log" 2>&1 &
   echo $! >"$D/lourd.pid"
-  local fin=$(( $(date +%s) + ATTENTE )) id="" ip="" ctn="" alloc="" rep=""
+  local debut=$(date +%s) fin=$(( $(date +%s) + ATTENTE )) id="" ip="" ctn="" alloc="" rep="" taille=0 t
   while [ "$(date +%s)" -lt "$fin" ]; do
+    # Un journal qui avance (téléchargement, installation) repousse l'échéance de 60 s, jamais au-delà du plafond.
+    t=$(stat -c %s "$D/lourd.log" 2>/dev/null || echo 0)
+    if [ "$t" != "$taille" ]; then taille=$t; [ $(( $(date +%s) + 60 )) -gt "$fin" ] && fin=$(( $(date +%s) + 60 )); [ "$fin" -gt $(( debut + ATTENTE_MAX )) ] && fin=$(( debut + ATTENTE_MAX )); fi
     kill -0 "$(cat "$D/lourd.pid")" 2>/dev/null || { dit "lourd s'est arrêté avant que le serveur réponde ($(tail -n 2 "$D/lourd.log" | tr '\n' ' ')) : NON ABOUTI"; arreter; return 2; }
-    [ -n "$id" ] || { id="$(sed -n 's/^\[lourd\] \(lourd-navigateur\/dispatch-[^,]*\),.*/\1/p' "$D/lourd.log" | head -1)"; [ -z "$id" ] || echo "$id" >"$D/job"; }
+    # Toute variante (lourd-navigateur, lourd-navigateur-rise…) ; après une bascule de nœud, le DERNIER job lancé est celui qui sert.
+    local dernier; dernier="$(sed -n 's/^\[lourd\] \(lourd-navigateur[a-z0-9-]*\/dispatch-[^,]*\),.*/\1/p' "$D/lourd.log" | tail -1)"
+    if [ -n "$dernier" ] && [ "$dernier" != "$id" ]; then id="$dernier"; echo "$id" >"$D/job"; alloc=""; ip=""; NOEUD=""; fi
     if [ -n "$id" ] && [ -z "$ip" ]; then
       read -r alloc nom <<<"$(nomad_lourd job allocs -json "$id" 2>/dev/null | python3 -c 'import sys,json;a=json.load(sys.stdin);print(a[0]["ID"], a[0].get("NodeName","")) if a else print("")' 2>/dev/null)"
       case "$nom" in *node-02*) NOEUD=node02 ;; *rise*) NOEUD=rise ;; "") : ;; *) dit "allocation placée sur un nœud inconnu ($nom) : NON ABOUTI"; arreter; return 2 ;; esac
