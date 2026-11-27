@@ -517,19 +517,10 @@ detect_current_saas_repo() {
 }
 
 # ─── Rétention R2 complémentaire au snapshot cross-nœud de nomad-v ───────────
-RCLONE_BIN="$(command -v rclone 2>/dev/null || true)"
-[ -z "$RCLONE_BIN" ] && [ -x "$HOME/bin/rclone" ] && RCLONE_BIN="$HOME/bin/rclone"
-[ -z "$RCLONE_BIN" ] && RCLONE_BIN="rclone"
-SAAS_BACKUP_DBS=(
-    "cms"
-    "notifuse"
-    "prospection"
-    "veridian-core"
-)
-
-saas_backup_r2_inventory() {
-    "$RCLONE_BIN" lsf --recursive r2:veridian-backups/ 2>/dev/null \
-        | awk -F/ 'NF > 1 { count[$1]++ } END { for (db in count) print db "=" count[db] }'
+# R2 est COUPÉ (décision de Robert du 07/11) : l'état se lit sur sa garde (`all-cron logs r2-cost-guard`), jamais sur un inventaire figé
+# (l'ancien comptait les objets d'un bucket au 04/10 et affichait « rétention <7 » : deux agents trompés le 27/11).
+r2_garde_etat() {
+    timeout 20 all-cron logs r2-cost-guard 2>/dev/null | sed -n 's/.*R2_COST_GUARD status=\([a-z_]*\).*/\1/p' | tail -1
 }
 
 nomad_state_section() {
@@ -634,22 +625,18 @@ render_section_global() {
     fi
 
     echo ""
-    echo "## Backups (snapshot cross-nœud all-cron + copie froide R2)"
+    echo "## Backups (snapshot cross-nœud all-cron, dumps pg-saas, copie hors site Drive)"
     if [ -n "$NOMAD_STATE" ]; then
         printf '%s\n' "$NOMAD_STATE" | nomad_state_section "▓▓ BACKUPS" "▓▓ BACKLOG" | sed '/^[[:space:]]*$/d; s/^/  /'
     else
         echo "  ⚠ état du snapshot cross-nœud inconnu"
     fi
-    local db r2_count r2_bad=0 r2_inventory
-    r2_inventory="$(saas_backup_r2_inventory)"
-    printf "  R2:"
-    for db in "${SAAS_BACKUP_DBS[@]}"; do
-        r2_count=$(printf '%s\n' "$r2_inventory" | awk -F= -v db="$db" '$1 == db { print $2; exit }')
-        case "$r2_count" in ''|*[!0-9]*) r2_count=0 ;; esac
-        [ "$r2_count" -ge 7 ] || r2_bad=1
-        printf " %s=%s" "$db" "$r2_count"
-    done
-    [ "$r2_bad" = 0 ] && printf " ✓\n" || printf " ⚠ rétention <7\n"
+    local r2; r2="$(r2_garde_etat)"
+    case "$r2" in
+        coupe) echo "  R2 : garde de coût coupée (décision du 07/11), migration des derniers écrivains en cours" ;;
+        '') echo "  ⚠ R2 : état de la garde NON MESURÉ (all-cron logs r2-cost-guard muet)" ;;
+        *) echo "  ⚠ R2 : garde en état « $r2 » (attendu : coupe) : all-cron logs r2-cost-guard" ;;
+    esac
 
     render_crons_failed
 }
