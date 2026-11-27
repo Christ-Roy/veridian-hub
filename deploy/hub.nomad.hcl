@@ -7,7 +7,7 @@
 # migrate CI).
 #
 # Veridian Hub (orchestrateur auth/billing/provisioning, Next.js, port 3000).
-# Placement : serveur PROD OVH (provider=ovh-prod). DB actuelle =
+# Placement : nœuds d'application (meta.role contient app : ovh-prod, app-01), réparti par zone. DB actuelle =
 # base pg-saas (depuis le 09/11/2026) : un déploiement ne touche pas la base.
 # Le contrat runtime ne hardcode plus l'URL complète : `DATABASE_URL` est
 # composée depuis les variables d'endpoint `HUB_DATABASE_*` et le secret
@@ -84,10 +84,19 @@ job "hub" {
       auto_revert       = true
     }
 
-    # Épinglé au serveur PROD : l'entrée pg-saas 172.26.64.1 (pont Nomad) y vit.
+    # Nœuds d'application (ovh-prod et app-01, VER-270, infra 27/11) : l'entrée pg-saas 172.26.64.1:15432 (pont Nomad) existe sur les deux.
+    # Avant : épinglé à ovh-prod ; plein, le canari n'y entrait plus (préempter sec-scan, job système, échoue à l'application du plan :
+    # « maximum attempts reached (5) », déploiement bloqué le 27/11 de 19:10Z). Sur app-01, le siège `prod-capacity-reserve` se préempte.
     constraint {
-      attribute = "${meta.provider}"
-      value     = "ovh-prod"
+      attribute = "${meta.role}"
+      operator  = "set_contains"
+      value     = "app"
+    }
+
+    # Deux zones (ovh, app01) : prépare count = 2 sans que les deux copies tombent sur le même nœud.
+    spread {
+      attribute = "${meta.zone}"
+      weight    = 100
     }
 
     restart {
