@@ -69,12 +69,28 @@ export type LignesMail = { creees: number; avancees: number; ignorees: number; r
  * `crm:mail.ecrire` (qui n'ouvre rien d'autre). Le CRM range une ligne par message chez une personne existante, jamais ne crée.
  */
 export async function ecrireEvenementsMail(db: Pick<PrismaClient, 'mcpApp'>, d: { tenantId: string; workspaceId: string; lotId: string; evenements: Record<string, unknown>[] }, env: NodeJS.ProcessEnv = process.env, fetchImpl: typeof fetch = fetch): Promise<{ jti: string; lignes: LignesMail }> {
+  return appelerCrmLignes(db, { tenantId: d.tenantId, app: 'notifuse', portee: PORTEE_CRM_MAIL, outil: OUTIL_CRM_MAIL, lotId: d.lotId, args: { workspace_id: d.workspaceId, evenements: d.evenements } }, env, fetchImpl);
+}
+
+export const OUTIL_CRM_VISITE = 'app_evenements_visite';
+export const PORTEE_CRM_VISITE = 'crm:visite.ecrire';
+
+/**
+ * Les visites d'un lot (§5.26) vers l'outil CRM `app_evenements_visite`, même jeton d'intégration, portée `crm:visite.ecrire` (qui n'ouvre rien
+ * d'autre). `kind: 'visite'` : le CRM range une ligne par session chez la personne dont l'adresse est `contact_email`, jamais ne crée.
+ */
+export async function ecrireVisites(db: Pick<PrismaClient, 'mcpApp'>, d: { tenantId: string; lotId: string; visites: Record<string, unknown>[] }, env: NodeJS.ProcessEnv = process.env, fetchImpl: typeof fetch = fetch): Promise<{ jti: string; lignes: LignesMail }> {
+  return appelerCrmLignes(db, { tenantId: d.tenantId, app: 'analytics', portee: PORTEE_CRM_VISITE, outil: OUTIL_CRM_VISITE, lotId: d.lotId, args: { kind: 'visite', visites: d.visites } }, env, fetchImpl);
+}
+
+/** Un appel d'outil CRM par lot, signé pour l'intégration de l'organisation ; le CRM doit répondre `ok: true` pour un succès. */
+async function appelerCrmLignes(db: Pick<PrismaClient, 'mcpApp'>, d: { tenantId: string; app: string; portee: string; outil: string; lotId: string; args: Record<string, unknown> }, env: NodeJS.ProcessEnv, fetchImpl: typeof fetch): Promise<{ jti: string; lignes: LignesMail }> {
   const cible = await db.mcpApp.findUnique({ where: { appKey: CLE_MCP.crm }, select: { mcpUrl: true, enabled: true } });
   if (!cible?.enabled) throw new Error('target_not_registered');
   const url = adresseAction('crm', cible.mcpUrl);
   const jti = randomUUID();
-  const jeton = await signerAction({ audience: url, hubUserId: `integration:${d.tenantId}`, tenantId: d.tenantId, app: 'notifuse', scope: PORTEE_CRM_MAIL, jti, ttlS: TTL_ACTION_S }, env);
-  const res = (await new SessionApp(url, jeton, fetchImpl, { entetes: { 'Idempotency-Key': d.lotId } }).appeler(OUTIL_CRM_MAIL, { workspace_id: d.workspaceId, evenements: d.evenements })) as { isError?: boolean } | null | undefined;
+  const jeton = await signerAction({ audience: url, hubUserId: `integration:${d.tenantId}`, tenantId: d.tenantId, app: d.app, scope: d.portee, jti, ttlS: TTL_ACTION_S }, env);
+  const res = (await new SessionApp(url, jeton, fetchImpl, { entetes: { 'Idempotency-Key': d.lotId } }).appeler(d.outil, d.args)) as { isError?: boolean } | null | undefined;
   const o = res && typeof res === 'object' && !res.isError ? lire(res) : null;
   if (!o || o === 'refus') throw new Error('crm_refus');
   const l = (o.lignes ?? {}) as Partial<Record<keyof LignesMail, unknown>>;

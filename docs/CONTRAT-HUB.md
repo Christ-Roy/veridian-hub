@@ -2350,6 +2350,54 @@ Mail envoie l'activité au Hub par lots, le Hub la relaie au CRM. À servir côt
   `hub_tenant_id` faux → 409 ; destinataire absent du CRM → ignoré, aucune personne créée ; `reply_human` → personne créée. Preuve en prod : un envoi
   réel suivi d'une ouverture, lus dans la fiche CRM (cas de batterie).
 
+### 5.26 Visites d'un contact connu par lots vers le CRM (Analytics → Hub → CRM, parente 27/11)
+
+Analytics n'envoie que les visites d'un **contact connu**, agrégées de son côté : **une ligne par visiteur identifié et par session** (pages vues,
+chemins, durée, début et fin). **Jamais d'IP, jamais d'empreinte de navigateur**, jamais d'événement d'un visiteur anonyme. Le Hub porte le lot au
+CRM, dans la fiche du contact. Paire `analytics>crm#visite` (nature `evenement`, à sens unique : aucune paire inverse, donc aucune boucle).
+Allumée par défaut pour les organisations nées après le 26/11 (`NEUVE_DEPUIS`), comme Mail vers CRM ; pour les plus anciennes, le clic du
+propriétaire est requis. Le CRM doit avoir la portée `crm:visite.ecrire`.
+
+- **Route** : `POST {HUB}/api/evenements/analytics/lot`, corps JSON. **Signature de l'app** (`verifierAppel`, comme Academy §VER-252) :
+  en-têtes `x-veridian-app: analytics`, `x-veridian-timestamp` (millisecondes Unix, 13 chiffres, fenêtre de 5 min),
+  `x-veridian-nonce` (16 à 128 caractères `[A-Za-z0-9_-]`, **à usage unique**), `x-veridian-hub-signature` (HMAC-SHA256 hexadécimal, 64 caractères,
+  du secret de l'app `ANALYTICS_HUB_API_SECRET` sur la chaîne `${timestamp}.${nonce}.${corps brut}`). Le corps signé est celui qui part, octet pour octet.
+- **Corps** : `{ "hub_tenant_id": "<uuid de l'organisation>", "lot_id": "<uuid, rejouable>", "visites": [ <visite>, ... ] }`.
+  Aucun autre champ de premier niveau (sinon `400`).
+- **Une visite** (forme stricte, un champ de plus fait ignorer la visite, raison `invalide`) :
+  `{ "session_id": "<[A-Za-z0-9_.:-], 8 à 128 caractères, opaque, unique par session>", "contact_email": "<adresse du contact, 254 max>",
+  "debut": "<RFC 3339>", "fin": "<RFC 3339, pas avant debut>", "duree_s": <entier 0 à 86400>, "pages_vues": <entier 1 à 10000>,
+  "chemins": [ "/chemin", ... ] }`. `chemins` : 1 à 100 entrées, chacune commençant par `/`, 2048 caractères au plus à l'envoi ; le Hub retire
+  tout ce qui suit `?` ou `#` et tronque à 300. Une entrée qui ne commence pas par `/` ignore la visite (raison `chemin_invalide`).
+- **Bornes** : 200 visites et 1 Mo par lot (`413` au-delà, avant tout traitement). `debut` plus vieux que 7 jours : `trop_ancien` ; `fin` de plus de
+  5 min dans le futur : `futur` ; `fin` avant `debut` : `date_invalide` ; adresse invalide : `email_invalide`. Ignorées, comptées, jamais relayées.
+- **Plafond** : 60 lots par minute et par organisation ; au-delà, `429 rate_limited` avec `Retry-After: 60`.
+- **Idempotence** : par `session_id`, dans l'organisation (le Hub ne garde qu'une empreinte SHA-256 de `visite:<organisation>:<session_id>`, 30 jours).
+  Une session déjà reçue, ou répétée dans le même lot, est un doublon : acceptée, sans effet. Une session se transmet **une fois**, complète, à la fin de la
+  session ; un renvoi ne l'enrichit pas.
+- **Réponses** :
+  - `200 { "acceptes": n, "doublons": n, "ignores": [ { "index": i, "raison": "..." } ], "crm": { "creees", "avancees", "ignorees", "raisons_ignorees"? } }`
+    (`crm` absent quand rien n'est relayé). Un lot refusé pour l'organisation rend `200 { "acceptes": 0, "doublons": 0, "ignores": [], "raison": ... }`,
+    `raison` ∈ `organisation_inactive` (inconnue, suspendue, supprimée), `evenements_fermes` (interrupteur serveur), `paire_eteinte` (non consentie ou coupée).
+  - `400 { "error": "invalid_request" }` (corps illisible, forme du lot fausse), `401 { "error": "invalid_signature" | "timestamp_expired" | "nonce_replayed" }`
+    (refus définitif du lot, Analytics ne rejoue pas un nonce : elle en signe un neuf), `413` (`too_large` ou `too_many_events`).
+  - `429` (`rate_limited`, `crm_rate_limited`) et `503` (`crm_injoignable`, `crm_*`, `en_cours`, `reservation_echec`) : rejeu avec attente croissante,
+    `Retry-After` respecté, **ligne libérée** : le rejeu relaie. Jamais de 502 (Cloudflare le remplace).
+- **Relais au CRM** : outil MCP `app_evenements_visite` (jeton d'intégration `integration:<organisation>`, `act` `app:analytics`, portée
+  **`crm:visite.ecrire`**, 120 s, `jti` à usage unique), en-tête `Idempotency-Key` = `lot_id`. Arguments :
+  `{ "kind": "visite", "visites": [ { "session_id", "contact_email", "debut", "fin", "duree_s", "pages_vues", "chemins" } ] }`
+  (les visites retenues, au plus 200). **Le CRM** : range **une ligne par `session_id`** dans le dossier « Visites » de la personne dont l'adresse
+  est `contact_email` ; **un contact absent du CRM : ligne ignorée et comptée (raison `contact_inconnu`), aucune personne créée** ; le statut
+  n'avance jamais. Réponse : `{ "ok": true, "lignes": { "creees", "avancees", "ignorees" }, "ignorees": [ { "raison" } ] }`.
+- **Données** : le journal du Hub ne porte que les comptes (`evenement.visites` : reçues, relayées, doublons, ignorées par raison, lignes du CRM,
+  jeton). Ni adresse, ni chemin, ni identifiant de session. Aucune copie de la visite au Hub : seule l'empreinte de la session est gardée, pour
+  dédoublonner.
+- **Activation côté job** : `DELEGATION_EVENEMENTS` doit contenir `analytics>crm#visite` (sinon `evenements_fermes`). Les organisations qui n'ont
+  pas coché la liaison ne reçoivent rien ; les neuves la reçoivent d'office si Analytics et le CRM sont ouverts.
+- **Épreuves** (avant de dire « servi ») : signature d'un autre secret → 401 ; nonce rejoué → 401 ; `hub_tenant_id` inconnu → `organisation_inactive` ;
+  organisation ancienne sans consentement → `paire_eteinte` ; neuve → relayée ; même lot rejoué → doublons ; contact absent du CRM → ignoré, personne
+  non créée ; 61e lot dans la minute → 429. Preuve en prod : une visite réelle d'un contact connu lue dans sa fiche CRM (cas de batterie).
+
 ## 6. Authentification — 3 patterns
 
 ### 6.1 Pattern A — HMAC Hub (machine-to-machine)

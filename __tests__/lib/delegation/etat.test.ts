@@ -27,6 +27,15 @@ describe('etatDe', () => {
   it('consentie : allumée, et dite réglée, même une app fermée', () => expect(etatDe(GESTE, ligne(), c([]), true)).toEqual({ etat: 'allumee', consentie: true, parDefaut: false }));
   it('pas servie : indisponible', () => expect(etatDe(GESTE, null, TOUT, false).etat).toBe('indisponible'));
   it('une ligne qui ne garde que le passage ne règle rien', () => expect(etatDe(GESTE, { etat: 'defaut', consentiLe: null, portees: null }, TOUT, true).parDefaut).toBe(true));
+  it('visites d\'un contact connu (27/11) : allumée d\'office chez une organisation neuve où Analytics et le CRM sont ouverts ; ancienne, éteinte jusqu\'au clic', () => {
+    const V = paire('analytics>crm#visite')!;
+    const AC = c(['analytics', 'crm']);
+    expect([etatDe(V, null, { ...AC, neuve: true }, true), etatDe(V, null, { ...AC, neuve: false }, true).etat, etatDe(V, null, c(['analytics']), true).etat]).toEqual([
+      { etat: 'allumee', consentie: false, parDefaut: true },
+      'eteinte',
+      'eteinte',
+    ]);
+  });
   it('une portée élargie, celle qui fait partir du courrier, Academy : jamais par défaut', () => {
     expect(etatDe({ ...GESTE, portees: [...GESTE.portees, 'crm:tout.lire'] }, null, TOUT, true).etat).toBe('eteinte');
     expect(PAIRES.filter((p) => etatDe(p, null, { ...TOUT, neuve: true }, true).parDefaut).map((p) => p.cle)).toEqual(['prospection>crm', 'prospection>notifuse', 'notifuse>crm', 'notifuse>crm#activite', 'crm>notifuse', 'crm>prospection']);

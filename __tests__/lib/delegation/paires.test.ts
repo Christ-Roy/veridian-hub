@@ -7,7 +7,7 @@ const env = (DELEGATION_CIBLES?: string) => ({ NODE_ENV: 'test', DELEGATION_CIBL
 
 describe('registre des paires', () => {
   it('les paires, une clé chacune, et aucune portée destructive ni complète', () => {
-    expect(PAIRES.map((p) => p.cle)).toEqual(['prospection>crm', 'prospection>notifuse', 'notifuse>crm', 'notifuse>crm#activite', 'crm>notifuse', 'crm>notifuse#sequences', 'crm>prospection', 'crm>academy', 'crm>prospection#exclusion']);
+    expect(PAIRES.map((p) => p.cle)).toEqual(['prospection>crm', 'prospection>notifuse', 'notifuse>crm', 'notifuse>crm#activite', 'crm>notifuse', 'crm>notifuse#sequences', 'crm>prospection', 'crm>academy', 'crm>prospection#exclusion', 'analytics>crm#visite']);
     expect(new Set(PAIRES.map((p) => p.cle)).size).toBe(PAIRES.length);
     for (const p of PAIRES) for (const x of p.portees) expect(x).toMatch(new RegExp(`^${p.cible}:[a-z]+\\.(ecrire|lire|inscrire)$`));
   });
@@ -83,7 +83,7 @@ describe('registre des paires', () => {
     expect(adresseAction('crm', 'https://crm.test/mcp')).toBe('https://crm.test/mcp');
     expect(adresseAction('notifuse', 'https://notifuse.app.veridian.site/api/mcp')).toBe('https://notifuse.app.veridian.site/api/veridian/actions');
   });
-  it('CLE_MCP : chaque app a son adresse au registre', () => expect(CLE_MCP).toEqual({ crm: 'twenty', notifuse: 'notifuse', prospection: 'prospection', academy: 'academy' }));
+  it('CLE_MCP : chaque app a son adresse au registre', () => expect(CLE_MCP).toEqual({ crm: 'twenty', notifuse: 'notifuse', prospection: 'prospection', academy: 'academy', analytics: 'analytics' }));
 });
 
 describe('evenementOuvert (26/11)', () => {

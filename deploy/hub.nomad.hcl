@@ -278,7 +278,7 @@ DELEGATION_SOURCES=crm
 # est allumé par défaut où Mail et le CRM sont ouverts (PAR_DEFAUT, lib/delegation/etat.ts), le propriétaire le coupe d'un clic. Seule ouverte (25/11) : celle de Robert ; le CRM sert sa garde (940b9eb,
 # Liaisons 0.5.0 chez lui), parcours vert en staging (cas 27). Ouvrir une autre organisation : le CRM d'abord. Depuis le 26/11, aussi les organisations
 # marquées de test (`@test`) : parcours Mail complet de la session Mail et recette de A à Z (cas 50) en prod, sans aucun client.
-DELEGATION_EVENEMENTS="notifuse>crm@359b76d5-bab7-4773-a889-cf4cf0248869,notifuse>crm#activite@359b76d5-bab7-4773-a889-cf4cf0248869,notifuse>crm@test,notifuse>crm#activite@test"
+DELEGATION_EVENEMENTS="notifuse>crm@359b76d5-bab7-4773-a889-cf4cf0248869,notifuse>crm#activite@359b76d5-bab7-4773-a889-cf4cf0248869,notifuse>crm@test,notifuse>crm#activite@test,analytics>crm#visite"
 # Connexions extérieures (docs/CONNECTEURS.md) : ouvertes à Robert SEUL (27/11, son accord « bossez sans me solliciter »), le temps de relire les outils
 # de chaque service avec ses comptes. « 1 » ouvrira à tous, après relecture. Fermer : retirer la ligne, puis déployer.
 CONNECTEURS_OUVERTS=@53245ae1-6bf8-4ec6-870f-32d75b7c0281

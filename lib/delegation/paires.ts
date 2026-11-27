@@ -5,7 +5,7 @@
  */
 import { createHash } from 'node:crypto';
 
-export type AppPaire = 'prospection' | 'notifuse' | 'crm' | 'academy';
+export type AppPaire = 'prospection' | 'notifuse' | 'crm' | 'academy' | 'analytics';
 export type Paire = { cle: string; source: AppPaire; cible: AppPaire; portees: readonly string[]; libelle: string; nature: 'action' | 'evenement' };
 
 const P = (source: AppPaire, cible: AppPaire, portees: readonly string[], libelle: string, nature: Paire['nature'] = 'action', suffixe = ''): Paire => ({ cle: `${source}>${cible}${suffixe}`, source, cible, portees, libelle, nature });
@@ -23,10 +23,13 @@ export const PAIRES: readonly Paire[] = [
   P('crm', 'prospection', ['prospection:entreprise.lire'], 'CRM vers Prospection : chercher et enrichir une société, en lecture seule'),
   P('crm', 'academy', ['academy:avancement.lire'], 'CRM vers Academy : lire l\'avancement d\'une formation, en lecture seule'),
   P('crm', 'prospection', ['prospection:exclusion.ecrire'], 'CRM vers Prospection : gagné, on ne prospecte plus', 'evenement', '#exclusion'),
+  // Visites d'un contact CONNU, agrégées par Analytics (27/11) : une ligne par visiteur identifié et par session, rangée dans sa fiche CRM.
+  // Événement à sens unique (aucune paire inverse) : Analytics n'en reçoit jamais rien du CRM, donc aucune boucle possible.
+  P('analytics', 'crm', ['crm:visite.ecrire'], 'Analytics vers CRM : les visites d\'un contact connu rangées dans sa fiche', 'evenement', '#visite'),
 ];
 
-/** Clé au registre MCP (mcp_apps), qui porte l'adresse de la cible. */
-export const CLE_MCP: Record<AppPaire, string> = { crm: 'twenty', notifuse: 'notifuse', prospection: 'prospection', academy: 'academy' };
+/** Clé au registre MCP (mcp_apps), qui porte l'adresse de la cible. Analytics n'est jamais cible d'une paire : sa clé ne sert à rien ici. */
+export const CLE_MCP: Record<AppPaire, string> = { crm: 'twenty', notifuse: 'notifuse', prospection: 'prospection', academy: 'academy', analytics: 'analytics' };
 
 /**
  * L'adresse d'action d'une cible, donc l'`aud` de son jeton : le CRM sert ses actions sur son MCP, les autres sur leur route dédiée (un
