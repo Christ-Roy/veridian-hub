@@ -46,9 +46,9 @@ describe('POST', () => {
     const r = await poster({ connecteur: 'atlassian' });
     expect([r.status, (await r.json()).ecran, m.sonder.mock.calls[0][1].cle, m.sonder.mock.calls[0][2], m.audits.length]).toEqual([200, 'ecran', 'atlassian', 'https://app.veridian.site/api/connecteurs/retour', 1]);
     expect((await poster({ connecteur: 'notion' })).status).toBe(200);
-    for (const x of [{ connecteur: 'stripe' }, { connecteur: 'canva' }, { connecteur: 'vercel' }, { connecteur: 'figma' }, {}]) expect((await poster(x)).status).toBe(400);
+    for (const x of [{ connecteur: 'stripe' }, { connecteur: 'canva' }, { connecteur: 'vercel' }, { connecteur: 'figma' }, { connecteur: 'neon' }, {}]) expect((await poster(x)).status).toBe(400);
     m.sonder.mockRejectedValueOnce(new Error('sans_enregistrement'));
-    expect((await poster({ connecteur: 'neon' })).status).toBe(502);
+    expect((await poster({ connecteur: 'gdrive' })).status).toBe(502);
     m.refus = new Response(null, { status: 401 });
     expect((await poster({ connecteur: 'atlassian' })).status).toBe(401);
   });

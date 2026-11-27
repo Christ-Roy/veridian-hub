@@ -53,7 +53,6 @@ Les quatre clients OAuth classiques créés le 07/11 (Cloudflare, Google, Micros
 | B. Une application chez le fournisseur (geste de Robert) | HubSpot, Asana (pas d'inscription automatique), GitHub (pas de métadonnées OAuth du MCP : GitHub App sur `Veridian-site`, validation mobile), Pipedrive (aucune ressource protégée annoncée) ; Google, Microsoft (clients classiques déjà créés : il manque un connecteur OAuth classique au Hub, et la vérification des portées chez Google) | |
 | C. Impossible | Stripe (annonce l'inscription, mais déplace de l'argent : jamais au registre) ; Canva (retiré, retour refusé) | |
 
-Neon n'est plus « impossible » : son MCP accepte l'inscription automatique, sans programme partenaires.
 
 **Sonde du 27/11 14:41Z** (`POST /api/admin/connecteurs {connecteur}` : inscription, relecture du client, départ lu sans suivre les redirections ;
 `accepte` = un code revient chez nous, `ecran` = page de connexion du service, `refus` = erreur chez nous, page d'erreur du service ou HTTP en échec) :
@@ -62,7 +61,7 @@ Neon n'est plus « impossible » : son MCP accepte l'inscription automatique, sa
 |---|---|---|
 | Notion, Linear, Webflow, Sentry | écran | au registre depuis le 25/11 |
 | Atlassian, Netlify, Cloudflare, GitLab, Airtable, Make, Supabase, PostHog, Todoist, Calendly | inscrit, client relu, écran | **promus au registre** (fermés, aucun outil servi avant relecture) |
-| Neon | inscription rendue en **200** au lieu de 201 : refusée par openid-client | tolérée depuis (seulement le 200 d'un POST à l'adresse d'inscription annoncée) ; reste candidat jusqu'à l'écran vu |
+| Neon | inscription hors RFC 7591 : 200 au lieu de 201, puis un secret sans `client_secret_expires_at` (rejoué à la main à 16:50) | **retiré** : on ne relâche pas la lecture stricte du client |
 | Vercel | 400 `invalid_redirect_uri` : n'approuve que ses propres adresses de retour | **retiré** (rejoué à la main) |
 | Figma | 403 à l'inscription : réservée à des clients approuvés | **retiré** |
 | Google Drive, Google Agenda | page d'erreur Google (`/signin/oauth/error`) : adresse de retour absente du client | geste de Robert ci-dessous ; la sonde classait cette page « écran », corrigé (une page d'erreur du service est un refus) |
@@ -79,7 +78,7 @@ pour les candidats, l'inscription de Veridian chez eux. Ensuite, connecté à ap
 | Webflow | Brancher Webflow → écran Webflow : choisir le site → Autoriser | idem |
 | Sentry | Brancher Sentry → écran Sentry : choisir l'organisation → Autoriser | idem |
 | Atlassian, Netlify, Cloudflare, GitLab, Airtable, Make, Supabase, PostHog, Todoist, Calendly | Brancher → écran du service : se connecter, choisir l'espace → Autoriser | idem |
-| Neon, Google Drive, Google Agenda | Même ligne, une fois l'écran vu par la sonde (Google : après son geste dans la console) | idem |
+| Google Drive, Google Agenda | Même ligne, une fois l'écran vu par la sonde, après son geste dans la console | idem |
 
 Le Hub ouvre à tous (`CONNECTEURS_OUVERTS=1`) seulement quand les outils d'un service sont relus. Couper reste possible à tout moment.
 

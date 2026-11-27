@@ -61,11 +61,6 @@ describe('inscrireEtSonder (27/11)', () => {
     const r = await inscrireEtSonder(db, reg.c, RETOUR, D);
     expect([r.ecran, r.detail.startsWith('invalid_redirect_uri')]).toEqual(['refus', true]);
   });
-  it('inscription rendue en 200 au lieu de 201 (Neon, 27/11) : acceptée, le client relu', async () => {
-    s.mentir('inscription_200');
-    const r = await inscrireEtSonder(db, reg.c, RETOUR, D);
-    expect([r.ecran, r.inscrit, Boolean(r.client_id), clients().length]).toEqual(['accepte', true, true, 1]);
-  });
   // Le départ renvoyé ailleurs que chez nous : une page de connexion est un écran, une page d'erreur du service un refus (Google, 27/11).
   const renvoi = (location: string) => ({ ...D, fetchImpl: (async (u: string, o?: RequestInit) => (String(u).includes('code_challenge=') ? new Response(null, { status: 302, headers: { location } }) : fetch(u, o))) as never });
   it.each([

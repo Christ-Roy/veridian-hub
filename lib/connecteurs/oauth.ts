@@ -92,18 +92,11 @@ async function inscrire(db: Db, c: Connecteur, retour: string, d: Deps): Promise
   const m = (await decouvrir(c, 'veridian', undefined, d)).serverMetadata();
   if (!m.registration_endpoint) throw new Error('sans_enregistrement');
   const methode = (m.token_endpoint_auth_methods_supported ?? ['client_secret_basic']).includes('none') ? 'none' : 'client_secret_post';
-  // Neon répond 200 à l'inscription, le RFC 7591 dit 201 et openid-client refuse tout autre code (27/11, rejoué à la main : client rendu en 200).
-  // Seul un 200 de L'ADRESSE D'INSCRIPTION annoncée, à un POST, devient 201 : ni le corps ni aucune autre réponse ne change.
-  const sortie = sortieOAuth(c, d);
-  const tolerer200 = async (url: string, o: { method?: string } = {}): Promise<Response> => {
-    const r = await sortie(url, o as never);
-    return r.status === 200 && (o.method ?? 'GET').toUpperCase() === 'POST' && url === m.registration_endpoint ? new Response(r.body, { status: 201, headers: r.headers }) : r;
-  };
   const conf = await oidc.dynamicClientRegistration(
     new URL(c.oauth.emetteur),
     { client_name: 'Veridian', client_uri: 'https://veridian.site', redirect_uris: [retour], grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], token_endpoint_auth_method: methode, ...(c.portee ? { scope: c.portee } : {}) },
     methode === 'none' ? oidc.None() : oidc.ClientSecretPost(),
-    { ...options(c, d), [oidc.customFetch]: tolerer200 as never },
+    options(c, d),
   );
   const i = inscriptionDe(c, conf, d);
   try {

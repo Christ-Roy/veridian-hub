@@ -17,7 +17,7 @@ it('connecteursOuverts : fermé par défaut, « 1 » ouvre à tous, « @id » à
   expect(connecteursOuverts('h1', { CONNECTEURS_OUVERTS: 'h1' } as never), 'sans @ : rien').toBe(false);
 });
 it('CANDIDATS (VER-114) : jamais servis, disjoints du registre, HTTPS, PKCE de rigueur, jamais un service d\'argent', () => {
-  expect(CANDIDATS.map((c) => c.cle)).toEqual(['neon', 'gdrive', 'gagenda']);
+  expect(CANDIDATS.map((c) => c.cle)).toEqual(['gdrive', 'gagenda']);
   expect(CANDIDATS.every((c) => c.mcpUrl.startsWith('https://') && c.oauth.emetteur.startsWith('https://') && (Boolean(c.oauth.enregistrement) || Boolean(c.preinscrit)) && /^[a-z]{3,20}$/.test(c.cle))).toBe(true);
   expect(CANDIDATS.filter((c) => connecteur(c.cle) !== null || CONNECTEURS.some((x) => x.cle === c.cle)).map((c) => c.cle), 'un candidat n\'est pas servi').toEqual([]);
   expect(CANDIDATS.filter((c) => ['stripe', 'paypal', 'canva'].includes(c.cle))).toEqual([]);

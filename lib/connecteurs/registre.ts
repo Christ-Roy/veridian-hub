@@ -58,9 +58,9 @@ const DEPART_GOOGLE = { access_type: 'offline', prompt: 'consent' } as const;
  * Veridian chez lui (geste de Robert) a été acceptée et relue, et que son écran de consentement a été VU. Annoncée n'est pas acceptée (Canva).
  */
 // Retirés le 27/11 (inscription rejouée à la main) : Vercel n'approuve que ses adresses de retour (400 invalid_redirect_uri), Figma refuse
-// l'inscription (403). Neon : inscription rendue en 200 (tolérée depuis), écran pas encore vu.
+// l'inscription (403), Neon rend son inscription hors RFC 7591 (200 au lieu de 201, secret sans `client_secret_expires_at`) : on ne relâche
+// pas la lecture stricte du client pour lui.
 export const CANDIDATS: readonly Connecteur[] = [
-  { cle: 'neon', nom: 'Neon', texte: 'Bases Postgres Neon.', mcpUrl: 'https://mcp.neon.tech/mcp', oauth: { emetteur: 'https://mcp.neon.tech', autorisation: 'mcp.neon.tech', jeton: 'mcp.neon.tech', enregistrement: 'mcp.neon.tech', revocation: 'mcp.neon.tech' }, outils: {} },
   // Google (27/11) : MCP officiels, client « Veridian Integrations » créé dans la console (projet veridian-preprod), pas d'inscription automatique.
   // Portées sans évaluation payante seulement : drive.file (non sensible) ; calendar.events.readonly (sensible : vérification gratuite, ou mode Test).
   // Gmail en lecture n'existe qu'en portée RESTREINTE (évaluation de sécurité payante) : absent, c'est une dépense à décider par Robert.
