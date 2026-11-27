@@ -71,6 +71,26 @@ describe('deprovisionnerCompte', () => {
     expect(issues.map((i) => [i.app, i.ok])).toEqual([['prospection', true], ['notifuse', true], ['crm', true]]);
   });
 
+  it('le Hub pose lui-même l\'état Prospection, au succès seulement (27/11 : l\'écho tenant.soft_deleted n\'est jamais arrivé)', async () => {
+    const notes: [string, Record<string, unknown>][] = [];
+    const noter = async (id: string, patch: Record<string, unknown>) => { notes.push([id, patch]); };
+    const sans = { ...tenant, id: 't2', prospectionProvisionedAt: null };
+    await deprovisionnerCompte({ email: 'client@exemple.fr', tenants: [tenant, sans] }, { env, fetchImpl: fetchOk() as never, maintenant: () => MAINTENANT, noter });
+    expect(notes).toEqual([['t1', { prospection_status: 'deleted', prospection_soft_deleted_at: MAINTENANT.toISOString(), prospection_soft_deleted_reason: 'admin_action', prospection_purge_eligible_at: new Date(MAINTENANT.getTime() + GRACE_JOURS * 86_400_000).toISOString() }]]);
+    // Refusé par Prospection : rien n'est noté, l'échec est dit.
+    notes.length = 0;
+    softDeleteTenant.mockRejectedValueOnce(new Error('HTTP 500 boom'));
+    const i2 = await deprovisionnerCompte({ email: 'client@exemple.fr', tenants: [tenant] }, { env, fetchImpl: fetchOk() as never, maintenant: () => MAINTENANT, noter });
+    expect([notes, i2.find((x) => x.app === 'prospection')?.ok]).toEqual([[], false]);
+    // Déjà absent chez Prospection : supprimé pour le Hub, sans date de purge.
+    softDeleteTenant.mockRejectedValueOnce(new Error('HTTP 404 tenant_not_found'));
+    await deprovisionnerCompte({ email: 'client@exemple.fr', tenants: [tenant] }, { env, fetchImpl: fetchOk() as never, maintenant: () => MAINTENANT, noter });
+    expect(notes.map(([id, p]) => [id, p.prospection_status, 'prospection_purge_eligible_at' in p])).toEqual([['t1', 'deleted', false]]);
+    // Une note ratée ne défait pas la suppression : elle est dite.
+    const i4 = await deprovisionnerCompte({ email: 'client@exemple.fr', tenants: [tenant] }, { env, fetchImpl: fetchOk() as never, maintenant: () => MAINTENANT, noter: async () => { throw new Error('base'); } });
+    expect(i4.find((x) => x.app === 'prospection')).toMatchObject({ ok: true, detail: expect.stringContaining('état non noté au Hub sur 1 tenant') });
+  });
+
   it('compte de test : purge Prospection éligible tout de suite', async () => {
     await deprovisionnerCompte({ email: 'e2e-sso-abc-mcp@veridian.site', tenants: [tenant] }, { env, fetchImpl: fetchOk() as never, maintenant: () => MAINTENANT });
     expect((softDeleteTenant.mock.calls[0] as unknown as [string, { purgeEligibleAt: string }])[1].purgeEligibleAt).toBe(MAINTENANT.toISOString());

@@ -1,22 +1,16 @@
 /**
- * Webhooks Prospection → Hub (contrat v1.4 §7.1).
+ * Webhooks Prospection → Hub (contrat §7.1). Auth : `Authorization: Bearer <PROSPECTION_WEBHOOK_TOKEN>` (rotation : `_PREVIOUS`).
+ * Corps : { event, tenant_id, data, idempotency_key, occurred_at, contract_version } ; dédup `hub_app.webhook_dedup` (app, idempotency_key), 24 h.
  *
- * Auth : `Authorization: Bearer <PROSPECTION_WEBHOOK_TOKEN>`
- * Body : { event, tenant_id, data, idempotency_key, occurred_at,
- *          contract_version }
- *
- * Dédup : `hub_app.webhook_dedup` PK (app, idempotency_key) — fenêtre 24h.
- *
- * Events couverts (stubs initialement — la persistence du payload dans la
- * table webhook_dedup suffit pour audit, les effets de bord seront branchés
- * au fur et à mesure que les apps émettent réellement) :
- *
- *   - tenant.touched                    — user actif sur tenant soft_deleted
- *   - tenant.member_role_changed        — admin Prospection change rôle local
- *   - tenant.activity_threshold_reached — signal anti-churn / cleanup
- *   - tenant.suspended / tenant.resumed — admin Prospection (futur)
- *
- * Référence : `docs/CONTRAT-HUB-API-REF.md` section "Webhooks app → Hub".
+ * Le Hub est la source (parente, 27/11). Les ÉCHOS d'ordres qu'il signe lui-même ne servent plus et ne doivent plus être émis :
+ *   - `tenant.soft_deleted`, `tenant.purged` : l'état (`metadata.prospection_status` = `deleted`, `prospection_soft_deleted_at`,
+ *     `prospection_purge_eligible_at`) est posé par `lib/apps/deprovision.ts` sur la réponse synchrone du soft-delete ;
+ *   - `tenant.member_removed` : noté par `lib/tenants/membres.ts` (`retirer`) quand le retrait est relu chez Prospection ;
+ *   - `tenant.member_added` : le Hub n'ajoute personne chez Prospection (seul écrivain des membres : lib/tenants/membres.ts) ; rien à recevoir.
+ * Ces quatre échos ne sont d'ailleurs jamais arrivés (aucun planificateur ne vidait la file de Prospection depuis le 19/06).
+ * La route reste servie tant que Prospection n'a pas coupé ses échos ; elle ne reçoit plus, à terme, que ce que seul Prospection sait
+ * (`tenant.touched`, `tenant.quota_exceeded`, `tenant.activity_threshold_reached`, `tenant.member_role_changed`).
+ * Gestionnaires : `lib/webhooks/prospection-handlers.ts`.
  */
 
 import { NextRequest, NextResponse } from 'next/server';

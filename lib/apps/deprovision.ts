@@ -13,12 +13,17 @@
  *   restaient). Rybbit décide selon §3.8 : `purge` si tous les membres sont des comptes de test, sinon `conserve`
  *   (organisation suspendue, sites et rapports gardés, fils Mon IA supprimés). 200 et 404 valent « fait ».
  * Chaque issue est rendue : un échec ne bloque pas la suppression au Hub, `hub reconcile` le voit.
+ * Le Hub est la source (parente, 27/11) : l'état Prospection (`metadata.prospection_status` = `deleted`, lu par `hub reconcile`) se pose ICI, sur la
+ * réponse synchrone du soft-delete, au succès seulement. L'écho `tenant.soft_deleted` de Prospection n'est jamais arrivé (aucun planificateur ne vidait
+ * sa file depuis le 19/06) : on ne l'attend plus.
  */
 import { resolveAppConfig } from '@/lib/auth/bounce-apps';
 import { estCompteDeTest } from '@/lib/email/compte-de-test';
 import { entetesSignature } from '@/lib/hmac/signature-hub';
 import { NotifuseClient } from '@/lib/notifuse/client';
 import { createProspectionClientFromEnv } from '@/lib/prospection/client';
+import { prisma } from '@/lib/prisma';
+import { fusionnerMetadata } from '@/lib/tenants/metadata-fusion';
 
 export const GRACE_JOURS = 90;
 
@@ -35,6 +40,8 @@ type Deps = {
   env?: NodeJS.ProcessEnv;
   fetchImpl?: typeof fetch;
   maintenant?: () => Date;
+  /** Écrit une clé de metadata au Hub (par défaut : la base, fusion jsonb). */
+  noter?: (tenantId: string, patch: Record<string, unknown>) => Promise<void>;
 };
 
 function message(err: unknown): string {
@@ -59,6 +66,14 @@ async function supprimerEspace(app: 'crm' | 'academy' | 'analytics', hubTenantId
   return { ok: res.ok || res.status === 404, detail: `http_${res.status}${typeof mode === 'string' ? ` ${mode.slice(0, 20)}` : ''}` };
 }
 
+/** Pose l'état « supprimé chez Prospection » sur chaque tenant qui y était provisionné. Une note ratée ne défait pas la suppression : elle est dite. */
+async function noterSupprime(tenants: TenantADeprovisionner[], le: Date, purge: Date | null, deps: Deps): Promise<string> {
+  const noter = deps.noter ?? ((id: string, patch: Record<string, unknown>) => fusionnerMetadata(prisma, id, patch));
+  const patch = { prospection_status: 'deleted', prospection_soft_deleted_at: le.toISOString(), prospection_soft_deleted_reason: 'admin_action', ...(purge ? { prospection_purge_eligible_at: purge.toISOString() } : {}) };
+  const ratees = (await Promise.all(tenants.filter((t) => t.prospectionProvisionedAt).map((t) => noter(t.id, patch).then(() => true, () => false)))).filter((ok) => !ok).length;
+  return ratees ? ` ; état non noté au Hub sur ${ratees} tenant(s)` : '';
+}
+
 export async function deprovisionnerCompte(
   compte: { email: string; tenants: TenantADeprovisionner[] },
   deps: Deps = {},
@@ -76,11 +91,11 @@ export async function deprovisionnerCompte(
       const purge = new Date(maintenant.getTime() + (test ? 0 : GRACE_JOURS * 86_400_000));
       try {
         await client.softDeleteTenant(compte.email, { purgeEligibleAt: purge.toISOString(), reason: 'admin_action' });
-        issues.push({ app: 'prospection', cible: 'proprietaire', ok: true, detail: `soft-delete, purge le ${purge.toISOString().slice(0, 10)}` });
+        issues.push({ app: 'prospection', cible: 'proprietaire', ok: true, detail: `soft-delete, purge le ${purge.toISOString().slice(0, 10)}${await noterSupprime(compte.tenants, maintenant, purge, deps)}` });
       } catch (err) {
-        // Tenant déjà absent chez Prospection : rien à retirer.
+        // Tenant déjà absent chez Prospection : rien à retirer, et c'est bien « supprimé » pour le Hub.
         const absent = /404|tenant_not_found/.test(message(err));
-        issues.push({ app: 'prospection', cible: 'proprietaire', ok: absent, detail: absent ? 'absent' : message(err) });
+        issues.push({ app: 'prospection', cible: 'proprietaire', ok: absent, detail: absent ? `absent${await noterSupprime(compte.tenants, maintenant, null, deps)}` : message(err) });
       }
     }
   }

@@ -172,6 +172,19 @@ describe('retirer', () => {
     expect(audits[0]).toMatchObject({ action: 'membre.retire', targetId: 'T' });
   });
 
+  it('le retrait relu chez Prospection se note au Hub (27/11 : l\'écho tenant.member_removed n\'est jamais arrivé), sans adresse ; un échec ne note rien', async () => {
+    const a = apps({ notifuse: ['m@x.fr'], prospection: ['m@x.fr'], crm: ['m@x.fr'] });
+    await retirerM(a.f);
+    const ev = (tenant!.metadata as { prospection_member_events?: { kind: string; hub_user_id: string; reason: string }[] }).prospection_member_events;
+    expect(ev?.map((e) => [e.kind, e.hub_user_id, e.reason])).toEqual([['removed', 'u-m', 'admin_action']]);
+    expect(JSON.stringify(ev)).not.toContain('m@x.fr');
+    // Prospection sourde : le retrait n'est pas relu, rien n'est noté.
+    tenant!.metadata = { crm: { workspace_id: 'w-crm' } };
+    membres[0].deletedAt = null;
+    await retirerM(apps({ notifuse: ['m@x.fr'], prospection: ['m@x.fr'], crm: ['m@x.fr'] }, { sourd: 'prospection' }).f);
+    expect((tenant!.metadata as Record<string, unknown>).prospection_member_events).toBeUndefined();
+  });
+
   it('un compte sans lien avec le Hub ne se dit jamais « absent » : il y est encore, et rien n\'est envoyé par l\'adresse', async () => {
     const a = apps({ notifuse: ['m@x.fr'] }, { sansLien: 'notifuse' });
     const r = await retirerM(a.f, ['notifuse', 'crm']);

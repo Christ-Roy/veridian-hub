@@ -285,6 +285,13 @@ export async function retirer(db: DbMembres, d: { tenantId: string; hubUserId: s
   // Un compte dans une app sans route ne fait pas un membre.
   if (!ligne && apps.every((a) => a.etat === 'absent' || a.etat === 'non_gere')) throw new RefusMembre('pas_membre');
   const complet = apps.every((a) => a.etat === 'retire' || a.etat === 'absent');
+  // Le Hub est la source (27/11) : le retrait relu chez Prospection se note ici, jamais par l'écho `tenant.member_removed` (jamais arrivé depuis le 19/06).
+  // L'identité du Hub, jamais l'adresse.
+  if (apps.some((a) => a.app === 'prospection' && a.etat === 'retire')) {
+    const avant = (t.metadata as Record<string, unknown> | null)?.prospection_member_events;
+    const events = [...(Array.isArray(avant) ? avant : []), { kind: 'removed', hub_user_id: d.hubUserId, reason: d.motif ?? 'admin_action', at: new Date().toISOString() }].slice(-50);
+    await fusionnerMetadata(db, t.id, { prospection_member_events: events }).catch(() => undefined);
+  }
   await writeAuditLog(db as PrismaClient, { action: 'membre.retire', actor: d.acteur, targetType: 'tenant', targetId: d.tenantId, payload: { hub_user_id: d.hubUserId, deja, complet, apps, invitations } });
   return { deja, apps, complet, avis: [nonCoupees(apps), avisCles(apps), avisLiens(apps)].filter(Boolean).join(' ') || null };
 }
