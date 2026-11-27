@@ -89,6 +89,6 @@ export async function recevoirNotifuse(db: Db, h: Headers, brut: string, env: No
   await terminer(db, cle, issue.effet === 'aucun' ? 'ignore' : 'fait', issue.raison, now).catch(() => undefined);
   await noterPassage(db, p, abo.tenantId, new Date(now)).catch(() => undefined);
   // Ni adresse ni contenu : l'événement, la paire, le jeton.
-  await writeAuditLog(db as PrismaClient, { action: 'evenement.recu', actor: `app:${SOURCE}`, targetType: 'tenant', targetId: abo.tenantId, payload: { paire: p.cle, evenement_id: reponse.evenementId, jti: issue.jti, effet: issue.effet } }).catch(() => undefined);
+  await writeAuditLog(db as PrismaClient, { action: 'evenement.recu', actor: `app:${SOURCE}`, targetType: 'tenant', targetId: abo.tenantId, payload: { paire: p.cle, evenement_id: reponse.evenementId, jti: issue.jti, effet: issue.effet, ...(issue.raison ? { raison: issue.raison } : {}) } }).catch(() => undefined);
   return { statut: 200, corps: { ok: true, effet: issue.effet, ...(issue.raison ? { raison: `crm_${issue.raison}` } : {}) } };
 }

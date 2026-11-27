@@ -69,10 +69,12 @@ describe('recevoirLot', () => {
     expect((await envoyer(l)).statut).toBe(503);
     expect(await envoyer(l)).toMatchObject({ statut: 200, corps: { acceptes: 1 } });
   });
-  it('aucune adresse dans le journal : le lot, les comptes, le jeton', async () => {
-    await envoyer(lot([ev()]));
-    const j = JSON.stringify(db.auditLog.lignes.filter((x: { action: string }) => x.action === 'evenement.lot'));
+  it('aucune adresse dans le journal : le lot, les comptes par type et par nature, le jeton', async () => {
+    await envoyer(lot([ev(), ev({ event: 'message.opened', rfc_message_id: '<B@x>' }), ev({ event: 'message.opened', nature: 'transactional', rfc_message_id: '<C@x>' })]));
+    const lignes = db.auditLog.lignes.filter((x: { action: string }) => x.action === 'evenement.lot');
+    const j = JSON.stringify(lignes);
     expect([j.includes('evenement.lot'), j.includes('@')]).toEqual([true, false]);
+    expect((lignes[0] as { payload: unknown }).payload).toMatchObject({ evenements: { 'message.sent': 1, 'message.opened': 2 }, natures: { campaign: 2, transactional: 1 } });
   });
 });
 

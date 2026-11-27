@@ -157,7 +157,8 @@ export async function recevoirLot(db: Db, h: Headers, brut: string, env: NodeJS.
   // Le CRM a répondu : plus rien ci-dessous ne rend un 5xx (Mail rejouerait un lot rangé).
   await terminer(db, cle, 'fait', undefined, now).catch(() => undefined);
   await noterPassage(db, p, abo.tenantId, new Date(now)).catch(() => undefined);
-  // Ni adresse ni contenu : le lot, les comptes, le jeton.
-  await writeAuditLog(db as PrismaClient, { action: 'evenement.lot', actor: `app:${SOURCE}`, targetType: 'tenant', targetId: abo.tenantId, payload: { paire: p.cle, lot_id: lot.lot_id, recus: lot.evenements.length, relayes: retenus.length, ignores: ignores.length, crm: lignes, jti } }).catch(() => undefined);
+  // Ni adresse ni contenu : le lot, les comptes par type et par nature (valeurs fermées), le jeton.
+  const compter = (cle: 'event' | 'nature') => retenus.reduce<Record<string, number>>((acc, e) => ({ ...acc, [String(e[cle])]: (acc[String(e[cle])] ?? 0) + 1 }), {});
+  await writeAuditLog(db as PrismaClient, { action: 'evenement.lot', actor: `app:${SOURCE}`, targetType: 'tenant', targetId: abo.tenantId, payload: { paire: p.cle, lot_id: lot.lot_id, recus: lot.evenements.length, relayes: retenus.length, ignores: ignores.length, evenements: compter('event'), natures: compter('nature'), crm: lignes, jti } }).catch(() => undefined);
   return { statut: 200, corps: { acceptes: retenus.length, doublons: 0, ignores, crm: lignes } };
 }

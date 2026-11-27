@@ -56,6 +56,8 @@ describe('recevoirNotifuse', () => {
     rendre({ ok: true, ignore: true, raison: 'tache_deja_ouverte' });
     expect(await envoyer(evt('i1'))).toMatchObject({ statut: 200, corps: { effet: 'aucun', raison: 'crm_tache_deja_ouverte' } });
     expect(db.evenementRecu.lignes[0]).toMatchObject({ etat: 'ignore', raison: 'tache_deja_ouverte' });
+    // La raison du CRM part aussi au journal (27/11 : deux réponses « aucun » sans raison lisible au Hub).
+    expect(db.auditLog.lignes.find((x: { action: string }) => x.action === 'evenement.recu')).toMatchObject({ payload: { effet: 'aucun', raison: 'tache_deja_ouverte' } });
     rendre({ ok: true, rejoue: true });
     expect(await envoyer(evt('i2'))).toMatchObject({ statut: 200, corps: { effet: 'rejoue' } });
     expect(db.integrationLien.lignes).toHaveLength(0);
