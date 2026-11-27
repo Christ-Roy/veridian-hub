@@ -7,6 +7,7 @@
  *    dialogue et insère le cadre pour l'organisation (jamais avant le clic), une question passe par la porte,
  *    et le fil est rangé chez l'app puis relu par le Hub (GET <app>/api/hub/ia/fils/:session).
  * Le branchement et l'activation sont retirés à la fin. Une app qui ne sert encore aucun `[data-mon-ia]` : NON ABOUTI (pas encore servie). Sélecteurs : ceux d'Analytics (26/11), communs aux apps.
+ * Les marques data-* et la cible du lien sont fixes ; les libellés se traduisent selon la langue de l'interface (Mail, 27/11).
  * Épreuves : `SSO_SABOTAGE=carte-absente` attend « prete » sans moteur ; `SSO_SABOTAGE=fil-autre-session` relit une autre session :
  * le fil ne doit pas revenir. Chacune doit faire échouer le cas.
  */
@@ -52,6 +53,23 @@ const PROPOSE_UNE_CLE = /(?<![\p{L}\p{N}])(?:votre|vos|une|la|des|sa|ta)\s+cl[é
 
 const cadreDe = (page: Page) => page.locator(`iframe[src^="${HUB_URL}/ia/chat"]`);
 
+/**
+ * Un seul point d'entrée IA par app (parente, 27/11 : Mail affichait « Connect my AI » à côté de « Brancher mon IA »). Lu sans la langue :
+ * une seule marque [data-mon-ia], et hors d'elle aucun lien ni cadre vers le connecteur ({HUB}/dashboard/ia) ou la fenêtre ({HUB}/ia/chat).
+ * `SSO_SABOTAGE=double-entree` ajoute un tel lien hors de la marque : le cas doit échouer.
+ */
+async function unSeulPointDEntree(page: Page): Promise<void> {
+  if (process.env.SSO_SABOTAGE === 'double-entree') {
+    await page.evaluate((h) => { const a = document.createElement('a'); a.href = `${h}/dashboard/ia`; a.textContent = 'Brancher mon IA'; document.body.appendChild(a); }, HUB_URL);
+  }
+  const marques = await page.locator('[data-mon-ia]').count();
+  const dehors = await page.evaluate((h) => Array.from(document.querySelectorAll('a[href], iframe[src]'))
+    .filter((e) => !e.closest('[data-mon-ia]'))
+    .map((e) => (e as HTMLAnchorElement).href || (e as HTMLIFrameElement).src)
+    .filter((u) => u.startsWith(`${h}/dashboard/ia`) || u.startsWith(`${h}/ia/chat`)), HUB_URL);
+  expect({ marques, dehors }, "un seul point d'entrée IA : une marque data-mon-ia, rien vers le Hub IA hors d'elle").toEqual({ marques: 1, dehors: [] });
+}
+
 async function pageApp(ctx: BrowserContext, app: AppFenetre, chemin: string): Promise<Page> {
   const page = await ctx.newPage();
   await page.goto(`${urlDe(app)}${chemin}`, { waitUntil: 'networkidle' });
@@ -83,10 +101,12 @@ for (const { app, chemin } of APPS.filter((x) => !process.env.SSO_MON_IA_APP || 
       if (process.env.SSO_SABOTAGE === 'carte-absente') expect(await zone.getAttribute('data-mon-ia'), 'épreuve : « prete » attendu sans moteur').toBe('prete');
       expect(await zone.getAttribute('data-mon-ia'), 'sans moteur : l\'app a lu sans_moteur').toBe('sans_moteur');
       expect(await cadreDe(p1).count(), 'sans moteur, avant le clic : aucun cadre').toBe(0);
-      await p1.getByRole('button', { name: 'Relier mon IA', exact: true }).click({ timeout: 10_000 });
+      await unSeulPointDEntree(p1);
+      // Le bouton de la marque, quel que soit son libellé (traduit selon la langue de l'interface, §5.24.1).
+      await zone.locator('button').first().click({ timeout: 10_000 });
       const carte = p1.locator('[data-carte="relier-mon-ia"]');
       await expect(carte, 'la carte du connecteur').toBeVisible({ timeout: 10_000 });
-      const lien = carte.getByRole('link', { name: 'Relier mon IA', exact: true });
+      const lien = carte.locator(`a[href="${HUB_URL}/dashboard/ia"]`).first();
       expect([await lien.getAttribute('href'), await lien.getAttribute('target')], 'la carte mène au connecteur du Hub, nouvel onglet').toEqual([`${HUB_URL}/dashboard/ia`, '_blank']);
       // Jamais une clé PROPOSÉE (« votre clé », « clé d'API », un champ) ; « sans clé » est l'assurance du contrat (Prospection, 26/11 : l'ancien
       // \bcl[ée]\b ne tenait que par accident, \b sans drapeau u ne voit pas la frontière après « é »).
@@ -104,8 +124,9 @@ for (const { app, chemin } of APPS.filter((x) => !process.env.SSO_MON_IA_APP || 
       const p2 = await pageApp(ctx, app, chemin);
       await expect(p2.locator('[data-mon-ia]').first(), 'avec un moteur : l\'app a lu prete').toHaveAttribute('data-mon-ia', 'prete', { timeout: 20_000 });
       expect(await cadreDe(p2).count(), 'avant le clic : pas de cadre inséré').toBe(0);
-      await p2.getByRole('button', { name: 'Mon IA', exact: true }).click({ timeout: 10_000 });
-      await expect(p2.getByRole('dialog', { name: 'Mon IA' }), 'le dialogue « Mon IA »').toBeVisible({ timeout: 10_000 });
+      await unSeulPointDEntree(p2);
+      await p2.locator('[data-mon-ia="prete"] button').first().click({ timeout: 10_000 });
+      await expect(p2.getByRole('dialog').first(), 'le dialogue de l\'assistant').toBeVisible({ timeout: 10_000 });
       const cadre = cadreDe(p2).first();
       await cadre.waitFor({ timeout: 30_000 });
       const src = new URL((await cadre.getAttribute('src')) ?? '');
