@@ -73,13 +73,13 @@ job "hub" {
     # auto_revert : un deploy prod qui n'atteint jamais healthy restaure la
     # dernière version saine (zéro trou prod). min_healthy_time : l'alloc doit
     # rester saine 15s avant d'être comptée healthy (anti-flap).
-    # Bleu-vert (07/11/2026) : le canari demarre a cote de l'ancienne allocation ; Traefik ne le sert qu'une fois sain
-    # (health check actif des tags du service), puis la promotion arrete l'ancienne apres `shutdown_delay`.
-    # Avant : l'ancienne s'arretait d'abord, 11 a 14 s de 404 et 502 a chaque deploiement.
+    # Roulant, une copie à la fois (27/11, v248) : à deux copies sous `distinct_hosts` et deux nœuds d'application seulement, un canari
+    # serait une TROISIÈME allocation sans nœud où aller (v248 : canari jamais placé, déploiement figé). L'autre copie sert pendant que la
+    # première est remplacée ; `shutdown_delay` (30 s) laisse Traefik la retirer avant l'arrêt. Le bleu-vert d'avant (canari = 1,
+    # 07/11) valait pour une copie unique : l'ancienne s'arrêtait d'abord, 11 à 14 s de 404 et 502.
     update {
       max_parallel      = 1
-      canary            = 1
-      auto_promote      = true
+      canary            = 0
       min_healthy_time  = "15s"
       healthy_deadline  = "5m"
       progress_deadline = "10m"
@@ -101,8 +101,8 @@ job "hub" {
       weight    = 100
     }
 
-    # Jamais deux copies sur le même nœud (parente et infra, 27/11 ; lint CIBLE-MEME-NOEUD) : le canari part donc sur l'autre nœud
-    # d'application, et une panne de nœud n'emporte jamais tout le Hub.
+    # Jamais deux copies sur le même nœud (parente et infra, 27/11 ; lint CIBLE-MEME-NOEUD) : une panne de nœud n'emporte jamais tout
+    # le Hub. D'où la mise à jour roulante ci-dessus, sans canari.
     constraint {
       operator = "distinct_hosts"
       value    = "true"

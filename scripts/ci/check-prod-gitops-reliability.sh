@@ -43,8 +43,17 @@ require_fixed "$hcl" 'cpu        = 500' 'réservation CPU app inattendue'
 require_fixed "$hcl" 'memory     = 320' 'réservation mémoire app inattendue'
 # Bleu-vert, 0 coupure prouvee le 08/11 : canari promu automatiquement, Traefik ne sert qu'une instance saine.
 # Les canary_tags donnent a Traefik deux definitions du meme routeur : il le retire, 11 a 14 s de 404.
-require_fixed "$hcl" 'canary            = 1' 'canari absent : un deploiement arrete le Hub avant que la nouvelle version serve'
-require_fixed "$hcl" 'auto_promote      = true' 'canari non promu automatiquement'
+# Deux copies (VER-270, 27/11) : mise a jour roulante, une copie a la fois, l'autre sert. Un canari y serait une troisieme allocation
+# que `distinct_hosts` ne peut placer sur deux noeuds d'application (v248 : canari jamais place, deploiement fige).
+nb_copies="$(awk '/group "stack"/{g=1} g && /^[[:space:]]*count[[:space:]]*=/{print $3; exit}' "$hcl")"
+if [ "${nb_copies:-1}" = 1 ]; then
+  require_fixed "$hcl" 'canary            = 1' 'canari absent : un deploiement arrete le Hub avant que la nouvelle version serve'
+  require_fixed "$hcl" 'auto_promote      = true' 'canari non promu automatiquement'
+else
+  require_fixed "$hcl" 'canary            = 0' "count=$nb_copies avec un canari : troisieme allocation implacable sous distinct_hosts"
+  require_fixed "$hcl" 'max_parallel      = 1' "count=$nb_copies : plus d'une copie remplacee a la fois, le Hub peut ne plus rien servir"
+  require_fixed "$hcl" 'operator = "distinct_hosts"' "count=$nb_copies sans distinct_hosts : deux copies sur le meme noeud"
+fi
 grep -Eq '^[[:space:]]*canary_tags[[:space:]]*=' "$hcl" && fail 'canary_tags interdits : routeur Traefik en conflit, 404 a chaque deploiement'
 require_fixed "$hcl" 'loadbalancer.healthcheck.path=/api/health' 'health check Traefik absent : le canari recevrait du trafic en demarrant'
 require_fixed "$hcl" 'shutdown_delay = "30s"' 'shutdown_delay trop court pour le rafraichissement de Traefik (15 s)'
