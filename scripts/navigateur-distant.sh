@@ -21,7 +21,8 @@ ATTENTE="${SSO_NAV_ATTENTE:-900}"
 NOEUD=""
 SSH=(ssh -o BatchMode=yes -o ConnectTimeout=8)
 dit() { echo "[navigateur-distant] $*" >&2; }
-nomad_lourd() ( set -a; . "${LOURD_ENV:-$HOME/credentials/nomad-lourd.env}" >/dev/null 2>&1; set +a; nomad "$@" )
+# Le jeton lourd ne lit que le namespace `lourd` (infra, 27/11, a8412867) : sans lui, `job allocs` rend 403 en silence.
+nomad_lourd() ( set -a; . "${LOURD_ENV:-$HOME/credentials/nomad-lourd.env}" >/dev/null 2>&1; set +a; NOMAD_NAMESPACE="${LOURD_NAMESPACE:-lourd}" nomad "$@" )
 
 sonde() {
   local url="${1:-${HUB_URL:-https://app.veridian.site}/api/health}" ws="${PW_WS:-$(cat "$D/ws" 2>/dev/null)}"
