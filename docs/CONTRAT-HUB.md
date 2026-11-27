@@ -1783,6 +1783,11 @@ et `hub suspension` passent par lui.
 - **Il tient** : ni une reprise ni une invitation d'avant le retrait ne ramènent la personne ; ses invitations en attente
   expirent. Le Hub n'appelle jamais `sync-member`. Encore dans l'app : le relevé dit `retire_au_hub`, jamais `jonction`.
 - **Suspension** : la porte MCP refuse tout outil d'app et tout programme, et exige un espace nommé si un autre est suspendu.
+- **Ce que la suspension ferme DÉJÀ ouvert** (cas 57, 27/11, prod, 65 s par porte, propriétaire et membre, témoin d'une autre organisation) :
+  Mail (session) et Prospection (session, donnée de l'espace) refusent dès la première lecture après la réponse ; la reprise rend tout sans
+  reconnexion ; le témoin ne bouge pas. **Academy : NON FERMÉ**, la page d'un cours reste lue par le propriétaire et le membre (la session ne lit
+  pas `tenant.statut`, seule l'écriture est coupée par `peutEcrire`) : à corriger chez Academy, le cas 57 échoue jusque-là. Le retrait, lui, ferme
+  Mail, Prospection et Academy pour le membre, et rien pour le propriétaire. CRM : cas 34 ; Analytics : cas 38.
 - **CRM** (VER-254, v37, 25/11) : `suspend` et `resume` ferment et rendent sessions, clés, MCP, tâches de fond et webhooks. Suspendu : `issue-magic-link`,
   `attach-member`, `organisations/sync` répondent `423 workspace_suspended` ; le rebond le dit (« Espace suspendu »), le Hub n'émet rien d'une organisation
   suspendue, et réémet à la reprise. `409 not_suspended_by_hub` (espace fermé par un autre chemin) est DIT et sort des cibles ; `410` : rien à fermer. Cas 34.
