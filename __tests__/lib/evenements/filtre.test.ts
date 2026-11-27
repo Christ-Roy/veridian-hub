@@ -6,7 +6,7 @@ const ev = (data: Record<string, unknown> = {}, o: Record<string, unknown> = {})
 
 describe('analyserMessageRecu', () => {
   it('une vraie réponse humaine rattachée passe, adresse et Message-ID normalisés', () => {
-    expect(analyserMessageRecu(ev())).toEqual({ statut: 'reponse', reponse: { workspaceId: 'ws1', evenementId: 'liv-1', messageId: 'm-1', rfcMessageId: 'abc@mail.test', email: 'contact@exemple.test', threadId: 't_1', survenuLe: '2026-11-24T16:49:50Z', nom: null } });
+    expect(analyserMessageRecu(ev())).toEqual({ statut: 'reponse', reponse: { workspaceId: 'ws1', evenementId: 'liv-1', matchType: 'message_id', messageId: 'm-1', rfcMessageId: 'abc@mail.test', email: 'contact@exemple.test', threadId: 't_1', survenuLe: '2026-11-24T16:49:50Z', nom: null } });
     expect(analyserMessageRecu(ev({ match_type: 'subject' })).statut).toBe('reponse');
   });
   it('jamais l\'objet, l\'expéditeur ni le corps dans ce qui est retenu', () => {
