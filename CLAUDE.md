@@ -65,7 +65,7 @@ Le Hub est la seule source des utilisateurs des apps. Contrat : `docs/CONTRAT-HU
 - **Garde rapide** : `__tests__/contrat/` (révocation sans `iat`, `authAt`, rebond, origines) ; tout nouvel
   `encode(` de JWT de session s'y ajoute. Détail : `docs/PARCOURS-IDENTITE.md`.
 - **Sonde de prod** : « Sonde identité » de `hub-ci.yml` ; reconcile alerte au-dessus de `RESIDUE_SEUIL` (0).
-- **Coupure** : aucune (pg-saas Patroni, bleu-vert). Tags Traefik : 12 s de coupure, regrouper. La batterie ne redéploie rien.
+- **Coupure** : aucune. `stack` : 2 copies sur 2 nœuds, roulant (VER-270). Tags Traefik : 12 s, regrouper. Batterie : aucun redéploiement.
 
 ## Que faire si
 
