@@ -3,6 +3,8 @@ import { SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/components/app-sidebar';
 import { FreemiumBanner } from '@/components/dashboard/FreemiumBanner';
 import { MobileTopbar } from '@/components/dashboard/MobileTopbar';
+import { SelecteurApps } from './components/SelecteurApps';
+import { appsOuvertesDe } from '@/lib/apps/apps-ouvertes-de';
 import { BandeauEmprunt } from '@/components/emprunt/BandeauEmprunt';
 import { Suspense } from 'react';
 import { AuthTracker } from '@/components/analytics/auth-tracker';
@@ -121,6 +123,9 @@ export default async function DashboardLayout({
   const enEmprunt = isImpersonatedSession(session);
   const estAdmin = await isPlatformAdmin(session);
 
+  // Le sélecteur d'apps de l'en-tête : les apps ouvertes, le même calcul que la page (`appsOuvertes`).
+  const apps = await appsOuvertesDe(user);
+
   return (
     <SidebarProvider>
       {/* Track auth events (signup/login) et set user_id */}
@@ -148,6 +153,10 @@ export default async function DashboardLayout({
           {/* Barre mobile : hamburger (ouvre la sidebar en drawer) + logo.
               Cachée sur desktop où la sidebar est toujours visible. */}
           <MobileTopbar />
+          {/* Sélecteur d'apps : passer d'une app à l'autre sans repasser par le tableau de bord. */}
+          <div className="flex shrink-0 justify-end border-b bg-card/70 px-4 py-1.5">
+            <SelecteurApps apps={apps} />
+          </div>
           {/* Bandeau trial — rendu seulement si la state machine a révélé le
               trial (phase 4+). En phases silencieuses trialBanner === null. */}
           {trialBanner && <FreemiumBanner phase={trialBanner.phase} />}

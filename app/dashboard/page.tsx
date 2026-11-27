@@ -18,7 +18,7 @@ import { lienApp } from '@/lib/apps/lien-app';
 import { montrerInclusAvecSite } from '@/lib/apps/inclus-avec-site';
 import { organisationsSeules } from '@/lib/tenants/membre-seul';
 import { resolveAnalyticsCardTarget } from '@/lib/analytics/dashboard-target';
-import { idEspaceMeta } from '@/lib/apps/espace-note';
+import { notesTenant, etatApps, CMS_URL_PAR_DEFAUT } from '@/lib/apps/apps-ouvertes';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
 /**
@@ -56,12 +56,11 @@ export default async function DashboardPage({
   const enabledApps = await getEnabledGatedApps(prisma, userUuid(user));
   // Le CRM est ouvert à tout compte : la première ouverture crée l'espace (rebond, ensureCrmWorkspace).
   const crmUrl = process.env.CRM_API_URL;
-  const isTwentyEnabled = !!crmUrl;
-  const isAnalyticsEnabled = enabledApps.has('analytics');
-  const isCmsEnabled = enabledApps.has('cms');
+  const etatReserve = etatApps({ tenant: null, activees: enabledApps });
+  const isTwentyEnabled = etatReserve.crm;
   // Academy est réservée : sa tuile n'existe que pour un compte activé (Robert seul, 22/11).
   const academyUrl = process.env.ACADEMY_API_URL;
-  const isAcademyEnabled = enabledApps.has('academy') && !!academyUrl;
+  const isAcademyEnabled = etatReserve.academy;
 
   // Un salarié, sans espace à lui : les apps de son organisation, aucun essai à démarrer.
   const organisations = await organisationsSeules(prisma, userUuid(user)).catch(() => []);
@@ -116,41 +115,11 @@ export default async function DashboardPage({
     !!tenant?.prospectionProvisionedAt || !!tenant?.notifuseWorkspaceSlug;
   const hasInvitedMember = (workspace?._count.members ?? 1) > 1;
 
-  // §8.9.4 : tenants avec un plan offert "lifetime_site_vitrine" voient
-  // Analytics + CMS comme apps actives. Détecté via metadata.notifuse_plan_source
-  // (la seule trace du plan_source qu'on a aujourd'hui côté Hub — à étendre
-  // quand on aura une colonne typée plan_source).
-  const meta = (tenant?.metadata as Record<string, unknown> | null) ?? {};
-  const planSource = meta.notifuse_plan_source as string | undefined;
-  const hasLifetimeSiteVitrine =
-    planSource === 'lifetime_site_vitrine' ||
-    tenant?.notifusePlan === 'lifetime_site_vitrine';
-
-  // Fallback "mode service" (cf. ticket admin-api-tenant-provisioning) :
-  // si un tenant a été provisionné via `POST /api/admin/tenants/link-app`,
-  // les metadata.cms / metadata.analytics contiennent les infos d'accès.
-  // C'est le quick-win en attendant le pattern discovery (3-4 semaines).
-  type AppMetadata = {
-    external_tenant_slug?: string;
-    tenant_name?: string;
-    plan?: string;
-    fallback_url?: string;
-  } | null;
-  const cmsMeta = (meta.cms as AppMetadata) ?? null;
-  const analyticsMeta = (meta.analytics as AppMetadata) ?? null;
-  const hasServiceCms = !!cmsMeta?.fallback_url;
-  const hasServiceAnalytics = !!analyticsMeta?.fallback_url;
-  // Une card service est "active" si : activée par l'admin (flag TenantApp,
-  // défaut OFF) OU déjà servie via metadata link-app OU plan lifetime vitrine.
-  // NB : `showActiveAnalytics` est complété plus bas par la découverte — si
-  // l'app d'analytics reconnaît cet email et lui donne au moins un site, la
-  // carte s'affiche même sans activation manuelle. Un client qui a un site
-  // doit le voir ; l'inverse était un oubli d'activation silencieux.
-  // Un espace Analytics noté (provisionnement, `hub link`) suffit : sans site, le client doit pouvoir entrer (parente, 26/11).
-  const showActiveAnalyticsBase =
-    isAnalyticsEnabled || hasLifetimeSiteVitrine || hasServiceAnalytics || !!idEspaceMeta(tenant?.metadata, 'analytics');
-  // Le CMS s'éteint (parente, 26/11) : visible seulement là où il est actif (activé par un opérateur, ou configuré), jamais proposé.
-  const showActiveCms = isCmsEnabled || hasServiceCms || !!idEspaceMeta(tenant?.metadata, 'cms');
+  // Fallback "mode service" (link-app) : metadata.cms / metadata.analytics. Lecture unique, partagée avec le sélecteur d'apps de l'en-tête.
+  const notes = notesTenant(tenant);
+  const cmsMeta = notes.cms;
+  const analyticsMeta = notes.analytics;
+  const hasLifetimeSiteVitrine = notes.lifetimeSiteVitrine;
 
   const emailProven = await isEmailProvenForSession(user.id);
   // Cible de la carte Analytics. On demande à l'app d'analytics quels sites
@@ -165,9 +134,11 @@ export default async function DashboardPage({
     metadataFallbackUrl: analyticsMeta?.fallback_url,
     metadataTenantName: analyticsMeta?.tenant_name,
   });
-  const showActiveAnalytics =
-    showActiveAnalyticsBase || analyticsTarget.siteCount > 0;
-
+  // Quelles apps sont ouvertes : le même calcul que le sélecteur de l'en-tête (`lib/apps/apps-ouvertes.ts`).
+  // Une découverte Analytics qui trouve un site ouvre la carte même sans activation manuelle.
+  const etat = etatApps({ tenant, activees: enabledApps, sitesAnalytics: analyticsTarget.siteCount });
+  const showActiveAnalytics = etat.analytics;
+  const showActiveCms = etat.cms;
   const notifuseUrl = process.env.NOTIFUSE_API_URL || '';
   const notifuseAvailable = !notifuseUrl.includes('localhost') && notifuseUrl.length > 0;
 
@@ -255,7 +226,7 @@ export default async function DashboardPage({
                   : APPS.cms.display_name
               }
               description={APPS.cms.tagline}
-              url={cmsMeta?.fallback_url ?? 'https://cms.app.veridian.site'}
+              url={cmsMeta?.fallback_url ?? CMS_URL_PAR_DEFAUT}
               icon="FileText"
               appKey="cms"
               badge="BETA"
