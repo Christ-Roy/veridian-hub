@@ -1298,6 +1298,20 @@ model DelegationGrant {
   @@schema("hub_app")
 }
 
+/// Compteurs à fenêtre partagés entre instances (lib/auth/compteurs.ts, VER-270). Une ligne = une clé hachée dans une fenêtre.
+model CompteurFenetre {
+  limiteur  String
+  cle       String
+  debutMs   BigInt   @map("debut_ms")
+  compte    Int
+  expireLe  DateTime @map("expire_le")
+
+  @@id([limiteur, cle, debutMs])
+  @@index([expireLe])
+  @@map("compteurs_fenetre")
+  @@schema("hub_app")
+}
+
 model DelegationNonce {
   empreinte String   @id
   expireLe  DateTime @map("expire_le")
