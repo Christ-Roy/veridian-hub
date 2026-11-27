@@ -2281,6 +2281,13 @@ l'abonnement ouvert dans cet espace) ; le connecteur, lui, ne la fait pas répon
   `Relier mon IA`, dont le clic ouvre `[data-carte="relier-mon-ia"]` avec le lien `Relier mon IA` (`href="{HUB}/dashboard/ia"`,
   `target="_blank"`), sans aucun cadre ni avant ni après le clic. Les libellés ci-dessus sont ceux de l'interface française et se
   traduisent dans les autres langues ; les marques `data-*`, `role=dialog` et la cible du lien sont fixes (Mail, 27/11).
+- **Contenu de la carte sans moteur** (parente, 27/11, sur la reco de Mail) : l'installation en un clic, un bouton par assistant, lus
+  dans `GET {HUB}/api/mcp/liens-installation?app=<app>` (public, sans donnée personnelle, CORS ouvert, cache 5 min ; détail dans
+  `docs/CONTRAT-MCP.md`) : `assistants[]` donne `libelle`, `installation` (le lien) et `etape` (à afficher quand elle n'est pas nulle,
+  ChatGPT). Puis l'adresse MCP à copier (`url`), la commande Claude Code (`claudeCode`), et le lien vers `{HUB}/dashboard/ia`.
+  Les liens ne sont jamais recopiés en dur : l'app les lit chez le Hub (gardés 5 min au plus). Lecture impossible : la carte garde
+  le texte et le lien vers le Hub, sans boutons. La révocation et la liste des IA reliées restent au Hub (`/dashboard/ia`), jamais dans l'app.
+  La fenêtre « Brancher mon IA » de Mail se fond dans cette carte. Preuve finale par app : capture de la carte sans moteur, en français.
 - **Un seul point d'entrée IA par app** (parente, 27/11) : une seule marque `[data-mon-ia]` par page, et hors d'elle aucun lien ni cadre
   vers `{HUB}/dashboard/ia` ou `{HUB}/ia/chat` (un bouton « Brancher mon IA » à côté est un doublon). Cas 56, épreuve `double-entree`.
 - **La fenêtre elle-même** suit la même règle (`lib/ia/etat-fenetre.ts`, une seule source) : ouverte sans moteur, elle ne montre aucune
