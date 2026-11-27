@@ -3,7 +3,7 @@
  * tenait DÉJÀ dans Mail, Prospection et Academy se ferme, sondé 65 s par porte ; l'organisation d'à côté ne bouge pas ; la reprise rend tout.
  * Le CRM (cas 34) et Analytics (cas 38) ont leur propre cas ; la porte MCP, le cas 21 ; le retrait dans Mail et Prospection, le cas 37.
  *   Portes : Mail, jeton de session (liste des contacts) ; Prospection, session (l'espace dans /api/me) et une donnée de l'espace ;
- *   Academy, la page d'un cours ouverte par la session (200 = lue ; un renvoi = fermée).
+ *   Academy, la page d'un cours ouverte par la session (lue = 200 sans la coquille « Espace suspendu » ; un renvoi ou la coquille = fermée).
  * Comptes et organisations de test, retirés par la batterie ; prod seulement (le Hub de staging n'a pas Academy).
  * NON SONDÉ : clés API d'espace (convenu, dites par le retrait), flux en direct et IMAP de Mail (cas 37).
  * Épreuves : `SSO_SABOTAGE=suspension-sessions` ne suspend pas ; `retrait-academy` ne retire pas : le cas doit échouer.
@@ -51,7 +51,8 @@ const lit: Record<Porte, (s: Session) => Promise<boolean>> = {
   mail: async (s) => (await fetch(`${APP_URL.notifuse}/api/contacts.list?workspace_id=${s.mail}&limit=1`, { headers: { Authorization: `Bearer ${s.jeton}` }, signal: AbortSignal.timeout(15_000) })).status === 200,
   prospection_espace: async (s) => (((await (await s.ctx.request.get(`${APP_URL.prospection}/api/me`, { timeout: 15_000 })).json().catch(() => null)) as Json)?.workspaces ?? []).some((w: { id: string }) => w.id === s.espace),
   prospection_donnee: async (s) => (await (await s.ctx.request.post(`${APP_URL.prospection}/api/atlas/lister_segments_atlas`, { data: {}, timeout: 15_000 })).text()).includes(s.dossier),
-  academy: async (s) => (await s.ctx.request.get(`${ACADEMY_URL}${COURS}`, { maxRedirects: 0, timeout: 20_000 })).status() === 200,
+  // 200 ne suffit pas (27/11) : suspendue, Academy répond 200 avec la coquille « Espace suspendu », sans le cours. Lu = 200 ET pas cette coquille.
+  academy: async (s) => { const r = await s.ctx.request.get(`${ACADEMY_URL}${COURS}`, { maxRedirects: 0, timeout: 20_000 }); return r.status() === 200 && !(await r.text()).includes('Espace suspendu'); },
 };
 
 /** Sonde chaque porte jusqu'à `DUREE` : rend, par porte, le dernier instant (ms après t0) où elle a lu ; 0 = jamais lue après t0. */
