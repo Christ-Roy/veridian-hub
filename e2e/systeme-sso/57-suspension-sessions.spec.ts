@@ -3,7 +3,8 @@
  * tenait DÉJÀ dans Mail, Prospection et Academy se ferme, sondé 65 s par porte ; l'organisation d'à côté ne bouge pas ; la reprise rend tout.
  * Le CRM (cas 34) et Analytics (cas 38) ont leur propre cas ; la porte MCP, le cas 21 ; le retrait dans Mail et Prospection, le cas 37.
  *   Portes : Mail, jeton de session (liste des contacts) ; Prospection, session (l'espace dans /api/me) et une donnée de l'espace ;
- *   Academy, la page d'un cours ouverte par la session (lue = 200 sans la coquille « Espace suspendu » ; un renvoi ou la coquille = fermée).
+ *   Academy, la page d'un cours ouverte par la session, DANS l'espace de T (lue = 200, sans la coquille « Espace suspendu », avec le nom de l'espace
+ *   de T lu chez Academy ; un renvoi, la coquille ou l'espace personnel du membre = fermée pour T).
  * Comptes et organisations de test, retirés par la batterie ; prod seulement (le Hub de staging n'a pas Academy).
  * NON SONDÉ : clés API d'espace (convenu, dites par le retrait), flux en direct et IMAP de Mail (cas 37).
  * Épreuves : `SSO_SABOTAGE=suspension-sessions` ne suspend pas ; `retrait-academy` ne retire pas : le cas doit échouer.
@@ -12,7 +13,8 @@ import { expect, type Browser, type BrowserContext } from '@playwright/test';
 
 import { APP_URL, HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
-import { admin, adminOk, appelAcademy, lookup, marquerTest } from './lib/hub-admin';
+import { admin, adminOk, appelAcademy, lookup, marquerTest, secretDe } from './lib/hub-admin';
+import { signatureVersApp } from './lib/signature-app';
 import { creerCompteProuve, ouvrirApp, type Compte } from './lib/parcours';
 
 const ACADEMY_URL = process.env.ACADEMY_URL || 'https://academy.app.veridian.site';
@@ -45,14 +47,16 @@ async function entrerAcademy(ctx: BrowserContext): Promise<string | null> {
 }
 
 type Session = { nom: string; c: Compte; ctx: BrowserContext; jeton: string; mail: string; espace: string; dossier: string; academy: boolean };
+/** Le nom de l'espace Academy de T, lu chez Academy : la page lue doit être la SIENNE, pas l'espace personnel du membre. */
+let NOM_ACADEMY_T = '';
 type Porte = 'mail' | 'prospection_espace' | 'prospection_donnee' | 'academy';
 
 const lit: Record<Porte, (s: Session) => Promise<boolean>> = {
-  mail: async (s) => (await fetch(`${APP_URL.notifuse}/api/contacts.list?workspace_id=${s.mail}&limit=1`, { headers: { Authorization: `Bearer ${s.jeton}` }, signal: AbortSignal.timeout(15_000) })).status === 200,
+  mail: async (s) => (async (r: Response) => r.status === 200 && Array.isArray(((await r.json().catch(() => null)) as { contacts?: unknown } | null)?.contacts))(await fetch(`${APP_URL.notifuse}/api/contacts.list?workspace_id=${s.mail}&limit=1`, { headers: { Authorization: `Bearer ${s.jeton}` }, signal: AbortSignal.timeout(15_000) })),
   prospection_espace: async (s) => (((await (await s.ctx.request.get(`${APP_URL.prospection}/api/me`, { timeout: 15_000 })).json().catch(() => null)) as Json)?.workspaces ?? []).some((w: { id: string }) => w.id === s.espace),
   prospection_donnee: async (s) => (await (await s.ctx.request.post(`${APP_URL.prospection}/api/atlas/lister_segments_atlas`, { data: {}, timeout: 15_000 })).text()).includes(s.dossier),
   // 200 ne suffit pas (27/11) : suspendue, Academy répond 200 avec la coquille « Espace suspendu », sans le cours. Lu = 200 ET pas cette coquille.
-  academy: async (s) => { const r = await s.ctx.request.get(`${ACADEMY_URL}${COURS}`, { maxRedirects: 0, timeout: 20_000 }); return r.status() === 200 && !(await r.text()).includes('Espace suspendu'); },
+  academy: async (s) => { const r = await s.ctx.request.get(`${ACADEMY_URL}${COURS}`, { maxRedirects: 0, timeout: 20_000 }); const h = r.status() === 200 ? await r.text() : ''; return Boolean(h) && !h.includes('Espace suspendu') && h.includes(NOM_ACADEMY_T); },
 };
 
 /** Sonde chaque porte jusqu'à `DUREE` : rend, par porte, le dernier instant (ms après t0) où elle a lu ; 0 = jamais lue après t0. */
@@ -97,6 +101,12 @@ cas(null, 'suspension puis retrait : ce que chacun tenait déjà dans Mail, Pros
     // Academy est réservée PAR PERSONNE (rebond : `getEnabledGatedApps`), même pour un membre d'une organisation où elle est ouverte.
     const am = await admin<Json>('POST', 'tenants/app-access', { user_email: M.email, app: 'academy', enabled: true });
     if (am.status !== 200) throw new NonAbouti(`Academy : membre non activé au Hub, HTTP ${am.status} ${JSON.stringify(am.json).slice(0, 160)}`);
+    // Le nom de l'espace Academy de T, et celui de l'espace personnel du membre (né de son activation) : ils doivent différer, sinon on ne sait pas où l'on lit.
+    const decouverte = async (c: Compte) => { const u = `${ACADEMY_URL}/api/users/by-email?email=${encodeURIComponent(c.email)}&hub_user_id=${c.hubUserId}`;
+      return (((await (await fetch(u, { headers: signatureVersApp('academy', secretDe('ACADEMY_HUB_API_SECRET'), 'GET', u), signal: AbortSignal.timeout(20_000) })).json().catch(() => null)) as { workspaces?: { hub_tenant_id: string; workspace_name: string }[] } | null)?.workspaces ?? []); };
+    NOM_ACADEMY_T = (await decouverte(P)).find((w) => w.hub_tenant_id === T.id)?.workspace_name ?? '';
+    const autresM = (await decouverte(M)).filter((w) => w.hub_tenant_id !== T.id).map((w) => w.workspace_name);
+    if (!NOM_ACADEMY_T || autresM.some((n) => n.includes(NOM_ACADEMY_T) || NOM_ACADEMY_T.includes(n))) throw new NonAbouti(`Academy : nom d'espace de T illisible ou ambigu (${JSON.stringify([NOM_ACADEMY_T, autresM]).slice(0, 160)})`);
 
     const entrer = async (nom: string, c: Compte, mail: string, academy: boolean): Promise<Session> => {
       const ctx = await browser.newContext({ storageState: c.etat as never });

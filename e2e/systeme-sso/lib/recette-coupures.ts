@@ -604,7 +604,8 @@ async function tenir(r: Recette, c: Compte, apps: AppKey[], ouverts: BrowserCont
 
 function construirePortes(T: { slug: string; notifuseWorkspaceSlug?: string }, apps: AppKey[], origineCrm: string, communs: string[], an: { org: string } | null, academy = false): Porte[] {
   const MAIL = T.notifuseWorkspaceSlug ?? '';
-  const mailApi = async (s: Tenue, chemin: string) => (s.jetonMail ? (await fetch(`${APP_URL.notifuse}${chemin}`, { headers: { Authorization: `Bearer ${s.jetonMail}` }, signal: AbortSignal.timeout(15_000) })).status === 200 : false);
+  // Lue = un corps JSON sans erreur, jamais le seul 200 (27/11).
+  const mailApi = async (s: Tenue, chemin: string) => { if (!s.jetonMail) return false; const r = await fetch(`${APP_URL.notifuse}${chemin}`, { headers: { Authorization: `Bearer ${s.jetonMail}` }, signal: AbortSignal.timeout(15_000) }); const j = (await r.json().catch(() => null)) as Record<string, unknown> | null; return r.status === 200 && j !== null && !('error' in j); };
   const ia = async (s: Tenue, nom: string, args: object) => {
     if (!s.ia) return false;
     const x = await outil(s.ia, 'executer_outil', { nom, arguments: args, espace: T.slug });
@@ -628,7 +629,7 @@ function construirePortes(T: { slug: string; notifuseWorkspaceSlug?: string }, a
     p.push({ groupe: 'Prospection', nom: 'prospection_espaces', tous: 700, lit: async (s) => (((await (await s.ctx.request.get(`${APP_URL.prospection}/api/me`, { timeout: 15_000 })).json().catch(() => null)) as Json)?.workspaces ?? []).some((w: { id: string }) => communs.includes(w.id)) });
   }
   if (apps.includes('analytics') && an) {
-    p.push({ groupe: 'Analytics', nom: 'analytics_sites', tous: 700, lit: async (s) => (await s.ctx.request.get(`${APP_URL.analytics}/api/organizations/${an.org}/sites`, { timeout: 15_000 })).status() === 200 });
+    p.push({ groupe: 'Analytics', nom: 'analytics_sites', tous: 700, lit: async (s) => { const r = await s.ctx.request.get(`${APP_URL.analytics}/api/organizations/${an.org}/sites`, { timeout: 15_000 }); const j = await r.json().catch(() => null); return r.status() === 200 && j !== null && !(typeof j === 'object' && 'error' in (j as object)); } });
   }
   // Academy (parente, 26/11 : sa réserve laisse passer les organisations e2e, 91df9a2). Un espace suspendu y est en LECTURE SEULE, avec le
   // bandeau « Cet espace est suspendu » : la porte est fermée si le rebond du Hub est refusé ou si le bandeau s'affiche. Relue toutes les
@@ -795,7 +796,7 @@ export async function retraitMembre(r: Recette): Promise<string> {
       }
       const lecteurs: Record<string, () => Promise<boolean>> = {};
       if (neufs?.acces && sP.crm) lecteurs.lien_crm = async () => Array.isArray(((await fetch(`${sP.crm!.origine}/graphql`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${neufs.acces}` }, body: JSON.stringify({ query: COMPAGNIES }), signal: AbortSignal.timeout(15_000) }).then((x) => x.json()).catch(() => null)) as Json)?.data?.companies?.edges);
-      if (jm) lecteurs.lien_mail = async () => (await fetch(`${APP_URL.notifuse}/api/contacts.list?workspace_id=${T.notifuseWorkspaceSlug}&limit=1`, { headers: { Authorization: `Bearer ${jm}` }, signal: AbortSignal.timeout(15_000) })).status === 200;
+      if (jm) lecteurs.lien_mail = async () => (async (r: Response) => r.status === 200 && Array.isArray(((await r.json().catch(() => null)) as { contacts?: unknown } | null)?.contacts))(await fetch(`${APP_URL.notifuse}/api/contacts.list?workspace_id=${T.notifuseWorkspaceSlug}&limit=1`, { headers: { Authorization: `Bearer ${jm}` }, signal: AbortSignal.timeout(15_000) }));
       if (liens.prospection) lecteurs.lien_prospection = async () => (((await (await c2.request.get(`${APP_URL.prospection}/api/me`, { timeout: 15_000 })).json().catch(() => null)) as Json)?.workspaces ?? []).some((w: { id: string }) => communs.includes(w.id));
       while (Date.now() - t0 < DUREE) {
         for (const [x, f] of Object.entries(lecteurs)) if (await f().catch(() => false)) dernier[x] = Math.max(1, Date.now() - t0);

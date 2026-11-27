@@ -66,7 +66,7 @@ export const portesCrm = (crm: string): Record<string, { tous: number; lit: (s: 
   const entetes = (s: Porteur) => ({ 'content-type': 'application/json', authorization: `Bearer ${s.acces}` });
   return {
     crm_jeton: { tous: 700, lit: async (s) => Array.isArray((await graphql(crm, s.acces, COMPAGNIES))?.data?.companies?.edges) },
-    crm_rest: { tous: 700, lit: async (s) => (await fetch(`${crm}/rest/companies?limit=1`, { headers: entetes(s), signal: AbortSignal.timeout(15_000) })).status === 200 },
+    crm_rest: { tous: 700, lit: async (s) => { const r = await fetch(`${crm}/rest/companies?limit=1`, { headers: entetes(s), signal: AbortSignal.timeout(15_000) }); return r.status === 200 && Array.isArray(((await r.json().catch(() => null)) as { data?: { companies?: unknown } } | null)?.data?.companies); } },
     crm_identite: { tous: 2_000, lit: async (s) => Boolean((await metadata(crm, '{currentUser{id currentUserWorkspace{id}}}', {}, s.acces))?.data?.currentUser?.id) },
     crm_mcp: { tous: 2_000, lit: async (s) => { const x = await fetch(`${crm}/mcp`, { method: 'POST', headers: { ...entetes(s), accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }), signal: AbortSignal.timeout(15_000) }); return x.status === 200 && /"tools":\[\{/.test(await x.text()); } },
     crm_rafraichir: { tous: 8_000, lit: async (s) => { const n = (await metadata(crm, 'mutation($t:String!){renewToken(appToken:$t){tokens{accessOrWorkspaceAgnosticToken{token} refreshToken{token}}}}', { t: s.long }))?.data?.renewToken?.tokens; if (n?.refreshToken?.token) s.long = n.refreshToken.token as string; return Boolean(n?.refreshToken?.token); } },

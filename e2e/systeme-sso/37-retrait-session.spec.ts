@@ -153,7 +153,8 @@ cas(null, 'retrait : tout ce que le membre tenait déjà se ferme dans chaque ap
     const slug = (JSON.parse((await outil(sM.ia, 'executer_outil', { nom: 'hub.mon_compte' })).texte) as { espaces: { slug: string }[] }).espaces[0]?.slug;
     if (!slug) throw new NonAbouti('la porte IA ne montre aucun espace au membre');
     const ia = async (s: Personne, nom: string, args: object) => { const x = await outil(s.ia, 'executer_outil', { nom, arguments: args, espace: slug }); return !x.isError && !/inconnu pour ce compte|suspendu/.test(x.texte); };
-    const lireMail = async (jeton: string | null) => (await fetch(`${APP_URL.notifuse}/api/contacts.list?workspace_id=${MAIL}&limit=1`, { headers: { Authorization: `Bearer ${jeton}` }, signal: AbortSignal.timeout(15_000) })).status === 200;
+    // Lue = la liste des contacts rendue, jamais le seul 200.
+    const lireMail = async (jeton: string | null) => (async (r: Response) => r.status === 200 && Array.isArray(((await r.json().catch(() => null)) as { contacts?: unknown } | null)?.contacts))(await fetch(`${APP_URL.notifuse}/api/contacts.list?workspace_id=${MAIL}&limit=1`, { headers: { Authorization: `Bearer ${jeton}` }, signal: AbortSignal.timeout(15_000) }));
 
     // Le flux du CRM n'est lu que si une fiche créée APRÈS l'essai précédent y arrive ; celui de Mail, s'il bat encore (battement toutes les 15 s).
     const fiches: { id: string; t: number }[] = [];
@@ -168,7 +169,7 @@ cas(null, 'retrait : tout ce que le membre tenait déjà se ferme dans chaque ap
       crm_cookie: { tous: 700, lit: async (s) => Array.isArray(((await (await s.ctx.request.post(`${CRM}/graphql`, { headers: { origin: CRM, 'x-twenty-session-cookie': '1' }, data: { query: COMPAGNIES }, timeout: 15_000 })).json().catch(() => null)) as Json)?.data?.companies?.edges) },
       ...portesCrm(CRM),
       mail_session: { tous: 700, lit: (s) => lireMail(s.jeton) },
-      mail_boite_unifiee: { tous: 2_000, lit: async (s) => (await mailApi(s, `/api/veridian/mail.mailboxes.list?workspace_id=${MAIL}`)).status() === 200 },
+      mail_boite_unifiee: { tous: 2_000, lit: async (s) => { const r = await mailApi(s, `/api/veridian/mail.mailboxes.list?workspace_id=${MAIL}`); return r.status() === 200 && Array.isArray(((await r.json().catch(() => null)) as { mailboxes?: unknown } | null)?.mailboxes); } },
       mail_imap: { tous: 8_000, lit: (s) => imap(hoteImap, P.email, s.boite) },
       prospection_espaces: { tous: 700, lit: async (s) => (((await (await s.ctx.request.get(`${APP_URL.prospection}/api/me`, { timeout: 15_000 })).json().catch(() => null)) as Json)?.workspaces ?? []).some((w: { id: string }) => w.id === commun) },
       prospection_donnee: { tous: 700, lit: async (s) => (await (await atlas(s, 'lister_segments_atlas', {})).text()).includes(DOSSIER) },

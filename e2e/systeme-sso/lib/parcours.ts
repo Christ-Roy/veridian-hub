@@ -362,7 +362,9 @@ async function sessionLue(page: Page, app: AppKey): Promise<boolean | undefined>
   if (app === 'notifuse') {
     const jeton = await page.evaluate(() => localStorage.getItem('auth_token'));
     if (!jeton) return false;
-    return (await lire('/api/user.me', jeton)).status === 200;
+    // Lue = la personne rendue, jamais le seul 200 (27/11).
+    const moi = await lire('/api/user.me', jeton);
+    return moi.status === 200 && Boolean((moi.corps as { user?: { id?: string; email?: string } } | null)?.user?.email ?? (moi.corps as { user?: { id?: string } } | null)?.user?.id);
   }
   if (app === 'twenty') {
     const lu = await page.evaluate(async () => {
