@@ -157,8 +157,11 @@ cas(null, 'suspension puis retrait : ce que chacun tenait déjà dans Mail, Pros
     const ouvertesR = Object.entries(apresR).filter(([k, v]) => k.startsWith('membre.') && v > 0).map(([k, v]) => `${k} lue à ${v} ms`);
     const proprioR = Object.entries(apresR).filter(([k, v]) => k.startsWith('proprietaire.') && v === 0).map(([k]) => k);
 
+    // Les portes en défaut d'abord : le résultat de la batterie ne garde que le début du message (27/11, porte d'Academy illisible).
+    const defauts = [...ouvertesS.map((x) => `suspendu, encore lu : ${x}`), ...temoinS.map((x) => `témoin fermé : ${x}`), ...fermeesReprise.map((x) => `non rendu à la reprise : ${x}`),
+      ...ouvertesR.map((x) => `retiré, encore lu : ${x}`), ...proprioR.map((x) => `propriétaire fermé au retrait : ${x}`)];
     expect({ suspension_ouvertes: ouvertesS, temoin_ferme: temoinS, reprise_fermees: fermeesReprise, retrait_ouvertes: ouvertesR, proprietaire_ferme: proprioR },
-      `suspension [${issueS}] ; reprise [${(reprise.apps ?? []).map((x: Json) => `${x.app}=${x.etat}`).join(', ')}] ; retrait [${issueR}]`)
+      `${defauts.join(' ; ') || 'aucun défaut'} || suspension [${issueS}] ; reprise [${(reprise.apps ?? []).map((x: Json) => `${x.app}=${x.etat}`).join(', ')}] ; retrait [${issueR}]`)
       .toEqual({ suspension_ouvertes: [], temoin_ferme: [], reprise_fermees: [], retrait_ouvertes: [], proprietaire_ferme: [] });
     return `suspension [${issueS}] : ${Object.keys(apresS).filter((k) => !k.startsWith('temoin.')).length} portes fermées dès la réponse, témoin ouvert ; reprise rend tout ; retrait [${issueR}] : ${ouvertesR.length} porte du membre ouverte`;
   } finally {
