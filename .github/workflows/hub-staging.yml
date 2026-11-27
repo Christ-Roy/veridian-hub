@@ -309,22 +309,22 @@ jobs:
       # Notif Telegram dédiée quand le check_range bloque (HEAD low mais
       # commits intermédiaires non-low). Sans ça, le job sort vert
       # silencieusement et Robert ne sait pas qu'une reco est due.
-      - name: Telegram notify (range mixed — reco attendue)
+      - name: Alerte (range mixed — reco attendue)
         if: |
           steps.check_subject.outputs.in_subject == 'true' &&
           steps.check_range.outputs.all_low == 'false'
         env:
-          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TG_CHAT: ${{ secrets.ALERT_CHAT_ID }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then exit 0; fi
           SHA7=$(echo "${{ github.sha }}" | cut -c1-7)
-          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          curl -sf -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
-            -d chat_id=${TG_CHAT} \
-            -d parse_mode=Markdown \
-            -d "text=⛔ Hub auto-promote *bloquée* (\`${SHA7}\`) — HEAD \`[risk:low]\` mais commits intermédiaires non-low dans origin/main..HEAD.%0A%0AReco agent attendue avant promote main (CI-ARCHITECTURE §20).%0A%0ARun : ${RUN_URL}" \
-            >/dev/null || true
+          GRAVITE=avertissement
+          MESSAGE="Hub auto-promote bloquée (${SHA7}) : HEAD [risk:low] mais commits intermédiaires non-low dans origin/main..HEAD. Reco agent attendue avant promote main (CI-ARCHITECTURE §20)."
+          # Grafana seule source d'alertes (27/11) : le Hub écrit la ligne flux=alerte que Loki lit (app/api/cron/alerte).
+          [ -n "$CRON_SECRET" ] || { echo "::warning::CRON_SECRET absent : alerte non relayée"; exit 0; }
+          corps=$(jq -nc --arg e ci.hub_staging --arg g "$GRAVITE" --arg m "$MESSAGE" --arg l "$RUN_URL" '{evenement:$e,gravite:$g,message:$m,lien:$l}')
+          code=$(curl -sS -m 20 -o /dev/null -w '%{http_code}' -X POST https://app.veridian.site/api/cron/alerte -H "Authorization: Bearer $CRON_SECRET" -H "content-type: application/json" --data "$corps" || echo 000)
+          [ "$code" = 200 ] || echo "::warning::alerte non relayée par le Hub (HTTP $code)"
 
       # GitHub n'enchaîne PAS automatiquement les workflows quand le push est
       # fait par GITHUB_TOKEN (sécurité anti-loop). On déclenche hub-ci.yml
@@ -341,26 +341,24 @@ jobs:
           gh workflow run hub-ci.yml --ref main --repo ${{ github.repository }}
           echo "✓ hub-ci.yml déclenché sur main"
 
-      - name: Telegram notify
-        # Notifier seulement si on a réellement promu (HEAD low ET range all low).
-        # Sur range mixed, la notif dédiée "range mixed — reco attendue"
-        # ci-dessus a déjà couvert le cas. Pas besoin de spammer "skipped".
+      - name: Alerte si l'auto-promote échoue
+        # Une promotion réussie n'alerte personne ; seul un échec écrit une alerte (Grafana seule source, 27/11).
         if: |
-          always() &&
+          failure() &&
           steps.check_subject.outputs.in_subject == 'true' &&
           steps.check_range.outputs.all_low == 'true'
         env:
-          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TG_CHAT: ${{ secrets.ALERT_CHAT_ID }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then exit 0; fi
-          STATUS="${{ job.status }}"
-          ICON="✓"; [ "$STATUS" != "success" ] && ICON="✗"
           SHA7=$(echo "${{ github.sha }}" | cut -c1-7)
-          curl -sf -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
-            -d chat_id=${TG_CHAT} \
-            -d "text=$ICON Hub auto-promote staging→main $STATUS (${SHA7})" \
-            >/dev/null || true
+          GRAVITE=erreur
+          MESSAGE="Hub auto-promote staging→main en échec (${SHA7})."
+          # Grafana seule source d'alertes (27/11) : le Hub écrit la ligne flux=alerte que Loki lit (app/api/cron/alerte).
+          [ -n "$CRON_SECRET" ] || { echo "::warning::CRON_SECRET absent : alerte non relayée"; exit 0; }
+          corps=$(jq -nc --arg e ci.hub_staging --arg g "$GRAVITE" --arg m "$MESSAGE" --arg l "$RUN_URL" '{evenement:$e,gravite:$g,message:$m,lien:$l}')
+          code=$(curl -sS -m 20 -o /dev/null -w '%{http_code}' -X POST https://app.veridian.site/api/cron/alerte -H "Authorization: Bearer $CRON_SECRET" -H "content-type: application/json" --data "$corps" || echo 000)
+          [ "$code" = 200 ] || echo "::warning::alerte non relayée par le Hub (HTTP $code)"
 
   # Alerte Robert quand un push staging est vert mais que l'auto-promote NE s'est
   # PAS déclenché parce que le commit n'est pas tier 🟢 BAS. Le but : Robert sait
@@ -394,19 +392,19 @@ jobs:
             echo "skip=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Telegram notify Robert
+      - name: Alerte (staging vert, reco attendue)
         if: steps.check.outputs.skip != 'true'
         env:
-          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TG_CHAT: ${{ secrets.ALERT_CHAT_ID }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # Par l'environnement, jamais interpolé dans le script (un message de commit peut contenir du shell).
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
-          if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then exit 0; fi
           SHA7=$(echo "${{ github.sha }}" | cut -c1-7)
-          MSG="${{ github.event.head_commit.message }}"
-          MSG_FIRST_LINE=$(echo "$MSG" | head -1)
-          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          curl -sf -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
-            -d chat_id=${TG_CHAT} \
-            -d parse_mode=Markdown \
-            -d "text=⏸ Hub staging vert (\`${SHA7}\`) — *reco agent attendue* (tier 🟡+).%0A%0A_${MSG_FIRST_LINE}_%0A%0ARun : ${RUN_URL}%0AProtocole : CI-ARCHITECTURE §20" \
-            >/dev/null || true
+          GRAVITE=avertissement
+          MESSAGE="Hub staging vert (${SHA7}) : reco agent attendue (tier 🟡+). $(printf '%s' "$COMMIT_MSG" | head -1 | cut -c1-120)"
+          # Grafana seule source d'alertes (27/11) : le Hub écrit la ligne flux=alerte que Loki lit (app/api/cron/alerte).
+          [ -n "$CRON_SECRET" ] || { echo "::warning::CRON_SECRET absent : alerte non relayée"; exit 0; }
+          corps=$(jq -nc --arg e ci.hub_staging --arg g "$GRAVITE" --arg m "$MESSAGE" --arg l "$RUN_URL" '{evenement:$e,gravite:$g,message:$m,lien:$l}')
+          code=$(curl -sS -m 20 -o /dev/null -w '%{http_code}' -X POST https://app.veridian.site/api/cron/alerte -H "Authorization: Bearer $CRON_SECRET" -H "content-type: application/json" --data "$corps" || echo 000)
+          [ "$code" = 200 ] || echo "::warning::alerte non relayée par le Hub (HTTP $code)"

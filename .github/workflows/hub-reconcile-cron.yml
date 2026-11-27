@@ -107,17 +107,15 @@ jobs:
               ;;
           esac
 
-      - name: Notify Telegram on failure
+      - name: Notify alerte Loki (relais du Hub) on failure
         if: failure()
         env:
-          TG_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-          TG_CHAT: ${{ secrets.ALERT_CHAT_ID }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
           RUN_URL: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
           RESIDU: ${{ steps.residu.outcome == 'failure' && '1' || '' }}
         run: |
-          if [ -z "$TG_TOKEN" ] || [ -z "$TG_CHAT" ]; then exit 0; fi
-          curl -sf -X POST "https://api.telegram.org/bot${TG_TOKEN}/sendMessage" \
-            -d chat_id=${TG_CHAT} \
-            -d parse_mode=Markdown \
-            -d "text=Reconcile tenants cron *FAIL*${RESIDU:+ (restes de test au-dessus du seuil)}. Run : ${RUN_URL}" \
-            >/dev/null || true
+          # Grafana seule source d'alertes (27/11) : le Hub écrit la ligne flux=alerte que Loki lit (app/api/cron/alerte).
+          [ -n "$CRON_SECRET" ] || { echo "::warning::CRON_SECRET absent : alerte non relayée"; exit 0; }
+          corps=$(jq -nc --arg e "ci.reconcile_cron" --arg m "Reconcile tenants cron FAIL${RESIDU:+ (restes de test au-dessus du seuil)}" --arg l "$RUN_URL" '{evenement:$e,gravite:"erreur",message:$m,lien:$l}')
+          code=$(curl -sS -m 20 -o /dev/null -w '%{http_code}' -X POST https://app.veridian.site/api/cron/alerte -H "Authorization: Bearer $CRON_SECRET" -H "content-type: application/json" --data "$corps" || echo 000)
+          [ "$code" = 200 ] || echo "::warning::alerte non relayée par le Hub (HTTP $code)"
