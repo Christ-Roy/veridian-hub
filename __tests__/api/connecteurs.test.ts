@@ -48,6 +48,12 @@ describe('POST', () => {
     expect(m.partir).not.toHaveBeenCalled();
     expect((await jouer({ connecteur: 'notion', geste: 'couper' })).lieu).toContain('avis=coupee');
   });
+  it('ouvert à une AUTRE personne (@id, 27/11) : fermé pour celle-ci ; ouvert à elle : brancher part chez le service', async () => {
+    vi.stubEnv('CONNECTEURS_OUVERTS', '@quelqu-un-d-autre');
+    expect((await jouer({ connecteur: 'notion', geste: 'brancher' })).lieu).toBe('/dashboard/connexions?avis=ferme');
+    vi.stubEnv('CONNECTEURS_OUVERTS', '@h');
+    expect((await jouer({ connecteur: 'notion', geste: 'brancher' })).lieu).not.toContain('avis=ferme');
+  });
   it('fermé : allumer et remplacer sont refusés sans rien toucher ; éteindre et garder, qui retirent un accès, marchent', async () => {
     vi.stubEnv('CONNECTEURS_OUVERTS', '');
     for (const geste of ['allumer', 'remplacer']) expect((await jouer({ connecteur: 'notion', geste })).lieu).toContain('avis=ferme');

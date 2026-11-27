@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
     return vers(v.demande.redirectUri, { error: 'access_denied', state: v.demande.state, iss });
   }
   // Ses services extérieurs : seulement si l'écran qu'elle vient de lire les citait, et jamais par une session d'organisation ou d'emprunt (refusées plus haut).
-  const code = await creerCode(prisma, v.demande, user.supabaseUserId, await orgsProuvees(prisma, preuveDeSession(session)), connecteursOuverts() && p.services === '1');
+  const code = await creerCode(prisma, v.demande, user.supabaseUserId, await orgsProuvees(prisma, preuveDeSession(session)), connecteursOuverts(user.supabaseUserId) && p.services === '1');
   await prisma.auditLog
     .create({ data: { action: 'mcp.oauth.consent', actor: `user:${user.supabaseUserId}`, targetType: 'oauth_client', targetId: v.demande.clientId, payload: { client: v.demande.clientName } } })
     .catch(() => {});

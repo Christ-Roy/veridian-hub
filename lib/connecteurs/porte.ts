@@ -24,11 +24,11 @@ export const retourConnecteur = (): string => getURL(CHEMIN_RETOUR_CONNECTEUR);
  * une connexion née d'une session d'organisation ou d'emprunt. Compte retiré (plus aucun espace vivant) ou suspendu (un espace à lui l'est) : aucun.
  */
 export const servicesPermis = (qui: Demandeur, e: Espaces): boolean =>
-  connecteursOuverts() && qui.services === true && e.vivants.length > 0 && !e.suspendus.some((x) => x.role === 'proprietaire');
+  connecteursOuverts(qui.hubUserId) && qui.services === true && e.vivants.length > 0 && !e.suspendus.some((x) => x.role === 'proprietaire');
 
 export async function servicesDe(db: Pick<PrismaClient, 'connexionExterne'>, qui: Demandeur, espaces: () => Promise<Espaces>): Promise<ServiceExterne[]> {
   // Les cas les plus courants ne lisent rien : fermé, ou connexion IA sans services.
-  if (!connecteursOuverts() || qui.services !== true || !servicesPermis(qui, await espaces())) return [];
+  if (!connecteursOuverts(qui.hubUserId) || qui.services !== true || !servicesPermis(qui, await espaces())) return [];
   const l = await db.connexionExterne.findMany({ where: { hubUserId: qui.hubUserId, etat: 'active' satisfies EtatConnexion['etat'] }, select: { connecteur: true } });
   return CONNECTEURS.filter((c) => l.some((x) => x.connecteur === c.cle)).map((c) => ({ appKey: c.cle, label: c.nom, mcpUrl: c.mcpUrl, externe: true as const }));
 }
@@ -91,7 +91,7 @@ function dire(c: Connecteur, err: unknown): AppInjoignable {
 
 /** Ouvre une session chez le service. Son refus du jeton vaut UN renouvellement, jamais une boucle. */
 export async function sessionExterne(db: Db, qui: Demandeur, cle: string, d: Deps = {}): Promise<SessionOutils> {
-  const c = connecteursOuverts() ? connecteur(cle) : null;
+  const c = connecteursOuverts(qui.hubUserId) ? connecteur(cle) : null;
   if (!c || qui.services !== true) throw new AppInjoignable('service inconnu');
   const ouvrir = async (force: boolean): Promise<SessionOutils> => {
     const jeton = await jetonDe(db, qui.hubUserId, c, retourConnecteur(), { ...d, force }).catch(() => { throw new AppInjoignable(`${c.nom} ne répond pas`); });

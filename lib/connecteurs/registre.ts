@@ -28,8 +28,38 @@ export const CONNECTEURS: readonly Connecteur[] = [
   { cle: 'sentry', nom: 'Sentry', texte: 'Erreurs et projets Sentry.', mcpUrl: 'https://mcp.sentry.dev/mcp', oauth: chezLui('mcp.sentry.dev'), outils: {} },
 ];
 
-/** Fermé par défaut (parente, 25/11) : brancher et servir attendent la relecture et l'accord de Robert. Couper reste toujours possible. */
-export const connecteursOuverts = (env: NodeJS.ProcessEnv = process.env): boolean => env.CONNECTEURS_OUVERTS === '1';
+/**
+ * Candidats (VER-114, 27/11/2026) : serveur MCP officiel dont les métadonnées PUBLIQUES annoncent l'inscription automatique (RFC 7591), adresses figées
+ * d'après elles, lues sans rien inscrire. JAMAIS servis : `connecteur()` ne les connaît pas. Un candidat entre dans CONNECTEURS quand l'inscription de
+ * Veridian chez lui (geste de Robert) a été acceptée et relue, et que son écran de consentement a été VU. Annoncée n'est pas acceptée (Canva).
+ */
+export const CANDIDATS: readonly Connecteur[] = [
+  { cle: 'atlassian', nom: 'Atlassian', texte: 'Tickets Jira et pages Confluence.', mcpUrl: 'https://mcp.atlassian.com/v1/mcp', oauth: { emetteur: 'https://mcp.atlassian.com', autorisation: 'mcp.atlassian.com', jeton: 'mcp.atlassian.com', enregistrement: 'mcp.atlassian.com', revocation: 'mcp.atlassian.com' }, outils: {} },
+  { cle: 'vercel', nom: 'Vercel', texte: 'Projets et déploiements Vercel.', mcpUrl: 'https://mcp.vercel.com/', oauth: { emetteur: 'https://vercel.com', autorisation: 'vercel.com', jeton: 'api.vercel.com', enregistrement: 'api.vercel.com', revocation: 'api.vercel.com' }, outils: {} },
+  { cle: 'neon', nom: 'Neon', texte: 'Bases Postgres Neon.', mcpUrl: 'https://mcp.neon.tech/mcp', oauth: { emetteur: 'https://mcp.neon.tech', autorisation: 'mcp.neon.tech', jeton: 'mcp.neon.tech', enregistrement: 'mcp.neon.tech', revocation: 'mcp.neon.tech' }, outils: {} },
+  { cle: 'figma', nom: 'Figma', texte: 'Fichiers et maquettes Figma.', mcpUrl: 'https://mcp.figma.com/mcp', oauth: { emetteur: 'https://api.figma.com', autorisation: 'www.figma.com', jeton: 'api.figma.com', enregistrement: 'api.figma.com', revocation: '' }, outils: {} },
+  { cle: 'netlify', nom: 'Netlify', texte: 'Sites et déploiements Netlify.', mcpUrl: 'https://mcp.netlify.com/mcp', oauth: { emetteur: 'https://mcp.netlify.com/', autorisation: 'mcp.netlify.com', jeton: 'mcp.netlify.com', enregistrement: 'mcp.netlify.com', revocation: '' }, outils: {} },
+  { cle: 'cloudflare', nom: 'Cloudflare', texte: 'Journaux et observabilité Cloudflare.', mcpUrl: 'https://observability.mcp.cloudflare.com/mcp', oauth: { emetteur: 'https://observability.mcp.cloudflare.com', autorisation: 'observability.mcp.cloudflare.com', jeton: 'observability.mcp.cloudflare.com', enregistrement: 'observability.mcp.cloudflare.com', revocation: 'observability.mcp.cloudflare.com' }, outils: {} },
+  { cle: 'gitlab', nom: 'GitLab', texte: 'Projets, tickets et demandes de fusion GitLab.', mcpUrl: 'https://gitlab.com/api/v4/mcp', oauth: { emetteur: 'https://gitlab.com', autorisation: 'gitlab.com', jeton: 'gitlab.com', enregistrement: 'gitlab.com', revocation: 'gitlab.com' }, outils: {} },
+  { cle: 'airtable', nom: 'Airtable', texte: 'Bases et tables Airtable.', mcpUrl: 'https://mcp.airtable.com', oauth: { emetteur: 'https://airtable.com/oauth2/v1', autorisation: 'airtable.com', jeton: 'airtable.com', enregistrement: 'airtable.com', revocation: '' }, outils: {} },
+  { cle: 'make', nom: 'Make', texte: 'Scénarios Make.', mcpUrl: 'https://mcp.make.com', oauth: { emetteur: 'https://www.make.com/mcp', autorisation: 'www.make.com', jeton: 'www.make.com', enregistrement: 'www.make.com', revocation: 'www.make.com' }, outils: {} },
+  { cle: 'supabase', nom: 'Supabase', texte: 'Projets et bases Supabase.', mcpUrl: 'https://mcp.supabase.com/mcp', oauth: { emetteur: 'https://api.supabase.com', autorisation: 'api.supabase.com', jeton: 'api.supabase.com', enregistrement: 'api.supabase.com', revocation: '' }, outils: {} },
+  { cle: 'posthog', nom: 'PostHog', texte: 'Analyses de produit PostHog.', mcpUrl: 'https://mcp.posthog.com/mcp', oauth: { emetteur: 'https://oauth.posthog.com', autorisation: 'oauth.posthog.com', jeton: 'oauth.posthog.com', enregistrement: 'oauth.posthog.com', revocation: 'oauth.posthog.com' }, outils: {} },
+  { cle: 'todoist', nom: 'Todoist', texte: 'Tâches et projets Todoist.', mcpUrl: 'https://ai.todoist.net/mcp', oauth: { emetteur: 'https://todoist.com', autorisation: 'todoist.com', jeton: 'todoist.com', enregistrement: 'todoist.com', revocation: 'todoist.com' }, outils: {} },
+  { cle: 'calendly', nom: 'Calendly', texte: 'Rendez-vous et disponibilités Calendly.', mcpUrl: 'https://mcp.calendly.com/', oauth: { emetteur: 'https://calendly.com/', autorisation: 'calendly.com', jeton: 'calendly.com', enregistrement: 'calendly.com', revocation: '' }, outils: {} },
+];
+
+/**
+ * Fermé par défaut (parente, 25/11) : brancher et servir attendent la relecture et l'accord de Robert. Couper reste toujours possible.
+ * `1` : ouvert à tous. `@<hub_user_id>[,@…]` : ouvert à ces personnes seulement (27/11 : d'abord Robert, le temps de relire les outils de chaque
+ * service avec ses comptes ; une connexion appartient à une personne, jamais à une organisation). Personne inconnue : fermé.
+ */
+export const connecteursOuverts = (qui?: string | null, env: NodeJS.ProcessEnv = process.env): boolean => {
+  const v = (env.CONNECTEURS_OUVERTS ?? '').trim();
+  if (v === '1') return true;
+  if (!qui) return false;
+  return v.split(',').map((x) => x.trim()).some((x) => x.startsWith('@') && x.slice(1) === qui);
+};
 
 export const connecteur = (cle: unknown): Connecteur | null => CONNECTEURS.find((c) => c.cle === cle) ?? null;
 

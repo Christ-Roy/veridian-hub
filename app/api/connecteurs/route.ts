@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
   }
   if (geste !== 'brancher' && geste !== 'allumer' && geste !== 'remplacer') return vers('refus');
   // Avant tout départ : c'est lui qui inscrit notre client chez le service.
-  if (!connecteursOuverts()) return vers('ferme');
+  if (!connecteursOuverts(moi)) return vers('ferme');
   if (geste === 'allumer') return vers((await reglerEcriture(prisma, moi, c, true)) ? 'ecriture' : 'refus');
   if (geste === 'remplacer') {
     const r = await trancher(prisma, moi, c.cle, 'remplacer', retour);

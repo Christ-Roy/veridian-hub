@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 
 import { nomDEcriture } from '@/lib/mcp/programme';
-import { connecteur, CONNECTEURS, connecteursOuverts, outilRelu, saitEcrire } from '@/lib/connecteurs/registre';
+import { CANDIDATS, connecteur, CONNECTEURS, connecteursOuverts, outilRelu, saitEcrire } from '@/lib/connecteurs/registre';
 
 it('CONNECTEURS : HTTPS, une clé à soi, jamais le nom d\'une de nos apps ni un service d\'argent', () => {
   expect(CONNECTEURS.every((c) => c.mcpUrl.startsWith('https://') && /^[a-z]{3,20}$/.test(c.cle))).toBe(true);
@@ -10,7 +10,19 @@ it('CONNECTEURS : HTTPS, une clé à soi, jamais le nom d\'une de nos apps ni un
   expect(CONNECTEURS.filter((c) => ['hub', 'notifuse', 'prospection', 'analytics', 'twenty', 'crm', 'academy', 'cms', 'stripe', 'paypal'].includes(c.cle))).toEqual([]);
 });
 it('connecteur : une clé connue, rien d\'autre', () => expect([connecteur('notion')?.nom, connecteur('autre'), connecteur(undefined), connecteur(['notion'])]).toEqual(['Notion', null, null, null]));
-it('connecteursOuverts : fermé par défaut, seul « 1 » ouvre', () => expect([{}, { CONNECTEURS_OUVERTS: '0' }, { CONNECTEURS_OUVERTS: 'true' }, { CONNECTEURS_OUVERTS: '1' }].map((e) => connecteursOuverts(e as never))).toEqual([false, false, false, true]));
+it('connecteursOuverts : fermé par défaut, « 1 » ouvre à tous, « @id » à cette personne seulement (27/11)', () => {
+  expect([{}, { CONNECTEURS_OUVERTS: '0' }, { CONNECTEURS_OUVERTS: 'true' }, { CONNECTEURS_OUVERTS: '1' }].map((e) => connecteursOuverts('h1', e as never))).toEqual([false, false, false, true]);
+  const robert = { CONNECTEURS_OUVERTS: '@h1, @h2' } as never;
+  expect([connecteursOuverts('h1', robert), connecteursOuverts('h2', robert), connecteursOuverts('h3', robert), connecteursOuverts(null, robert), connecteursOuverts(undefined, robert)]).toEqual([true, true, false, false, false]);
+  expect(connecteursOuverts('h1', { CONNECTEURS_OUVERTS: 'h1' } as never), 'sans @ : rien').toBe(false);
+});
+it('CANDIDATS (VER-114) : jamais servis, disjoints du registre, HTTPS, PKCE de rigueur, jamais un service d\'argent', () => {
+  expect(CANDIDATS.length).toBe(13);
+  expect(CANDIDATS.every((c) => c.mcpUrl.startsWith('https://') && c.oauth.emetteur.startsWith('https://') && Boolean(c.oauth.enregistrement) && /^[a-z]{3,20}$/.test(c.cle))).toBe(true);
+  expect(CANDIDATS.filter((c) => connecteur(c.cle) !== null || CONNECTEURS.some((x) => x.cle === c.cle)).map((c) => c.cle), 'un candidat n\'est pas servi').toEqual([]);
+  expect(CANDIDATS.filter((c) => ['stripe', 'paypal', 'canva'].includes(c.cle))).toEqual([]);
+  expect(CANDIDATS.every((c) => Object.keys(c.outils).length === 0)).toBe(true);
+});
 it('hôtes figés : chacun s\'autorise chez lui, sur l\'hôte de son serveur MCP', () => {
   for (const c of CONNECTEURS) {
     const h = new URL(c.mcpUrl).host;

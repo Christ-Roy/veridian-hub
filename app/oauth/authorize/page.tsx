@@ -92,7 +92,7 @@ export default async function AutoriserPage({ searchParams }: Props) {
   }
 
   const d = v.demande;
-  const services = connecteursOuverts();
+  const services = connecteursOuverts(user.supabaseUserId);
   const retour = (() => {
     try {
       const u = new URL(d.redirectUri);

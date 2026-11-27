@@ -48,7 +48,7 @@ export default async function Connexions({ searchParams }: { searchParams: Promi
   const sienne = Boolean(session?.user) && !isImpersonatedSession(session) && session?.user?.federe !== true;
   const p = await searchParams;
   const avis = Object.hasOwn(AVIS, p.avis ?? '') ? AVIS[p.avis!](connecteur(p.service)?.nom ?? 'Le service') : undefined;
-  const ouvert = connecteursOuverts();
+  const ouvert = connecteursOuverts(userUuid(user));
   // Fermé : seul ce qui est branché se montre, pour pouvoir le couper.
   const services = sienne ? (await connexionsDe(prisma, userUuid(user))).filter((s) => ouvert || s.etat !== 'absente') : [];
   return (

@@ -54,3 +54,18 @@ Les quatre clients OAuth classiques créés le 07/11 (Cloudflare, Google, Micros
 | C. Impossible | Stripe (annonce l'inscription, mais déplace de l'argent : jamais au registre) ; Canva (retiré, retour refusé) | |
 
 Neon n'est plus « impossible » : son MCP accepte l'inscription automatique, sans programme partenaires.
+
+## Premières connexions de Robert (une ligne par service)
+
+Préalable, ses mots : l'ouverture pour lui seul (`CONNECTEURS_OUVERTS=@53245ae1-6bf8-4ec6-870f-32d75b7c0281` dans `nomad/jobs/hub`, puis `nomad-v run hub`), et
+pour les candidats, l'inscription de Veridian chez eux. Ensuite, connecté à app.veridian.site, menu « Connexions » (`/dashboard/connexions`) :
+
+| Service | Ses clics | Ce que le Hub fait après |
+|---|---|---|
+| Notion | Brancher Notion → écran Notion : choisir l'espace → Autoriser | `GET /api/admin/connecteurs` : relire les outils, les inscrire au registre |
+| Linear | Brancher Linear → écran Linear : choisir l'équipe → Autoriser | idem |
+| Webflow | Brancher Webflow → écran Webflow : choisir le site → Autoriser | idem |
+| Sentry | Brancher Sentry → écran Sentry : choisir l'organisation → Autoriser | idem |
+| Candidats (13) | Même ligne, une fois chacun passé au registre (inscription acceptée et relue) | idem |
+
+Le Hub ouvre à tous (`CONNECTEURS_OUVERTS=1`) seulement quand les outils d'un service sont relus. Couper reste possible à tout moment.

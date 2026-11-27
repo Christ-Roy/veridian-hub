@@ -23,10 +23,11 @@ export async function GET(request: NextRequest) {
     r.cookies.set(COOKIE_CONNECTEUR, '', { httpOnly: true, secure: base.protocol === 'https:', sameSite: 'lax', path: CHEMIN_RETOUR_CONNECTEUR, maxAge: 0 });
     return r;
   };
-  if (!connecteursOuverts()) return vers('ferme');
   const t = ouvrirTransaction(request.cookies.get(COOKIE_CONNECTEUR)?.value);
   if (!t) return vers('expiree');
   const user = await getCurrentUser();
+  // Ouvert pour CETTE personne (CONNECTEURS_OUVERTS : tous, ou des hub_user_id nommés).
+  if (!connecteursOuverts(user ? userUuid(user) : null)) return vers('ferme');
   // Un autre compte connecté entre-temps : la connexion n'est pas à lui.
   if (!user || user.id !== t.userId || (await denyIfImpersonated())) return vers('expiree');
   // La même personne, mais entre-temps par la connexion de son organisation : un service personnel ne se branche pas de là.
