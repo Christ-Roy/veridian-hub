@@ -68,6 +68,7 @@ async function attendre<T>(lire: () => Promise<T>, ok: (v: T) => boolean, ms = 6
 async function remettreAuHub(evenement: unknown): Promise<number> {
   const corps = JSON.stringify(evenement);
   const t = Math.floor(Date.now() / 1000);
+  // vers-le-hub : webhook Stripe (mode test), vérifié par le Hub.
   const v1 = createHmac('sha256', secretDe('STRIPE_WEBHOOK_SECRET_TEST')).update(`${t}.${corps}`).digest('hex');
   const r = await fetch(`${HUB_URL}/api/webhooks`, {
     method: 'POST',

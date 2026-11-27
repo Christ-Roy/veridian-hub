@@ -84,6 +84,7 @@ function signDiscoveryGet(
   ts: number,
 ): string {
   const canonical = buildCanonicalGetString('GET', pathname, searchParams, String(ts));
+  // vers-le-hub : signature vérifiée par le Hub.
   return createHmac('sha256', secret).update(canonical).digest('hex');
 }
 

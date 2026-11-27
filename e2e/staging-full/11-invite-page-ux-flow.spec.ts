@@ -89,6 +89,7 @@ async function createInvitation(
     target_workspace_id: `ws-ux-${RUN_STAMP}`,
     target_role: 'member',
   });
+  // vers-le-hub : invitation signée par une app, vérifiée par le Hub (lib/invitations/hmac.ts).
   const sig = createHmac('sha256', SECRET_NOTIFUSE)
     .update(`${ts}.${body}`)
     .digest('hex');

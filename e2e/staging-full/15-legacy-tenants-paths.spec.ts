@@ -420,6 +420,7 @@ test.describe('Cas 2 — User legacy sans supabaseUserId (pré-backfill UUID)', 
       target_workspace_id: `ws-legacy-${RUN_STAMP}`,
       target_role: 'member',
     });
+    // vers-le-hub : invitation signée par une app, vérifiée par le Hub (lib/invitations/hmac.ts).
     const sig = createHmac('sha256', SECRET_NOTIFUSE_INVITATION)
       .update(`${ts}.${body}`)
       .digest('hex');
@@ -520,6 +521,7 @@ test.describe('Cas 3 — Webhook Notifuse legacy HMAC (metadata.notifuse_process
       tenant_id: tenantSlug,
       data: { message_id: 'msg_replay', recipient: 'replay@example.com' },
     });
+    // vers-le-hub : webhook signé par Mail, vérifié par le Hub.
     const sig = createHmac('sha256', NOTIFUSE_HUB_WEBHOOK_SECRET)
       .update(`${ts}.${body}`)
       .digest('hex');
@@ -553,6 +555,7 @@ test.describe('Cas 3 — Webhook Notifuse legacy HMAC (metadata.notifuse_process
       tenant_id: tenantSlug,
       data: { suspended_at: new Date().toISOString(), reason: 'e2e-test' },
     });
+    // vers-le-hub : webhook signé par Mail, vérifié par le Hub.
     const sig = createHmac('sha256', NOTIFUSE_HUB_WEBHOOK_SECRET)
       .update(`${ts}.${body}`)
       .digest('hex');

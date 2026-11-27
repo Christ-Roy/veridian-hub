@@ -53,6 +53,7 @@ function uniqueEmail(slug: string): string {
 }
 
 function signBody(secret: string, body: string, ts: number): string {
+  // vers-le-hub : signature vérifiée par le Hub.
   return createHmac('sha256', secret).update(`${ts}.${body}`).digest('hex');
 }
 

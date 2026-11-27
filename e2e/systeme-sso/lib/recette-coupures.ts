@@ -209,6 +209,7 @@ export async function inviterMembre(r: Recette): Promise<string> {
   const ts = String(Date.now());
   const cree = await fetch(`${HUB_URL}/api/invitations/create`, {
     method: 'POST',
+    // vers-le-hub : invitation signée par une app, vérifiée par le Hub (lib/invitations/hmac.ts).
     headers: { 'content-type': 'application/json', 'x-veridian-app': 'notifuse', 'x-veridian-timestamp': ts, 'x-veridian-invitation-signature': createHmac('sha256', secret).update(`${ts}.${corps}`).digest('hex') },
     body: corps,
     signal: AbortSignal.timeout(30_000),
@@ -428,6 +429,7 @@ export async function ssoObligatoire(r: Recette): Promise<string> {
   const echanger = async (): Promise<string> => {
     const c = JSON.stringify({ grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange', subject_grant: grant, audience: 'crm', scope: 'crm:societe.ecrire crm:tache.ecrire' });
     const [ts, nonce] = [String(Date.now()), randomBytes(18).toString('base64url')];
+    // vers-le-hub : jeton de délégation signé par une app, vérifié par le Hub (lib/delegation/jeton.ts).
     const x = await fetch(`${HUB_URL}/api/delegation/jeton`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-veridian-app': 'prospection', 'x-veridian-timestamp': ts, 'x-veridian-nonce': nonce, 'x-veridian-hub-signature': createHmac('sha256', secretDe('PROSPECTION_TENANT_API_SECRET')).update(`${ts}.${nonce}.${c}`).digest('hex') }, body: c, signal: AbortSignal.timeout(30_000) });
     return ((await x.json().catch(() => null)) as { error?: string } | null)?.error ?? 'ok';
   };

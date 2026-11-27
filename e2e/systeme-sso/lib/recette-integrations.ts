@@ -70,6 +70,7 @@ async function echanger(source: 'crm', secret: string, grant: string, audience: 
   try {
     rep = await fetch(`${HUB_URL}/api/delegation/jeton`, {
       method: 'POST',
+      // vers-le-hub : jeton de délégation signé par une app, vérifié par le Hub (lib/delegation/jeton.ts).
       headers: { 'content-type': 'application/json', 'x-veridian-app': source, 'x-veridian-timestamp': ts, 'x-veridian-nonce': nonce, 'x-veridian-hub-signature': createHmac('sha256', secret).update(`${ts}.${nonce}.${corps}`).digest('hex') },
       body: corps,
       signal: AbortSignal.timeout(30_000),
@@ -368,6 +369,7 @@ export async function reponseMailVersCrm(r: Recette): Promise<string> {
   const recevoir = async (id: string, data: object = {}) => {
     const corps = JSON.stringify({ id, type: 'message.received', workspace_id: abo.json.workspace_id, timestamp: new Date().toISOString(), data: { message_id: `m-${id}`, rfc_message_id: `${id}@e2e.invalid`, kind: 'reply_human', match_type: 'message_id', direction: 'in', email: `contact@recette${n}.invalid`, thread_id: `t_${n}`, event_timestamp: new Date().toISOString(), ...data } });
     const ts = String(Math.floor(Date.now() / 1000));
+    // vers-le-hub : webhook signé par Mail, vérifié par le Hub.
     const rep = await fetch(`${HUB_URL}/api/evenements/notifuse`, { method: 'POST', headers: { 'content-type': 'application/json', 'webhook-id': id, 'webhook-timestamp': ts, 'webhook-signature': `v1,${createHmac('sha256', cle).update(`${id}.${ts}.${corps}`).digest('base64')}` }, body: corps, signal: AbortSignal.timeout(60_000) });
     // Le Hub rend toujours du JSON : un corps qui n'en est pas vient d'un intermédiaire (Cloudflare, Traefik). On le garde, avec qui l'a servi
     // (26/11 : cinq « 502 null » sans trace au Hub ni dans Loki).

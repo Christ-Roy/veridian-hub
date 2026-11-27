@@ -22,6 +22,7 @@ async function etat(hubUserId: string, tenantId: string, nonceFixe?: string): Pr
   const corps = JSON.stringify({ hub_user_id: hubUserId, tenant_id: tenantId });
   const ts = String(Date.now());
   const nonce = nonceFixe ?? randomBytes(18).toString('base64url');
+  // vers-le-hub : appel d app signé (ts.nonce.corps) vers /api/ia/etat, vérifié par le Hub (verifierAppel).
   const signature = createHmac('sha256', secretDe('PROSPECTION_TENANT_API_SECRET')).update(`${ts}.${nonce}.${corps}`).digest('hex');
   const r = await fetch(`${HUB_URL}/api/ia/etat`, {
     method: 'POST',

@@ -66,6 +66,7 @@ function signNextCookie(next: string, secret: string, nowMs = Date.now()): strin
     .replace(/\//g, '_')
     .replace(/=+$/, '');
   const payload = `${expiresAtMs}.${b64url}`;
+  // vers-le-hub : signature vérifiée par le Hub.
   const sig = createHmac('sha256', secret).update(payload).digest('hex');
   return `${payload}.${sig}`;
 }

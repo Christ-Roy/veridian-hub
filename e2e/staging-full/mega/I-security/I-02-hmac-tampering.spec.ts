@@ -71,6 +71,7 @@ function buildInvitationBody(): string {
 }
 
 function signWith(secret: string, timestamp: string, rawBody: string): string {
+  // vers-le-hub : invitation signée par une app, vérifiée par le Hub (lib/invitations/hmac.ts).
   return createHmac('sha256', secret)
     .update(`${timestamp}.${rawBody}`)
     .digest('hex');

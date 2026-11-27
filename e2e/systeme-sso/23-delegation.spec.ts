@@ -42,6 +42,7 @@ cas(null, 'délégation : le propriétaire ouvre une liaison, une app agit 120 s
       const corps = JSON.stringify({ grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange', subject_grant: grant, audience: 'crm', scope: 'crm:societe.ecrire crm:tache.ecrire', ...o.corps });
       const ts = String(Date.now());
       const nonce = o.nonce ?? randomBytes(18).toString('base64url');
+      // vers-le-hub : jeton de délégation signé par une app, vérifié par le Hub (lib/delegation/jeton.ts).
       const r = await fetch(`${HUB_URL}/api/delegation/jeton`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-veridian-app': 'prospection', 'x-veridian-timestamp': ts, 'x-veridian-nonce': nonce, 'x-veridian-hub-signature': createHmac('sha256', secret).update(`${ts}.${nonce}.${corps}`).digest('hex') }, body: corps });
       return { status: r.status, json: (await r.json().catch(() => null)) as any };
     };

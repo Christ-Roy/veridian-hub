@@ -82,6 +82,7 @@ cas(null, 'délégation vers Mail : importe sans envoyer, une fois par jeton et 
       const corps = JSON.stringify({ grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange', subject_grant: grant, audience: 'notifuse', scope: 'notifuse:contacts.ecrire' });
       const ts = String(Date.now());
       const nonce = randomBytes(18).toString('base64url');
+      // vers-le-hub : jeton de délégation signé par une app, vérifié par le Hub (lib/delegation/jeton.ts).
       const r = await fetch(`${HUB_URL}/api/delegation/jeton`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-veridian-app': 'prospection', 'x-veridian-timestamp': ts, 'x-veridian-nonce': nonce, 'x-veridian-hub-signature': createHmac('sha256', prospection).update(`${ts}.${nonce}.${corps}`).digest('hex') }, body: corps });
       return { status: r.status, json: (await r.json().catch(() => null)) as any };
     };

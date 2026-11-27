@@ -112,6 +112,7 @@ cas(null, 'une réponse humaine reçue dans Mail devient une tâche au CRM, une 
     const recevoir = async (id: string, data: object = {}, c: Buffer = cle) => {
       const corps = JSON.stringify({ id, type: 'message.received', workspace_id: abo.json.workspace_id, timestamp: new Date().toISOString(), data: { message_id: `m-${id}`, rfc_message_id: `${id}@e2e.invalid`, kind: 'reply_human', match_type: 'message_id', direction: 'in', email: `contact@reponse${n}.invalid`, thread_id: `t_${n}`, event_timestamp: new Date().toISOString(), ...data } });
       const ts = String(Math.floor(Date.now() / 1000));
+      // vers-le-hub : webhook signé par Mail, vérifié par le Hub.
       const r = await fetch(`${HUB_URL}/api/evenements/notifuse`, { method: 'POST', headers: { 'content-type': 'application/json', 'webhook-id': id, 'webhook-timestamp': ts, 'webhook-signature': `v1,${createHmac('sha256', c).update(`${id}.${ts}.${corps}`).digest('base64')}` }, body: corps, signal: AbortSignal.timeout(60_000) });
       return [r.status, (await r.json().catch(() => null)) as any] as const;
     };

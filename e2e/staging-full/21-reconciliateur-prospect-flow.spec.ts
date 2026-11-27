@@ -70,6 +70,7 @@ async function postLegacyHmac(
 ) {
   const body = JSON.stringify(payload);
   const ts = Date.now();
+  // vers-le-hub : webhook signé par Mail, vérifié par le Hub.
   const sig = createHmac('sha256', NOTIFUSE_HUB_WEBHOOK_SECRET)
     .update(`${ts}.${body}`)
     .digest('hex');
@@ -100,6 +101,7 @@ async function postLegacyHmacRaw(
 ) {
   const body = JSON.stringify(payload);
   const ts = Date.now();
+  // vers-le-hub : webhook signé par Mail, vérifié par le Hub.
   const sig = createHmac('sha256', NOTIFUSE_HUB_WEBHOOK_SECRET)
     .update(`${ts}.${body}`)
     .digest('hex');

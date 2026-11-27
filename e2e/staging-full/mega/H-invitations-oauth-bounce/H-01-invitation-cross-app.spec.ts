@@ -56,6 +56,7 @@ const SECRET_PROSPECTION =
   'staging-invitation-secret-prospection-not-real-e2e';
 
 function signInvitationBody(secret: string, rawBody: string, ts: number): string {
+  // vers-le-hub : invitation signée par une app, vérifiée par le Hub (lib/invitations/hmac.ts).
   return createHmac('sha256', secret).update(`${ts}.${rawBody}`).digest('hex');
 }
 

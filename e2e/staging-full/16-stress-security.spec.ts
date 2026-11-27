@@ -90,6 +90,7 @@ function makeStripeEvent(type: string, id?: string) {
 
 function signHmacInvitation(rawBody: string, secret: string) {
   const timestamp = String(Date.now());
+  // vers-le-hub : invitation signée par une app, vérifiée par le Hub (lib/invitations/hmac.ts).
   const sig = createHmac('sha256', secret)
     .update(`${timestamp}.${rawBody}`)
     .digest('hex');

@@ -23,7 +23,6 @@
  * Sans le secret Notifuse, les tests sont skippés — on ne peut pas fabriquer
  * l'état de départ (workspace créé hors Hub).
  */
-import { createHmac } from 'node:crypto';
 
 import {
   test,
@@ -40,6 +39,7 @@ import {
   uniqueEmail as makeEmail,
   withRateLimitRetry,
 } from './_helpers';
+import { entetesSignature } from '../../lib/hmac/signature-hub';
 
 const NOTIFUSE_URL =
   process.env.NOTIFUSE_STAGING_URL ?? 'https://notifuse.staging.veridian.site';
@@ -62,8 +62,7 @@ function assertNotProd(): void {
 /**
  * Appel HMAC direct à Notifuse — simule le CLI `notifuse` qui provisionne un
  * workspace SANS passer par le Hub. C'est l'état de départ du bug.
- * Format de signature : `sha256(timestamp + "." + rawBody)`, cf.
- * `lib/notifuse/client.ts`.
+ * Signature : `lib/hmac/signature-hub.ts` (v2), comme le Hub.
  */
 async function notifuseHmac(
   method: 'GET' | 'POST',
@@ -71,15 +70,8 @@ async function notifuseHmac(
   body: unknown,
 ): Promise<{ status: number; json: Record<string, unknown> }> {
   const raw = body == null ? '' : JSON.stringify(body);
-  const timestamp = Date.now().toString();
-  const signature = createHmac('sha256', NOTIFUSE_HUB_SECRET)
-    .update(`${timestamp}.${raw}`)
-    .digest('hex');
-
-  const headers: Record<string, string> = {
-    'X-Veridian-Timestamp': timestamp,
-    'X-Veridian-Hub-Signature': signature,
-  };
+  // Le signataire du Hub, en v2 (Mail le vérifie depuis bd3e66dc) : jamais un HMAC refait ici.
+  const headers: Record<string, string> = entetesSignature({ secret: NOTIFUSE_HUB_SECRET, methode: method, url: `${NOTIFUSE_URL}${path}`, corps: raw, app: 'notifuse', env: { HMAC_V2_APPS: 'notifuse' } as NodeJS.ProcessEnv });
   if (raw) headers['Content-Type'] = 'application/json';
 
   const res = await fetch(`${NOTIFUSE_URL}${path}`, {

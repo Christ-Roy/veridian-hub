@@ -11,6 +11,8 @@
 # l'environnement, ou du fichier de credentials de la machine, lu à l'exécution.
 set -uo pipefail
 cd "$(dirname "$0")/../e2e/systeme-sso"
+# Aucun spec ne signe à la main vers une app (27/11) : un HMAC v1 refait ici est refusé par Academy et retient les autres apps en v1.
+bash ../../scripts/ci/check-signature-e2e.sh >/dev/null || { bash ../../scripts/ci/check-signature-e2e.sh; echo "✗ batterie refusée : signature à la main vers une app"; exit 1; }
 
 # Le jeton Nomad hérité du shell peut être révoqué par une rotation (07/11) : on relit le jeton de
 # lecture dans le fichier qui fait foi, sans jamais l'afficher.

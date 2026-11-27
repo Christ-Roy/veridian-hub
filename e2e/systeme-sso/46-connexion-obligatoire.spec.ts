@@ -89,6 +89,7 @@ cas(null, 'connexion obligatoire : aucune porte sans le fournisseur, toutes avec
     const echanger = async () => {
       const corps = JSON.stringify({ grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange', subject_grant: grant, audience: 'crm', scope: 'crm:societe.ecrire crm:tache.ecrire' });
       const [ts, nonce] = [String(Date.now()), randomBytes(18).toString('base64url')];
+      // vers-le-hub : jeton de délégation signé par une app, vérifié par le Hub (lib/delegation/jeton.ts).
       const r = await fetch(`${HUB_URL}/api/delegation/jeton`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-veridian-app': 'prospection', 'x-veridian-timestamp': ts, 'x-veridian-nonce': nonce, 'x-veridian-hub-signature': createHmac('sha256', secretDe('PROSPECTION_TENANT_API_SECRET')).update(`${ts}.${nonce}.${corps}`).digest('hex') }, body: corps });
       return ((await r.json().catch(() => null)) as { error?: string } | null)?.error ?? 'ok';
     };

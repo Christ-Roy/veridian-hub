@@ -53,6 +53,7 @@ async function signal(slug: string, cle: string) {
     headers: {
       'content-type': 'application/json',
       'x-veridian-timestamp': ts,
+      // vers-le-hub : webhook signé par Mail, vérifié par le Hub.
       'x-veridian-notifuse-signature': createHmac('sha256', secretWebhook()).update(`${ts}.${body}`).digest('hex'),
     },
     body,
