@@ -118,6 +118,8 @@ for (const { app, chemin } of APPS.filter((x) => !process.env.SSO_MON_IA_APP || 
       const lien = carte.locator(`a[href="${HUB_URL}/dashboard/ia"]`).first();
       expect([await lien.getAttribute('href'), await lien.getAttribute('target')], 'la carte mène au connecteur du Hub, nouvel onglet').toEqual([`${HUB_URL}/dashboard/ia`, '_blank']);
       // Atteignable à l'écran, pas seulement présent dans la page (27/11 : carte d'Academy coupée sous la commande à 1280×720).
+      // Épreuve `carte-coupee` : la carte rognée sans défilement ; le lien final sort de l'écran, le cas doit échouer.
+      if (process.env.SSO_SABOTAGE === 'carte-coupee') await carte.evaluate((el) => { const c = el as HTMLElement; c.style.maxHeight = '60px'; c.style.overflow = 'hidden'; c.style.position = 'fixed'; c.style.top = '0'; });
       await lien.scrollIntoViewIfNeeded({ timeout: 5_000 }).catch(() => undefined);
       await expect(lien, 'le lien final de la carte est atteignable à l\'écran').toBeInViewport({ timeout: 5_000 });
       // Jamais une clé PROPOSÉE (« votre clé », « clé d'API », un champ) ; « sans clé » est l'assurance du contrat (Prospection, 26/11 : l'ancien
