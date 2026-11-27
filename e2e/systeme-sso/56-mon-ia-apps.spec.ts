@@ -33,7 +33,7 @@ const APPS: { app: AppFenetre; chemin: string }[] = [
   { app: 'notifuse', chemin: '/' }, // Mail : sert §5.24 et §5.24.1 depuis f7eb4e68 (27/11)
 ];
 /** Les apps qui servent la carte enrichie (installation en un clic, adresse MCP, commande) ; les autres s'y ajoutent quand elles la servent. */
-const CARTE_ENRICHIE = new Set<AppFenetre>(['academy', 'prospection', 'analytics']);
+const CARTE_ENRICHIE = new Set<AppFenetre>(['academy', 'prospection', 'analytics', 'notifuse']);
 const urlDe = (app: AppFenetre) => (app === 'academy' ? ACADEMY_URL : APP_URL[app]);
 
 /** Ouvre l'app pour l'organisation du compte, puis y entre par le rebond du Hub. Academy : ouverte par la route d'administration (comme la recette, cas 50). */
