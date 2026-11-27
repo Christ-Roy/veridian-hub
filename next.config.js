@@ -14,6 +14,9 @@ const nextConfig = {
   // Enable standalone output for Docker
   output: 'standalone',
 
+  // Le commit construit (Dockerfile, ARG GIT_SHA) : deux versions servies pendant un canari se reconnaissent (VER-270, piège mesuré chez Academy).
+  deploymentId: process.env.HUB_DEPLOYMENT_ID || undefined,
+
   pageExtensions,
 
   // Image optimization — WHITELIST STRICTE pour bloquer SSRF (CVE-2024-34351)

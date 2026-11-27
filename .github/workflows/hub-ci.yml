@@ -29,6 +29,13 @@ on:
       - 'scripts/test-systeme-sso.sh'
       - 'scripts/navigateur-distant.sh'
   workflow_dispatch:
+    inputs:
+      # Redéployer le jobspec de main avec une image DÉJÀ servie, sans construire (fiche nomad-veridian 34, piège des CI qui construisent à
+      # chaque push) : un changement de tags `traefik.*` seul doit rester une mise à jour EN PLACE, jamais un canari. Ex. : v0.5.252.
+      image_existante:
+        description: 'Étiquette GHCR déjà publiée à redéployer telle quelle (vide = construire)'
+        required: false
+        default: ''
 
 # Un push sur main n'annule plus un déploiement lancé (24/11/2026). Sur main, seuls `test` et `docker` d'un run dépassé
 # s'annulent (groupes de job, plus bas) : le run dépassé n'atteint donc pas le déploiement, et un run déjà en déploiement
@@ -194,6 +201,15 @@ jobs:
             "/users/${{ github.repository_owner }}/packages/container/${PACKAGE_NAME}/versions" \
             --jq '.[].metadata.container.tags[]' 2>/dev/null || echo "")
           LATEST_TAG=$(echo "$EXISTING_TAGS" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -uV | tail -n 1)
+          if [ -n "$REPRISE" ]; then
+            # Une étiquette exacte, déjà publiée : sinon rien ne part (jamais un « latest » ni une image construite ici).
+            echo "$REPRISE" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$' || { echo "::error::image_existante invalide : $REPRISE"; exit 1; }
+            echo "$EXISTING_TAGS" | grep -qx "$REPRISE" || { echo "::error::image_existante absente de GHCR : $REPRISE"; exit 1; }
+            echo "version=${REPRISE}" >> $GITHUB_OUTPUT
+            echo "reprise=true" >> $GITHUB_OUTPUT
+            echo "Image reprise telle quelle : ${REPRISE}"
+            exit 0
+          fi
           if [ -z "$LATEST_TAG" ]; then
             VERSION="v0.5.0"
           else
@@ -206,6 +222,8 @@ jobs:
           echo "Building version: ${VERSION}"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Par l'environnement, jamais interpolée dans le script (injection).
+          REPRISE: ${{ github.event.inputs.image_existante }}
 
       # site.veridian.migrations : lu par veridian-ci-deploy. Même liste que l'image servie = contrôle du PITR (4 s) au lieu
       # d'une sauvegarde ; liste différente ou étiquette absente = sauvegarde avant de déployer.
@@ -219,6 +237,7 @@ jobs:
 
       - name: Build and push
         id: build1
+        if: steps.version.outputs.reprise != 'true'
         continue-on-error: true
         uses: docker/build-push-action@v6
         with:
@@ -235,7 +254,7 @@ jobs:
 
       # Échecs passagers du push GHCR (« context deadline exceeded »).
       - name: Build and push (second essai)
-        if: steps.build1.outcome == 'failure'
+        if: steps.build1.outcome == 'failure' && steps.version.outputs.reprise != 'true'
         uses: docker/build-push-action@v6
         with:
           context: .

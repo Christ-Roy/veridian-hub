@@ -63,6 +63,10 @@ RUN corepack enable && corepack prepare pnpm@10.33.0 --activate
 ENV NEXT_TELEMETRY_DISABLED=1
 # Disable SWC lockfile patching to avoid "Cannot read properties of undefined (reading 'os')" error
 ENV NEXT_SKIP_NATIVE_POSTINSTALL=1
+# Identifiant de déploiement de Next = le commit (VER-270) : pendant un canari, deux versions servent ensemble ; une server action visant l'autre
+# version reçoit une erreur de version (rechargement) au lieu de figer la page. Vide hors CI : Next n'en pose pas.
+ARG GIT_SHA=
+ENV HUB_DEPLOYMENT_ID=$GIT_SHA
 RUN pnpm run build
 
 # ============================================================================
