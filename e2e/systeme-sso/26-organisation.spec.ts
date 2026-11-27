@@ -9,7 +9,8 @@ import { expect } from '@playwright/test';
 
 import { APP_URL, HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
-import { activerTwentyAuHub, admin, adminOk, lookup, activerAnalyticsAuHub } from './lib/hub-admin';
+import { activerTwentyAuHub, admin, adminOk, lookup, activerAnalyticsAuHub, secretDe } from './lib/hub-admin';
+import { signatureVersApp } from './lib/signature-app';
 import { obtenirJetonMcp, outil } from './lib/mcp';
 import { creerCompteProuve, noterEspaceTwenty, ouvrirApp, type Compte } from './lib/parcours';
 
@@ -129,9 +130,14 @@ cas(null, 'organisation : réglée une fois au Hub, reçue et relue par l\'app, 
   const hoteCrm = await ouvrirApp(ctxCrm, 'twenty').then((x) => new URL(x.url).origin).finally(() => ctxCrm.close());
   const pub = (await (await fetch(`${hoteCrm}/metadata`, { method: 'POST', headers: { 'content-type': 'application/json', origin: hoteCrm }, body: JSON.stringify({ query: 'query($o:String!){getPublicWorkspaceDataByDomain(origin:$o){displayName logo}}', variables: { o: hoteCrm } }) })).json().catch(() => null)) as { data?: { getPublicWorkspaceDataByDomain?: { displayName?: string; logo?: string } } } | null;
   const espaceCrm = pub?.data?.getPublicWorkspaceDataByDomain;
-  expect([espaceCrm?.displayName, Boolean(espaceCrm?.logo)], JSON.stringify(pub).slice(0, 300)).toEqual(['TEST organisation', true]);
-  const logoCrm = await fetch(new URL(espaceCrm!.logo!, hoteCrm));
-  expect([logoCrm.status, logoCrm.headers.get('content-type')], espaceCrm!.logo!.slice(0, 120)).toEqual([200, 'image/png']);
+  // Sans session, le CRM ne livre plus que le nom (26/11, fuite du lien signé fermée) : le logo public VIDE est la preuve qu'elle reste fermée.
+  expect([espaceCrm?.displayName, espaceCrm?.logo ?? ''], JSON.stringify(pub).slice(0, 300)).toEqual(['TEST organisation', '']);
+  // Le logo appliqué se relit par la relecture signée du Hub (CRM, 27/11) : `logo_applied` vrai pour CETTE adresse.
+  const envoye = (await adminOk<{ document: { marque: { logo_url: string | null } } }>('GET', `organisations/${T.id}`)).document.marque.logo_url;
+  const url = `${hoteCrm}/api/hub/organisations/sync?hub_tenant_id=${T.id}`;
+  const relu = (await (await fetch(url, { headers: signatureVersApp('crm', secretDe('CRM_HUB_API_SECRET_PROD'), 'GET', url), signal: AbortSignal.timeout(20_000) })).json().catch(() => null)) as { logo_url?: string; logo_applied?: boolean } | null;
+  if (relu && relu.logo_applied === undefined) throw new NonAbouti('le CRM ne rend pas encore logo_applied dans sa relecture signée (correctif CRM du 27/11 à servir)');
+  expect([relu?.logo_applied, relu?.logo_url], `envoyé ${envoye}`).toEqual([true, envoye]);
 
   // Suspendue, reprise, puis retiré : fermé au Hub (porte MCP, rebond, jetons) ET dans le CRM (VER-254). La session et la clé : cas 34.
   const appsDeM = async () => (JSON.parse((await outil(jetonM, 'chercher_outils', { besoin: 'lire les sociétés', app: 'twenty' })).texte) as { apps: string[] }).apps.includes('twenty');
