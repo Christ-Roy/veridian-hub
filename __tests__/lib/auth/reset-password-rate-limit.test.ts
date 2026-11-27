@@ -25,9 +25,9 @@ const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 
 /** Consomme `n` hits sur une clé et retourne le dernier résultat. */
-function drain(limiter: { enforce: (k: string, now?: number) => any }, key: string, n: number) {
+async function drain(limiter: { enforce: (k: string, now?: number) => Promise<any> }, key: string, n: number) {
   let last;
-  for (let i = 0; i < n; i++) last = limiter.enforce(key);
+  for (let i = 0; i < n; i++) last = (await limiter.enforce(key));
   return last;
 }
 
@@ -38,27 +38,27 @@ beforeEach(() => {
 });
 
 describe('reset-password rate-limiters — plafonds', () => {
-  it('demande par IP : 5 passent, la 6e est refusée', () => {
+  it('demande par IP : 5 passent, la 6e est refusée', async () => {
     for (let i = 1; i <= 5; i++) {
-      expect(resetRequestIpLimiter.enforce('1.2.3.4').ok, `hit #${i}`).toBe(true);
+      expect((await resetRequestIpLimiter.enforce('1.2.3.4')).ok, `hit #${i}`).toBe(true);
     }
-    expect(resetRequestIpLimiter.enforce('1.2.3.4').ok).toBe(false);
+    expect((await resetRequestIpLimiter.enforce('1.2.3.4')).ok).toBe(false);
   });
 
-  it('demande par email : 4 passent, la 5e est refusée', () => {
+  it('demande par email : 4 passent, la 5e est refusée', async () => {
     // Volontairement bas : chaque hit autorisé = un vrai mail dans la boîte de
     // la cible. C'est le garde-fou anti mail-bombing.
     for (let i = 1; i <= 4; i++) {
-      expect(resetRequestEmailLimiter.enforce('cible@test.io').ok, `hit #${i}`).toBe(true);
+      expect((await resetRequestEmailLimiter.enforce('cible@test.io')).ok, `hit #${i}`).toBe(true);
     }
-    expect(resetRequestEmailLimiter.enforce('cible@test.io').ok).toBe(false);
+    expect((await resetRequestEmailLimiter.enforce('cible@test.io')).ok).toBe(false);
   });
 
-  it('consommation par IP : 10 passent, la 11e est refusée', () => {
+  it('consommation par IP : 10 passent, la 11e est refusée', async () => {
     for (let i = 1; i <= 10; i++) {
-      expect(resetConsumeLimiter.enforce('1.2.3.4').ok, `hit #${i}`).toBe(true);
+      expect((await resetConsumeLimiter.enforce('1.2.3.4')).ok, `hit #${i}`).toBe(true);
     }
-    expect(resetConsumeLimiter.enforce('1.2.3.4').ok).toBe(false);
+    expect((await resetConsumeLimiter.enforce('1.2.3.4')).ok).toBe(false);
   });
 });
 
@@ -67,55 +67,55 @@ describe('reset-password rate-limiters — fenêtres', () => {
   // coût réel se mesure à l'heure, et un plafond à la minute ne gêne pas un
   // attaquant qui lisse son débit. On l'assert via le temps injecté plutôt
   // qu'en attendant réellement.
-  it('la fenêtre IP de la demande dure 15 min, pas 1 min', () => {
-    const t0 = Date.now();
-    for (let i = 0; i < 5; i++) resetRequestIpLimiter.enforce('9.9.9.9', t0);
+  it('la fenêtre IP de la demande dure 15 min, pas 1 min', async () => {
+    const t0 = Math.ceil(Date.now() / HOUR) * HOUR; // aligné sur une frontière : la fenêtre à deux compartiments est alors exacte
+    for (let i = 0; i < 5; i++) (await resetRequestIpLimiter.enforce('9.9.9.9', t0));
 
     // 5 minutes plus tard : toujours bloqué (une fenêtre d'1 min aurait rouvert).
-    expect(resetRequestIpLimiter.enforce('9.9.9.9', t0 + 5 * MINUTE).ok).toBe(false);
-    // Au-delà de 15 min : rouvert.
-    expect(resetRequestIpLimiter.enforce('9.9.9.9', t0 + 15 * MINUTE + 1).ok).toBe(true);
+    expect((await resetRequestIpLimiter.enforce('9.9.9.9', t0 + 5 * MINUTE)).ok).toBe(false);
+    // Deux fenêtres plus tard (la rafale est sortie de l'approximation à deux compartiments) : rouvert.
+    expect((await resetRequestIpLimiter.enforce('9.9.9.9', t0 + 30 * MINUTE)).ok).toBe(true);
   });
 
-  it('la fenêtre email de la demande dure 1 h', () => {
-    const t0 = Date.now();
-    for (let i = 0; i < 4; i++) resetRequestEmailLimiter.enforce('v@test.io', t0);
+  it('la fenêtre email de la demande dure 1 h', async () => {
+    const t0 = Math.ceil(Date.now() / HOUR) * HOUR; // aligné sur une frontière : la fenêtre à deux compartiments est alors exacte
+    for (let i = 0; i < 4; i++) (await resetRequestEmailLimiter.enforce('v@test.io', t0));
 
     // 30 min plus tard : la victime ne doit pas recevoir un 5e mail.
-    expect(resetRequestEmailLimiter.enforce('v@test.io', t0 + 30 * MINUTE).ok).toBe(false);
-    expect(resetRequestEmailLimiter.enforce('v@test.io', t0 + HOUR + 1).ok).toBe(true);
+    expect((await resetRequestEmailLimiter.enforce('v@test.io', t0 + 30 * MINUTE)).ok).toBe(false);
+    expect((await resetRequestEmailLimiter.enforce('v@test.io', t0 + 2 * HOUR)).ok).toBe(true); // deux fenêtres : la rafale est sortie (l approximation garde un peu plus longtemps à cheval)
   });
 
-  it('la fenêtre de consommation dure 1 min', () => {
-    const t0 = Date.now();
-    for (let i = 0; i < 10; i++) resetConsumeLimiter.enforce('8.8.8.8', t0);
-    expect(resetConsumeLimiter.enforce('8.8.8.8', t0 + 30_000).ok).toBe(false);
-    expect(resetConsumeLimiter.enforce('8.8.8.8', t0 + MINUTE + 1).ok).toBe(true);
+  it('la fenêtre de consommation dure 1 min', async () => {
+    const t0 = Math.ceil(Date.now() / HOUR) * HOUR; // aligné sur une frontière : la fenêtre à deux compartiments est alors exacte
+    for (let i = 0; i < 10; i++) (await resetConsumeLimiter.enforce('8.8.8.8', t0));
+    expect((await resetConsumeLimiter.enforce('8.8.8.8', t0 + 30_000)).ok).toBe(false);
+    expect((await resetConsumeLimiter.enforce('8.8.8.8', t0 + 2 * MINUTE)).ok).toBe(true);
   });
 });
 
 describe('reset-password rate-limiters — étanchéité', () => {
-  it('les trois limiters sont des buckets distincts', () => {
+  it('les trois limiters sont des buckets distincts', async () => {
     // Saturer la demande par IP ne doit pas bloquer la consommation du token
     // depuis la même IP : sinon un client qui a spammé « mot de passe oublié »
     // ne pourrait plus se servir du lien qu'il vient de recevoir.
-    drain(resetRequestIpLimiter, '7.7.7.7', 6);
-    expect(resetRequestIpLimiter.enforce('7.7.7.7').ok).toBe(false);
-    expect(resetConsumeLimiter.enforce('7.7.7.7').ok).toBe(true);
-    expect(resetRequestEmailLimiter.enforce('7.7.7.7').ok).toBe(true);
+    await drain(resetRequestIpLimiter, '7.7.7.7', 6);
+    expect((await resetRequestIpLimiter.enforce('7.7.7.7')).ok).toBe(false);
+    expect((await resetConsumeLimiter.enforce('7.7.7.7')).ok).toBe(true);
+    expect((await resetRequestEmailLimiter.enforce('7.7.7.7')).ok).toBe(true);
   });
 
-  it('deux clés différentes ne partagent pas leur compteur', () => {
-    drain(resetRequestEmailLimiter, 'a@test.io', 5);
-    expect(resetRequestEmailLimiter.enforce('a@test.io').ok).toBe(false);
-    expect(resetRequestEmailLimiter.enforce('b@test.io').ok).toBe(true);
+  it('deux clés différentes ne partagent pas leur compteur', async () => {
+    await drain(resetRequestEmailLimiter, 'a@test.io', 5);
+    expect((await resetRequestEmailLimiter.enforce('a@test.io')).ok).toBe(false);
+    expect((await resetRequestEmailLimiter.enforce('b@test.io')).ok).toBe(true);
   });
 });
 
 describe('reset-password rate-limiters — Retry-After', () => {
-  it('un refus expose un délai de réessai strictement positif', () => {
-    drain(resetConsumeLimiter, '5.5.5.5', 10);
-    const blocked = resetConsumeLimiter.enforce('5.5.5.5');
+  it('un refus expose un délai de réessai strictement positif', async () => {
+    await drain(resetConsumeLimiter, '5.5.5.5', 10);
+    const blocked = (await resetConsumeLimiter.enforce('5.5.5.5'));
     expect(blocked.ok).toBe(false);
     if (!blocked.ok) {
       expect(blocked.retryAfterSeconds).toBeGreaterThan(0);
@@ -125,9 +125,9 @@ describe('reset-password rate-limiters — Retry-After', () => {
     }
   });
 
-  it('le délai de réessai de la demande par email reste borné à sa fenêtre', () => {
-    drain(resetRequestEmailLimiter, 'w@test.io', 4);
-    const blocked = resetRequestEmailLimiter.enforce('w@test.io');
+  it('le délai de réessai de la demande par email reste borné à sa fenêtre', async () => {
+    await drain(resetRequestEmailLimiter, 'w@test.io', 4);
+    const blocked = (await resetRequestEmailLimiter.enforce('w@test.io'));
     expect(blocked.ok).toBe(false);
     if (!blocked.ok) {
       expect(blocked.retryAfterSeconds).toBeGreaterThan(0);

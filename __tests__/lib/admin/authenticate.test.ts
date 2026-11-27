@@ -419,6 +419,6 @@ describe('authenticateAdmin — bypass rate-limit E2E staging', () => {
     // Le storage interne du limiter ne doit PAS avoir été incrémenté
     // (bypass = pas de hit comptabilisé) — sinon un client legit sans
     // bypass se prendrait un 429 immérité juste après.
-    expect(adminApiLimiter.size()).toBe(0);
+    expect((await adminApiLimiter.depasse('127.0.0.1')).ok).toBe(true);
   });
 });

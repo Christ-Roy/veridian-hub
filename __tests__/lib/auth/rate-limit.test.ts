@@ -10,7 +10,7 @@
  *  - shouldBypassRateLimit : triple garde-fou anti-fuite prod
  */
 
-import { describe, it, expect, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeEach, afterAll, vi } from 'vitest';
 import {
   RateLimiter,
   extractClientIp,
@@ -18,12 +18,14 @@ import {
 } from '@/lib/auth/rate-limit';
 
 describe('RateLimiter', () => {
-  it('laisse passer jusqu\'au cap, refuse au-delà', () => {
-    const rl = new RateLimiter({ capacity: 3, windowMs: 1000, name: 'test' });
-    expect(rl.enforce('ip1').ok).toBe(true);
-    expect(rl.enforce('ip1').ok).toBe(true);
-    expect(rl.enforce('ip1').ok).toBe(true);
-    const blocked = rl.enforce('ip1');
+  // Fenêtre fixe alignée sur l'horloge (VER-270) : le compte est partagé en base, pas en mémoire.
+  it('laisse passer jusqu\'au cap, refuse au-delà', async () => {
+    const rl = new RateLimiter({ capacity: 3, windowMs: 1000, name: 'test-cap' });
+    const t = 1_000_000;
+    expect((await rl.enforce('ip1', t)).ok).toBe(true);
+    expect((await rl.enforce('ip1', t)).ok).toBe(true);
+    expect((await rl.enforce('ip1', t)).ok).toBe(true);
+    const blocked = await rl.enforce('ip1', t);
     expect(blocked.ok).toBe(false);
     if (!blocked.ok) {
       expect(blocked.retryAfterSeconds).toBeGreaterThan(0);
@@ -31,95 +33,127 @@ describe('RateLimiter', () => {
     }
   });
 
-  it('compte indépendamment par key (IP)', () => {
-    const rl = new RateLimiter({ capacity: 2, windowMs: 1000, name: 'test' });
-    expect(rl.enforce('ip1').ok).toBe(true);
-    expect(rl.enforce('ip1').ok).toBe(true);
-    expect(rl.enforce('ip1').ok).toBe(false);
+  it('compte indépendamment par key (IP)', async () => {
+    const rl = new RateLimiter({ capacity: 2, windowMs: 1000, name: 'test-cle' });
+    const t = 1_000_000;
+    expect((await rl.enforce('ip1', t)).ok).toBe(true);
+    expect((await rl.enforce('ip1', t)).ok).toBe(true);
+    expect((await rl.enforce('ip1', t)).ok).toBe(false);
     // ip2 démarre frais
-    expect(rl.enforce('ip2').ok).toBe(true);
-    expect(rl.enforce('ip2').ok).toBe(true);
-    expect(rl.enforce('ip2').ok).toBe(false);
+    expect((await rl.enforce('ip2', t)).ok).toBe(true);
+    expect((await rl.enforce('ip2', t)).ok).toBe(true);
+    expect((await rl.enforce('ip2', t)).ok).toBe(false);
   });
 
-  it('fenêtre glissante : un hit vieux sort du compte', () => {
-    const rl = new RateLimiter({ capacity: 2, windowMs: 1000, name: 'test' });
+  it('fenêtre glissante : deux fenêtres plus tard, le compte repart', async () => {
+    const rl = new RateLimiter({ capacity: 2, windowMs: 1000, name: 'test-fenetre' });
+    const t0 = 1_000_000; // début de fenêtre (multiple de 1000)
+    expect((await rl.enforce('ip1', t0)).ok).toBe(true);
+    expect((await rl.enforce('ip1', t0 + 100)).ok).toBe(true);
+    expect((await rl.enforce('ip1', t0 + 200)).ok).toBe(false);
+    expect((await rl.enforce('ip1', t0 + 2000)).ok).toBe(true);
+  });
+
+  // Rafale à cheval sur la frontière : la fenêtre fixe laisserait passer 5 + 5 (ici 10 sur 20 ms).
+  it('RAFALE À LA FRONTIÈRE : 5 hits juste avant la frontière, 5 juste après, aucun du second lot ne passe', async () => {
+    const rl = new RateLimiter({ capacity: 5, windowMs: 1000, name: 'test-frontiere' });
     const t0 = 1_000_000;
-    expect(rl.enforce('ip1', t0).ok).toBe(true);
-    expect(rl.enforce('ip1', t0 + 100).ok).toBe(true);
-    // 3e à t0+200 → KO
-    expect(rl.enforce('ip1', t0 + 200).ok).toBe(false);
-    // Mais après expiration de la fenêtre, on peut reprendre
-    // (les 3 hits vieux de >1000ms sont GC'd)
-    expect(rl.enforce('ip1', t0 + 2000).ok).toBe(true);
+    const avant = [];
+    for (let i = 0; i < 5; i++) avant.push(await rl.enforce('ip1', t0 + 990));
+    expect(avant.filter((r) => r.ok).length).toBe(5);
+    const apres = [];
+    for (let i = 0; i < 5; i++) apres.push(await rl.enforce('ip1', t0 + 1010));
+    expect(apres.filter((r) => r.ok).length).toBe(0);
   });
 
-  it('NE FUIT PAS : les clés d\'IP expirées sont purgées (GC amorti, anti-OOM)', () => {
-    const rl = new RateLimiter({ capacity: 5, windowMs: 1000, name: 'test' });
+  it('un refus rend le délai exact jusqu\'à la fenêtre suivante (Retry-After)', async () => {
+    const rl = new RateLimiter({ capacity: 1, windowMs: 10_000, name: 'test-retry' });
     const t0 = 1_000_000;
-    // 300 IP uniques font 1 hit chacune à t0 → 300 clés dans la Map.
-    for (let i = 0; i < 300; i++) rl.enforce(`ip-${i}`, t0);
-    expect(rl.size()).toBe(300); // avant GC : 300 clés vivantes
-
-    // Bien APRÈS expiration de leurs fenêtres (t0+10000 >> windowMs 1000), une
-    // même IP refait > GC_EVERY (256) requêtes → le GC amorti se déclenche et
-    // doit purger les 300 clés mortes (tous leurs hits hors fenêtre).
-    const tLate = t0 + 10_000;
-    for (let i = 0; i < 300; i++) rl.enforce('ip-late', tLate);
-    // Ne reste QUE 'ip-late' : les 300 IP mortes sont toutes purgées (le GC
-    // balaie la Map via Array.from — itération ES5-safe). Sans le GC, la Map
-    // garderait les 301 clés à vie → leak OOM.
-    expect(rl.size()).toBe(1);
+    await rl.enforce('ip1', t0);
+    const refus = await rl.enforce('ip1', t0 + 2_500);
+    expect(refus.ok).toBe(false);
+    if (!refus.ok) expect(refus.retryAfterSeconds).toBe(8);
   });
 
-  it('les tentatives refusées comptent aussi (pas de bypass)', () => {
-    const rl = new RateLimiter({ capacity: 1, windowMs: 1000, name: 'test' });
-    expect(rl.enforce('ip1').ok).toBe(true);
-    expect(rl.enforce('ip1').ok).toBe(false);
-    expect(rl.enforce('ip1').ok).toBe(false);
-    expect(rl.enforce('ip1').ok).toBe(false);
-    // Toutes refusées mais comptées : la 5e doit toujours être refusée
-    expect(rl.enforce('ip1').ok).toBe(false);
+  it('les tentatives refusées comptent aussi (pas de bypass)', async () => {
+    const rl = new RateLimiter({ capacity: 1, windowMs: 1000, name: 'test-refus' });
+    const t = 1_000_000;
+    expect((await rl.enforce('ip1', t)).ok).toBe(true);
+    expect((await rl.enforce('ip1', t)).ok).toBe(false);
+    expect((await rl.enforce('ip1', t)).ok).toBe(false);
+    expect((await rl.enforce('ip1', t)).ok).toBe(false);
+    expect((await rl.enforce('ip1', t)).ok).toBe(false);
   });
 
-  it('remaining décompte correctement les tentatives autorisées', () => {
-    const rl = new RateLimiter({ capacity: 3, windowMs: 1000, name: 'test' });
-    const r1 = rl.enforce('ip1');
+  it('remaining décompte correctement les tentatives autorisées', async () => {
+    const rl = new RateLimiter({ capacity: 3, windowMs: 1000, name: 'test-remaining' });
+    const t = 1_000_000;
+    const r1 = await rl.enforce('ip1', t);
     expect(r1.ok && r1.remaining).toBe(2);
-    const r2 = rl.enforce('ip1');
+    const r2 = await rl.enforce('ip1', t);
     expect(r2.ok && r2.remaining).toBe(1);
-    const r3 = rl.enforce('ip1');
+    const r3 = await rl.enforce('ip1', t);
     expect(r3.ok && r3.remaining).toBe(0);
   });
 
-  it('reset() vide le storage', () => {
-    const rl = new RateLimiter({ capacity: 1, windowMs: 1000, name: 'test' });
-    rl.enforce('ip1');
-    expect(rl.size()).toBe(1);
-    rl.reset();
-    expect(rl.size()).toBe(0);
-    // Après reset, on peut reprendre
-    expect(rl.enforce('ip1').ok).toBe(true);
+  it('reset() vide la fenêtre du limiteur', async () => {
+    const rl = new RateLimiter({ capacity: 1, windowMs: 1000, name: 'test-reset' });
+    const t = 1_000_000;
+    await rl.enforce('ip1', t);
+    expect((await rl.enforce('ip1', t)).ok).toBe(false);
+    await rl.reset();
+    expect((await rl.enforce('ip1', t)).ok).toBe(true);
   });
 
-  it('constructor refuse capacity <= 0', () => {
+  it('depasse() lit sans compter : un appel réussi ne consomme rien, le plafond atteint bloque', async () => {
+    const rl = new RateLimiter({ capacity: 2, windowMs: 1000, name: 'test-depasse' });
+    const t = 1_000_000;
+    expect((await rl.depasse('ip1', t)).ok).toBe(true);
+    expect((await rl.depasse('ip1', t)).ok).toBe(true);
+    await rl.enforce('ip1', t);
+    await rl.enforce('ip1', t);
+    expect((await rl.depasse('ip1', t)).ok).toBe(false);
+  });
+
+  it('panne de base : refus fermé et journalisé, jamais un passage', async () => {
+    const { installerMagasin, magasinEnMemoire } = await import('@/lib/auth/compteurs');
+    const erreur = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    installerMagasin({
+      incrementer: async () => { throw new Error('base muette'); },
+      lire: async () => { throw new Error('base muette'); },
+      vider: async () => undefined,
+      menage: async () => undefined,
+    });
+    try {
+      const rl = new RateLimiter({ capacity: 5, windowMs: 1000, name: 'test-panne' });
+      const r = await rl.enforce('ip1', 1_000_000);
+      expect(r.ok).toBe(false);
+      expect((await rl.depasse('ip1', 1_000_000)).ok).toBe(false);
+      expect(erreur.mock.calls.some((c) => String(c[0]).includes('[ratelimit-indisponible]'))).toBe(true);
+    } finally {
+      installerMagasin(magasinEnMemoire());
+      erreur.mockRestore();
+    }
+  });
+
+  it('constructor refuse capacity <= 0', async () => {
     expect(() => new RateLimiter({ capacity: 0, windowMs: 1000, name: 'x' })).toThrow();
     expect(() => new RateLimiter({ capacity: -1, windowMs: 1000, name: 'x' })).toThrow();
   });
 
-  it('constructor refuse windowMs <= 0', () => {
+  it('constructor refuse windowMs <= 0', async () => {
     expect(() => new RateLimiter({ capacity: 1, windowMs: 0, name: 'x' })).toThrow();
     expect(() => new RateLimiter({ capacity: 1, windowMs: -100, name: 'x' })).toThrow();
   });
 });
 
 describe('extractClientIp (clé des limiteurs, détail : ip-client.test.ts)', () => {
-  it('D4 : des en-têtes forgés par un appelant direct ne changent pas sa clé', () => {
+  it('D4 : des en-têtes forgés par un appelant direct ne changent pas sa clé', async () => {
     const rl = new RateLimiter({ capacity: 5, windowMs: 60_000, name: 'd4' });
     let last = { ok: true } as { ok: boolean };
     for (let i = 0; i < 6; i++) {
       // cf-connecting-ip : celui que l'appelant écrit ; X-Forwarded-For : ce que Traefik transmet (pair TCP seul).
-      last = rl.enforce(extractClientIp(new Headers({ 'cf-connecting-ip': `9.9.9.${i}`, 'x-real-ip': `8.8.8.${i}`, 'x-forwarded-for': '1.1.1.1' })));
+      last = (await rl.enforce(extractClientIp(new Headers({ 'cf-connecting-ip': `9.9.9.${i}`, 'x-real-ip': `8.8.8.${i}`, 'x-forwarded-for': '1.1.1.1' }))));
     }
     expect(last.ok).toBe(false);
   });
@@ -131,9 +165,9 @@ describe('exported limiter instances', () => {
     adminApiLimiter.reset();
     // 30 hits doivent passer, 31e refusée
     for (let i = 0; i < 30; i++) {
-      expect(adminApiLimiter.enforce('test-ip').ok).toBe(true);
+      expect((await adminApiLimiter.enforce('test-ip')).ok).toBe(true);
     }
-    expect(adminApiLimiter.enforce('test-ip').ok).toBe(false);
+    expect((await adminApiLimiter.enforce('test-ip')).ok).toBe(false);
     adminApiLimiter.reset();
   });
 
@@ -141,9 +175,9 @@ describe('exported limiter instances', () => {
     const { oauthStartLimiter } = await import('@/lib/auth/rate-limit');
     oauthStartLimiter.reset();
     for (let i = 0; i < 10; i++) {
-      expect(oauthStartLimiter.enforce('test-ip-oauth').ok).toBe(true);
+      expect((await oauthStartLimiter.enforce('test-ip-oauth')).ok).toBe(true);
     }
-    expect(oauthStartLimiter.enforce('test-ip-oauth').ok).toBe(false);
+    expect((await oauthStartLimiter.enforce('test-ip-oauth')).ok).toBe(false);
     oauthStartLimiter.reset();
   });
 
@@ -151,9 +185,9 @@ describe('exported limiter instances', () => {
     const { oauthCallbackLimiter } = await import('@/lib/auth/rate-limit');
     oauthCallbackLimiter.reset();
     for (let i = 0; i < 30; i++) {
-      expect(oauthCallbackLimiter.enforce('test-ip-cb').ok).toBe(true);
+      expect((await oauthCallbackLimiter.enforce('test-ip-cb')).ok).toBe(true);
     }
-    expect(oauthCallbackLimiter.enforce('test-ip-cb').ok).toBe(false);
+    expect((await oauthCallbackLimiter.enforce('test-ip-cb')).ok).toBe(false);
     oauthCallbackLimiter.reset();
   });
 
@@ -161,9 +195,9 @@ describe('exported limiter instances', () => {
     const { signupLimiter } = await import('@/lib/auth/rate-limit');
     signupLimiter.reset();
     for (let i = 0; i < 5; i++) {
-      expect(signupLimiter.enforce('test-ip-signup').ok).toBe(true);
+      expect((await signupLimiter.enforce('test-ip-signup')).ok).toBe(true);
     }
-    expect(signupLimiter.enforce('test-ip-signup').ok).toBe(false);
+    expect((await signupLimiter.enforce('test-ip-signup')).ok).toBe(false);
     signupLimiter.reset();
   });
 
@@ -171,9 +205,9 @@ describe('exported limiter instances', () => {
     const { credentialsLoginLimiter } = await import('@/lib/auth/rate-limit');
     credentialsLoginLimiter.reset();
     for (let i = 0; i < 5; i++) {
-      expect(credentialsLoginLimiter.enforce('test-ip-creds').ok).toBe(true);
+      expect((await credentialsLoginLimiter.enforce('test-ip-creds')).ok).toBe(true);
     }
-    expect(credentialsLoginLimiter.enforce('test-ip-creds').ok).toBe(false);
+    expect((await credentialsLoginLimiter.enforce('test-ip-creds')).ok).toBe(false);
     credentialsLoginLimiter.reset();
   });
 
@@ -181,9 +215,9 @@ describe('exported limiter instances', () => {
     const { invitationCreateLimiter } = await import('@/lib/auth/rate-limit');
     invitationCreateLimiter.reset();
     for (let i = 0; i < 60; i++) {
-      expect(invitationCreateLimiter.enforce('test-ip-inv').ok).toBe(true);
+      expect((await invitationCreateLimiter.enforce('test-ip-inv')).ok).toBe(true);
     }
-    expect(invitationCreateLimiter.enforce('test-ip-inv').ok).toBe(false);
+    expect((await invitationCreateLimiter.enforce('test-ip-inv')).ok).toBe(false);
     invitationCreateLimiter.reset();
   });
 
@@ -191,9 +225,9 @@ describe('exported limiter instances', () => {
     const { invitationVerifyLimiter } = await import('@/lib/auth/rate-limit');
     invitationVerifyLimiter.reset();
     for (let i = 0; i < 30; i++) {
-      expect(invitationVerifyLimiter.enforce('test-ip-verify').ok).toBe(true);
+      expect((await invitationVerifyLimiter.enforce('test-ip-verify')).ok).toBe(true);
     }
-    expect(invitationVerifyLimiter.enforce('test-ip-verify').ok).toBe(false);
+    expect((await invitationVerifyLimiter.enforce('test-ip-verify')).ok).toBe(false);
     invitationVerifyLimiter.reset();
   });
 
@@ -201,9 +235,9 @@ describe('exported limiter instances', () => {
     const { onboardingVerifyLimiter } = await import('@/lib/auth/rate-limit');
     onboardingVerifyLimiter.reset();
     for (let i = 0; i < 30; i++) {
-      expect(onboardingVerifyLimiter.enforce('test-ip-onboard-verify').ok).toBe(true);
+      expect((await onboardingVerifyLimiter.enforce('test-ip-onboard-verify')).ok).toBe(true);
     }
-    expect(onboardingVerifyLimiter.enforce('test-ip-onboard-verify').ok).toBe(false);
+    expect((await onboardingVerifyLimiter.enforce('test-ip-onboard-verify')).ok).toBe(false);
     onboardingVerifyLimiter.reset();
   });
 
@@ -211,33 +245,33 @@ describe('exported limiter instances', () => {
     const { onboardingConsumeLimiter } = await import('@/lib/auth/rate-limit');
     onboardingConsumeLimiter.reset();
     for (let i = 0; i < 10; i++) {
-      expect(onboardingConsumeLimiter.enforce('test-ip-onboard-consume').ok).toBe(true);
+      expect((await onboardingConsumeLimiter.enforce('test-ip-onboard-consume')).ok).toBe(true);
     }
-    expect(onboardingConsumeLimiter.enforce('test-ip-onboard-consume').ok).toBe(false);
-    expect(onboardingConsumeLimiter.enforce('other-ip-onboard-consume').ok).toBe(true);
+    expect((await onboardingConsumeLimiter.enforce('test-ip-onboard-consume')).ok).toBe(false);
+    expect((await onboardingConsumeLimiter.enforce('other-ip-onboard-consume')).ok).toBe(true);
     onboardingConsumeLimiter.reset();
   });
 
   const plafond = async (nom: 'renouvellementIpLimiter' | 'renouvellementLienLimiter', n: number) => {
     const l = (await import('@/lib/auth/rate-limit'))[nom];
     l.reset();
-    for (let i = 0; i < n; i++) expect(l.enforce('k').ok).toBe(true);
-    expect([l.enforce('k').ok, l.enforce('autre').ok]).toEqual([false, true]);
+    for (let i = 0; i < n; i++) expect((await l.enforce('k')).ok).toBe(true);
+    expect([(await l.enforce('k')).ok, (await l.enforce('autre')).ok]).toEqual([false, true]);
     l.reset();
   };
-  it('exports renouvellementIpLimiter : 5 envois, puis refus', () => plafond('renouvellementIpLimiter', 5));
-  it('exports renouvellementLienLimiter : 2 envois par lien, puis refus', () => plafond('renouvellementLienLimiter', 2));
+  it('exports renouvellementIpLimiter : 5 envois, puis refus', async () => plafond('renouvellementIpLimiter', 5));
+  it('exports renouvellementLienLimiter : 2 envois par lien, puis refus', async () => plafond('renouvellementLienLimiter', 2));
 
   it('exports onboardingQualificationLimiter avec capacity 60/min par userId:IP', async () => {
     const { onboardingQualificationLimiter } = await import('@/lib/auth/rate-limit');
     onboardingQualificationLimiter.reset();
     const key = 'user_1:203.0.113.50';
     for (let i = 0; i < 60; i++) {
-      expect(onboardingQualificationLimiter.enforce(key).ok).toBe(true);
+      expect((await onboardingQualificationLimiter.enforce(key)).ok).toBe(true);
     }
-    expect(onboardingQualificationLimiter.enforce(key).ok).toBe(false);
-    expect(onboardingQualificationLimiter.enforce('user_2:203.0.113.50').ok).toBe(true);
-    expect(onboardingQualificationLimiter.enforce('user_1:203.0.113.51').ok).toBe(true);
+    expect((await onboardingQualificationLimiter.enforce(key)).ok).toBe(false);
+    expect((await onboardingQualificationLimiter.enforce('user_2:203.0.113.50')).ok).toBe(true);
+    expect((await onboardingQualificationLimiter.enforce('user_1:203.0.113.51')).ok).toBe(true);
     onboardingQualificationLimiter.reset();
   });
 
@@ -251,11 +285,11 @@ describe('exported limiter instances', () => {
     const { billingStatePollLimiter } = await import('@/lib/auth/rate-limit');
     billingStatePollLimiter.reset();
     for (let i = 0; i < 60; i++) {
-      expect(billingStatePollLimiter.enforce('app:notifuse').ok).toBe(true);
+      expect((await billingStatePollLimiter.enforce('app:notifuse')).ok).toBe(true);
     }
-    expect(billingStatePollLimiter.enforce('app:notifuse').ok).toBe(false);
+    expect((await billingStatePollLimiter.enforce('app:notifuse')).ok).toBe(false);
     // Isolation par clé : une autre app/secret n'est pas affectée.
-    expect(billingStatePollLimiter.enforce('app:prospection').ok).toBe(true);
+    expect((await billingStatePollLimiter.enforce('app:prospection')).ok).toBe(true);
     billingStatePollLimiter.reset();
   });
 
@@ -263,9 +297,9 @@ describe('exported limiter instances', () => {
     const { discoveryPreVerifyLimiter } = await import('@/lib/auth/rate-limit');
     discoveryPreVerifyLimiter.reset();
     for (let i = 0; i < 60; i++) {
-      expect(discoveryPreVerifyLimiter.enforce('test-ip-disc-pre').ok).toBe(true);
+      expect((await discoveryPreVerifyLimiter.enforce('test-ip-disc-pre')).ok).toBe(true);
     }
-    expect(discoveryPreVerifyLimiter.enforce('test-ip-disc-pre').ok).toBe(false);
+    expect((await discoveryPreVerifyLimiter.enforce('test-ip-disc-pre')).ok).toBe(false);
     discoveryPreVerifyLimiter.reset();
   });
 
@@ -274,11 +308,11 @@ describe('exported limiter instances', () => {
     discoveryAppLimiter.reset();
     // Clé = nom d'app (après vérif HMAC) — pas IP. Isolation par secret.
     for (let i = 0; i < 30; i++) {
-      expect(discoveryAppLimiter.enforce('notifuse').ok).toBe(true);
+      expect((await discoveryAppLimiter.enforce('notifuse')).ok).toBe(true);
     }
-    expect(discoveryAppLimiter.enforce('notifuse').ok).toBe(false);
+    expect((await discoveryAppLimiter.enforce('notifuse')).ok).toBe(false);
     // Une autre app n'est pas affectée par l'épuisement de notifuse.
-    expect(discoveryAppLimiter.enforce('prospection').ok).toBe(true);
+    expect((await discoveryAppLimiter.enforce('prospection')).ok).toBe(true);
     discoveryAppLimiter.reset();
   });
 
@@ -287,11 +321,11 @@ describe('exported limiter instances', () => {
     mailSendAsUserPreVerifyLimiter.reset();
     // Clé = IP, plafond généreux pour ne pas bloquer un batch normal.
     for (let i = 0; i < 60; i++) {
-      expect(mailSendAsUserPreVerifyLimiter.enforce('203.0.113.1').ok).toBe(true);
+      expect((await mailSendAsUserPreVerifyLimiter.enforce('203.0.113.1')).ok).toBe(true);
     }
-    expect(mailSendAsUserPreVerifyLimiter.enforce('203.0.113.1').ok).toBe(false);
+    expect((await mailSendAsUserPreVerifyLimiter.enforce('203.0.113.1')).ok).toBe(false);
     // Autre IP non affectée.
-    expect(mailSendAsUserPreVerifyLimiter.enforce('203.0.113.2').ok).toBe(true);
+    expect((await mailSendAsUserPreVerifyLimiter.enforce('203.0.113.2')).ok).toBe(true);
     mailSendAsUserPreVerifyLimiter.reset();
   });
 
@@ -302,14 +336,14 @@ describe('exported limiter instances', () => {
     // ~300/heure si batch continu — l'app downstream doit étaler les bursts.
     const key = 'prospection:cuid_user_alice';
     for (let i = 0; i < 5; i++) {
-      expect(mailSendAsUserLimiter.enforce(key).ok).toBe(true);
+      expect((await mailSendAsUserLimiter.enforce(key)).ok).toBe(true);
     }
-    expect(mailSendAsUserLimiter.enforce(key).ok).toBe(false);
+    expect((await mailSendAsUserLimiter.enforce(key)).ok).toBe(false);
 
     // Isolation par (app, user) : un autre user de la même app n'est pas affecté.
-    expect(mailSendAsUserLimiter.enforce('prospection:cuid_other').ok).toBe(true);
+    expect((await mailSendAsUserLimiter.enforce('prospection:cuid_other')).ok).toBe(true);
     // Même user, autre app : également isolé (clé composite).
-    expect(mailSendAsUserLimiter.enforce('notifuse:cuid_user_alice').ok).toBe(true);
+    expect((await mailSendAsUserLimiter.enforce('notifuse:cuid_user_alice')).ok).toBe(true);
     mailSendAsUserLimiter.reset();
   });
 });
@@ -335,7 +369,7 @@ describe('shouldBypassRateLimit (E2E staging bypass)', () => {
 
   const make = (headers: Record<string, string>) => new Headers(headers);
 
-  it('retourne true quand DEPLOY_ENV=staging + secret valide + header présent', () => {
+  it('retourne true quand DEPLOY_ENV=staging + secret valide + header présent', async () => {
     expect(
       shouldBypassRateLimit(
         make({ 'x-veridian-e2e-bypass-ratelimit': GOOD_SECRET })
@@ -343,7 +377,7 @@ describe('shouldBypassRateLimit (E2E staging bypass)', () => {
     ).toBe(true);
   });
 
-  it('retourne true quand DEPLOY_ENV=local + secret valide + header présent', () => {
+  it('retourne true quand DEPLOY_ENV=local + secret valide + header présent', async () => {
     process.env.DEPLOY_ENV = 'local';
     expect(
       shouldBypassRateLimit(
@@ -352,7 +386,7 @@ describe('shouldBypassRateLimit (E2E staging bypass)', () => {
     ).toBe(true);
   });
 
-  it('retourne true quand DEPLOY_ENV unset (≠ prod) + secret valide + header présent', () => {
+  it('retourne true quand DEPLOY_ENV unset (≠ prod) + secret valide + header présent', async () => {
     delete process.env.DEPLOY_ENV;
     expect(
       shouldBypassRateLimit(
@@ -361,7 +395,7 @@ describe('shouldBypassRateLimit (E2E staging bypass)', () => {
     ).toBe(true);
   });
 
-  it('GARDE-FOU PROD : retourne false en prod même avec header secret valide', () => {
+  it('GARDE-FOU PROD : retourne false en prod même avec header secret valide', async () => {
     // C'est LE check le plus critique. Le header doit être ignoré en prod
     // peu importe sa valeur, sinon n'importe qui ayant le secret bypass
     // tout le rate-limit admin de prod.
@@ -373,7 +407,7 @@ describe('shouldBypassRateLimit (E2E staging bypass)', () => {
     ).toBe(false);
   });
 
-  it('retourne false en prod même si secret undefined / longueur null', () => {
+  it('retourne false en prod même si secret undefined / longueur null', async () => {
     process.env.DEPLOY_ENV = 'prod';
     delete process.env.E2E_RATELIMIT_BYPASS_SECRET;
     expect(
@@ -383,11 +417,11 @@ describe('shouldBypassRateLimit (E2E staging bypass)', () => {
     ).toBe(false);
   });
 
-  it('retourne false quand le header est absent', () => {
+  it('retourne false quand le header est absent', async () => {
     expect(shouldBypassRateLimit(make({}))).toBe(false);
   });
 
-  it('retourne false quand le header secret est wrong (même longueur)', () => {
+  it('retourne false quand le header secret est wrong (même longueur)', async () => {
     // Même longueur que GOOD_SECRET → on tape timingSafeEqual qui doit
     // renvoyer false sans throw.
     const wrong = 'b'.repeat(64);
@@ -396,7 +430,7 @@ describe('shouldBypassRateLimit (E2E staging bypass)', () => {
     ).toBe(false);
   });
 
-  it('retourne false quand le header secret est wrong (longueur différente)', () => {
+  it('retourne false quand le header secret est wrong (longueur différente)', async () => {
     expect(
       shouldBypassRateLimit(
         make({ 'x-veridian-e2e-bypass-ratelimit': 'too-short' })
@@ -404,7 +438,7 @@ describe('shouldBypassRateLimit (E2E staging bypass)', () => {
     ).toBe(false);
   });
 
-  it("retourne false quand le secret env n'est pas configuré", () => {
+  it("retourne false quand le secret env n'est pas configuré", async () => {
     delete process.env.E2E_RATELIMIT_BYPASS_SECRET;
     expect(
       shouldBypassRateLimit(
@@ -413,14 +447,14 @@ describe('shouldBypassRateLimit (E2E staging bypass)', () => {
     ).toBe(false);
   });
 
-  it("retourne false quand le secret env est vide ('')", () => {
+  it("retourne false quand le secret env est vide ('')", async () => {
     process.env.E2E_RATELIMIT_BYPASS_SECRET = '';
     expect(
       shouldBypassRateLimit(make({ 'x-veridian-e2e-bypass-ratelimit': '' }))
     ).toBe(false);
   });
 
-  it('refuse un secret trop court (< 32 chars) même si match exact', () => {
+  it('refuse un secret trop court (< 32 chars) même si match exact', async () => {
     // Garde-fou n°2 : on impose ≥ 32 chars pour qu'un opérateur ne pose
     // pas un "secret" trivial type "test" ou "1234".
     const short = 'a'.repeat(31);
@@ -432,7 +466,7 @@ describe('shouldBypassRateLimit (E2E staging bypass)', () => {
     ).toBe(false);
   });
 
-  it('accepte un secret pile à 32 chars (borne basse incluse)', () => {
+  it('accepte un secret pile à 32 chars (borne basse incluse)', async () => {
     const justEnough = 'a'.repeat(32);
     process.env.E2E_RATELIMIT_BYPASS_SECRET = justEnough;
     expect(
@@ -475,43 +509,43 @@ describe('RateLimiter.enforceWithBypass', () => {
 
   const make = (headers: Record<string, string>) => new Headers(headers);
 
-  it('bypass valide : 100 hits passent OK, jamais 429, bypassed=true', () => {
+  it('bypass valide : 100 hits passent OK, jamais 429, bypassed=true', async () => {
     const rl = new RateLimiter({ capacity: 3, windowMs: 1000, name: 'test-bypass' });
     const headers = make({ 'x-veridian-e2e-bypass-ratelimit': GOOD_SECRET });
     for (let i = 0; i < 100; i++) {
-      const r = rl.enforceWithBypass('ip-flood', headers) as any;
+      const r = (await rl.enforceWithBypass('ip-flood', headers)) as any;
       expect(r.ok).toBe(true);
       expect(r.bypassed).toBe(true);
     }
     // Le storage interne n'est PAS incrémenté quand bypass = aucune trace IP.
-    expect(rl.size()).toBe(0);
+    expect((await rl.depasse('ip-flood', Date.now())).ok).toBe(true);
   });
 
-  it('sans header bypass : comportement identique à enforce()', () => {
+  it('sans header bypass : comportement identique à enforce()', async () => {
     const rl = new RateLimiter({ capacity: 2, windowMs: 1000, name: 'test' });
     const headers = make({});
-    expect(rl.enforceWithBypass('ip1', headers).ok).toBe(true);
-    expect(rl.enforceWithBypass('ip1', headers).ok).toBe(true);
-    expect(rl.enforceWithBypass('ip1', headers).ok).toBe(false);
+    expect((await rl.enforceWithBypass('ip1', headers)).ok).toBe(true);
+    expect((await rl.enforceWithBypass('ip1', headers)).ok).toBe(true);
+    expect((await rl.enforceWithBypass('ip1', headers)).ok).toBe(false);
   });
 
-  it('GARDE-FOU PROD : bypass header ignoré, 429 au-delà du cap', () => {
+  it('GARDE-FOU PROD : bypass header ignoré, 429 au-delà du cap', async () => {
     process.env.DEPLOY_ENV = 'prod';
     const rl = new RateLimiter({ capacity: 2, windowMs: 1000, name: 'prod-rl' });
     const headers = make({ 'x-veridian-e2e-bypass-ratelimit': GOOD_SECRET });
-    expect(rl.enforceWithBypass('ip1', headers).ok).toBe(true);
-    expect(rl.enforceWithBypass('ip1', headers).ok).toBe(true);
-    const blocked = rl.enforceWithBypass('ip1', headers);
+    expect((await rl.enforceWithBypass('ip1', headers)).ok).toBe(true);
+    expect((await rl.enforceWithBypass('ip1', headers)).ok).toBe(true);
+    const blocked = (await rl.enforceWithBypass('ip1', headers));
     expect(blocked.ok, 'PROD MUST ignore bypass header').toBe(false);
   });
 
-  it('header secret wrong : bypass refusé, comportement enforce() normal', () => {
+  it('header secret wrong : bypass refusé, comportement enforce() normal', async () => {
     const rl = new RateLimiter({ capacity: 2, windowMs: 1000, name: 'wrong-key' });
     const wrong = 'x'.repeat(48); // même longueur mais mauvais
     const headers = make({ 'x-veridian-e2e-bypass-ratelimit': wrong });
-    expect(rl.enforceWithBypass('ip1', headers).ok).toBe(true);
-    expect(rl.enforceWithBypass('ip1', headers).ok).toBe(true);
-    expect(rl.enforceWithBypass('ip1', headers).ok).toBe(false);
+    expect((await rl.enforceWithBypass('ip1', headers)).ok).toBe(true);
+    expect((await rl.enforceWithBypass('ip1', headers)).ok).toBe(true);
+    expect((await rl.enforceWithBypass('ip1', headers)).ok).toBe(false);
   });
 
   // Pour chaque limiter exporté qui est consommé en E2E, on assert
@@ -546,7 +580,7 @@ describe('RateLimiter.enforceWithBypass', () => {
         const headers = make({ 'x-veridian-e2e-bypass-ratelimit': GOOD_SECRET });
         // Hits = cap * 3 — sans bypass, on serait à 429 depuis longtemps.
         for (let i = 0; i < 200; i++) {
-          const r = limiter.enforceWithBypass(`key-${name}`, headers);
+          const r = (await limiter.enforceWithBypass(`key-${name}`, headers));
           expect(r.ok, `${name} bypass hit #${i} failed`).toBe(true);
         }
         limiter.reset();
@@ -562,7 +596,7 @@ describe('RateLimiter.enforceWithBypass', () => {
         // via une heuristique : on hit 200 fois et on attend ≥1 refus.
         let refused = false;
         for (let i = 0; i < 200; i++) {
-          const r = limiter.enforceWithBypass(`prod-key-${name}`, headers);
+          const r = (await limiter.enforceWithBypass(`prod-key-${name}`, headers));
           if (!r.ok) {
             refused = true;
             break;

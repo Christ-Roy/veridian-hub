@@ -119,20 +119,20 @@ describe('bornes, tenues par le Hub', () => {
   });
 
   it('un programme à la fois par utilisateur ; le budget se vérifie avant, jamais à mi-course', async () => {
-    const p = prendrePlace('u');
+    const p = (await prendrePlace('u'));
     expect(p.ok).toBe(true);
-    expect(prendrePlace('u').ok).toBe(false);
-    expect(prendrePlace('autre').ok).toBe(true);
+    expect((await prendrePlace('u')).ok).toBe(false);
+    expect((await prendrePlace('autre')).ok).toBe(true);
     if (p.ok) p.rendre();
     for (let i = 0; i < APPELS_MINUTE_MAX / APPELS_MAX; i++) {
-      const q = prendrePlace('u');
+      const q = (await prendrePlace('u'));
       expect(q.ok).toBe(true);
       if (q.ok) q.rendre();
       const b = await lancer(`await Promise.all(Array.from({length:${APPELS_MAX}},()=>outil("a.lire"))); return 1`);
       expect(b.appels.reussis).toBe(APPELS_MAX);
     }
-    expect(prendrePlace('u')).toMatchObject({ ok: false });
-    expect(prendrePlace('u', Date.now() + 61_000).ok).toBe(true);
+    expect((await prendrePlace('u'))).toMatchObject({ ok: false });
+    expect((await prendrePlace('u', Date.now() + 61_000)).ok).toBe(true);
   }, 60_000);
 
   it('429 d\'une app : attendu et refait, le programme n\'échoue pas', async () => {
@@ -166,7 +166,7 @@ describe('droits', () => {
     for (const n of ['create_webhook', 'delete_many_people', 'contacts_import', 'mergeCompanies', 'restore-version', 'send', 'créer_segment', 'supprimer_dossier', 'update_one_person', 'find_and_update']) expect(exige(n), n).toBe(true);
     for (const n of ['find_many_people', 'get_sent_messages', 'list_settings', 'group_by_companies', 'contacts_count', 'classer_segment', 'lister_acces_avances', 'restored_items', 'get_updates', 'preparer_export', 'requete_sql']) expect(exige(n), n).toBe(false);
   });
-  it('nomDEcriture : un mot entier, jamais un bout de mot', () => expect(['post', 'postal_codes', 'imports', 'import', 'reset', 'asset'].map(nomDEcriture)).toEqual([true, false, false, true, true, false]));
+  it('nomDEcriture : un mot entier, jamais un bout de mot', async () => expect(['post', 'postal_codes', 'imports', 'import', 'reset', 'asset'].map(nomDEcriture)).toEqual([true, false, false, true, true, false]));
 
   it('écriture, destructif ou sans annotation : refusé s\'il n\'est pas nommé, l\'app n\'est pas appelée', async () => {
     const jouer = vi.fn(async () => ok(1));
@@ -229,7 +229,7 @@ describe('moteur compromis : rien n\'est cru', () => {
 });
 
 describe('valeurDe', () => {
-  it('donnée structurée, sinon JSON, sinon texte ; une erreur lève', () => {
+  it('donnée structurée, sinon JSON, sinon texte ; une erreur lève', async () => {
     expect(valeurDe({ content: [{ type: 'text', text: 'x' }], structuredContent: { a: 1 } })).toEqual({ a: 1 });
     expect(valeurDe(ok([1]))).toEqual([1]);
     expect(valeurDe({ content: [{ type: 'text', text: 'bonjour' }] })).toBe('bonjour');
