@@ -3,7 +3,6 @@
  * propriétaire, jamais quelqu'un entré à la main. Rien de ce qu'ils ont écrit n'est effacé. CRM, puis Academy : la même règle. Organisation de test.
  * Épreuves : `SSO_SABOTAGE=decocher` ne décoche pas ; `decocher-main` ne fait pas entrer H à la main avant la coche : le cas doit échouer.
  */
-import { createHmac } from 'node:crypto';
 
 import { expect, type BrowserContext } from '@playwright/test';
 
@@ -13,6 +12,7 @@ import { activerTwentyAuHub, admin, adminOk, appelTwenty, lookup, marquerTest, s
 import { obtenirJetonMcp, outil } from './lib/mcp';
 import { consommer, fluxCrm, lienCrm, portesCrm } from './lib/portes-crm';
 import { creerCompteProuve, noterEspaceTwenty, ouvrirApp, type Compte } from './lib/parcours';
+import { signatureVersApp } from './lib/signature-app';
 
 type Reglee = { emissions: { app: string; etat: string; detail?: string | null }[]; retraits: { app: string; hub_user_id: string; etat: string; detail?: string }[] };
 
@@ -120,8 +120,8 @@ cas(null, 'décocher : ceux venus par l\'organisation sortent, les autres resten
     // Academy : la même règle.
     await adminOk('POST', 'tenants/app-access', { user_email: P.email, app: 'academy', enabled: true });
     const chezAcademy = async (c: Compte) => {
-      const ts = String(Date.now());
-      const r = await fetch(`https://academy.app.veridian.site/api/users/by-email?email=${encodeURIComponent(c.email)}&hub_user_id=${c.hubUserId}`, { headers: { 'X-Veridian-Timestamp': ts, 'X-Veridian-Hub-Signature': createHmac('sha256', secretDe('ACADEMY_HUB_API_SECRET')).update(`${ts}.`).digest('hex') }, signal: AbortSignal.timeout(30_000) });
+      const url = `https://academy.app.veridian.site/api/users/by-email?email=${encodeURIComponent(c.email)}&hub_user_id=${c.hubUserId}`;
+      const r = await fetch(url, { headers: signatureVersApp('academy', secretDe('ACADEMY_HUB_API_SECRET'), 'GET', url), signal: AbortSignal.timeout(30_000) });
       return (((await r.json().catch(() => null)) as { workspaces?: { hub_tenant_id: string }[] } | null)?.workspaces ?? []).some((w) => w.hub_tenant_id === T.id);
     };
     const cinq = await cocher(['academy']);

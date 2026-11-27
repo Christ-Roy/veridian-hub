@@ -6,7 +6,6 @@
  * Épreuves : `SSO_SABOTAGE=email-refuse` (un compte relié à la place du non relié) et `email-passe` (un compte non relié à la place de celui qui passe)
  * doivent faire échouer le cas. Aucun mail réel : adresses de batterie, bac à sable Brevo.
  */
-import { createHmac } from 'node:crypto';
 
 import { expect, type BrowserContext } from '@playwright/test';
 
@@ -14,6 +13,7 @@ import { APP_URL, HUB_URL } from './lib/cibles';
 import { cas, NonAbouti } from './lib/etat';
 import { activerTwentyAuHub, adminOk, lookup, rybbitCompte, secretDe } from './lib/hub-admin';
 import { adresseDe, attendreSessionHub, connexionHub, creerCompteProuve, noter, noterEspaceTwenty, noterRybbit, type Compte } from './lib/parcours';
+import { signatureVersApp } from './lib/signature-app';
 
 cas(null, 'réglages : l\'adresse change si chaque app suit la personne, et pas sinon', async ({ browser }) => {
   if (/staging/.test(HUB_URL)) throw new NonAbouti('le Hub de staging n\'a ni Mail ni Academy en face');
@@ -28,7 +28,7 @@ cas(null, 'réglages : l\'adresse change si chaque app suit la personne, et pas 
   // U : un compte Analytics, qui ne le connaît que par son adresse.
   noterRybbit(U.email);
   rybbitCompte('creer', U.email);
-  const signer = (chemin: string) => { const ts = String(Date.now()); return fetch(`${APP_URL.notifuse}${chemin}`, { headers: { 'content-type': 'application/json', 'X-Veridian-Timestamp': ts, 'X-Veridian-Hub-Signature': createHmac('sha256', secretDe('NOTIFUSE_HUB_API_SECRET')).update(`${ts}.`).digest('hex') }, signal: AbortSignal.timeout(60_000) }); };
+  const signer = (chemin: string) => { const url = `${APP_URL.notifuse}${chemin}`; return fetch(url, { headers: { 'content-type': 'application/json', ...signatureVersApp('notifuse', secretDe('NOTIFUSE_HUB_API_SECRET'), 'GET', url) }, signal: AbortSignal.timeout(60_000) }); };
   const copiesMail = async () => ((await (await signer('/api/hub/users')).json()) as { users: { hub_user_id: string | null; email: string }[] }).users;
   const lignes = (await copiesMail()).filter((x) => x.email.toLowerCase() === M.email.toLowerCase());
   expect(lignes.map((x) => x.hub_user_id), 'contrôle positif : Mail connaît M par son hub_user_id').toEqual([M.hubUserId]);

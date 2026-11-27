@@ -5,7 +5,6 @@
  * Fiche de l'essai (adresse, mot de passe, identifiants) : ~/credentials/essai-crm-staging.json, droits 600, jamais dans le dépôt ni dans un message.
  * Fin : créer `.run/essai-crm-fin` (ou `SSO_ESSAI_MINUTES`, 180 par défaut). Prospection n'existe pas en staging : crm>prospection n'est pas joué ici.
  */
-import { createHmac } from 'node:crypto';
 import { existsSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -15,6 +14,7 @@ import { cas, NonAbouti } from './lib/etat';
 import { activerTwentyAuHub, adminOk, lookup, secretServiStaging } from './lib/hub-admin';
 import { creerCompteProuve, noterEspaceTwenty, type Compte } from './lib/parcours';
 import { RUN_DIR } from './lib/versions';
+import { signatureVersApp } from './lib/signature-app';
 
 const SEQUENCES = 'crm>notifuse#sequences';
 
@@ -29,8 +29,7 @@ cas(null, 'essai commun : une personne née au Hub, CRM et Mail reliés, le CRM 
   const secret = secretServiStaging('NOTIFUSE_HUB_API_SECRET');
   const versMail = async (methode: string, chemin: string, corps?: object) => {
     const body = corps ? JSON.stringify(corps) : '';
-    const ts = String(Date.now());
-    const r = await fetch(`${MAIL}${chemin}`, { method: methode, headers: { 'content-type': 'application/json', 'X-Veridian-Timestamp': ts, 'X-Veridian-Hub-Signature': createHmac('sha256', secret).update(`${ts}.${body}`).digest('hex') }, body: body || undefined });
+    const r = await fetch(`${MAIL}${chemin}`, { method: methode, headers: { 'content-type': 'application/json', ...signatureVersApp('notifuse', secret, methode, `${MAIL}${chemin}`, body) }, body: body || undefined });
     return { status: r.status, texte: (await r.text()).slice(0, 300) };
   };
   const fiche = join(homedir(), 'credentials', 'essai-crm-staging.json');
