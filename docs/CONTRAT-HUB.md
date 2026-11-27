@@ -2392,7 +2392,8 @@ propriétaire est requis. Le CRM doit avoir la portée `crm:visite.ecrire`.
 - **Données** : le journal du Hub ne porte que les comptes (`evenement.visites` : reçues, relayées, doublons, ignorées par raison, lignes du CRM,
   jeton). Ni adresse, ni chemin, ni identifiant de session. Aucune copie de la visite au Hub : seule l'empreinte de la session est gardée, pour
   dédoublonner.
-- **Activation côté job** : `DELEGATION_EVENEMENTS` doit contenir `analytics>crm#visite` (sinon `evenements_fermes`). Les organisations qui n'ont
+- **Activation côté job** : `DELEGATION_EVENEMENTS` doit contenir `analytics>crm#visite` (sinon `evenements_fermes`). Servi le 27/11 pour l'organisation
+  de Robert (`@359b76d5…`) et les organisations d'essai (`@test`) seulement, comme Mail vers CRM ; l'ouverture à toutes est une décision à part. Les organisations qui n'ont
   pas coché la liaison ne reçoivent rien ; les neuves la reçoivent d'office si Analytics et le CRM sont ouverts.
 - **Épreuves** (avant de dire « servi ») : signature d'un autre secret → 401 ; nonce rejoué → 401 ; `hub_tenant_id` inconnu → `organisation_inactive` ;
   organisation ancienne sans consentement → `paire_eteinte` ; neuve → relayée ; même lot rejoué → doublons ; contact absent du CRM → ignoré, personne

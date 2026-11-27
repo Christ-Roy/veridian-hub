@@ -41,7 +41,7 @@ type Deps = {
   fetchImpl?: typeof fetch;
   maintenant?: () => Date;
   /** Écrit une clé de metadata au Hub (par défaut : la base, fusion jsonb). */
-  noter?: (tenantId: string, patch: Record<string, unknown>) => Promise<void>;
+  noter?: (tenantId: string, patch: Record<string, unknown>) => Promise<number | void>;
 };
 
 function message(err: unknown): string {
@@ -70,8 +70,11 @@ async function supprimerEspace(app: 'crm' | 'academy' | 'analytics', hubTenantId
 async function noterSupprime(tenants: TenantADeprovisionner[], le: Date, purge: Date | null, deps: Deps): Promise<string> {
   const noter = deps.noter ?? ((id: string, patch: Record<string, unknown>) => fusionnerMetadata(prisma, id, patch));
   const patch = { prospection_status: 'deleted', prospection_soft_deleted_at: le.toISOString(), prospection_soft_deleted_reason: 'admin_action', ...(purge ? { prospection_purge_eligible_at: purge.toISOString() } : {}) };
-  const ratees = (await Promise.all(tenants.filter((t) => t.prospectionProvisionedAt).map((t) => noter(t.id, patch).then(() => true, () => false)))).filter((ok) => !ok).length;
-  return ratees ? ` ; état non noté au Hub sur ${ratees} tenant(s)` : '';
+  // Chaque note dit ce que la base a changé : la réponse (et le journal d'audit) le montrent, sans relecture à part.
+  const lignes = await Promise.all(tenants.filter((t) => t.prospectionProvisionedAt).map((t) => noter(t.id, patch).then((n) => (typeof n === 'number' ? n : 1), () => -1)));
+  const notees = lignes.filter((n) => n > 0).length;
+  const ratees = lignes.length - notees;
+  return ratees ? ` ; état non noté au Hub sur ${ratees} tenant(s)` : ` ; état noté au Hub (${notees} tenant${notees > 1 ? 's' : ''})`;
 }
 
 export async function deprovisionnerCompte(

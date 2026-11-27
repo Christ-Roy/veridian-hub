@@ -8,9 +8,9 @@ import { Prisma, type PrismaClient } from '@prisma/client';
 
 type DbBrute = Pick<PrismaClient, '$executeRaw'>;
 
-/** Pose ces clés de premier niveau ; les autres restent telles que la base les a à cet instant. */
-export async function fusionnerMetadata(db: DbBrute, tenantId: string, patch: Record<string, unknown>): Promise<void> {
-  await db.$executeRaw(Prisma.sql`
+/** Pose ces clés de premier niveau ; les autres restent telles que la base les a à cet instant. Rend le nombre de lignes changées (0 : tenant absent). */
+export async function fusionnerMetadata(db: DbBrute, tenantId: string, patch: Record<string, unknown>): Promise<number> {
+  return db.$executeRaw(Prisma.sql`
     UPDATE hub_app.tenants
     SET metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb, updated_at = now()
     WHERE id = ${tenantId}::uuid

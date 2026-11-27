@@ -89,6 +89,11 @@ describe('deprovisionnerCompte', () => {
     // Une note ratée ne défait pas la suppression : elle est dite.
     const i4 = await deprovisionnerCompte({ email: 'client@exemple.fr', tenants: [tenant] }, { env, fetchImpl: fetchOk() as never, maintenant: () => MAINTENANT, noter: async () => { throw new Error('base'); } });
     expect(i4.find((x) => x.app === 'prospection')).toMatchObject({ ok: true, detail: expect.stringContaining('état non noté au Hub sur 1 tenant') });
+    // La base n'a rien changé (tenant absent) : c'est un échec de la note, dit comme tel ; une ligne changée : dite aussi.
+    const i5 = await deprovisionnerCompte({ email: 'client@exemple.fr', tenants: [tenant] }, { env, fetchImpl: fetchOk() as never, maintenant: () => MAINTENANT, noter: async () => 0 });
+    expect(i5.find((x) => x.app === 'prospection')?.detail).toContain('état non noté au Hub sur 1 tenant');
+    const i6 = await deprovisionnerCompte({ email: 'client@exemple.fr', tenants: [tenant] }, { env, fetchImpl: fetchOk() as never, maintenant: () => MAINTENANT, noter: async () => 1 });
+    expect(i6.find((x) => x.app === 'prospection')?.detail).toContain('état noté au Hub (1 tenant)');
   });
 
   it('compte de test : purge Prospection éligible tout de suite', async () => {
