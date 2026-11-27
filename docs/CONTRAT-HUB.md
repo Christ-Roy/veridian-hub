@@ -2279,7 +2279,10 @@ l'abonnement ouvert dans cet espace) ; le connecteur, lui, ne la fait pas répon
   sur toute page connectée avec une organisation active (absent sur `/login`, en mode intégré, et pour tout autre état) ; `prete` :
   bouton `Mon IA`, dont le clic ouvre un `role=dialog` nommé « Mon IA » et n'insère le cadre qu'à ce moment ; `sans_moteur` : bouton
   `Relier mon IA`, dont le clic ouvre `[data-carte="relier-mon-ia"]` avec le lien `Relier mon IA` (`href="{HUB}/dashboard/ia"`,
-  `target="_blank"`), sans aucun cadre ni avant ni après le clic.
+  `target="_blank"`), sans aucun cadre ni avant ni après le clic. Les libellés ci-dessus sont ceux de l'interface française et se
+  traduisent dans les autres langues ; les marques `data-*`, `role=dialog` et la cible du lien sont fixes (Mail, 27/11).
+- **Un seul point d'entrée IA par app** (parente, 27/11) : une seule marque `[data-mon-ia]` par page, et hors d'elle aucun lien ni cadre
+  vers `{HUB}/dashboard/ia` ou `{HUB}/ia/chat` (un bouton « Brancher mon IA » à côté est un doublon). Cas 56, épreuve `double-entree`.
 - **La fenêtre elle-même** suit la même règle (`lib/ia/etat-fenetre.ts`, une seule source) : ouverte sans moteur, elle ne montre aucune
   saisie, seulement le renvoi « Relier mon IA » (`data-refus="sans_moteur"`) ; éteinte, le lien « Rallumer ».
 - **Épreuve côté app** (avant de dire « servi ») : un compte sans moteur voit la carte et jamais le cadre ; le même compte, une clé branchée,
