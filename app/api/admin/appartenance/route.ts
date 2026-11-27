@@ -5,7 +5,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 import { prisma } from '@/lib/prisma';
 import { releverAppartenance } from '@/lib/sync/appartenance';
 import { SYNC_APPS, type SyncApp } from '@/lib/sync/types';
@@ -14,8 +14,8 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-  const refus = await requireAdmin(request);
-  if (refus) return refus;
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return garde.response;
   const app = new URL(request.url).searchParams.get('app');
   if (!app || !SYNC_APPS.includes(app as SyncApp)) return NextResponse.json({ error: 'app_inconnue', apps: SYNC_APPS }, { status: 400 });
   return NextResponse.json(await releverAppartenance(prisma, app as SyncApp), { headers: { 'Cache-Control': 'no-store' } });

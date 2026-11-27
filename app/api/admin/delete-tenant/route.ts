@@ -7,7 +7,7 @@ import { deprovisionnerCompte } from '@/lib/apps/deprovision';
 import { pushUserToApps } from '@/lib/identity/push-user';
 
 import { resolveActor, writeAuditLog } from '@/lib/admin/audit-log';
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
@@ -23,8 +23,8 @@ export const runtime = 'nodejs';
  * orphelins chez Prospection, Notifuse et Twenty. Chaque issue est rendue dans `apps`.
  */
 export async function DELETE(request: NextRequest) {
-  const denial = await requireAdmin(request);
-  if (denial) return denial;
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return garde.response;
 
   let body: { email?: string; confirm?: unknown; motif?: unknown };
   try {

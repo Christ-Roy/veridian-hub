@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 import { emettrePoignees } from '@/lib/delegation/poignee';
 import { prisma } from '@/lib/prisma';
 import { isTestAccount } from '@/lib/sync/test-residue';
@@ -17,8 +17,8 @@ export const dynamic = 'force-dynamic';
 const Corps = z.object({ email: z.string().email().max(254), app: z.enum(['prospection', 'notifuse', 'crm']) });
 
 export async function POST(request: NextRequest) {
-  const refus = await requireAdmin(request);
-  if (refus) return refus;
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return garde.response;
   const c = Corps.safeParse(await request.json().catch(() => null));
   if (!c.success) return NextResponse.json({ error: 'invalid' }, { status: 400 });
   if (!isTestAccount(c.data.email) && process.env.DEPLOY_ENV !== 'staging') return NextResponse.json({ error: 'compte_reel' }, { status: 403 });

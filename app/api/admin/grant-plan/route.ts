@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
@@ -13,8 +13,8 @@ export const runtime = 'nodejs';
  * Security: ADMIN_SECRET header OR authenticated admin email
  */
 export async function POST(request: NextRequest) {
-  const denial = await requireAdmin(request);
-  if (denial) return denial;
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return garde.response;
 
   let body: { email?: string; plan?: string };
   try {

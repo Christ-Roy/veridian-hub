@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const m = vi.hoisted(() => ({ admin: vi.fn(), designer: vi.fn(), audit: vi.fn() }));
-vi.mock('@/lib/admin/require-admin', () => ({ requireAdmin: () => m.admin() }));
+vi.mock('@/lib/admin/authenticate', () => ({ authenticateAdmin: async (...a: unknown[]) => { const r = (await (() => m.admin())(...a)) as Response | null; return r ? { ok: false, response: r } : { ok: true, sessionEmail: null, hubUserId: null, admin: (a[0] as Request).headers.get("x-admin-secret") ? undefined : { userId: "u-robert", hubUserId: "h-robert", email: "r@v" } }; } }));
 vi.mock('@/lib/admin/session-admin', () => ({ sessionAdmin: async () => ({ ok: true, hubUserId: 'h-robert', email: 'r@v' }) }));
 vi.mock('@/lib/admin/audit-log', () => ({ resolveActor: () => 'op', writeAuditLog: (...a: unknown[]) => m.audit(...a) }));
 vi.mock('@/lib/apps/admins-plateforme', async (o) => ({ ...(await o<object>()), designerAdminsPlateforme: (...a: unknown[]) => m.designer(...a) }));

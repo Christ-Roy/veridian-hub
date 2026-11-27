@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { resolveActor, writeAuditLog } from '@/lib/admin/audit-log';
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 import { LIMITE_IMPORT, importerMembres } from '@/lib/organisations/importer';
 import { prisma } from '@/lib/prisma';
 import { IdTenant } from '@/lib/tenants/membres-http';
@@ -27,8 +27,8 @@ type Ctx = { params: Promise<{ id: string }> };
 const rendre = (j: unknown, status = 200) => NextResponse.json(j, { status, headers: { 'Cache-Control': 'no-store' } });
 
 export async function POST(request: NextRequest, { params }: Ctx) {
-  const refus = await requireAdmin(request);
-  if (refus) return refus;
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return garde.response;
   const id = IdTenant.safeParse((await params).id);
   const c = Corps.safeParse(await request.json().catch(() => null));
   if (!id.success || !c.success) return rendre({ error: 'invalid' }, 400);
@@ -41,16 +41,16 @@ export async function POST(request: NextRequest, { params }: Ctx) {
 }
 
 export async function GET(request: NextRequest, { params }: Ctx) {
-  const refus = await requireAdmin(request);
-  if (refus) return refus;
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return garde.response;
   const id = IdTenant.safeParse((await params).id);
   if (!id.success) return rendre({ error: 'invalid' }, 400);
   return rendre({ preinscrits: await listerPreinscriptions(prisma, id.data) });
 }
 
 export async function DELETE(request: NextRequest, { params }: Ctx) {
-  const refus = await requireAdmin(request);
-  if (refus) return refus;
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return garde.response;
   const id = IdTenant.safeParse((await params).id);
   const c = z.object({ email: z.string().email().max(254) }).strict().safeParse(await request.json().catch(() => null));
   if (!id.success || !c.success) return rendre({ error: 'invalid' }, 400);

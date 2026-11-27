@@ -6,15 +6,15 @@
  */
 import { NextResponse, type NextRequest } from 'next/server';
 
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 import { prisma } from '@/lib/prisma';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
-  const refus = await requireAdmin(req);
-  if (refus) return refus;
+  const garde = await authenticateAdmin(req);
+  if (!garde.ok) return garde.response;
 
   const comptes = await prisma.user.findMany({
     where: { emailVerified: null },

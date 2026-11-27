@@ -4,14 +4,14 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 import { cleIp, vueIp } from '@/lib/auth/ip-client';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export async function GET(request: NextRequest) {
-  const refus = await requireAdmin(request);
-  if (refus) return refus;
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return garde.response;
   return NextResponse.json({ cle: cleIp(request.headers), ...vueIp(request.headers) });
 }

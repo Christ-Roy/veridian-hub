@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { resolveActor } from '@/lib/admin/audit-log';
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 import { LOGO_MAX_OCTETS } from '@/lib/organisations/logo';
 import { reglerOrganisation } from '@/lib/organisations/reglage';
 import { prisma } from '@/lib/prisma';
@@ -22,14 +22,14 @@ async function poser(request: NextRequest, ctx: Ctx, logo: Buffer | null): Promi
 }
 
 export async function PUT(request: NextRequest, ctx: Ctx) {
-  const refus = await requireAdmin(request);
-  if (refus) return refus;
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return garde.response;
   if (Number(request.headers.get('content-length') ?? 0) > LOGO_MAX_OCTETS) return NextResponse.json({ error: 'trop_gros' }, { status: 413 });
   return poser(request, ctx, Buffer.from(await request.arrayBuffer()));
 }
 
 export async function DELETE(request: NextRequest, ctx: Ctx) {
-  const refus = await requireAdmin(request);
-  if (refus) return refus;
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return garde.response;
   return poser(request, ctx, null);
 }

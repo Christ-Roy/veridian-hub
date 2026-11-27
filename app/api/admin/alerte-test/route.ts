@@ -6,15 +6,15 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 import { sendTelegramAlert } from '@/lib/notifications/telegram';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export async function POST(request: NextRequest) {
-  const denial = await requireAdmin(request);
-  if (denial) return denial;
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return garde.response;
   const delivered = await sendTelegramAlert(
     `🧪 <b>Test</b> : alerte de contrôle du Hub (${new Date().toISOString()}). Aucune action à faire.`,
   );

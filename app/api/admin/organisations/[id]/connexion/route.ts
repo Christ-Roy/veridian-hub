@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { resolveActor } from '@/lib/admin/audit-log';
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 import { Aiguillage, etatConnexion, leverExemption, poserExemption, reglerConnexion } from '@/lib/federation/connexion';
 import { prisma } from '@/lib/prisma';
 import { IdTenant } from '@/lib/tenants/membres-http';
@@ -22,8 +22,8 @@ const Pose = z.strictObject({ hub_user_id: z.string().uuid(), nature: z.enum(['r
 const Leve = z.strictObject({ hub_user_id: z.string().uuid() });
 
 async function entree<T>(request: NextRequest, ctx: Ctx, schema: z.ZodType<T> | null): Promise<{ refus: NextResponse } | { id: string; corps: T }> {
-  const refus = await requireAdmin(request);
-  if (refus) return { refus };
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return { refus: garde.response };
   const id = IdTenant.safeParse((await ctx.params).id);
   const c = schema ? schema.safeParse(await request.json().catch(() => null)) : null;
   if (!id.success || (c && !c.success)) return { refus: rendre({ error: 'invalid' }, 400) };

@@ -4,7 +4,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 import { listerIntegrations } from '@/lib/delegation/interrupteur';
 import { prisma } from '@/lib/prisma';
 import { IdTenant } from '@/lib/tenants/membres-http';
@@ -13,8 +13,8 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const refus = await requireAdmin(request);
-  if (refus) return refus;
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return garde.response;
   const id = IdTenant.safeParse((await params).id);
   if (!id.success) return NextResponse.json({ error: 'invalid' }, { status: 400 });
   if (!(await prisma.tenant.findFirst({ where: { id: id.data, deletedAt: null }, select: { id: true } }))) return NextResponse.json({ error: 'tenant_introuvable' }, { status: 404 });

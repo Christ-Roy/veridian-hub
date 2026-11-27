@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { resolveActor } from '@/lib/admin/audit-log';
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 import { hubPublicUrl } from '@/lib/organisations/base';
 import { documentOrg } from '@/lib/organisations/document';
 import { Reglage, reglerOrganisation } from '@/lib/organisations/reglage';
@@ -16,8 +16,8 @@ type Ctx = { params: Promise<{ id: string }> };
 const rendre = (j: unknown, status = 200) => NextResponse.json(j, { status, headers: { 'Cache-Control': 'no-store' } });
 
 export async function GET(request: NextRequest, { params }: Ctx) {
-  const refus = await requireAdmin(request);
-  if (refus) return refus;
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return garde.response;
   const id = IdTenant.safeParse((await params).id);
   if (!id.success) return rendre({ error: 'invalid' }, 400);
   const d = await documentOrg(prisma, id.data, hubPublicUrl());
@@ -27,8 +27,8 @@ export async function GET(request: NextRequest, { params }: Ctx) {
 }
 
 export async function PUT(request: NextRequest, { params }: Ctx) {
-  const refus = await requireAdmin(request);
-  if (refus) return refus;
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return garde.response;
   const id = IdTenant.safeParse((await params).id);
   const c = Reglage.safeParse(await request.json().catch(() => null));
   if (!id.success || !c.success) return rendre({ error: 'invalid', details: c.success ? undefined : c.error.issues.map((i) => i.path.join('.')) }, 400);

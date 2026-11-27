@@ -10,7 +10,7 @@ const provisionTenant = vi.fn();
 const lierAuHub = vi.fn(async () => ({ linked: true, raison: 'deja_relie' }));
 const tenantUpdate = vi.fn();
 
-vi.mock('@/lib/admin/require-admin', () => ({ requireAdmin: vi.fn(async () => null) }));
+vi.mock('@/lib/admin/authenticate', () => ({ authenticateAdmin: async (...a: unknown[]) => { const r = (await (vi.fn(async () => null))(...a)) as Response | null; return r ? { ok: false, response: r } : { ok: true, sessionEmail: null, hubUserId: null }; } }));
 vi.mock('@/lib/prospection/client', () => ({ createProspectionClientFromEnv: () => ({ linkHub, provisionTenant }) }));
 vi.mock('@/lib/apps/lier-hub', () => ({ lierAuHub }));
 vi.mock('@/lib/prisma', () => ({

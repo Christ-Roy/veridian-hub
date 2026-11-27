@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
@@ -11,8 +11,8 @@ export const runtime = 'nodejs';
  * Lists all tenants with user info and service status.
  */
 export async function GET(request: NextRequest) {
-  const denial = await requireAdmin(request);
-  if (denial) return denial;
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return garde.response;
 
   const tenants = await prisma.tenant.findMany({
     orderBy: { createdAt: 'desc' },

@@ -8,7 +8,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 import { viderCache } from '@/lib/mcp/catalogue';
 import { prisma } from '@/lib/prisma';
 
@@ -24,14 +24,14 @@ const Entree = z.object({
 });
 
 export async function GET(request: NextRequest) {
-  const denial = await requireAdmin(request);
-  if (denial) return denial;
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return garde.response;
   return NextResponse.json({ apps: await prisma.mcpApp.findMany({ orderBy: { appKey: 'asc' } }) });
 }
 
 export async function POST(request: NextRequest) {
-  const denial = await requireAdmin(request);
-  if (denial) return denial;
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return garde.response;
   const r = Entree.safeParse(await request.json().catch(() => null));
   if (!r.success) return NextResponse.json({ error: 'invalid', details: r.error.issues }, { status: 400 });
   const d = r.data;
@@ -43,8 +43,8 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const denial = await requireAdmin(request);
-  if (denial) return denial;
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return garde.response;
   const cle = request.nextUrl.searchParams.get('app_key') ?? '';
   const n = await prisma.mcpApp.deleteMany({ where: { appKey: cle } });
   await prisma.auditLog.create({ data: { action: 'admin.mcp_app.delete', actor: 'admin', targetType: 'mcp_app', targetId: cle } });

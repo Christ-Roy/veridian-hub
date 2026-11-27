@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/auth';
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 import {
   buildNotifuseClient,
   notifuseErrorResponse,
@@ -48,8 +48,8 @@ interface RequestBody {
  * `tenant.metadata.notifuse_plan_history` (limité aux 50 dernières entrées).
  */
 export async function POST(request: NextRequest) {
-  const denial = await requireAdmin(request);
-  if (denial) return denial;
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return garde.response;
 
   let body: RequestBody;
   try {

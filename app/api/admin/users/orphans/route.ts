@@ -3,7 +3,7 @@
  *
  * Endpoint admin de consultation des users Hub orphelins (read-only).
  * Identique en logique au cron `cleanup-orphan-users` mais protégé par
- * `requireAdmin` (session ou x-admin-secret) plutôt que CRON_SECRET, pour
+ * `authenticateAdmin` (session ou x-admin-secret) plutôt que CRON_SECRET, pour
  * que l'opérateur puisse exécuter une revue manuelle depuis le navigateur
  * ou un curl admin.
  *

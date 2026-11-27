@@ -19,9 +19,7 @@ const pushProspectionPlanMock = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/prospection/plan-push', () => ({ pushProspectionPlan: pushProspectionPlanMock }));
 
 let adminDenial: any = null;
-vi.mock('@/lib/admin/require-admin', () => ({
-  requireAdmin: vi.fn(async () => adminDenial),
-}));
+vi.mock('@/lib/admin/authenticate', () => ({ authenticateAdmin: async (...a: unknown[]) => { const r = (await (vi.fn(async () => adminDenial))(...a)) as Response | null; return r ? { ok: false, response: r } : { ok: true, sessionEmail: null, hubUserId: null }; } }));
 
 vi.mock('@/auth', () => ({
   auth: vi.fn(async () => ({ user: { email: 'admin@veridian.site' } })),

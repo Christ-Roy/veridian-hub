@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { writeAuditLog } from '@/lib/admin/audit-log';
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 import { fusibleCrmActif } from '@/lib/apps/retrait-crm';
 import { pushUserToApps } from '@/lib/identity/push-user';
 import { prisma } from '@/lib/prisma';
@@ -35,14 +35,14 @@ async function enAttente() {
 }
 
 export async function GET(request: NextRequest) {
-  const refus = await requireAdmin(request);
-  if (refus) return refus;
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return garde.response;
   return NextResponse.json({ retraits: await enAttente(), fusible: fusibleCrmActif() });
 }
 
 export async function POST(request: NextRequest) {
-  const refus = await requireAdmin(request);
-  if (refus) return refus;
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return garde.response;
   const r = Corps.safeParse(await request.json().catch(() => null));
   if (!r.success) return NextResponse.json({ error: 'invalid' }, { status: 400 });
   if (fusibleCrmActif()) return NextResponse.json({ error: 'fusible_actif' }, { status: 409 });

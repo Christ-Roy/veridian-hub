@@ -2,7 +2,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { resolveActor, writeAuditLog } from '@/lib/admin/audit-log';
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 import { Alias, poserIdp, ReglageIdp, ReglageSaml, SessionJours, vueIdp } from '@/lib/federation/idp';
 import { CHEMIN_RETOUR } from '@/lib/federation/oidc';
 import { CHEMIN_ACS, entiteSp } from '@/lib/federation/saml';
@@ -24,15 +24,15 @@ async function vue(request: NextRequest, tenantId: string) {
 }
 
 export async function GET(request: NextRequest, { params }: Ctx) {
-  const refus = await requireAdmin(request);
-  if (refus) return refus;
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return garde.response;
   const id = IdTenant.safeParse((await params).id);
   return id.success ? rendre(await vue(request, id.data)) : rendre({ error: 'invalid' }, 400);
 }
 
 export async function PUT(request: NextRequest, { params }: Ctx) {
-  const refus = await requireAdmin(request);
-  if (refus) return refus;
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return garde.response;
   const id = IdTenant.safeParse((await params).id);
   // `alias` : /connexion/<alias>, lisible ; null le retire, absent le garde.
   const { alias, session_jours: duree, ...corps } = ((await request.json().catch(() => null)) ?? {}) as Record<string, unknown>;
@@ -48,8 +48,8 @@ export async function PUT(request: NextRequest, { params }: Ctx) {
 }
 
 export async function DELETE(request: NextRequest, { params }: Ctx) {
-  const refus = await requireAdmin(request);
-  if (refus) return refus;
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return garde.response;
   const id = IdTenant.safeParse((await params).id);
   if (!id.success) return rendre({ error: 'invalid' }, 400);
   const { count } = await prisma.tenantIdp.deleteMany({ where: { tenantId: id.data } });

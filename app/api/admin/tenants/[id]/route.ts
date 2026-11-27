@@ -6,21 +6,21 @@
 // (409) dès qu'un compte, un membre ou un abonnement y est rattaché, quel qu'il soit : pour ceux-là,
 // `delete-tenant` et son push vers les apps restent le seul chemin. Soft-delete tracé dans l'audit.
 //
-// Auth : requireAdmin (session admin ou x-admin-secret).
+// Auth : authenticateAdmin (session admin ou x-admin-secret).
 
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/auth';
 import { resolveActor, writeAuditLog } from '@/lib/admin/audit-log';
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const denial = await requireAdmin(request);
-  if (denial) return denial;
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return garde.response;
 
   const body = (await request.json().catch(() => null)) as { confirm?: unknown } | null;
   if (body?.confirm !== true) {

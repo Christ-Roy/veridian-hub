@@ -7,7 +7,7 @@
  * - La row Tenant N'EST PAS supprimée même si plus aucune app n'y reste,
  *   pour préserver l'historique (audit + facturation).
  *
- * Auth : requireAdmin. Audit : 'admin.tenant.unlink'.
+ * Auth : authenticateAdmin. Audit : 'admin.tenant.unlink'.
  */
 
 import { NextRequest, NextResponse } from 'next/server';

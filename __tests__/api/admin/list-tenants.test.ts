@@ -10,9 +10,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const requireAdminMock = vi.fn(async () => null);
-vi.mock('@/lib/admin/require-admin', () => ({
-  requireAdmin: (...args: any[]) => requireAdminMock(...args),
-}));
+vi.mock('@/lib/admin/authenticate', () => ({ authenticateAdmin: async (...a: unknown[]) => { const r = (await ((...args: any[]) => requireAdminMock(...args))(...a)) as Response | null; return r ? { ok: false, response: r } : { ok: true, sessionEmail: null, hubUserId: null }; } }));
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {

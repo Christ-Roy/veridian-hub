@@ -7,7 +7,7 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { z } from 'zod';
 
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 import { writeAuditLog } from '@/lib/admin/audit-log';
 import { capaciteAtelier, ouvertDans } from '@/lib/ia/atelier';
 import { prisma } from '@/lib/prisma';
@@ -27,14 +27,14 @@ async function tenantsOuverts(): Promise<string[]> {
 }
 
 export async function GET(req: NextRequest) {
-  const refus = await requireAdmin(req);
-  if (refus) return refus;
+  const garde = await authenticateAdmin(req);
+  if (!garde.ok) return garde.response;
   return NextResponse.json({ capacite: capaciteAtelier(), ouverts: await tenantsOuverts() });
 }
 
 export async function POST(req: NextRequest) {
-  const refus = await requireAdmin(req);
-  if (refus) return refus;
+  const garde = await authenticateAdmin(req);
+  if (!garde.ok) return garde.response;
   const r = Corps.safeParse(await req.json().catch(() => null));
   if (!r.success) return NextResponse.json({ error: 'requete_invalide' }, { status: 400 });
   const t = await prisma.tenant.findUnique({ where: { id: r.data.tenant_id }, select: { id: true, deletedAt: true, metadata: true } });

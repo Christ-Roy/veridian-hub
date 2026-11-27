@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const m = vi.hoisted(() => ({ admin: vi.fn(), marquer: vi.fn() }));
-vi.mock('@/lib/admin/require-admin', () => ({ requireAdmin: (...a: unknown[]) => m.admin(...a) }));
+vi.mock('@/lib/admin/authenticate', () => ({ authenticateAdmin: async (...a: unknown[]) => { const r = (await ((...a: unknown[]) => m.admin(...a))(...a)) as Response | null; return r ? { ok: false, response: r } : { ok: true, sessionEmail: null, hubUserId: null }; } }));
 vi.mock('@/lib/prisma', () => ({ prisma: {} }));
 vi.mock('@/lib/tenants/marque-test', () => ({ marquerTest: (...a: unknown[]) => m.marquer(...a) }));
 

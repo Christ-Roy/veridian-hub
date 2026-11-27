@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const m = vi.hoisted(() => ({ admin: vi.fn(), regler: vi.fn(), doc: vi.fn(), emissions: vi.fn() }));
-vi.mock('@/lib/admin/require-admin', () => ({ requireAdmin: (...a: unknown[]) => m.admin(...a) }));
+vi.mock('@/lib/admin/authenticate', () => ({ authenticateAdmin: async (...a: unknown[]) => { const r = (await ((...a: unknown[]) => m.admin(...a))(...a)) as Response | null; return r ? { ok: false, response: r } : { ok: true, sessionEmail: null, hubUserId: null }; } }));
 vi.mock('@/lib/prisma', () => ({ prisma: { organisationEmission: { findMany: () => m.emissions() } } }));
 vi.mock('@/lib/organisations/reglage', async (o) => ({ ...(await o<object>()), reglerOrganisation: (...a: unknown[]) => m.regler(...a) }));
 vi.mock('@/lib/organisations/document', async (o) => ({ ...(await o<object>()), documentOrg: () => m.doc() }));

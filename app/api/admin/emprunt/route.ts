@@ -6,13 +6,11 @@ import { NextResponse, type NextRequest } from 'next/server';
 import { z } from 'zod';
 
 import { isPlatformAdminId } from '@/lib/admin/liste-admins';
-import { refusAdmin } from '@/lib/admin/require-admin';
-import { sessionAdmin } from '@/lib/admin/session-admin';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 import { APPS_ECRAN, entreeDe } from '@/lib/emprunt/entrees';
 import { ouvrirEmprunt, suiteEmprunt } from '@/lib/emprunt/journal';
 import { CHEMIN_RETOUR, cookieRetour, scellerRetour } from '@/lib/emprunt/retour';
 import { encodeImpersonationSessionJwt, IMPERSONATION_SESSION_TTL_S, secureCookiesEnabled, sessionCookieName } from '@/lib/auth/impersonation';
-import { adminApiLimiter, extractClientIp } from '@/lib/auth/rate-limit';
 import { getHubBaseUrl } from '@/lib/mail/oauth-cookies';
 import { prisma } from '@/lib/prisma';
 import { COOKIE_ACTIF, organisationActive } from '@/lib/tenants/actif';
@@ -26,10 +24,11 @@ const refus = (status: number, error: string, message: string) => NextResponse.j
 export async function POST(request: NextRequest) {
   const base = getHubBaseUrl(request.url);
   if (request.headers.get('origin') !== base.origin) return refus(403, 'forbidden_origin', 'Origine refusée.');
-  const rate = adminApiLimiter.enforceWithBypass(extractClientIp(request.headers), request.headers);
-  if (!rate.ok) return refus(429, 'rate_limited', 'Trop de tentatives, attendez une minute.');
-  const s = await sessionAdmin();
-  if (!s.ok) return refusAdmin(s.raison);
+  // Gardien unique, session seule : la clé d'administration n'entre jamais ici.
+  const garde = await authenticateAdmin(request, { sessionSeule: true });
+  if (!garde.ok) return garde.response;
+  const s = garde.admin;
+  if (!s) return refus(403, 'forbidden', 'Session d\'administrateur requise.');
   const corps = Corps.safeParse(await request.json().catch(() => null));
   if (!corps.success) return refus(400, 'invalid_body', 'Demande illisible.');
   const { hubUserId, app, tenantId, raison } = corps.data;

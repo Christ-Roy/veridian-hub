@@ -11,9 +11,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const requireAdminMock = vi.fn(async () => null);
-vi.mock('@/lib/admin/require-admin', () => ({
-  requireAdmin: (...args: any[]) => requireAdminMock(...args),
-}));
+vi.mock('@/lib/admin/authenticate', () => ({ authenticateAdmin: async (...a: unknown[]) => { const r = (await ((...args: any[]) => requireAdminMock(...args))(...a)) as Response | null; return r ? { ok: false, response: r } : { ok: true, sessionEmail: null, hubUserId: null }; } }));
 
 const deprovisionMock = vi.fn(async () => [{ app: 'prospection', cible: 'proprietaire', ok: true, detail: 'soft-delete' }]);
 const oubli = vi.hoisted(() => vi.fn(async (..._a: any[]) => ({ membres: 1, invitations: 2 })));

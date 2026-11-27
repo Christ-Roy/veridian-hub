@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 const A = '11111111-1111-4111-8111-111111111111';
 const B = '22222222-2222-4222-8222-222222222222';
 const m = vi.hoisted(() => ({ lignes: [] as unknown[], push: vi.fn(), audit: vi.fn(), refus: null as unknown }));
-vi.mock('@/lib/admin/require-admin', () => ({ requireAdmin: async () => m.refus }));
+vi.mock('@/lib/admin/authenticate', () => ({ authenticateAdmin: async (...a: unknown[]) => { const r = (await (async () => m.refus)(...a)) as Response | null; return r ? { ok: false, response: r } : { ok: true, sessionEmail: null, hubUserId: null }; } }));
 vi.mock('@/lib/admin/audit-log', () => ({ writeAuditLog: (...a: unknown[]) => m.audit(...a) }));
 vi.mock('@/lib/prisma', () => ({ prisma: { auditLog: { findMany: async () => m.lignes } } }));
 vi.mock('@/lib/identity/push-user', () => ({ pushUserToApps: (...a: unknown[]) => m.push(...a) }));

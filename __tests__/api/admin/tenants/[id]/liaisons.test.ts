@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { beforeEach, expect, it, vi } from 'vitest';
 
 const m = vi.hoisted(() => ({ refus: vi.fn(), lister: vi.fn(), tenant: vi.fn() }));
-vi.mock('@/lib/admin/require-admin', () => ({ requireAdmin: (...a: unknown[]) => m.refus(...a) }));
+vi.mock('@/lib/admin/authenticate', () => ({ authenticateAdmin: async (...a: unknown[]) => { const r = (await ((...a: unknown[]) => m.refus(...a))(...a)) as Response | null; return r ? { ok: false, response: r } : { ok: true, sessionEmail: null, hubUserId: null }; } }));
 vi.mock('@/lib/delegation/interrupteur', () => ({ listerIntegrations: (...a: unknown[]) => m.lister(...a) }));
 vi.mock('@/lib/prisma', () => ({ prisma: { tenant: { findFirst: (...a: unknown[]) => m.tenant(...a) } } }));
 

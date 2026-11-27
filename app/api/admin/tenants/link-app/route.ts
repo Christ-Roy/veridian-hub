@@ -9,7 +9,7 @@
  * Idempotent : si déjà lié, met à jour les champs sans toucher aux autres
  * apps déjà attachées au même Tenant.
  *
- * Auth : requireAdmin. Audit : 'admin.tenant.link'.
+ * Auth : authenticateAdmin. Audit : 'admin.tenant.link'.
  */
 
 import { pushProspectionPlan } from '@/lib/prospection/plan-push';

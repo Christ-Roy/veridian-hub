@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 import { describe, expect, it, vi } from 'vitest';
 
 const m = vi.hoisted(() => ({ refus: vi.fn(), users: vi.fn(), tenants: vi.fn(), ecritures: vi.fn() }));
-vi.mock('@/lib/admin/require-admin', () => ({ requireAdmin: (...a: unknown[]) => m.refus(...a) }));
+vi.mock('@/lib/admin/authenticate', () => ({ authenticateAdmin: async (...a: unknown[]) => { const r = (await ((...a: unknown[]) => m.refus(...a))(...a)) as Response | null; return r ? { ok: false, response: r } : { ok: true, sessionEmail: null, hubUserId: null }; } }));
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     user: { findMany: (...a: unknown[]) => m.users(...a), update: m.ecritures, delete: m.ecritures },

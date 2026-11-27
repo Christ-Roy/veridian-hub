@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const requireAdmin = vi.fn(async () => null as Response | null);
-vi.mock('@/lib/admin/require-admin', () => ({ requireAdmin: () => requireAdmin() }));
+vi.mock('@/lib/admin/authenticate', () => ({ authenticateAdmin: async (...a: unknown[]) => { const r = (await (() => requireAdmin())(...a)) as Response | null; return r ? { ok: false, response: r } : { ok: true, sessionEmail: null, hubUserId: null }; } }));
 vi.mock('@/auth', () => ({ auth: vi.fn(async () => null) }));
 
 const db = vi.hoisted(() => ({

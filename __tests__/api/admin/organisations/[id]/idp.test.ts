@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const m = vi.hoisted(() => ({ admin: vi.fn(), poser: vi.fn(), audit: vi.fn(), idp: vi.fn(), retirer: vi.fn() }));
-vi.mock('@/lib/admin/require-admin', () => ({ requireAdmin: (...a: unknown[]) => m.admin(...a) }));
+vi.mock('@/lib/admin/authenticate', () => ({ authenticateAdmin: async (...a: unknown[]) => { const r = (await ((...a: unknown[]) => m.admin(...a))(...a)) as Response | null; return r ? { ok: false, response: r } : { ok: true, sessionEmail: null, hubUserId: null }; } }));
 vi.mock('@/lib/admin/audit-log', async (o) => ({ ...(await o<object>()), writeAuditLog: (...a: unknown[]) => m.audit(...a) }));
 vi.mock('@/lib/prisma', () => ({ prisma: { tenantIdp: { findUnique: () => m.idp(), deleteMany: () => m.retirer() }, tenant: { findFirst: async () => ({ slug: 'client' }) } } }));
 vi.mock('@/lib/federation/idp', async (o) => ({ ...(await o<object>()), poserIdp: (...a: unknown[]) => m.poser(...a) }));

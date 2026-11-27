@@ -4,7 +4,7 @@
  * Crée un user Hub sans attendre signup OAuth (mode service).
  * Idempotent : si l'email existe déjà, retourne le user existant.
  *
- * Auth : `requireAdmin` (session admin ou x-admin-secret).
+ * Auth : `authenticateAdmin` (session admin ou x-admin-secret).
  * Validation : Zod sur le body.
  * Audit : row `audit_log` action='admin.user.create' actor=<resolved>.
  *

@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({ admin: vi.fn(), importer: vi.fn(), lister: vi.fn(), annuler: vi.fn(), audit: vi.fn() }));
 vi.mock('@/lib/tenants/preinscription', async (orig) => ({ ...(await orig<object>()), listerPreinscriptions: (...a: unknown[]) => m.lister(...a), annulerPreinscriptions: (...a: unknown[]) => m.annuler(...a) }));
 vi.mock('@/lib/admin/audit-log', async (orig) => ({ ...(await orig<object>()), writeAuditLog: (...a: unknown[]) => m.audit(...a) }));
-vi.mock('@/lib/admin/require-admin', () => ({ requireAdmin: (...a: unknown[]) => m.admin(...a) }));
+vi.mock('@/lib/admin/authenticate', () => ({ authenticateAdmin: async (...a: unknown[]) => { const r = (await ((...a: unknown[]) => m.admin(...a))(...a)) as Response | null; return r ? { ok: false, response: r } : { ok: true, sessionEmail: null, hubUserId: null }; } }));
 vi.mock('@/lib/prisma', () => ({ prisma: {} }));
 vi.mock('@/lib/organisations/importer', async (orig) => ({ ...(await orig<typeof import('@/lib/organisations/importer')>()), importerMembres: (...a: unknown[]) => m.importer(...a) }));
 

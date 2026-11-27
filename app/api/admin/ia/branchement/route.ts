@@ -10,12 +10,12 @@
  * `verifier: true` demande au fournisseur la liste de ses modèles avec la clé : gratuit, aucune question posée,
  * prouve que la clé est reconnue (pas qu'elle a du crédit).
  *
- * Admin seulement (`requireAdmin`). Le compte doit avoir une adresse prouvée, comme pour tout branchement.
+ * Admin seulement (`authenticateAdmin`). Le compte doit avoir une adresse prouvée, comme pour tout branchement.
  */
 import { NextResponse, type NextRequest } from 'next/server';
 import { z } from 'zod';
 
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 import { writeAuditLog } from '@/lib/admin/audit-log';
 import { brancher, branchementsDe, FOURNISSEURS, revoquer, type Fournisseur } from '@/lib/ia/branchements';
 import { CoffreIndisponible } from '@/lib/ia/coffre';
@@ -46,16 +46,16 @@ async function compte(email: string): Promise<{ hubUserId: string; email: string
 }
 
 export async function GET(req: NextRequest) {
-  const refus = await requireAdmin(req);
-  if (refus) return refus;
+  const garde = await authenticateAdmin(req);
+  if (!garde.ok) return garde.response;
   const c = await compte(req.nextUrl.searchParams.get('email') ?? '');
   if (c instanceof NextResponse) return c;
   return NextResponse.json({ email: c.email, branchements: await branchementsDe(prisma, c.hubUserId) });
 }
 
 export async function POST(req: NextRequest) {
-  const refus = await requireAdmin(req);
-  if (refus) return refus;
+  const garde = await authenticateAdmin(req);
+  if (!garde.ok) return garde.response;
   const r = Corps.safeParse(await req.json().catch(() => null));
   // Jamais les détails de zod : ils peuvent citer la valeur reçue, donc la clé.
   if (!r.success) return NextResponse.json({ error: 'requete_invalide', champs: r.error.issues.map((i) => i.path.join('.')) }, { status: 400 });
@@ -86,8 +86,8 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const refus = await requireAdmin(req);
-  if (refus) return refus;
+  const garde = await authenticateAdmin(req);
+  if (!garde.ok) return garde.response;
   const fournisseur = req.nextUrl.searchParams.get('fournisseur');
   if (!fournisseur || !(fournisseur in FOURNISSEURS)) return NextResponse.json({ error: 'requete_invalide' }, { status: 400 });
   const c = await compte(req.nextUrl.searchParams.get('email') ?? '');

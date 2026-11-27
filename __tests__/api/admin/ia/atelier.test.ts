@@ -3,7 +3,7 @@ import { NextRequest } from 'next/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const m = vi.hoisted(() => ({ tenants: new Map<string, { id: string; deletedAt: null; metadata: Record<string, unknown> }>(), audit: vi.fn() }));
-vi.mock('@/lib/admin/require-admin', () => ({ requireAdmin: vi.fn(async () => null) }));
+vi.mock('@/lib/admin/authenticate', () => ({ authenticateAdmin: async (...a: unknown[]) => { const r = (await (vi.fn(async () => null))(...a)) as Response | null; return r ? { ok: false, response: r } : { ok: true, sessionEmail: null, hubUserId: null }; } }));
 vi.mock('@/lib/admin/audit-log', () => ({ writeAuditLog: (...a: unknown[]) => m.audit(...a) }));
 vi.mock('@/lib/tenants/metadata-fusion', () => ({
   fusionnerMetadata: async (_db: unknown, id: string, patch: Record<string, unknown>) => { const t = m.tenants.get(id)!; t.metadata = { ...t.metadata, ...patch }; },

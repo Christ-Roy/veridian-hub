@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 import { lierAuHub, type LienHub } from '@/lib/apps/lier-hub';
 import { tenantHasApp } from '@/lib/plans/app-plan';
 import { createProspectionClientFromEnv } from '@/lib/prospection/client';
@@ -24,8 +24,8 @@ const Corps = z.object({
 });
 
 export async function POST(request: NextRequest) {
-  const denial = await requireAdmin(request);
-  if (denial) return denial;
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return garde.response;
   const r = Corps.safeParse(await request.json().catch(() => ({})));
   if (!r.success) return NextResponse.json({ error: 'invalid', details: r.error.issues }, { status: 400 });
   const { app, appliquer } = r.data;

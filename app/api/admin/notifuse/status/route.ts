@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 import {
   buildNotifuseClient,
   notifuseErrorResponse,
@@ -21,8 +21,8 @@ export const runtime = 'nodejs';
  * suspend, resume, delete) sans avoir à attendre le webhook.
  */
 export async function GET(request: NextRequest) {
-  const denial = await requireAdmin(request);
-  if (denial) return denial;
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return garde.response;
 
   const tenantId = request.nextUrl.searchParams.get('tenantId')?.trim();
   if (!tenantId) {

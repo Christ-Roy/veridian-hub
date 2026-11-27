@@ -16,14 +16,14 @@
 //     `null` = pas d'expiration (free pour toujours). Absent = pas de
 //     modification.
 //
-// Auth : requireAdmin (session admin ou x-admin-secret).
+// Auth : authenticateAdmin (session admin ou x-admin-secret).
 //
 // Remplace /api/admin/grant-plan (qui reste en alias deprecated).
 
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/auth';
-import { requireAdmin } from '@/lib/admin/require-admin';
+import { authenticateAdmin } from '@/lib/admin/authenticate';
 import { buildNotifuseClient } from '@/lib/notifuse/admin-helpers';
 import { isNotifusePlan, NOTIFUSE_PLANS, NotifuseError } from '@/lib/notifuse/types';
 import { prisma } from '@/lib/prisma';
@@ -49,8 +49,8 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const denial = await requireAdmin(request);
-  if (denial) return denial;
+  const garde = await authenticateAdmin(request);
+  if (!garde.ok) return garde.response;
 
   const { id: tenantId } = await params;
   if (!tenantId) {

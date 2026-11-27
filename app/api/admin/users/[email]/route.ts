@@ -4,7 +4,7 @@
  * Retourne le state complet user + tenants côté Hub. Utile pour vérifier
  * l'idempotence d'un script ou debug.
  *
- * Auth : requireAdmin (session ou x-admin-secret).
+ * Auth : authenticateAdmin (session ou x-admin-secret).
  * Read-only. Pas d'audit log (lecture seule, peu intéressant à tracer).
  *
  * Note : Next.js décode automatiquement le param URL — `avse%40gmail.com`
