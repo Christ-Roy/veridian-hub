@@ -124,7 +124,8 @@ describe('recevoirNotifuse', () => {
     expect(r.statut).toBe(503);
     expect(db.evenementRecu.lignes).toHaveLength(0);
     expect(db.integrationLien.lignes).toHaveLength(0);
-    expect(db.integrationPaire.lignes[0].derniereErreur).toBe('crm_injoignable');
+    // Le CRM a répondu 502 : la cause se nomme (causeEchecCrm, 27/11), au lieu d'un « injoignable » qui ne disait rien.
+    expect(db.integrationPaire.lignes[0].derniereErreur).toBe('crm_http_502');
     expect((await envoyer(evt())).corps).toMatchObject({ effet: 'cree' });
     expect(await envoyer(evt())).toMatchObject({ corps: { raison: 'deja_traite' } });
     expect(db.integrationPaire.lignes[0].derniereErreur).toBeNull();

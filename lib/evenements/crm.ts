@@ -9,7 +9,7 @@ import type { PrismaClient } from '@prisma/client';
 
 import { TTL_ACTION_S } from '@/lib/delegation/jeton';
 import { adresseAction, CLE_MCP } from '@/lib/delegation/paires';
-import { SessionApp } from '@/lib/mcp/client-app';
+import { AppErreurMcp, AppInjoignable, SessionApp } from '@/lib/mcp/client-app';
 import { signerAction } from '@/lib/mcp/identite';
 
 import type { Reponse } from './filtre';
@@ -103,3 +103,17 @@ async function appelerCrmLignes(db: Pick<PrismaClient, 'mcpApp'>, d: { tenantId:
   return { jti, lignes: { creees: n(l.creees), avancees: n(l.avancees), ignorees: n(l.ignorees), ...(Object.keys(raisons).length ? { raisons_ignorees: raisons } : {}) } };
 }
 
+
+/**
+ * La cause d'un relais CRM en échec, en mots fermés (audit `evenement.echec`, `derniereErreur`, corps des 503). Avant le 27/11, tout ce qui
+ * n'avait pas de code rendait `crm_injoignable` : un outil absent, un refus de l'outil et une panne réseau se lisaient pareil (Analytics, visite
+ * d'essai : cinq 503 sans cause lisible). Jamais le texte du serveur (celui d'un tiers), seulement une étiquette.
+ */
+export function causeEchecCrm(err: unknown): string {
+  if (err instanceof AppInjoignable && err.code) return `crm_${err.code.replace(/[^\w-]/g, '').slice(0, 40)}`;
+  if (err instanceof AppErreurMcp) return 'crm_erreur_outil';
+  if (err instanceof AppInjoignable && err.statut) return `crm_http_${err.statut}`;
+  if (err instanceof Error && err.message === 'crm_refus') return 'crm_refus';
+  if (err instanceof Error && err.message === 'target_not_registered') return 'crm_non_enregistre';
+  return 'crm_injoignable';
+}

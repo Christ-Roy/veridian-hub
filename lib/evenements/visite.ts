@@ -14,10 +14,10 @@ import { writeAuditLog } from '@/lib/admin/audit-log';
 import { liaisonActive, noterPassage } from '@/lib/delegation/etat';
 import { deborde, verifierAppel } from '@/lib/delegation/jeton';
 import { evenementOuvert, paire, porteesAccordees } from '@/lib/delegation/paires';
-import { AppDebit, AppInjoignable } from '@/lib/mcp/client-app';
+import { AppDebit } from '@/lib/mcp/client-app';
 import { estDeTest } from '@/lib/tenants/marque-test';
 
-import { ecrireVisites, PORTEE_CRM_VISITE, type LignesMail } from './crm';
+import { ecrireVisites, PORTEE_CRM_VISITE, type LignesMail, causeEchecCrm } from './crm';
 import { liberer, reserver, terminer, type CleEvenement } from './dedoublonnage';
 
 export const VISITES_MAX_LOT = 200;
@@ -141,8 +141,7 @@ export async function recevoirVisites(db: Db, h: Headers, brut: string, env: Nod
     relais = await ecrireVisites(db, { tenantId, lotId: lot.lot_id, visites: neuves }, env, fetchImpl);
   } catch (err) {
     await libererTout();
-    const code = err instanceof AppInjoignable ? err.code : undefined;
-    const erreur = code ? `crm_${code}` : 'crm_injoignable';
+    const erreur = causeEchecCrm(err);
     await writeAuditLog(db as PrismaClient, { action: 'evenement.echec', actor: 'app:analytics', targetType: 'tenant', targetId: tenantId, payload: { paire: p.cle, lot_id: lot.lot_id, erreur } }).catch(() => undefined);
     if (err instanceof AppDebit) return refus(429, 'crm_rate_limited', Math.ceil(err.attenteMs / 1000));
     // 503, jamais 502 : Cloudflare remplace un 502 de l'origine par sa propre page (26/11).
