@@ -165,6 +165,24 @@ describe('designerAdminsPlateforme chez Prospection (ad3516b, 27/11)', () => {
   });
 });
 
+describe('designerAdminsPlateforme chez le CRM (v61, 27/11)', () => {
+  beforeEach(() => {
+    vi.stubEnv('NOTIFUSE_HUB_API_SECRET', '');
+    vi.stubEnv('TWENTY_API_URL', 'https://crm');
+    vi.stubEnv('CRM_API_URL', 'https://crm');
+    vi.stubEnv('TWENTY_HUB_API_SECRET', 's3cret');
+    vi.stubEnv('CRM_HUB_API_SECRET', 's3cret');
+  });
+  it('membre : désigné admin par le tenant Hub, relu ; retiré à l\'écran (409 admin_withdrawn) : jamais remis', async () => {
+    let n = 0;
+    rep = (a) => (a.methode === 'GET' ? (n++ === 0 ? membres({ hub_user_id: ROBERT, role: 'member' }) : membres({ hub_user_id: ROBERT, role: 'admin' })) : [200, {}]);
+    expect((await tout())!.filter((x) => x.app === 'crm')).toEqual([{ app: 'crm', hubUserId: ROBERT, etat: 'admin' }]);
+    expect(appels.find((a) => a.methode === 'POST' && a.url.startsWith('https://crm'))!.corps!.workspace_id).toBe('T');
+    rep = (a) => (a.methode === 'GET' ? membres({ hub_user_id: ROBERT, role: 'member' }) : [409, { error: 'admin_withdrawn' }]);
+    expect((await tout())!.find((x) => x.app === 'crm')?.etat).toBe('retire_par_le_client');
+  });
+});
+
 describe('designerAdminsPlateforme, version de signature', () => {
   const capter = async () => {
     const vus: { url: string; methode: string; brut: string; h: Record<string, string> }[] = [];

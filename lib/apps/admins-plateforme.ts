@@ -2,7 +2,7 @@
  * L'administrateur de plateforme est ADMIN dans l'espace de chaque client, jamais propriétaire (VER-263, Robert 25/11 : « tout faire comme propriétaire et me
  * faire virer par ce dernier »). Le Hub le désigne par `hub_user_id` (`PLATFORM_ADMINS`) ; l'app garde la désignation. Le client peut le retirer : l'app
  * répond alors `admin_withdrawn` et le Hub NE le remet JAMAIS (seul un geste humain `reinstate`, que ce module n'envoie pas). Contrat : CONTRAT-HUB §5.23.
- * Servi par Mail (26/11), Academy (27/11, a244873), Analytics (27/11, 5ff5e08d8) et Prospection (27/11, ad3516b) ; une app entre dans `APPS_ADMIN` le jour où elle sert `POST /api/hub/workspace-admins`.
+ * Servi par les cinq apps : Mail (26/11), puis le 27/11 Academy (a244873), Analytics (5ff5e08d8), Prospection (ad3516b) et CRM (v61) ; une app entre dans `APPS_ADMIN` le jour où elle sert `POST /api/hub/workspace-admins`.
  */
 import type { PrismaClient } from '@prisma/client';
 
@@ -12,9 +12,9 @@ import { readAppSecret, readAppUrl } from '@/lib/sync/discovery';
 import type { SyncApp } from '@/lib/sync/types';
 
 /** Les apps qui servent la route. Les autres se disent « pas encore ». */
-export const APPS_ADMIN: readonly SyncApp[] = ['notifuse', 'academy', 'analytics', 'prospection'];
+export const APPS_ADMIN: readonly SyncApp[] = ['notifuse', 'academy', 'analytics', 'prospection', 'crm'];
 /** Nom affiché de l'app, dans les états rendus. */
-const NOM: Partial<Record<SyncApp, string>> = { notifuse: 'Mail', academy: 'Academy', analytics: 'Analytics', prospection: 'Prospection' };
+const NOM: Partial<Record<SyncApp, string>> = { notifuse: 'Mail', academy: 'Academy', analytics: 'Analytics', prospection: 'Prospection', crm: 'CRM' };
 
 export type EtatAdmin = 'admin' | 'proprietaire' | 'retire_par_le_client' | 'pas_membre' | 'pas_de_compte' | 'sans_espace' | 'non_branchee' | 'echec';
 export type Designation = { app: SyncApp; hubUserId: string; etat: EtatAdmin; detail?: string };
@@ -84,7 +84,7 @@ export async function designerAdminsPlateforme(db: Db, tenantId: string, d: Deps
     const a = admins.find((x) => x.supabaseUserId === id);
     for (const app of APPS_ADMIN) {
       if (!a) { res.push({ app, hubUserId: id, etat: 'pas_de_compte', detail: 'aucun compte prouvé au Hub' }); continue; }
-      // Mail : l'espace noté au tenant ; Academy, Analytics et Prospection : le tenant Hub lui-même (l'app rend 404 tenant_not_found s'il n'y a pas d'espace).
+      // Mail : l'espace noté au tenant ; Academy, Analytics, Prospection et CRM : le tenant Hub lui-même (l'app rend 404 tenant_not_found s'il n'y a pas d'espace).
       const espace = app === 'notifuse' ? t.notifuseWorkspaceSlug : tenantId;
       res.push(espace ? await designerDans(app, espace, { hubUserId: id, email: a.email }, d) : { app, hubUserId: id, etat: 'sans_espace' });
     }
